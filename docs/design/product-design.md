@@ -113,6 +113,26 @@ Order mutants to surface findings early and cut work:
   then language, then lifecycle. With `--fail-fast`, an early finding stops the run.
 - **Deduplication.** Mutants with identical `(file, range, replacement)` collapse.
 
+**Later improvement — in-process reference graph (post-MVP).** The MVP's reachability check is
+block-granular: does any run block instantiate the mutated block at all. A finer instrument is
+an attribute-level reference graph built from the AST (`hclsyntax` exposes every reference via
+`Expression.Variables()`), which buys, in rough order of value: (a) static `Unobservable`
+pre-classification — a site with no path to any resource, output or `check` needs no execution;
+(b) forward-cone test selection — only assertions reading the mutation site's downstream cone
+can kill it, so intersect the cone with the assertion inventory; (c) predicted `no-assertion`
+diagnosis before execution, letting the scheduler deprioritise likely-uninformative mutants;
+(d) doomed-mutant avoidance — `EXT-RESOURCE-DELETE` via `count = 0` is statically invalid when
+a dependent indexes the resource, and the graph knows before `validate` does; (e) survivor
+explanations as paths: "`local.tags` → `aws_instance.app.tags` → nothing asserts on it".
+
+`terraform graph` itself is deliberately **not** the data source: its nodes are
+resource/local/output-granular where operators fire on sub-expressions, its DOT output is
+human-oriented and outside compatibility promises, and since v1.7 the default output is
+simplified unless a plan is supplied. It keeps two niche jobs: a cross-validation oracle in
+tf-mut's own test suite (assert the in-process graph's edges are a subset of Terraform's real
+evaluation graph, catching hidden edges such as `depends_on` and provider references), and a
+human-facing cone rendering in `tf-mut explain`.
+
 ### Execute
 
 Per mutant, in parallel across `min(NumCPU, --jobs)` workers:
@@ -136,6 +156,22 @@ leaving mutated source behind on a crash, and is what makes parallelism possible
 Classify, diagnose, render.
 
 ---
+
+## 3a. Leverage from the wider Terraform CLI
+
+`terraform test` is not the only subcommand with something to contribute. Everything below was
+verified against v1.15.8 in the spike fixtures; milestones refer to §12.
+
+| Subcommand | Verified behaviour | Use | Milestone |
+| --- | --- | --- | --- |
+| `terraform validate -json` | Structured diagnostics with summary and exact source range (`{"valid":false,"error_count":2,...,"range":{"filename":"main.tf","start":{"line":28,...}}}`) | Classify *why* a mutant is invalid, not just that it is. Aggregating diagnostics by operator ID is a self-test: an operator producing systematic invalids is a bug in the operator, and this surfaces it from ordinary runs | M1 — strictly better than the exit code at no cost |
+| `terraform version -json` | Machine-readable version | Gate version-dependent features (`state_key` v1.9+, mocking v1.7+); detect `tofu` | M1 |
+| `terraform fmt` | Canonical formatting | Pre-flight check that source is fmt-clean, so every mutant diff is guaranteed one-line; not a validity gate (that is `validate`'s job) | M1 |
+| `terraform providers schema -json` | Full provider schemas from the shared `.terraform`, per-attribute `required`/`optional`/`computed` flags and types — e.g. `null_resource`: `id` computed, `triggers` optional | **The highest-value item.** (1) `EXT-ATTR-DELETE` fires only on attributes the schema marks optional — required-attribute deletions are statically doomed and never generated. (2) Type-aware value substitution cuts the `Invalid` discard rate. (3) Computed-attribute knowledge predicts `MockMasked` statically, complementing the runtime volatile-set oracle. (4) Domain packs can enumerate mutation targets (boolean security flags, CIDR-typed attributes) from the schema instead of hand-curated lists | M2 |
+| `terraform metadata functions -json` | 238 builtin function signatures: parameter names, types, variadics, return types | Drive `FN-SWAP` / `FN-ARG-REORDER` / `FN-DROP-DEFAULT` from data rather than a hand-written table: substitutions are generated only between arity- and type-compatible functions, and the catalogue tracks the installed Terraform version automatically | M3 |
+| `terraform graph` | See §3 — Schedule | Cross-validation oracle for the in-process reference graph; `explain` visualisation | Post-MVP |
+| `terraform console` | Evaluates expressions against the config (`var.env == "prod" ? 3 : 1` → `1`) | **Inspiration, not integration** — one subprocess per expression is the wrong cost model. The idea it points at: pure-expression mutants (locals arithmetic, conditionals over variables) could be micro-evaluated in-process with `go-cty` under sampled inputs, screening equivalent mutants without any Terraform run. Speculative; needs the cty stdlib to cover enough of Terraform's function set to be worth it | Unscheduled |
+| `terraform providers mirror` | Vendors providers to a local directory | Hermetic CI runs; an ops note rather than a feature | — |
 
 ## 4. Mutant states
 
@@ -413,14 +449,24 @@ that kills it.
 ## 12. Roadmap
 
 **M1 — Prove the loop.** Discover, baseline, sandbox execution, Tier 0 extreme operators,
-kill/survive/invalid classification, terminal reporter. Answers "which resources are
-pseudo-tested?" — the highest-value question, from the smallest tool.
+kill/survive/invalid classification, terminal reporter. `validate -json` diagnostics and
+`version -json` gating from the start. Answers "which resources are pseudo-tested?" — the
+highest-value question, from the smallest tool.
 
 **M2 — Breadth and honesty.** Tiers 1–3, plan fingerprinting and the `Unobservable` state,
 `MockMasked` detection, survivor diagnosis, JSON and SARIF reporters, `.tf-mut.hcl`.
+Schema-aware generation from `providers schema -json`: optionality-gated deletion operators,
+type-correct substitutions, statically-predicted `MockMasked`.
 
 **M3 — Speed and CI.** Test selection from `relevant_attributes`, incremental cache, `--since`,
-baseline file, JUnit/HTML/Stryker reporters, GitHub Action.
+baseline file, JUnit/HTML/Stryker reporters, GitHub Action. Function-operator catalogue driven
+by `metadata functions -json`.
+
+**Post-MVP (unscheduled).** The in-process attribute-level reference graph (§3 — Schedule):
+static unobservability, forward-cone test selection, path-based survivor explanations, with
+`terraform graph` as the cross-validation oracle. Deferred because the MVP's block-level
+reachability check plus the runtime fingerprint oracle already cover the correctness need —
+the graph buys speed and explanation quality, not new verdicts.
 
 **M4 — The differentiator.** Suggested assertions and `suggest --apply`. Deferred deliberately:
 it depends on plan-diff analysis that M2 has to build anyway, and it is worth doing well rather
