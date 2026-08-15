@@ -76,8 +76,13 @@ Run blocks need variable values. In order of preference:
 
 1. **Defaults** — characterise the module as it behaves with no inputs, where possible.
 2. **Validation mining** — a `validation { condition = contains(["dev","stage","prod"], var.env) }`
-   block *names the legal values in the AST*. Pick the first. Real modules encode their own
-   input domains this way constantly; this is free, deterministic input generation.
+   block *names the legal values in the AST*. Pick the first. Honest caveat (review m17): the
+   minable share is **unquantified**. `contains` over a literal list is the easy case;
+   `can(regex(…))`, `length(…) > n`, and `alltrue([for …])` forms are not minable and are at
+   least as common. Since TODO-draining is the main cost of characterisation, **measuring the
+   minable-validation share across a public-module corpus is the designated pre-M4.5
+   de-risking experiment** — it sizes both the TODO burden and the agent skill's workload
+   before anything is built.
 3. **Type-driven synthesis** — `string` → `"tfmut-placeholder"`, `number` → `1`, `bool` →
    `true`, collections → one synthesised element, objects → recursively synthesised with
    `optional()` attributes omitted.
@@ -134,17 +139,27 @@ which is what makes characterisation a mode of tf-mut rather than a separate too
 **Completeness.** Run the mutation loop against the scaffolded suite. Every surviving mutant
 is un-pinned behaviour, and the suggested-assertion engine (§7 of the product design) emits
 the assertion that pins it. `tf-mut characterise --until-dry` iterates scaffold → mutate →
-pin-survivor-suggestions until survivors stop yielding new assertions. The result is a suite
-whose completeness is *measured*, not assumed — a characterisation with a mutation score
-attached.
+pin-survivor-suggestions until survivors stop yielding new assertions. Two constraints from
+the adversarial review shape the loop. First (M8): completeness is measured in **assertion
+kills only** (`Killed`, not `KilledByError`) — Terraform's plan-time evaluation kills mutants
+even under an assertion-free suite, so counting errors would give a freshly scaffolded,
+zero-assertion suite a flattering score from iteration zero. Second (M10): the loop **respects
+the granularity ladder** — it pins only survivor deltas at or below the chosen level
+(`outputs` by default), because an unconstrained loop drives monotonically toward pinning
+every configured attribute, which is the brittle `configured` level reached without the user
+choosing it. The result is a suite whose completeness *at the chosen granularity* is
+measured, not assumed.
 
 **Minimality.** Over-pinned characterisation suites are brittle and expensive to maintain.
-Mutation results give a principled pruning criterion: record, per assertion, which mutants'
-kills it participated in. An assertion whose kill-set is empty senses nothing and is dead
-weight; an assertion whose kill-set is a subset of another's is redundant. Greedy set-cover
-over kill-sets yields a minimal assertion set with the same detection power. `tf-mut curate`
-reports both classes with the evidence attached. No other approach to test curation has this
-oracle available — it falls out of data the mutation run already produces.
+Mutation results give a pruning criterion: record, per assertion, which mutants' kills it
+participated in. An assertion whose kill-set is empty senses nothing; one whose kill-set is a
+subset of another's is redundant. But the review (M10) identified a structural limit the
+design must respect: the until-dry loop adds each assertion *because* it kills something
+nothing else kills, so its output is already near-minimal under kill-set inclusion, and
+set-cover over it prunes almost nothing. `tf-mut curate` is therefore scoped to where the
+oracle has power: **hand-written and pre-existing assertions**, and **redundancy across
+scenarios** (two run blocks pinning the same behaviour under inputs that do not discriminate
+it). It reports with evidence attached; it never auto-deletes.
 
 **Regression semantics.** A characterisation suite pins today's behaviour *including today's
 bugs* — Feathers is emphatic that this is the point, not a flaw: the suite detects *change*,

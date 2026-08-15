@@ -157,9 +157,13 @@ Two properties matter downstream:
 
 1. **`test_summary` separates `failed` from `errored`.** An assertion failure and a
    configuration error are distinguishable without parsing human output. **[verified]**
-2. **`-verbose -json` yields a full plan per run block**, including `relevant_attributes` —
-   the set of attributes the plan actually depended on. That is a coverage signal Terraform
-   does not otherwise expose.
+2. **`-verbose -json` yields a full plan per run block.** *Correction (adversarial review
+   C2, 2026-08-15):* this document originally described `relevant_attributes` as "a coverage
+   signal". It is not — it is the refresh/targeting dependency set, identical across run
+   blocks, blind to assertion reads, and absent from apply-mode `test_state`. Coverage
+   signals must come from `resource_changes` plus the test files' assertion ASTs. Note also
+   that each `-verbose` message embeds the full `provider_schemas` — 14.5 MB for
+   `hashicorp/aws` — which dominates the cost of verbose runs (review C1).
 
 ### Error propagation within a file **[verified]**
 

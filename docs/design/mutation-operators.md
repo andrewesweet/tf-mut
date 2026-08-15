@@ -31,16 +31,24 @@ resource tested at all, or merely covered?*
 
 | ID | Site | Mutation | Kills when |
 | --- | --- | --- | --- |
-| `EXT-ATTR-DELETE` | Any optional argument assignment in a `resource`/`data`/`module` body | Delete the assignment entirely, so the provider or child-module default applies | Any assertion reads that attribute |
-| `EXT-RESOURCE-DELETE` | A `resource` block | Delete the whole block (and every reference to it that would become invalid → statically invalid, so instead: set `count = 0`) | Any assertion counts, indexes, or reads the resource |
+| `EXT-ATTR-DELETE` | Any schema-optional argument assignment in a `resource`/`data`/`module` body | Delete the assignment entirely, so the provider or child-module default applies | Any assertion reads that attribute |
+| `EXT-RESOURCE-DELETE` | A `resource` block whose dependent references are **all indexed or splatted** | Set `count = 0`, removing every instance from the plan | Any assertion counts, indexes, or reads the resource |
+| `EXT-BODY-BLANK` | A `resource` block with any **bare** dependent reference (where `EXT-RESOURCE-DELETE` cannot fire) | Delete every optional argument in the body at once — the Descartes "empty the method body" analogue | Any assertion reads any configured attribute of the resource |
 | `EXT-OUTPUT-NULL` | An `output` block | Replace `value` with `null` | Any assertion reads `output.<name>` |
 | `EXT-LOCAL-NULL` | A `locals` entry | Replace the value with `null` | Any assertion reads anything downstream of that local |
 | `EXT-MODULE-INPUT-DELETE` | An input argument on a `module` call | Delete the argument, falling back to the child's default | Any assertion observes the child's behaviour under that input |
 
 `EXT-RESOURCE-DELETE` is implemented as `count = 0` rather than literal deletion because
 deleting a referenced block produces a statically invalid mutant, which is discarded and
-therefore tells us nothing. Setting `count = 0` keeps references resolvable in most cases and
-still removes the resource from the plan.
+therefore tells us nothing. But `count = 0` has its own validity trap, and the adversarial
+review (C3) caught this design stating it **backwards**: adding `count` to a resource makes
+every *bare* reference to it (`null_resource.app.id`) invalid with "Missing resource instance
+key", while *indexed* references (`null_resource.app[0].id`) stay valid and killable —
+verified both ways. Since bare references are the overwhelming majority in wired modules, an
+ungated `count = 0` operator would discard the flagship analysis exactly where it matters
+most. Hence the static reference-scan gate above, and `EXT-BODY-BLANK` as the extreme
+operator for bare-referenced resources — the pseudo-tested question stays answerable for
+every resource, through one operator or the other.
 
 A resource whose every `EXT-*` mutant survives is a **pseudo-tested resource** — covered by a
 plan, asserted on by nothing. This is the tool's headline finding.
@@ -187,10 +195,9 @@ tier, because the contract is precisely what consumers depend on.
 | `VAR-DEFAULT-REMOVE` | `variable { default = v }` | default removed → variable becomes required | A run block omits the variable |
 | `VAR-DEFAULT-NULL` | `variable { default = v }`, `nullable` not false | `null` | A run block relies on the default |
 | `VAR-NULLABLE-FLIP` | `nullable = false` | `true` | A test passes `null` explicitly |
-| `VAR-TYPE-LOOSEN` | `type = string` | `type = any` | A test passes a wrongly-typed value and uses `expect_failures` |
 | `VAR-OPTIONAL-DEFAULT-DROP` | `optional(string, "x")` | `optional(string)` | A test exercises the object without that attribute |
 | `VAR-VALIDATION-REMOVE` | `validation { }` | block removed | A test uses `expect_failures = [var.x]` |
-| `VAR-VALIDATION-WEAKEN` | `validation { condition = c }` | `condition = true` | As above |
+| `VAR-VALIDATION-WEAKEN` | `validation { condition = c }` | `condition = can(var.<name>)` — always true, still references the variable | As above |
 | `VAR-VALIDATION-NEGATE` | `validation { condition = c }` | `condition = !(c)` | A test asserts a *valid* value is accepted |
 | `VAR-SENSITIVE-FLIP` | `sensitive = true` | `false` | Almost never — pseudo-test detector for sensitivity handling |
 | `PRE-POST-REMOVE` | `lifecycle { precondition \| postcondition }` | block removed | A test uses `expect_failures` on it |
@@ -199,6 +206,17 @@ tier, because the contract is precisely what consumers depend on.
 | `CHECK-NEGATE` | `check` assert condition | negated | A test exercises the check |
 | `OUT-VALUE-NULL` | `output { value = v }` | `null` | Covered by `EXT-OUTPUT-NULL` at smoke tier; here as a fallback |
 | `OUT-SENSITIVE-FLIP` | `output { sensitive = true }` | `false` | Rarely — sensitivity pseudo-test detector |
+
+Two review corrections (M12) are load-bearing here. `VAR-VALIDATION-WEAKEN` cannot be
+`condition = true`: Terraform rejects a validation condition that does not reference its
+variable ("must refer to var.<name> in order to test incoming values"), so that form is 100%
+`Invalid` — `can(var.<name>)` is the always-true form that validates. And `VAR-TYPE-LOOSEN`
+(`type = string` → `any`) has been **deleted from the catalogue**: its proposed killer was a
+test passing a wrongly-typed value under `expect_failures`, but `expect_failures` cannot
+capture type-conversion errors (verified: the run fails with "Invalid value for input
+variable" *and* "Missing expected failure"), so any test that would kill the mutant reddens
+the unmutated baseline. The operator would survive on every module forever and read as a
+finding.
 
 The `VAR-VALIDATION-*` and `PRE-POST-*` groups are the natural partner of `expect_failures`,
 which is the one part of `terraform test` explicitly designed for negative testing and is
@@ -263,14 +281,23 @@ Operators can be suppressed at four scopes:
 
 ## Operator count
 
-| Tier | Operators | Typical mutants on a 500-line module |
+Estimates re-baselined after the adversarial review (M9) counted mutation sites in the first
+500 lines of `terraform-aws-modules/terraform-aws-vpc` — a canonical real module: 24 resource
+blocks, **213 argument assignments**, 118 string literals, 51 conditionals. The original
+estimates were 3–8× low.
+
+| Tier | Operators | Typical mutants on 500 lines of a real module |
 | --- | --- | --- |
-| 0 — extreme (`smoke`) | 5 | 30–80 |
-| 1 — language (`standard`) | ~35 | 300–900 |
+| 0 — extreme (`smoke`) | 6 | 150–250 |
+| 1 — language (`standard`) | ~35 | 800–1500 |
 | 2 — meta-arguments (`standard`) | 10 | 20–60 |
-| 3 — contract (`standard`) | 16 | 40–120 |
+| 3 — contract (`standard`) | 15 | 40–120 |
 | 4 — lifecycle (`deep`) | 5 | 5–20 |
 | 5 — domain packs (opt-in) | ~30 per pack | 0–50 |
 
-At the measured ~5.4 mutants/second/worker, a `standard` run on a 500-line module is
-approximately 400–1000 mutants, or **15–30 seconds on eight cores**.
+Duration depends dominantly on provider schema size and test selection, not on operator count
+(review C1). With the two-phase execution and run-block selection of the product design, the
+realistic targets are: `smoke` tier in minutes on a real-provider module; a full `standard`
+sweep (~1200–2000 mutants here) is scheduled work; `--since`-scoped runs over a typical diff
+are the sub-minute case. The previously published "15–30 seconds on eight cores" figure was a
+null-provider artefact and is withdrawn.

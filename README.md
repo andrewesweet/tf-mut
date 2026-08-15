@@ -22,10 +22,14 @@ Inject small, realistic faults into the configuration, run the test suite agains
 report which faults the tests failed to catch — then generate the assertion that would have
 caught them.
 
-The design targets unit tests where all provider behaviour is mocked. That constraint is what
-makes it practical: no credentials, no cloud cost, and measured at **~43 mutants/second on 8
-cores**. Mutation testing on mocked Terraform tests is fast enough to run on every save, not as
-a nightly batch job.
+The design targets unit tests where all provider behaviour is mocked: no credentials, no
+cloud cost. Throughput depends dominantly on provider schema size — measured at ~43 mutants/s
+(8 cores) with a small-schema provider, and orders of magnitude less naively against
+`hashicorp/aws`, whose 14.5 MB schema is re-serialised into every verbose test message. The
+design's two-phase execution and run-block-level test selection exist to make the inner loop
+(`--since`, smoke tier) interactive on real modules regardless; full sweeps are scheduled
+work. An independent adversarial review drove these corrections — see
+[`docs/reviews/2026-08-15-adversarial-review.md`](docs/reviews/2026-08-15-adversarial-review.md).
 
 ## Documents
 
@@ -35,6 +39,7 @@ a nightly batch job.
 | [`docs/design/mutation-operators.md`](docs/design/mutation-operators.md) | The operator catalogue, in six tiers |
 | [`docs/design/characterisation.md`](docs/design/characterisation.md) | Characterisation mode — scaffolding unit tests for legacy modules, no LLM required |
 | [`docs/design/agent-integration.md`](docs/design/agent-integration.md) | Failure-mode taxonomy, and driving the tool from a coding agent |
+| [`docs/reviews/2026-08-15-adversarial-review.md`](docs/reviews/2026-08-15-adversarial-review.md) | Adversarial review findings (4 critical) and their dispositions |
 | [`docs/research/01-terraform-test-capabilities.md`](docs/research/01-terraform-test-capabilities.md) | What `terraform test` can do in v1.15.8, verified against the CLI |
 | [`docs/research/02-prior-art.md`](docs/research/02-prior-art.md) | Mutation testing prior art, and an analysis of Oasis |
 | [`docs/research/03-hcl2-tooling.md`](docs/research/03-hcl2-tooling.md) | HCL2 tooling and the mutable surface of the language |
@@ -48,12 +53,12 @@ reproduction steps in [`docs/research/04-harness-spike.md`](docs/research/04-har
 | Finding | Consequence |
 | --- | --- |
 | `terraform init` costs 5.2 s; a mocked test run costs 0.167 s | Init once, share `.terraform` read-only across mutant sandboxes |
-| Local module paths in `.terraform/modules/modules.json` are **relative** | A shared `.terraform` is safe, and child-module mutations propagate correctly |
-| 100 mutants, 8 workers, mocked plan tests: **2.3 s** | Interactive-speed tool, not a batch report |
+| Local module paths in `.terraform/modules/modules.json` are **relative** | Provider sharing is safe and downward child-module mutations propagate; upward (`../`) sources require rooting the sandbox at their closure |
+| 100 mutants, 8 workers, mocked plan tests, small-schema provider: **2.3 s** | The inner loop can be interactive — with the two-phase execution and test selection the design specifies for real-provider schemas |
 | `-filter` is **file**-scoped, not run-scoped, and exits **0** when it matches nothing | Test selection is per-file; the executed-test count must be asserted explicitly |
 | `terraform validate` separates static from dynamic failure | Clean rule: validate fails ⇒ invalid mutant, discard; validate passes but run errors ⇒ killed |
 | Plan JSON fingerprints are stable under unobservable edits and move under behavioural ones | Automatic detection of mutants no assertion could possibly catch |
-| Auto-generated mock values are **not deterministic** across runs | The baseline must run twice; volatile attributes are masked from every fingerprint |
+| Auto-generated mock values are **not deterministic** across runs | Volatile attributes are masked from every fingerprint via a static impure-function scan unioned with a two-run baseline diff |
 | Mocks work with `command = apply`, contrary to widely-repeated documentation | Apply-mode mocked runs expose state and outputs, widening the killable surface |
 
 ## What would make it different

@@ -67,6 +67,12 @@ original fixture still contains the unmutated text: yes
 
 Child-module mutations propagate correctly, and the source tree is untouched.
 
+*Scope correction (adversarial review M6, 2026-08-15):* this experiment covered a
+**downward** source (`./modules/net`) only. Upward sources (`source = "../shared"` — the
+standard monorepo layout) record `Dir` values that escape the sandbox root and fail with
+"Module not installed". The design now roots sandboxes at the `..`-closure of local module
+sources.
+
 Caveat carried into the design: registry and remote modules are vendored *inside*
 `.terraform/modules/`, so they are shared and cannot be mutated per-sandbox. They are third
 party code and out of scope for mutation anyway, but the tool must exclude them explicitly
@@ -102,9 +108,12 @@ So the correct classification is not "equivalent" but **`unobservable-under-curr
 which is simultaneously an equivalence signal and a coverage signal. That distinction is the
 tool's most important piece of honesty.
 
-A useful bonus: the `test_plan` payload includes `relevant_attributes` — the attributes the
-plan actually depended on. That is a coverage map Terraform does not otherwise expose, and it
-is exactly what test selection needs.
+*Correction (adversarial review C2, 2026-08-15):* this section originally claimed the
+`test_plan` payload's `relevant_attributes` was "a coverage map… exactly what test selection
+needs". Re-examination showed it is the refresh/targeting dependency set — identical across
+all three `fixture-b` run blocks, containing only the cross-resource `id` reference and not
+the `triggers.tier` attribute the assertions actually read. It cannot support test selection
+or coverage reporting; the assertion inventory parsed from the test-file AST can.
 
 ### The fingerprint has to be normalised first
 
@@ -185,10 +194,19 @@ corrupt.
 
 ### What this means
 
-For fully-mocked plan-mode unit tests, mutation testing is effectively free. A 500-mutant run
-on a 16-core machine is on the order of ten seconds. That is well inside a pre-commit hook,
-never mind CI — which changes the product design: the tool should default to being run
-constantly, not as a weekly batch job.
+*Caveat (adversarial review C1, 2026-08-15):* the throughput above is real but
+**provider-schema-specific**. `hashicorp/null`'s schema is 3.4 KB; `hashicorp/aws` 6.20.0 is
+14.5 MB, and `-verbose` re-serialises the full schema into every per-run-block message. The
+review measured a 10-resource fully-mocked AWS module at ~0.36 mutants/s plain and ~0.10
+mutants/s with per-mutant `validate` + `-verbose` — roughly 100–400× below this fixture. The
+per-mutant sequence in the product design is two-phase for exactly this reason, and no number
+in this section should be extrapolated beyond small-schema providers. A real-provider
+re-measurement is the M1 exit gate.
+
+For fully-mocked plan-mode unit tests against small-schema providers, mutation testing is
+effectively free — well inside a pre-commit hook. For real-provider modules it is not, and
+the product design's stance (interactive inner loop via selection and two-phase execution;
+scheduled full sweeps) reflects the corrected numbers.
 
 The cost model is entirely different for apply-mode tests against real providers, where a
 single run block can take minutes and cost money. The design must make that distinction loud
@@ -203,9 +221,9 @@ and must refuse to run against real infrastructure without an explicit opt-in.
 | Registry modules live inside `.terraform` | Must be explicitly excluded from mutation |
 | `-filter` is file-scoped and exits 0 on no match | Test selection is per-file; always assert executed-test count > 0 |
 | A run error skips later runs in the file | Kill attribution unreliable after an error |
-| `validate` separates static from dynamic failure | Clean invalid-vs-killed rule |
-| Plan fingerprints are stable and cheap | Automatic unobservability detection |
-| Auto-generated mock values are non-deterministic | Baseline must run **twice**; volatile attributes masked from all fingerprints. The volatile set doubles as the `MockMasked` oracle |
-| `relevant_attributes` is in the plan payload | Free coverage map for test selection |
-| ~43 mutants/s on 8 cores, mocked | Interactive-speed tool, not a batch job |
+| `validate` separates static from dynamic failure | Clean invalid-vs-killed-by-error rule (cheap only for small-schema providers — review M11) |
+| Plan fingerprints are stable and cheap on this fixture | Automatic unobservability detection (verbose cost scales with provider schema — review C1) |
+| Auto-generated mock values are non-deterministic | Volatile mask = static impure-function scan ∪ two-run diff (run-diff alone insufficient — review M5) |
+| ~~`relevant_attributes` is a coverage map~~ | **Withdrawn** (review C2): it is the refresh dependency set; selection uses the assertion inventory |
+| ~43 mutants/s on 8 cores, null provider | Interactive for small-schema providers; ~0.1–0.4 mutants/s on mocked AWS (review C1) — two-phase execution and run-block selection are viability requirements |
 | Mocks work with `command = apply` | Apply-mode mocked runs widen the killable surface |
