@@ -153,6 +153,10 @@ saying exactly that, and the report never calls pinned behaviour "correct".
 
 ## 5. Honest limits
 
+A full failure-mode taxonomy — including which failures a driving coding agent can resolve and
+how the tool is designed to be driven by one without ever making an LLM call itself — is in
+[`agent-integration.md`](agent-integration.md). The headline limits:
+
 - **It pins bugs.** Stated above; stated in the generated files; by design.
 - **Plan-time failures without runtime dependencies severed elsewhere.** A module that shells
   out via `external` data sources, or provisioners, is not fully severable by `mock_provider`.

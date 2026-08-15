@@ -479,6 +479,12 @@ completeness oracle and kill-set analysis as the minimality oracle (`tf-mut cura
 deterministic; no LLM. Design: `characterisation.md`. Sequenced after M4 because it is M2 and
 M4 machinery pointed in the opposite direction: generation instead of grading.
 
+**End-of-MVP gate — agent skills.** Two shipped skills plus `tf-mut skill install`: the
+mutation-loop skill lands with M4 (it needs `suggest` to be teachable), the characterisation
+skill with M4.5. MVP is not complete until a coding agent can drive both loops end-to-end from
+the shipped skills alone. Design: `agent-integration.md`. Post-MVP: empirical evaluation and
+optimisation of the skills themselves on a public legacy-module corpus.
+
 **M5 — Breadth.** Domain packs seeded from Checkov/tfsec rule catalogues, OpenTofu parity,
 Tier 4 lifecycle operators, and a published benchmark over a public-repository corpus —
 directly comparable to Oasis's 23-repository evaluation, which is the fair way to make the
