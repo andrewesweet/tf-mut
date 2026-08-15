@@ -28,7 +28,7 @@ design targets for §2.
 
 | # | Mode | Detection | Tool response | Resolver |
 | --- | --- | --- | --- | --- |
-| A1 | Unseverable seams: `external` and `http` data sources, provisioners, `terraform_remote_state` | AST scan at discover time | Report as `unseverable`, with the source range and the reason. Characterisation proceeds for the severable remainder; affected addresses are excluded from pinning | A (restructure: wrap in a mockable data source, gate with a variable) or H |
+| A1 | Unseverable seams: `external` and `http` data sources, provisioners, `terraform_remote_state` | AST scan at discover time | Report as `unseverable` with source range and reason — and **refuse apply-mode execution without `--allow-unsandboxed-effects`** (R2-10: provisioners execute under mocked apply; a `local-exec` verified firing with no real provider present, so exclusion-from-pinning alone is not safety). Plan-mode characterisation of the severable remainder proceeds | A (restructure: wrap in a mockable data source, gate with a variable) or H |
 | A2 | Module cannot `init` offline: private registry, git-over-SSH module sources | `init` failure, structured diagnostic | Fail fast, name the source address | H (credentials) — not an agent problem |
 | A3 | Terraform version below 1.6/1.7: no test framework or no mocking | `version -json` at discover | Fail fast with the minimum-version statement | H |
 | A4 | Nondeterminism providers (`random_*`, `time_*`) unmocked: fresh state per run ⇒ new values per run ⇒ volatile | Double-run volatile mask catches it; AST scan predicts it | Auto-generate `mock_provider "random"` / `"time"` blocks with pinned values — these providers have full schemas like any other | T |

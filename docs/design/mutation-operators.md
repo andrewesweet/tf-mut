@@ -32,23 +32,32 @@ resource tested at all, or merely covered?*
 | ID | Site | Mutation | Kills when |
 | --- | --- | --- | --- |
 | `EXT-ATTR-DELETE` | Any schema-optional argument assignment in a `resource`/`data`/`module` body | Delete the assignment entirely, so the provider or child-module default applies | Any assertion reads that attribute |
-| `EXT-RESOURCE-DELETE` | A `resource` block whose dependent references are **all indexed or splatted** | Set `count = 0`, removing every instance from the plan | Any assertion counts, indexes, or reads the resource |
-| `EXT-BODY-BLANK` | A `resource` block with any **bare** dependent reference (where `EXT-RESOURCE-DELETE` cannot fire) | Delete every optional argument in the body at once — the Descartes "empty the method body" analogue | Any assertion reads any configured attribute of the resource |
+| `EXT-RESOURCE-DELETE` | A `resource` block where emptying is non-erroring (see multiplicity table below) | Empty the resource's instance set | Any **assertion** counts, indexes, or reads the resource |
+| `EXT-BODY-BLANK` | A `resource` block where emptying would error (exact-index consumers, and any other excluded case) | Delete every optional argument in the body at once — the Descartes "empty the method body" analogue | Any assertion reads any configured attribute of the resource |
 | `EXT-OUTPUT-NULL` | An `output` block | Replace `value` with `null` | Any assertion reads `output.<name>` |
 | `EXT-LOCAL-NULL` | A `locals` entry | Replace the value with `null` | Any assertion reads anything downstream of that local |
 | `EXT-MODULE-INPUT-DELETE` | An input argument on a `module` call | Delete the argument, falling back to the child's default | Any assertion observes the child's behaviour under that input |
 
-`EXT-RESOURCE-DELETE` is implemented as `count = 0` rather than literal deletion because
-deleting a referenced block produces a statically invalid mutant, which is discarded and
-therefore tells us nothing. But `count = 0` has its own validity trap, and the adversarial
-review (C3) caught this design stating it **backwards**: adding `count` to a resource makes
-every *bare* reference to it (`null_resource.app.id`) invalid with "Missing resource instance
-key", while *indexed* references (`null_resource.app[0].id`) stay valid and killable —
-verified both ways. Since bare references are the overwhelming majority in wired modules, an
-ungated `count = 0` operator would discard the flagship analysis exactly where it matters
-most. Hence the static reference-scan gate above, and `EXT-BODY-BLANK` as the extreme
-operator for bare-referenced resources — the pseudo-tested question stays answerable for
-every resource, through one operator or the other.
+`EXT-RESOURCE-DELETE` — emptying the instance set rather than deleting the block — took two
+review rounds to specify correctly, and the failure history is worth keeping. Round one (C3)
+caught the validity condition stated backwards: adding `count` to a resource makes every
+*bare* reference (`null_resource.app.id`) statically invalid ("Missing resource instance
+key"), while indexed references validate. Round two (R2-5) caught the repair leaking: an
+*indexed* reference (`app[0].id`) against `count = 0` validates but **errors at evaluation**
+("Invalid index"), producing `KilledByError` from a zero-assertion suite — which would report
+the resource as tested; and `for_each` resources reject an added `count` outright ("Invalid
+combination"). The resulting specification is multiplicity- and use-site-aware:
+
+| Resource form | Consumers | Mutation | Else |
+| --- | --- | --- | --- |
+| Existing `count = n` | All tolerate empty collections (splats, `length`, `for`) | `count = 0` | `EXT-BODY-BLANK` |
+| Existing `for_each` | All tolerate empty collections | `for_each = {}` — never an added `count` | `EXT-BODY-BLANK` |
+| No meta-argument | Any bare or exact-index reference | — statically doomed — | `EXT-BODY-BLANK` |
+
+And the definition that makes the headline honest (R2-5 / M8): a resource is
+**pseudo-tested** only when every extreme mutant that executed was undetected by an
+*assertion* — `KilledByError` never counts as evidence of testing, because Terraform's own
+"Invalid index" on an empty set is not a test.
 
 A resource whose every `EXT-*` mutant survives is a **pseudo-tested resource** — covered by a
 plan, asserted on by nothing. This is the tool's headline finding.

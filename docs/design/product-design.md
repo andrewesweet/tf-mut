@@ -59,6 +59,14 @@ slow, expensive and potentially destructive. `tf-mut` **refuses to run** when it
 non-mocked provider unless `--allow-real-infrastructure` is passed, and prints an estimated
 run count and duration before proceeding.
 
+A second, distinct gate (R2-10, verified): a fully-mocked configuration can still execute
+arbitrary local commands, because **provisioners run under mocked `apply`** — a `local-exec`
+fired with no real provider present, so the real-infrastructure gate never triggers. Apply-mode
+runs whose configuration contains provisioners, `external` or `http` data sources, or
+`terraform_remote_state` are refused without a separate `--allow-unsandboxed-effects` opt-in.
+These effects are unsevered by mocking; excluding their addresses from reports does not stop
+Terraform executing them, and a mutation run would execute them hundreds of times.
+
 **Never in scope.** Mutating vendored registry or remote modules, or anything under
 `.terraform/`.
 
@@ -103,9 +111,15 @@ mode (computed attributes stay unknown and never materialise), it wrongly captur
 *configured* values (`uuid()`, `timestamp()`) as if they were mock artefacts, and two
 back-to-back runs can land inside one clock second and mask nothing. The volatile set is
 therefore the **union** of a static AST scan — impure functions (`timestamp`,
-`plantimestamp`, `uuid*`, `bcrypt`) and unmocked `random_*`/`time_*` providers — and the
-two-run diff. `MockMasked` is decoupled from this entirely: it derives from the provider
-schema's `computed` flags (an M2 dependency anyway) and applies only to apply-mode runs,
+`plantimestamp`, `uuid`, `bcrypt` — **not** `uuidv5`, which is deterministic; R2-9) and
+unmocked `random_*`/`time_*` providers — and the two-run diff. Masking is
+**component-granular, not scalar-granular** (R2-9): `"${uuid()}-stable"` has a volatile
+prefix and an assertable stable suffix, verified killable via `endswith`, so masking the
+whole value would erase a real finding. Where the AST identifies the volatile subcomponent
+of a template, the stable components stay in the fingerprint; where the value cannot be
+soundly decomposed, the fingerprint is `indeterminate` — classified `Survived`, never
+treated as identical. The `mock-masked` diagnosis is decoupled from this entirely: it
+derives from the provider schema's `computed` flags and applies only to apply-mode runs,
 because plan mode leaves computed attributes unknown and mock masking cannot occur there.
 
 A red baseline aborts with the failing run blocks named. A test file that executes zero runs
@@ -122,38 +136,44 @@ Order mutants to surface findings early and cut work:
 
 - **Static reachability.** A mutant in a block no run block instantiates is `NoCoverage` — no
   execution needed.
-- **Test selection.** Derived from the **assertion inventory**: the AST of every assertion
-  expression in the `.tftest.hcl` files, intersected with the mutation site's forward cone in
-  the reference graph. Only run blocks whose assertions (or `expect_failures`) can observe the
-  site need to execute. The review (C2) established that `relevant_attributes` in the plan
-  JSON — the design's original source for this — is Terraform's refresh/targeting dependency
-  set: it is identical across run blocks, blind to what assertions read, and absent from
-  apply-mode `test_state` entirely. Selection built on it would silently produce false
-  survivors. Consequence: the attribute-level reference graph is **load-bearing for test
-  selection and lands in M3**, not post-MVP.
+- **Test selection.** A run block is selected iff it **instantiates the mutated block** —
+  plan reachability, determined by the run's module targeting, variables, and the block's
+  `count`/`for_each` conditions. R2 review finding R2-1 established why this, and not the
+  assertion cone, must be the basis: the product's primary finding class is a resource that
+  runs *plan* but that no assertion *reads* — its assertion cone is empty, so cone-based
+  exclusion would run nothing, produce no fingerprint and no `no-assertion` diagnosis, and
+  select zero runs from the assertion-less suites `characterise` scaffolds. The assertion
+  inventory ∩ forward cone (see round one, C2, for why `relevant_attributes` cannot supply
+  either side) still matters — as a **prioritisation and predicted-diagnosis signal, never an
+  exclusion rule**. Sound instantiation-reachability selection lands in M2; the graph-based
+  cone refinement in M3.
 - **Run-block granularity via file splitting.** `-filter` is file-scoped, but the sandbox is
   ours: split each test file into synthesised one-run-per-file test files (verified working,
-  M7 of the review). Two constraints, both handled: run blocks containing a `module {}` block
-  are keyed in `modules.json` as `test.<dir>.<file>.<run>`, so the sandbox synthesises its own
-  `modules.json` and shares only `.terraform/providers/`; and run blocks consuming
-  `run.<name>` outputs or shared `state_key` must be kept as a dependency-closed prefix, which
-  the test-file AST determines. This removes the file-layout recommendation the design
-  previously made to users — the tool solves it instead.
+  round-one M7). Three constraints, all handled: run blocks containing a `module {}` block
+  are keyed in `modules.json` as `test.<dir>.<file>.<run>`, so the sandbox synthesises its
+  own `modules.json`; run blocks consuming `run.<name>` outputs or an explicit `state_key`
+  join a dependency-closed prefix; and — R2-4, verified — runs against the same module share
+  **implicit in-memory state even with no `state_key` and no `run` reference**, so the prefix
+  must include every preceding state-producing (apply) run whose state identity the selected
+  run shares. Honest consequence: apply→plan suites largely do not split, and the speedup
+  from splitting accrues mainly to independent plan-mode suites — which is the design's
+  target shape, but the claim is now scoped to it.
 - **Prioritisation.** Extreme-tier mutants first (few, cheap, highest signal), then contract,
   then language, then lifecycle. With `--fail-fast`, an early finding stops the run.
 - **Deduplication.** Mutants with identical `(file, range, replacement)` collapse.
 
-**Later improvement — in-process reference graph (post-MVP).** The MVP's reachability check is
-block-granular: does any run block instantiate the mutated block at all. A finer instrument is
-an attribute-level reference graph built from the AST (`hclsyntax` exposes every reference via
-`Expression.Variables()`), which buys, in rough order of value: (a) static `Unobservable`
-pre-classification — a site with no path to any resource, output or `check` needs no execution;
-(b) forward-cone test selection — only assertions reading the mutation site's downstream cone
-can kill it, so intersect the cone with the assertion inventory; (c) predicted `no-assertion`
-diagnosis before execution, letting the scheduler deprioritise likely-uninformative mutants;
-(d) doomed-mutant avoidance — `EXT-RESOURCE-DELETE` via `count = 0` is statically invalid when
-a dependent indexes the resource, and the graph knows before `validate` does; (e) survivor
-explanations as paths: "`local.tags` → `aws_instance.app.tags` → nothing asserts on it".
+**The in-process reference graph — roles split across milestones (revised by both reviews).**
+An attribute-level reference graph built from the AST (`hclsyntax` exposes every reference
+via `Expression.Variables()`) serves distinct roles landing at different times: (a) static
+`Unobservable` pre-classification — a site with no path to any resource, output or `check`
+needs no execution (M3); (b) forward-cone **prioritisation** — assertions reading the
+mutation site's downstream cone are the likely killers, so run them first, and predict the
+`no-assertion` diagnosis where the cone misses every assertion (M3; per R2-1 never an
+exclusion rule); (c) doomed-mutant avoidance — the reference scan gating
+`EXT-RESOURCE-DELETE` (a **bare** dependent reference makes `count = 0` statically invalid;
+an *indexed* dependent validates but errors at evaluation — see the operator catalogue and
+R2-5) needs only a local scan and ships with the operator in M1; (d) survivor explanations
+as paths: "`local.tags` → `aws_instance.app.tags` → nothing asserts on it" (post-MVP).
 
 `terraform graph` itself is deliberately **not** the data source: its nodes are
 resource/local/output-granular where operators fire on sub-expressions, its DOT output is
@@ -174,21 +194,31 @@ Per mutant, in parallel across `min(NumCPU, --jobs)` workers:
    the planned optimisation. The sandbox gets its **own `.terraform` directory** containing a
    synthesised `modules.json` (needed for run-block file splitting) and `.terraform.lock.hcl`
    is always copied — omitting it classifies the entire population `Invalid` with zero tests
-   executed (m14). Only `providers/` is shared: symlink, NTFS junction on Windows, with
-   `TF_DATA_DIR` as the portable fallback. Verified: eight concurrent readers of one provider
-   tree neither contend nor corrupt.
-2. Write the mutated file.
-3. **Selective** `terraform validate` — only for operators with a plausible static-failure
-   mode (deletion operators, reference-touching operators, `VAR-*`). The review (M11)
-   measured `validate` at 1.7 s on a mocked-AWS module — *more* than the test run it would
-   precede — so validating every mutant is a net loss. All other mutants classify `Invalid`
-   versus `KilledByError` post hoc from the diagnostics in the `test -json` stream, which
-   carry the same summary and source range.
+   executed (m14). Two sharing rules, both review-corrected: `providers/` is shared
+   read-only (symlink, NTFS junction on Windows, `TF_DATA_DIR` as the portable fallback;
+   verified: eight concurrent readers neither contend nor corrupt), and — R2-7 — **remote
+   module payloads under `.terraform/modules/` are shared as well**, with the synthesised
+   `modules.json` entries rewritten to sandbox-visible paths. Remote modules are excluded
+   from mutation *generation*, but a root consuming a registry or git child cannot execute
+   without their code present.
+2. Write the mutated file — **always as a fresh inode, never through a hardlink**. R2-3
+   demonstrated the trap: a hardlink shares the source's inode, so an in-place write
+   (`os.WriteFile`) mutates the original checkout — exactly the drift this design claims is
+   structurally impossible. Hardlinks are permitted only for files that will never be
+   written; mutated files are produced by write-to-temp + atomic rename, and the writer
+   asserts before writing that the target does not share an inode with the source tree.
+3. **Lazy** `terraform validate` — round one (M11) showed validating every mutant is a net
+   loss (1.7 s on a mocked-AWS module, more than the test run it precedes); R2-6 then showed
+   the planned post-hoc alternative is impossible, because static and dynamic failures emit
+   byte-identical diagnostics in the test stream. The synthesis: `validate` runs **only after
+   a phase-one `error` result**, where it is the sole verified discriminator between
+   `Invalid` (validate fails too) and `KilledByError` (validate passes). Mutants that pass
+   or fail assertions — the majority — never pay for it.
 4. **Phase one:** `terraform -chdir=<sandbox> test -json -filter=<selected files>` — plain
-   output, no `-verbose`. Killed mutants stop here.
+   output, no `-verbose`. Killed mutants stop here (after lazy validation if they errored).
 5. **Phase two, non-killed mutants only:** re-run with `-verbose -json` to obtain the plan
-   fingerprint for `Unobservable`/`StructurallyUnassertable`/`MockMasked` classification and
-   suggestion generation. This two-phase split exists because `-verbose` embeds the full
+   fingerprint for the fingerprint-dependent states (`Survived` and its diagnoses,
+   `StructurallyUnassertable`, `Unobservable`) and suggestion generation. This two-phase split exists because `-verbose` embeds the full
    provider schema per run-block message (C1) — a 26× marginal cost with `hashicorp/aws` —
    and only the non-killed minority needs fingerprints.
 6. Assert the executed-run count is non-zero (a `-filter` matching nothing exits 0 — this is
@@ -214,7 +244,7 @@ verified against v1.15.8 in the spike fixtures; milestones refer to §12.
 | `terraform validate -json` | Structured diagnostics with summary and exact source range (`{"valid":false,"error_count":2,...,"range":{"filename":"main.tf","start":{"line":28,...}}}`) | Classify *why* a mutant is invalid, not just that it is. Aggregating diagnostics by operator ID is a self-test: an operator producing systematic invalids is a bug in the operator, and this surfaces it from ordinary runs | M1 — strictly better than the exit code at no cost |
 | `terraform version -json` | Machine-readable version | Gate version-dependent features (`state_key` v1.9+, mocking v1.7+); detect `tofu` | M1 |
 | `terraform fmt` | Canonical formatting | Pre-flight check that source is fmt-clean, so every mutant diff is guaranteed one-line; not a validity gate (that is `validate`'s job) | M1 |
-| `terraform providers schema -json` | Full provider schemas from the shared `.terraform`, per-attribute `required`/`optional`/`computed` flags and types — e.g. `null_resource`: `id` computed, `triggers` optional | **The highest-value item.** (1) `EXT-ATTR-DELETE` fires only on attributes the schema marks optional — required-attribute deletions are statically doomed and never generated. (2) Type-aware value substitution cuts the `Invalid` discard rate. (3) Computed-attribute knowledge predicts `MockMasked` statically, complementing the runtime volatile-set oracle. (4) Domain packs can enumerate mutation targets (boolean security flags, CIDR-typed attributes) from the schema instead of hand-curated lists | M2 |
+| `terraform providers schema -json` | Full provider schemas from the shared `.terraform`, per-attribute `required`/`optional`/`computed` flags and types — e.g. `null_resource`: `id` computed, `triggers` optional | **The highest-value item.** (1) `EXT-ATTR-DELETE` fires only on attributes the schema marks optional — required-attribute deletions are statically doomed and never generated. (2) Type-aware value substitution cuts the `Invalid` discard rate. (3) Computed-attribute knowledge derives the `mock-masked` diagnosis statically. (4) Domain packs can enumerate mutation targets (boolean security flags, CIDR-typed attributes) from the schema instead of hand-curated lists | M1 (moved from M2 per R2-12 — the Tier 0 deletion gates need it) |
 | `terraform metadata functions -json` | 238 builtin function signatures: parameter names, types, variadics, return types | Drive `FN-SWAP` / `FN-ARG-REORDER` / `FN-DROP-DEFAULT` from data rather than a hand-written table: substitutions are generated only between arity- and type-compatible functions, and the catalogue tracks the installed Terraform version automatically | M3 |
 | `terraform graph` | See §3 — Schedule | Cross-validation oracle for the in-process reference graph; `explain` visualisation | Post-MVP |
 | `terraform console` | Evaluates expressions against the config (`var.env == "prod" ? 3 : 1` → `1`) | **Inspiration, not integration** — one subprocess per expression is the wrong cost model. The idea it points at: pure-expression mutants (locals arithmetic, conditionals over variables) could be micro-evaluated in-process with `go-cty` under sampled inputs, screening equivalent mutants without any Terraform run. Speculative; needs the cty stdlib to cover enough of Terraform's function set to be worth it | Unscheduled |
@@ -225,18 +255,35 @@ verified against v1.15.8 in the spike fixtures; milestones refer to §12.
 Extends Stryker's standard model with three Terraform-specific states. Report consumers get
 the vocabulary they already know, plus the distinctions Terraform actually needs.
 
-| State | Determined by | Counts toward score? |
-| --- | --- | --- |
-| `Killed` | ≥ 1 run block reports `fail` — an **assertion** caught it | Numerator |
-| `KilledByError` | `validate` passes (or was skipped as low-risk) but a run reports `error` — **Terraform** caught it, not the tests | Numerator, always reported separately |
-| `Survived` | All run blocks pass and the (volatility-masked) fingerprint differs from baseline | Denominator |
-| `NoCoverage` | No run block instantiates the mutated block | Denominator (reported separately) |
-| `StructurallyUnassertable` | Fingerprint identical to baseline **and** the mutated construct has no plan/state projection (`lifecycle`, `depends_on`, `validation` with no `expect_failures` exercising it) | Denominator, with fix guidance |
-| `Unobservable` | Fingerprint identical to baseline for a construct that *does* project into plan/state — no current input discriminates it | **Excluded** |
-| `MockMasked` | Apply-mode only: fingerprint differs solely in schema-`computed` attributes the mock generated | Denominator, distinct diagnosis |
-| `Invalid` | `terraform validate` fails, or the test stream's diagnostics show a static config error | **Excluded** |
-| `Timeout` | Exceeded `max(factor × baseline run time, 30 s)` | Own state, reported — **not** a kill |
-| `Ignored` | Suppressed by config, comment or baseline | **Excluded** |
+Per-run outcomes (`pass`/`fail`/`error`/`timeout` per executed run block) are recorded
+orthogonally, and the mutant's single aggregate state is assigned by **explicit precedence,
+top to bottom** — R2-8 showed the states are overlapping predicates without one (a mutant can
+fail one run and error another; changing file order must not change the verdict):
+
+| Precedence | State | Assigned when | Counts toward score? |
+| --- | --- | --- | --- |
+| 1 | `Invalid` | Lazy `validate` fails after an `error` result | **Excluded** |
+| 2 | `Killed` | ≥ 1 executed run reports `fail` — an **assertion** caught it | Numerator |
+| 3 | `KilledByError` | No `fail`, ≥ 1 run reports `error`, lazy `validate` passes — **Terraform** caught it | Numerator, always reported separately |
+| 4 | `Timeout` | No kill; ≥ 1 run exceeded `max(factor × baseline, 30 s)` | **Denominator** — and any timeout marks the whole score *incomplete* |
+| 5 | `Survived` | All runs pass; masked fingerprint differs from baseline — or is `indeterminate` (unknown values or undecomposable volatility in scope, R2-2/R2-9) | Denominator. Diagnoses include `mock-masked` (differs only in schema-`computed` attributes, apply mode) and `indeterminate-unknown-values` |
+| 6 | `StructurallyUnassertable` | Fingerprint identical **and** the construct has no plan/state projection (`lifecycle`, `depends_on`, unexercised `validation`) | Denominator, with fix guidance |
+| 7 | `Unobservable` | Fingerprint identical, the construct projects, **and no value in the mutant's evaluated paths is unknown** | **Excluded** |
+| 8 | `NoCoverage` | No run block instantiates the mutated block (assigned statically, before execution) | Denominator (reported separately) |
+| — | `Ignored` | Suppressed by config, comment or baseline | **Excluded** |
+
+Three R2 corrections are embedded there. **`MockMasked` is a diagnosis, not a state** (R2-8):
+as a state it overlapped `Survived` by definition. **`Timeout` sits in the denominator and
+poisons score completeness** (R2-11): excluding it let machine load *raise* the score —
+K=1, S=1 scores 50%, and if load turns the survivor into a timeout the score became 100%;
+in-denominator, load can only lower it, and `--min-score` gates fail on an incomplete score
+unless `--allow-incomplete-score` is set. **`Unobservable` requires no unknowns in scope**
+(R2-2): the reviewer proved plan-JSON equality does not imply unassertability — cty retains
+*refinements* of unknown values (the known `"stable-"` prefix of an unknown string) that the
+plan serialisation discards, and a legal `startswith` assertion killed a fingerprint-identical
+mutant. Fingerprint-identical mutants with unknowns in their evaluated paths are `Survived`
+with the `indeterminate-unknown-values` diagnosis, and the suggestion engine never claims
+impossibility for them.
 
 The `Killed`/`KilledByError` split (review M8) exists because Terraform's plan-time evaluation
 is strong enough that **a suite with zero assertions still kills mutants** — verified: an
@@ -266,12 +313,16 @@ Both cases were verified.
 under a behavioural one — verified: an added unused `local` produced an identical hash, an
 `&&` → `||` swap did not.
 
-This oracle is **sound in one direction only**, and the product must say so plainly. Identical
-fingerprints prove no assertion over plan or state *under the current inputs* could tell the
-mutant apart. They do not prove the mutant is semantically equivalent — different variable
-values might expose it. So `tf-mut` never calls a mutant "equivalent". It reports
-`unobservable-under-current-inputs`, which is simultaneously an equivalence signal and a
-coverage signal, and it tells the user which reading applies:
+This oracle's soundness claim was **narrowed twice** and must be stated precisely. It never
+proves semantic equivalence — different variable values might expose the mutant. And per
+R2-2 it does not even prove unassertability under current inputs when unknown values are in
+scope: the assertion evaluator sees cty *refinements* of unknowns (a known string prefix, a
+known collection bound) that the plan JSON discards, so a fingerprint-identical mutant can
+still be killed by a legal assertion. What identical fingerprints *do* prove: no assertion
+over the **serialised** plan/state, under current inputs, with **no unknowns in the mutant's
+evaluated paths**, can tell the mutant apart. Only that case is excluded as `Unobservable`;
+it reports as `unobservable-under-current-inputs`, simultaneously an equivalence signal and
+a coverage signal, and the tool tells the user which reading applies:
 
 ```
 UNOBSERVABLE  modules/net/main.tf:14  FOR-DROP-IF
@@ -287,21 +338,23 @@ That is the difference between a tool that generates work and one that generates
 ## 5. Metrics
 
 Three numbers, always reported together, because any one alone is misleading. Let
-`K = Killed`, `KE = KilledByError`, `S = Survived`, `NC = NoCoverage`,
-`SU = StructurallyUnassertable`, `MM = MockMasked`, `T = Timeout`. The **scored set** is
-`K + KE + S + NC + SU + MM` — every state except `Invalid`, `Unobservable`, `Ignored` and
-`Timeout`, which are excluded and reported as counts (review M13: the previous formulas
-covered only three states and left `MockMasked` and `Timeout` in neither numerator nor
-denominator; `Timeout` counted as a kill would let machine load push the score *upward*).
+`K = Killed`, `KE = KilledByError`, `S = Survived` (including its `mock-masked` and
+`indeterminate` diagnoses), `NC = NoCoverage`, `SU = StructurallyUnassertable`,
+`T = Timeout`. States are exclusive by the precedence table above, so these are true
+partitions. The **scored set** is `K + KE + S + NC + SU + T`; `Invalid`, `Unobservable` and
+`Ignored` are excluded and reported as counts.
 
 | Metric | Definition | Answers |
 | --- | --- | --- |
 | **Mutation score** | (K + KE) ÷ scored set | Overall detection quality |
-| **Assertion score** | K ÷ (K + S + MM + SU) | Assertion strength specifically — excludes Terraform's own error-catching |
-| **Reachability** | (K + KE + S + MM) ÷ scored set | Coverage |
+| **Assertion score** | K ÷ (K + S + SU + T) | Assertion strength specifically — excludes Terraform's own error-catching |
+| **Reachability** | (K + KE + S + T) ÷ scored set | Coverage |
 
-The `K` versus `KE` share is always displayed alongside the mutation score: a score composed
-mostly of `KE` means Terraform is doing the detecting, not the tests.
+`T` sits in every denominator it can reach (R2-11): machine load can then only *lower* a
+score, never raise it, and any `T > 0` marks the score **incomplete** — `--min-score` gates
+fail on incomplete scores unless `--allow-incomplete-score` is passed. The `K` versus `KE`
+share is always displayed alongside the mutation score: a score composed mostly of `KE`
+means Terraform is doing the detecting, not the tests.
 
 Given Oasis's finding that 78% of survivors were uncovered, the gap between the first two
 numbers is usually the most actionable thing on the screen. A module at 25% / 80% / 31% has a
@@ -533,28 +586,33 @@ agents (see `agent-integration.md`), which compounds rather than competes.
 
 ## 12. Roadmap
 
-**M1 — Prove the loop.** Discover, baseline, sandbox execution (including the `..`-closure
-rooting and per-sandbox `.terraform`), Tier 0 extreme operators with the reference-scan gate
-on `EXT-RESOURCE-DELETE`, `Killed`/`KilledByError`/`Survived`/`Invalid` classification,
-terminal reporter. `validate -json` diagnostics and `version -json` gating from the start.
-Answers "which resources are pseudo-tested?" — the highest-value question, from the smallest
-tool. **Exit gate (from the adversarial review): the spike suite re-run against a fully-mocked
-real provider (`hashicorp/aws`) and a realistic module, with the measured numbers published in
-`docs/research/`.** No performance claim survives into later milestones without passing this
-gate.
+**M1 — Prove the loop, correctly.** Discover, baseline, sandbox execution (`..`-closure
+rooting, per-sandbox `.terraform` with shared providers *and* remote-module payloads,
+fresh-inode mutation writes), **`providers schema -json` integration** — moved here from M2
+per R2-12, because the Tier 0 deletion operators are gated on schema optionality and M1's
+headline is unbuildable without it — Tier 0 extreme operators with the multiplicity-aware
+deletion gate, lazy-validate classification
+(`Invalid`/`Killed`/`KilledByError`/`Survived`), terminal reporter. Answers "which resources
+are pseudo-tested?", defined over **assertion kills only** (R2-5). **Exit gate: correctness
+— the R1/R2 reproduction fixtures pass as the tool's own test suite** (hardlink isolation,
+deletion-gate cases, split-semantics cases), plus the real-provider re-measurement published
+in `docs/research/`.
 
-**M2 — Breadth, honesty, and the speed levers.** Tiers 1–3, plan fingerprinting with the
-static-plus-runtime volatile mask, the `Unobservable`/`StructurallyUnassertable` split,
-schema-derived `MockMasked`, survivor diagnosis, JSON and SARIF reporters, `.tf-mut.hcl`.
-Schema-aware generation from `providers schema -json`: optionality-gated deletion operators,
-type-correct substitutions. **Two-phase execution and run-block file splitting land here, not
-M3** — the review's C1 measurements make them viability requirements for real-provider
-modules, not optimisations.
+**M2 — Honesty and the speed levers.** Tiers 1–3, plan fingerprinting with the
+component-granular volatile mask, the full precedence-ordered state model
+(`StructurallyUnassertable`, `indeterminate-unknown-values`, in-denominator `Timeout`),
+survivor diagnosis, JSON and SARIF reporters, `.tf-mut.hcl`. Two-phase execution, run-block
+file splitting with the **state-identity-aware prefix closure** (R2-4), and **sound
+instantiation-reachability selection** (R2-1/R2-13: selection by "does this run instantiate
+the mutated block", computable without the full reference graph — the only sound exclusion
+rule). **Exit gate: the demonstrated real-provider inner loop** — a `--since`-scoped run on
+a mocked-AWS module inside the stated time envelope; this gate moved here from M1 because
+M1 lacks the speed levers that make it meaningful (R2-13).
 
-**M3 — Selection and CI.** The attribute-level reference graph (load-bearing since C2:
-assertion-inventory ∩ forward-cone is the only sound basis for test selection), incremental
-cache, `--since`, baseline file, JUnit/HTML/Stryker reporters, GitHub Action.
-Function-operator catalogue driven by `metadata functions -json`.
+**M3 — Refinement and CI.** The attribute-level reference graph for cone-based
+*prioritisation* and predicted diagnoses (never exclusion — R2-1), static `Unobservable`
+pre-classification, incremental cache, `--since`, baseline file, JUnit/HTML/Stryker
+reporters, GitHub Action. Function-operator catalogue driven by `metadata functions -json`.
 
 **Post-MVP (unscheduled).** The explanatory uses of the reference graph: path-based survivor
 explanations, `terraform graph` as the cross-validation oracle for the in-process graph, cone
