@@ -472,6 +472,13 @@ the graph buys speed and explanation quality, not new verdicts.
 it depends on plan-diff analysis that M2 has to build anyway, and it is worth doing well rather
 than early.
 
+**M4.5 — Characterisation mode.** `tf-mut characterise` scaffolds a fully-mocked unit suite
+for an untested legacy module — mock blocks from provider schemas, inputs mined from variable
+validations, assertions pinned from harvested plan/state — then uses the mutation loop as the
+completeness oracle and kill-set analysis as the minimality oracle (`tf-mut curate`). Entirely
+deterministic; no LLM. Design: `characterisation.md`. Sequenced after M4 because it is M2 and
+M4 machinery pointed in the opposite direction: generation instead of grading.
+
 **M5 — Breadth.** Domain packs seeded from Checkov/tfsec rule catalogues, OpenTofu parity,
 Tier 4 lifecycle operators, and a published benchmark over a public-repository corpus —
 directly comparable to Oasis's 23-repository evaluation, which is the fair way to make the
