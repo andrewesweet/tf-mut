@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+export GOBIN="$repo_root/.tools/bin"
+export GOCACHE="$repo_root/.artifacts/cache/go-build"
+export GOMODCACHE="$repo_root/.tools/cache/go-mod"
+export GOTOOLCHAIN=local
+export GOWORK=off
+
+mkdir -p "$GOBIN" "$GOCACHE" "$GOMODCACHE"
+for tool_module in gopls goimports govulncheck; do
+  (
+    cd "$repo_root/tools/$tool_module"
+    go install tool
+  )
+done

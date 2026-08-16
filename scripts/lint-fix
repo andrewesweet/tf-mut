@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+snapshot_dir=$(mktemp -d "$repo_root/.artifacts/lint-fix.XXXXXX")
+trap 'rm -rf "$snapshot_dir"' EXIT
+
+run_fix_pass() {
+  golangci-lint run --fix ./... || true
+  scripts/format write
+}
+
+source_manifest() {
+  {
+    find cmd internal -type f -name '*.go'
+    cat tools/shell-files tools/json-files tools/yaml-files tools/toml-files \
+      tools/terraform-format-paths
+  } | sort -u | xargs sha256sum
+}
+
+run_fix_pass
+source_manifest >"$snapshot_dir/before"
+run_fix_pass
+source_manifest >"$snapshot_dir/after"
+
+if ! cmp -s "$snapshot_dir/before" "$snapshot_dir/after"; then
+  echo "lint/format autofix did not converge after two passes" >&2
+  diff -u "$snapshot_dir/before" "$snapshot_dir/after" >&2 || true
+  exit 1
+fi
+
+golangci-lint run ./...
+scripts/lint-shell
+scripts/lint-config
+scripts/lint-actions

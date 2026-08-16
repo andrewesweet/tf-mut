@@ -1,0 +1,43 @@
+# Project rules are defence in depth for common interactive command forms. They never allow.
+
+prefix_rule(
+    pattern = ["just", [
+        "tools-install",
+        "tools-update",
+        "providers-update",
+        "deps-update",
+        "update",
+        "test-integration",
+        "test-performance",
+        "security",
+    ]],
+    decision = "prompt",
+    justification = "This recipe uses the network, changes locks, or can reach real infrastructure.",
+)
+
+prefix_rule(
+    pattern = ["mise", "exec", "--", "just", [
+        "tools-install",
+        "tools-update",
+        "providers-update",
+        "deps-update",
+        "update",
+        "test-integration",
+        "test-performance",
+        "security",
+    ]],
+    decision = "prompt",
+    justification = "This recipe uses the network, changes locks, or can reach real infrastructure.",
+)
+
+prefix_rule(
+    pattern = ["terraform", ["apply", "destroy"]],
+    decision = "prompt",
+    justification = "Terraform apply and destroy can change external infrastructure.",
+)
+
+prefix_rule(
+    pattern = ["mise", "exec", "--", "terraform", ["apply", "destroy"]],
+    decision = "prompt",
+    justification = "Terraform apply and destroy can change external infrastructure.",
+)

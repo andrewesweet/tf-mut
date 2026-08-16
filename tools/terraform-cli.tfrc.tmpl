@@ -1,0 +1,9 @@
+disable_checkpoint = true
+plugin_cache_dir   = "@PLUGIN_CACHE@"
+
+provider_installation {
+  filesystem_mirror {
+    path    = "@PROVIDER_MIRROR@"
+    include = ["registry.terraform.io/hashicorp/null"]
+  }
+}

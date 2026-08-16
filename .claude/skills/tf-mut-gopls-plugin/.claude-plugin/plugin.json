@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin.json",
+  "name": "tf-mut-gopls",
+  "version": "0.1.0",
+  "description": "Pinned repository-local gopls integration",
+  "lspServers": "./.lsp.json"
+}

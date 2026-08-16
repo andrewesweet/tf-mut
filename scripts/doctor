@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+[[ $(uname -s) == Linux ]]
+[[ $(uname -m) == x86_64 ]]
+[[ ${GOTOOLCHAIN:-} == local ]]
+expected_mise=$(sed -n 's/^min_version = "\([^"]*\)"/\1/p' mise.toml)
+[[ $(mise --version | awk '{print $1}') == "$expected_mise" ]]
+active_tools=$(mise ls --current --json)
+expected_go=$(jq -er '.["http:go"][0].version' <<<"$active_tools")
+expected_just=$(jq -er '.["aqua:casey/just"][0].version' <<<"$active_tools")
+expected_terraform=$(jq -er '.["aqua:hashicorp/terraform"][0].version' <<<"$active_tools")
+[[ $(go version) == "go version go${expected_go} linux/amd64" ]]
+[[ $(just --version) == "just ${expected_just}" ]]
+[[ $(terraform version | head -n 1) == "Terraform v${expected_terraform}" ]]
+command -v cc >/dev/null
+
+for quality_tool in actionlint bash jq shellcheck shfmt tombi yamlfmt zizmor; do
+  command -v "$quality_tool" >/dev/null
+done
+
+for source_tool in gopls goimports govulncheck; do
+  test -x "$repo_root/.tools/bin/$source_tool"
+done
+
+source_modules=(
+  'gopls golang.org/x/tools/gopls'
+  'goimports golang.org/x/tools'
+  'govulncheck golang.org/x/vuln'
+)
+for source_module in "${source_modules[@]}"; do
+  read -r binary module <<<"$source_module"
+  expected=$(cd "$repo_root/tools/$binary" && go list -m -f '{{.Version}}' "$module")
+  go version -m "$repo_root/.tools/bin/$binary" \
+    | grep -Fq $'\tmod\t'"$module"$'\t'"$expected"$'\t'
+done
+
+go run ./internal/buildchain/cmd verify-providers
+
+for module_file in go.mod tools/gopls/go.mod tools/goimports/go.mod tools/govulncheck/go.mod; do
+  grep -Fxq "toolchain go${expected_go}" "$module_file"
+done
+
+golangci-lint config verify
+MISE_CONFIG_DIR="$repo_root/.artifacts/mise-config" mise install --dry-run
+for workflow in .github/workflows/ci.yml .github/workflows/codeql.yml; do
+  grep -q "version: $expected_mise" "$workflow"
+done
+
+test -L CLAUDE.md
+[[ $(readlink CLAUDE.md) == AGENTS.md ]]
+test -L .agents/skills/tf-mut-development
+test -x .claude/skills/tf-mut-gopls-plugin/launch-gopls
+
+echo "toolchain doctor: ok"

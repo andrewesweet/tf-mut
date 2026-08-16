@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+git_dir=$(git rev-parse --absolute-git-dir)
+stage=$(mktemp -d "${TMPDIR:-/tmp}/tf-mut-gremlins.XXXXXX")
+trap 'rm -rf "$stage"' EXIT
+
+cd "$repo_root"
+git ls-files --cached --others --exclude-standard -z \
+  | tar --null --verbatim-files-from --files-from=- --create --file=- \
+  | tar --extract --file=- --directory="$stage"
+
+cd "$stage"
+GIT_DIR="$git_dir" GIT_WORK_TREE="$stage" \
+  gremlins unleash --workers 1 --test-cpu 1 --integration --coverpkg './...' "$@" .

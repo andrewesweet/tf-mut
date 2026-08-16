@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+duration=${1:-10s}
+found=0
+
+while IFS= read -r package; do
+  while IFS= read -r target; do
+    [[ $target == Fuzz* ]] || continue
+    found=1
+    go test "$package" -run '^$' -fuzz="^${target}$" -fuzztime="$duration"
+  done < <(go test -list='^Fuzz' "$package")
+done < <(go list ./...)
+
+if ((found == 0)); then
+  echo "no native Go fuzz targets found" >&2
+  exit 1
+fi

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+mapfile -t json_paths <tools/json-files
+mapfile -t yaml_paths <tools/yaml-files
+mapfile -t toml_paths <tools/toml-files
+
+for json_path in "${json_paths[@]}"; do
+  jq -e type "$json_path" >/dev/null
+done
+yamlfmt -no_global_conf -lint "${yaml_paths[@]}"
+tombi format --offline --check --diff "${toml_paths[@]}"
+tombi lint --offline --error-on-warnings "${toml_paths[@]}"

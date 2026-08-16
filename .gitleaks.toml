@@ -1,0 +1,12 @@
+title = "tf-mut secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated tool, cache, and artifact directories"
+paths = [
+  '''^\.artifacts/''',
+  '''^\.tools/''',
+  '''^research/spikes/.*/\.terraform/''',
+]

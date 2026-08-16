@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+export GOTOOLCHAIN=local
+export GOWORK=off
+
+check_module() {
+  local module_dir=$1
+  (
+    cd "$module_dir"
+    go mod tidy -diff
+    go mod verify
+  )
+}
+
+check_module "$repo_root"
+for source_module in gopls goimports govulncheck; do
+  check_module "$repo_root/tools/$source_module"
+done

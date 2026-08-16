@@ -1,0 +1,174 @@
+name: build-chain
+on:
+  pull_request:
+  push:
+    branches: [master]
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      run_real_infrastructure:
+        description: Run explicitly guarded integration and performance tests
+        required: false
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  GOTOOLCHAIN: local
+  MISE_LOCKED: "1"
+  MISE_CONFIG_DIR: ${{ github.workspace }}/.artifacts/mise-config
+  MISE_CACHE_DIR: ${{ github.workspace }}/.artifacts/cache/mise
+jobs:
+  quality:
+    name: Quality
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4
+        with:
+          version: 2026.8.6
+          install: false
+          cache: true
+      - name: Install exact locked tools
+        run: |
+          mise install --yes
+          mise exec -- just tools-install
+      - name: Run local-equivalent quality gate
+        run: mise exec -- just ci
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: quality-${{ github.run_id }}
+          path: .artifacts/
+          include-hidden-files: true
+  race:
+    name: Race detector
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4
+        with:
+          version: 2026.8.6
+          install: false
+          cache: true
+      - name: Install exact locked tools
+        run: |
+          mise install --yes
+          mise exec -- just tools-install
+      - run: mise exec -- just test-race
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: race-${{ github.run_id }}
+          path: .artifacts/test/
+          include-hidden-files: true
+  security:
+    name: Security
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4
+        with:
+          version: 2026.8.6
+          install: false
+          cache: true
+      - name: Install exact locked tools
+        run: |
+          mise install --yes
+          mise exec -- just tools-install
+      - run: mise exec -- just security
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: security-${{ github.run_id }}
+          path: .artifacts/security/
+          include-hidden-files: true
+  mutation-diff:
+    name: Mutation diff
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4
+        with:
+          version: 2026.8.6
+          install: false
+          cache: true
+      - name: Install exact locked tools
+        run: |
+          mise install --yes
+          mise exec -- just tools-install
+      - name: Run bounded report-only diff mutation
+        env:
+          MUTATION_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: mise exec -- just mutate-diff "$MUTATION_BASE"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mutation-${{ github.run_id }}
+          path: .artifacts/mutation/
+          include-hidden-files: true
+  full:
+    name: Full scheduled gate
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4
+        with:
+          version: 2026.8.6
+          install: false
+          cache: true
+      - name: Install exact locked tools
+        run: |
+          mise install --yes
+          mise exec -- just tools-install
+      - run: mise exec -- just ci-full
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: full-${{ github.run_id }}
+          path: .artifacts/
+          include-hidden-files: true
+  real-infrastructure:
+    name: Real infrastructure
+    if: github.event_name == 'workflow_dispatch' && inputs.run_real_infrastructure
+    runs-on: ubuntu-24.04
+    environment: real-infrastructure
+    env:
+      TF_MUT_ALLOW_REAL_INFRASTRUCTURE: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4
+        with:
+          version: 2026.8.6
+          install: false
+          cache: true
+      - name: Install exact locked tools
+        run: |
+          mise install --yes
+          mise exec -- just tools-install
+      - run: mise exec -- just test-integration
+      - run: mise exec -- just test-performance

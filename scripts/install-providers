@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+mirror="$repo_root/.tools/providers"
+plugin_cache="$repo_root/.tools/terraform-plugin-cache"
+cli_config="$repo_root/.tools/terraform-cli.tfrc"
+
+mkdir -p "$mirror" "$plugin_cache"
+terraform -chdir="$repo_root/research/spikes/fixture-b" providers mirror \
+  -platform=linux_amd64 "$mirror"
+
+sed \
+  -e "s|@PROVIDER_MIRROR@|$mirror|g" \
+  -e "s|@PLUGIN_CACHE@|$plugin_cache|g" \
+  "$repo_root/tools/terraform-cli.tfrc.tmpl" >"$cli_config"
