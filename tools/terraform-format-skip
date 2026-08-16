@@ -1,1 +1,4 @@
 # Exact paths for intentionally malformed fixtures belong here.
+# This one is unformatted on purpose: it proves the run warns that mutant
+# diffs may span more than one line when the source is not canonical.
+internal/engine/testdata/unformatted/main.tf

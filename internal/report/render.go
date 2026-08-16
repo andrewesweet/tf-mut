@@ -192,7 +192,8 @@ func writeVerdict(builder *strings.Builder, verdict *Verdict) {
 			break
 		}
 
-		fmt.Fprintf(builder, "      %s   %s -> %s\n", changeLabel(change), change.Baseline, change.Mutant)
+		fmt.Fprintf(builder, "      %s   %s -> %s\n",
+			changeLabel(change), rendered(change.Baseline), rendered(change.Mutant))
 	}
 
 	fmt.Fprintf(builder, "    Fix: %s.\n\n", verdict.Fix)
@@ -202,12 +203,32 @@ func writeVerdict(builder *strings.Builder, verdict *Verdict) {
 // JSON report; a screen of it helps nobody.
 const shownChanges = 3
 
+// changeLabel names a change the way a reader would look for it: the Terraform
+// address, extended by the payload member where the address alone would not
+// distinguish two changes — an output's value, its type and its sensitivity all
+// belong to one address.
 func changeLabel(change Change) string {
-	if change.Address != "" {
+	if change.Address == "" {
+		return change.Path
+	}
+
+	segments := strings.Split(change.Path, ".")
+
+	last := segments[len(segments)-1]
+	if last == "" || strings.HasSuffix(change.Address, "."+last) || change.Address == last {
 		return change.Address
 	}
 
-	return change.Path
+	return change.Address + "." + last
+}
+
+// rendered shows an absent value as absent rather than as nothing at all.
+func rendered(value string) string {
+	if value == "" {
+		return "(absent)"
+	}
+
+	return value
 }
 
 func writeSuppressions(builder *strings.Builder, suppressions []Suppression) {

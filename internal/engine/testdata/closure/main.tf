@@ -27,7 +27,7 @@ resource "terraform_data" "projected" {
   count = 2
 
   input = {
-    label = "visible"
+    label  = "visible"
     hidden = "unreadable"
   }
 }
