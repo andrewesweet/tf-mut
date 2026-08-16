@@ -191,10 +191,11 @@ Order mutants to surface findings early and cut work:
 An attribute-level reference graph built from the AST (`hclsyntax` exposes every reference
 via `Expression.Variables()`) serves distinct roles landing at different times: (a) static
 `Unobservable` pre-classification — a site with no path to any resource, output or `check`
-needs no execution (M3); (b) forward-cone **prioritisation** — assertions reading the
-mutation site's downstream cone are the likely killers, so run them first, and predict the
-`no-assertion` diagnosis where the cone misses every assertion (M3; per R2-1 never an
-exclusion rule); (c) doomed-mutant avoidance — the reference scan gating
+needs no execution, guarded by the structural-state precedence (M3; M3 spec review C2);
+(b) ~~forward-cone prioritisation~~ — **deleted by the M3 spec review (M2): it has no
+consumer** — no `--fail-fast`, no live reporting — so reordering changes nothing observable;
+it returns only with a specified consumer, and per R2-1 could never be an exclusion rule
+regardless; (c) doomed-mutant avoidance — the reference scan gating
 `EXT-RESOURCE-DELETE` (a **bare** dependent reference makes `count = 0` statically invalid;
 an *indexed* dependent validates but errors at evaluation — see the operator catalogue and
 R2-5) needs only a local scan and ships with the operator in M1; (d) survivor explanations
@@ -699,10 +700,15 @@ configuration, suppression, SARIF and policy/precedence semantics. The honesty g
 to M2a, and M2b/M2c cannot close the milestone while any M2a gate is red — operator and
 interface breadth must not be able to hide a failed oracle behind a large green checklist.
 
-**M3 — Refinement, speed and CI.** The attribute-level reference graph for cone-based
-*prioritisation* and predicted diagnoses (never exclusion — R2-1), static `Unobservable`
-pre-classification, incremental cache, `--since`, baseline file, JUnit/HTML/Stryker
-reporters, GitHub Action. Function-operator catalogue driven by `metadata functions -json`.
+**M3 — Refinement, speed and CI.** The attribute-level reference graph behind a canonical
+address model with fail-closed adapters (M3 spec review C3), path-scoped unknowns,
+mutant-specific conditional-instantiation `NoCoverage` (C1: evaluated against the **mutant**,
+never the original), structural-precedence-guarded static `Unobservable`, incremental cache
+on the coarse correct key, `--since` over the committed-plus-working-tree union, baseline
+file with the normative gate table, JUnit/HTML/Stryker reporters (the Stryker adapter
+explicitly lossy, the disagreement tested), GitHub Action. Function-operator catalogue from
+`metadata functions -json` **last and measurement-gated** (C7: 525 canonicalised signature
+pairs are not a fault model). Sub-scopes are ordered — truth gates before breadth (M7).
 
 **The speed work lands here rather than in M2**, because the measurement in
 `../research/07-m2-cost-model.md` left the per-mutant cost a constant that no execution-shape
