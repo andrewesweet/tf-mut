@@ -446,3 +446,18 @@ func buildCatalogue() map[Operator]Entry {
 
 	return table
 }
+
+// Descriptions renders the catalogue for a consumer that publishes it, keyed by
+// operator identifier.
+//
+// The report package holds the SARIF rule metadata but must not import this
+// one — reports are derived from a population, not the other way round — so the
+// catalogue is handed over rather than reached into.
+func Descriptions() map[string]Entry {
+	described := make(map[string]Entry, len(catalogue))
+	for operator, entry := range catalogue {
+		described[string(operator)] = entry
+	}
+
+	return described
+}

@@ -3,6 +3,7 @@ package engine_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -353,5 +354,115 @@ func renameFile(t *testing.T, dir, from, to string) {
 
 	if err := os.Rename(filepath.Join(dir, from), filepath.Join(dir, to)); err != nil {
 		t.Fatalf("renaming %s: %v", from, err)
+	}
+}
+
+// validateAgainst is the same deliberately small JSON Schema checker the report
+// package uses, covering type, required, properties, items, enum, const and
+// local $ref.
+//
+// The published SARIF schema uses more vocabulary than that — anyOf, patterns,
+// additionalProperties — so this is a partial check by construction. What it
+// does cover is the part that matters here: that the document has SARIF's
+// required members, at SARIF's types, with SARIF's enumerated levels.
+func validateAgainst(root, schema map[string]any, document any, path string) []string {
+	if reference, ok := schema["$ref"].(string); ok {
+		return validateAgainst(root, resolveRef(root, reference), document, path)
+	}
+
+	problems := []string{}
+
+	if expected, ok := schema["type"].(string); ok && !hasType(expected, document) {
+		return []string{fmt.Sprintf("%s: want type %s, got %T", path, expected, document)}
+	}
+
+	if allowed, ok := schema["enum"].([]any); ok && !slices.Contains(allowed, document) {
+		problems = append(problems, fmt.Sprintf("%s: %v is not one of %v", path, document, allowed))
+	}
+
+	switch typed := document.(type) {
+	case map[string]any:
+		problems = append(problems, validateMembers(root, schema, typed, path)...)
+	case []any:
+		if items, ok := schema["items"].(map[string]any); ok {
+			for index, element := range typed {
+				problems = append(problems,
+					validateAgainst(root, items, element, fmt.Sprintf("%s[%d]", path, index))...)
+			}
+		}
+	default:
+	}
+
+	return problems
+}
+
+func validateMembers(root, schema, document map[string]any, path string) []string {
+	problems := []string{}
+
+	if required, ok := schema["required"].([]any); ok {
+		for _, entry := range required {
+			key, isString := entry.(string)
+			if _, present := document[key]; isString && !present {
+				problems = append(problems, fmt.Sprintf("%s: missing required property %q", path, key))
+			}
+		}
+	}
+
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		return problems
+	}
+
+	for key, value := range document {
+		described, known := properties[key].(map[string]any)
+		if !known {
+			continue
+		}
+
+		problems = append(problems, validateAgainst(root, described, value, path+"."+key)...)
+	}
+
+	return problems
+}
+
+func resolveRef(root map[string]any, reference string) map[string]any {
+	current := root
+
+	for segment := range strings.SplitSeq(strings.TrimPrefix(reference, "#/"), "/") {
+		next, ok := current[segment].(map[string]any)
+		if !ok {
+			return map[string]any{}
+		}
+
+		current = next
+	}
+
+	return current
+}
+
+func hasType(expected string, document any) bool {
+	switch expected {
+	case "object":
+		_, ok := document.(map[string]any)
+
+		return ok
+	case "array":
+		_, ok := document.([]any)
+
+		return ok
+	case "string":
+		_, ok := document.(string)
+
+		return ok
+	case "boolean":
+		_, ok := document.(bool)
+
+		return ok
+	case "number", "integer":
+		_, ok := document.(float64)
+
+		return ok
+	default:
+		return true
 	}
 }

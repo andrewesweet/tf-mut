@@ -105,5 +105,12 @@ linters:
           arguments: [80, 120]
   exclusions:
     generated: strict
+    rules:
+      # SARIF 2.1.0 names its members in camelCase. The repository's snake_case
+      # convention governs documents this project designs; this one is a
+      # published specification, and renaming its members would be a defect.
+      - path: internal/report/sarif\.go
+        linters:
+          - tagliatelle
 formatters:
   enable: []

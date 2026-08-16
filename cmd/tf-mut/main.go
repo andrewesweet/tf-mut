@@ -15,6 +15,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/buildinfo"
 	"github.com/andrewesweet/tf-mut/internal/engine"
+	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
@@ -28,6 +29,7 @@ const (
 
 	reporterTerminal = "terminal"
 	reporterJSON     = "json"
+	reporterSARIF    = "sarif"
 
 	usage = `usage: tf-mut <command> [flags] [PATH]
 
@@ -44,7 +46,16 @@ Flags for run and preview:
   --allow-incomplete-score     Let a timeout-affected score satisfy --min-score
   --allow-real-infrastructure  Permit execution against unmocked providers
   --allow-unsandboxed-effects  Permit apply-mode provisioners and unsevered data sources
-  --reporter terminal|json     Output format (default terminal)`
+  --tier smoke|standard|deep   Operator breadth (default standard)
+  --operator ID[,ID]           Restrict generation to these operators
+  --exclude-operator ID[,ID]   Remove operators from the population
+  --exclude-path GLOB[,GLOB]   Remove sites in matching files
+  --exclude-resource ADDR[,..] Remove sites in matching resources
+  --reporter terminal|json|sarif  Output format (default terminal)
+  --sarif-path PATH            Where to write the SARIF document
+
+Settings also readable from .tf-mut.hcl at the module root. A flag given on the
+command line overrides the configured value of that scalar and nothing else.`
 
 	exitSuccess = 0
 	exitUsage   = 2
@@ -74,9 +85,10 @@ func run(args []string, buildVersion string, stdout, stderr io.Writer) int {
 }
 
 type options struct {
-	config   engine.Config
-	gate     report.Gate
-	reporter string
+	config    engine.Config
+	gate      report.Gate
+	reporter  string
+	sarifPath string
 }
 
 func parse(command string, args []string, stderr io.Writer) (options, error) {
@@ -95,7 +107,13 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 		"permit execution against unmocked providers")
 	allowEffects := set.Bool("allow-unsandboxed-effects", false,
 		"permit apply-mode provisioners and unsevered data sources")
-	reporter := set.String("reporter", reporterTerminal, "output format: terminal or json")
+	reporter := set.String("reporter", reporterTerminal, "output format: terminal, json or sarif")
+	sarifPath := set.String("sarif-path", "", "where to write the SARIF document")
+	tier := set.String("tier", "", "operator breadth: smoke, standard or deep")
+	operators := set.String("operator", "", "restrict generation to these operator identifiers")
+	excludeOperators := set.String("exclude-operator", "", "remove these operator identifiers")
+	excludePaths := set.String("exclude-path", "", "remove sites in files matching these globs")
+	excludeResources := set.String("exclude-resource", "", "remove sites in these resource addresses")
 
 	if err := set.Parse(args); err != nil {
 		return options{}, fmt.Errorf("parsing flags: %w", err)
@@ -106,13 +124,17 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 		moduleDir = set.Arg(0)
 	}
 
-	if *reporter != reporterTerminal && *reporter != reporterJSON {
+	if *reporter != reporterTerminal && *reporter != reporterJSON && *reporter != reporterSARIF {
 		return options{}, fmt.Errorf("%w: %s", errUnknownReporter, *reporter)
 	}
 
 	requested := false
+	given := []string{}
+
 	set.Visit(func(flagged *flag.Flag) {
-		if flagged.Name == "min-score" {
+		given = append(given, flagged.Name)
+
+		if flagged.Name == engine.FlagMinScore {
 			requested = true
 		}
 	})
@@ -134,14 +156,40 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 			Env:                     nil,
 			WorkDir:                 "",
 			TestSelection:           nil,
+			Tier:                    mutation.Tier(*tier),
+			IncludeOperators:        commaSeparated(*operators),
+			ExcludeOperators:        commaSeparated(*excludeOperators),
+			ExcludePaths:            commaSeparated(*excludePaths),
+			ExcludeResources:        commaSeparated(*excludeResources),
+			SetFlags:                given,
 		},
 		gate: report.Gate{
 			MinScore:             *minScore,
 			HasMinScore:          requested,
 			AllowIncompleteScore: *allowIncomplete,
 		},
-		reporter: *reporter,
+		reporter:  *reporter,
+		sarifPath: *sarifPath,
 	}, nil
+}
+
+// commaSeparated splits a repeated-value flag, which keeps the flag surface the
+// same shape as the configuration file's lists.
+func commaSeparated(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+
+	parts := strings.Split(value, ",")
+	trimmed := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		if name := strings.TrimSpace(part); name != "" {
+			trimmed = append(trimmed, name)
+		}
+	}
+
+	return trimmed
 }
 
 var errUnknownReporter = errors.New("unknown reporter")
@@ -157,19 +205,39 @@ func execute(command string, args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, "tf-mut: "+err.Error())
 	}
 
-	if err := render(stdout, parsed.reporter, result); err != nil {
+	if err := render(stdout, parsed, result); err != nil {
 		return fail(stderr, "tf-mut: "+err.Error())
 	}
 
 	return result.ExitCode(parsed.gate)
 }
 
-func render(stdout io.Writer, reporter string, result report.Report) error {
-	if reporter == reporterJSON {
+func render(stdout io.Writer, parsed options, result report.Report) error {
+	switch parsed.reporter {
+	case reporterJSON:
 		return report.WriteJSON(stdout, result)
+	case reporterSARIF:
+		return writeSARIF(stdout, parsed.sarifPath, result)
+	default:
+		return report.WriteTerminal(stdout, result)
+	}
+}
+
+// writeSARIF renders the code-scanning document, to a file when one was named
+// and to standard output otherwise.
+func writeSARIF(stdout io.Writer, path string, result report.Report) error {
+	if path == "" {
+		return report.WriteSARIF(stdout, result)
 	}
 
-	return report.WriteTerminal(stdout, result)
+	file, err := os.Create(path) //nolint:gosec // the path is the caller's own choice.
+	if err != nil {
+		return fmt.Errorf("creating %s: %w", path, err)
+	}
+
+	defer func() { _ = file.Close() }()
+
+	return report.WriteSARIF(file, result)
 }
 
 func fail(stderr io.Writer, message string) int {
