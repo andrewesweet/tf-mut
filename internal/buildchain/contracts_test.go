@@ -63,6 +63,15 @@ func TestPublicControlPlaneRecipesExist(t *testing.T) {
 	}
 }
 
+func TestDoctorVerifiesLiveProviderChain(t *testing.T) {
+	t.Parallel()
+
+	doctor := readRepositoryFile(t, "scripts/doctor")
+	if !strings.Contains(doctor, "go run ./internal/buildchain/cmd verify-providers") {
+		t.Error("doctor does not verify the live provider mirror against its lock and allowlist")
+	}
+}
+
 func TestCodeQLCoversEverySupportedLanguageWithMaximumBuiltInSuite(t *testing.T) {
 	t.Parallel()
 
