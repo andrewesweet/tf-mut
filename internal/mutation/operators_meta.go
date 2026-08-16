@@ -46,7 +46,7 @@ func (g Generator) metaEdits(
 	case dependsOnArgument:
 		return []edit{remove(DependsDrop, where, lineRange(source, attribute.SrcRange))}
 	case providerArgument:
-		return g.providerEdits(where, attribute)
+		return g.providerEdits(source, where, attribute)
 	default:
 		return nil
 	}
@@ -104,15 +104,15 @@ func dynamicEdits(where site, attribute *hclsyntax.Attribute) []edit {
 // The guard is load-bearing rather than tidy: a swap that moved a resource from
 // a mocked provider to an unmocked one would execute against real
 // infrastructure past a safety gate that already ran (M2 spec review, M3).
-func (g Generator) providerEdits(where site, attribute *hclsyntax.Attribute) []edit {
-	traversal, ok := attribute.Expr.(*hclsyntax.ScopeTraversalExpr)
-	if !ok || len(traversal.Traversal) != referenceParts {
-		return nil
-	}
-
-	name := traversal.Traversal.RootName()
-
-	current, ok := traversal.Traversal[1].(hcl.TraverseAttr)
+//
+// The reference is read from the source text rather than the syntax tree.
+// `provider = null.primary` is the ordinary way to place a resource on an
+// aliased configuration of the null provider, and HCL parses `null` as the null
+// keyword, so the expression is a traversal relative to a literal rather than
+// the traversal it reads as. Terraform resolves the attribute specially; so
+// does this.
+func (g Generator) providerEdits(source []byte, where site, attribute *hclsyntax.Attribute) []edit {
+	name, current, ok := providerReference(sourceText(source, attribute.Expr.Range()))
 	if !ok {
 		return nil
 	}
@@ -120,11 +120,11 @@ func (g Generator) providerEdits(where site, attribute *hclsyntax.Attribute) []e
 	edits := []edit{}
 
 	for _, candidate := range g.Configuration.ProviderAliases(name) {
-		if candidate == current.Name {
+		if candidate == current {
 			continue
 		}
 
-		if g.Configuration.AliasMocked(name, candidate) != g.Configuration.AliasMocked(name, current.Name) {
+		if g.Configuration.AliasMocked(name, candidate) != g.Configuration.AliasMocked(name, current) {
 			continue
 		}
 
@@ -135,8 +135,18 @@ func (g Generator) providerEdits(where site, attribute *hclsyntax.Attribute) []e
 	return edits
 }
 
-// referenceParts is the traversal length of `<provider>.<alias>`.
+// referenceParts is the length of a `<provider>.<alias>` reference.
 const referenceParts = 2
+
+// providerReference splits `<provider>.<alias>` into its two identifiers.
+func providerReference(text string) (name, alias string, ok bool) {
+	parts := strings.Split(strings.TrimSpace(text), ".")
+	if len(parts) != referenceParts || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+
+	return parts[0], parts[1], true
+}
 
 // contractEdits offers the Tier 3 operators an attribute inside a contract
 // block: a validation, a precondition, a postcondition or a check assertion.

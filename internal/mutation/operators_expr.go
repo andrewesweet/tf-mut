@@ -268,9 +268,13 @@ func templateEdits(source []byte, where site, expr *hclsyntax.TemplateExpr) []ed
 //
 // A segment is a string literal in every sense that matters — `"${uuid()}-stable"`
 // has an assertable `-stable` in it, and that is precisely the component the
-// volatility work exists to keep in the fingerprint. Segments whose source
-// carries an escape are skipped: case-flipping `\n` produces `\N`, which is not
-// a mutation of the module but a defect in the operator.
+// volatility work exists to keep in the fingerprint.
+//
+// Two kinds of segment are skipped, both because rewriting them would produce a
+// defect rather than a mutation. One whose source carries an escape: case
+// flipping `\n` yields `\N`, which does not parse. And one that is only
+// whitespace: emptying it models no fault, and in a heredoc it deletes the
+// newline the closing marker has to sit after.
 func literalSegmentEdits(source []byte, where site, expr *hclsyntax.TemplateExpr) []edit {
 	if len(expr.Parts) < minimumElements {
 		return nil
@@ -285,7 +289,7 @@ func literalSegmentEdits(source []byte, where site, expr *hclsyntax.TemplateExpr
 		}
 
 		text := sourceText(source, literal.SrcRange)
-		if text == "" || strings.Contains(text, `\`) {
+		if strings.TrimSpace(text) == "" || strings.Contains(text, `\`) {
 			continue
 		}
 

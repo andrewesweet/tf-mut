@@ -281,15 +281,106 @@ maintained upstream instead of a hand-written list.
 
 ---
 
-## Applicability matrix (required before Tier 1–3 implementation)
+## Applicability matrix
 
 From the M2 spec review (C5, M2): "type-preserving where decidable" is a design rule, not an
 applicability specification, and per-operator error counts over an unspecified catalogue
-measure specification gaps rather than operator quality. Before any Tier 1–3 operator is
-implemented, this document gains a matrix with one row per enabled operator: the exact source
-forms accepted, the type/schema evidence required to fire, any coordinated rewrites, the
-cases skipped and why, and the expected classification of the mutants it emits. Each row is
-fixture-backed. Authoring the matrix is the first deliverable of the M2 operator sub-scope.
+measure specification gaps rather than operator quality. This is that specification. One row
+per enabled operator: the exact source forms it accepts, the type or schema evidence it needs
+in order to fire, any coordinated rewrite it performs, the cases it skips and why, and the
+classification its mutants are expected to reach.
+
+Every row is fixture-backed. `internal/engine/testdata/operators` carries a generation site for
+each operator, and a test in `internal/engine` fails if this table names an operator the
+catalogue does not enable, if the catalogue enables one this table does not describe, or if any
+operator has no site in the fixture. A row that describes an operator nothing can fire on is a
+test failure rather than a plausible paragraph.
+
+Two conventions the table relies on. **Deduplication is by mutated file content**, so where two
+operators would rewrite a file identically only one mutant survives, and the entry sorting
+earliest wins — `EXT-RESOURCE-DELETE` therefore subsumes `COUNT-ZERO` and `FOREACH-EMPTY`
+wherever both fire, which the rows record rather than hide. And **a mutant that does not parse
+is discarded before execution**, with a warning naming the operator: that is a defect in the
+operator, not a finding about the module, and spending a Terraform run to discover it would be
+waste.
+
+| Operator | Source forms accepted | Evidence required | Coordinated rewrite | Skipped | Expected classification |
+| --- | --- | --- | --- | --- | --- |
+| `EXT-ATTR-DELETE` | A top-level argument assignment in a `resource`, `data` or `module` body | Provider schema marks the attribute optional and not required | — | Meta-arguments; attributes the schema does not describe; required attributes | `Killed` where an assertion reads the attribute; otherwise a survivor diagnosed from the delta |
+| `EXT-RESOURCE-DELETE` | A `resource` with `count` or `for_each` | Every recorded consumption of the address tolerates an empty collection | — | Bare or exact-index consumers, which get `EXT-BODY-BLANK` instead | `Killed` where an assertion counts or indexes instances |
+| `EXT-BODY-BLANK` | A `resource` block with at least one schema-optional argument | Provider schema optionality of every argument removed | — | Resources with no optional argument, which raise the unanswerable-resource warning | `Killed` or `KilledByError`; a survivor makes the resource pseudo-tested |
+| `EXT-OUTPUT-NULL` | An `output` block with a `value` | — | — | Outputs with no value | `Killed` where an assertion reads the output |
+| `EXT-LOCAL-NULL` | A `locals` entry | — | — | — | `Killed` where an assertion reads anything downstream |
+| `EXT-MODULE-INPUT-DELETE` | An input argument on a local `module` call | The child module declares a variable of that name | — | Inputs the child does not declare | `Invalid` where the child variable has no default; otherwise classified by execution |
+| `COND-SWAP` | `c ? a : b` | — | Both arms are replaced with each other's source text | Template conditionals, which `TPL-IF-COLLAPSE` owns | `Killed` where an assertion distinguishes the arms |
+| `COND-NEGATE` | `c ? a : b` | — | — | Template conditionals | As above; deduplicated against `BOOL-NEGATE-INSERT` where the predicate is a comparison |
+| `COND-TRUE` | `c ? a : b` | Both arms already unify by the language's own rule, so the collapse is type-safe | — | Template conditionals | `Unobservable` where the collapsed arm is the one current inputs select |
+| `COND-FALSE` | `c ? a : b` | As above | — | Template conditionals | As above |
+| `BOOL-AND-OR` | `a && b` | — | — | — | `Killed` where an assertion exercises an input the combinators disagree on |
+| `BOOL-OR-AND` | `a \|\| b` | — | — | — | As above |
+| `BOOL-NEGATE-REMOVE` | `!e` | — | — | Unary operators other than logical not | `Killed` where an assertion exercises the condition |
+| `BOOL-NEGATE-INSERT` | A binary comparison or logical operation | The operation's result type is boolean, which the operator itself decides | — | Any other expression, whose type is not decidable here | As above |
+| `CMP-EQ-NE` | `a == b`, `a != b` | — | — | — | `Killed` where an assertion exercises a value equality matters for |
+| `CMP-BOUNDARY` | `<`, `<=`, `>`, `>=` | — | — | — | `Killed` where an assertion exercises the boundary value |
+| `CMP-INVERT` | `<`, `<=`, `>`, `>=` | — | — | — | `Killed` where an assertion exercises either side |
+| `ARITH-SWAP` | `+`, `-`, `*`, `/` | — | — | — | `Killed` where an assertion reads the computed value |
+| `NUM-OFF-BY-ONE` | A numeric literal | The literal's own type | — | Numbers inside a meta-argument, which Tier 2 owns | `Killed` where an assertion checks the exact value |
+| `NUM-ZERO` | A numeric literal other than zero | As above | — | Zero, and meta-argument numbers | As above |
+| `NUM-NEGATE` | A numeric literal other than zero | As above | — | As above | `Killed` where an assertion checks the sign |
+| `BOOL-LITERAL-FLIP` | `true` or `false` | The literal's own type | — | — | `Killed` where an assertion reads the flag |
+| `STR-EMPTY` | A quoted string literal, and the literal segments of an interpolated template | The value is a string; the segment's source carries no escape | — | Heredocs as a whole, already-empty strings, and segments containing a backslash | `Killed` where an assertion compares the string |
+| `STR-CASE` | As `STR-EMPTY` | As above, and the text contains a letter | — | As above, and text with no letters | As above |
+| `NULL-INJECT` | A top-level argument of a `resource` or `data` block | Provider schema marks the attribute optional and not required | — | Values that are already null; non-resource contexts | `Killed` or `KilledByError` where the attribute is read |
+| `COLL-DROP-FIRST` | A tuple with at least two elements | — | — | Tuples with fewer than two elements | `Killed` where an assertion reads the collection |
+| `COLL-DROP-LAST` | As above | — | — | As above | As above |
+| `COLL-EMPTY` | Any tuple or object constructor | — | — | — | As above |
+| `COLL-DROP-ENTRY` | One entry of an object constructor | — | — | — | `Killed` where an assertion reads that entry |
+| `COLL-REVERSE` | A tuple with at least two elements | — | Every element is replaced with its mirror's source text | Tuples with fewer than two elements | `Killed` where an assertion reads the collection in order; `Unobservable` where order does not reach the plan |
+| `FOR-DROP-IF` | A `for` expression with an `if` clause | The `if` keyword is present between the value and condition ranges | — | `for` expressions with no filter | `Killed` where an assertion exercises input the filter excludes |
+| `FOR-NEGATE-IF` | As above | — | — | As above | `Killed` where an assertion exercises input the filter selects |
+| `FOR-SWAP-KV` | An object `for` expression with a key expression | — | Key and value are replaced with each other's source text | Tuple `for` expressions, which have no key | `Killed` where an assertion reads the resulting keys |
+| `FOR-DROP-GROUPING` | An object `for` expression in grouping mode | The `...` marker is present after the value | Non-grouping `for` expressions | — | `Killed` where an assertion reads a grouped value |
+| `IDX-SHIFT` | A literal numeric index, whether an `IndexExpr` or an index step folded into a traversal | The key is a number literal | — | Computed and string keys | `KilledByError` or `Killed` where the index is read |
+| `SPLAT-FIRST` | A splat expression | The marker range lies inside the expression | Source and projection are rebuilt around a literal index | — | `Killed` where an assertion reads the whole projection |
+| `TPL-DROP-INTERP` | One interpolation of a template | The `${` and `}` delimiting it are locatable | — | Interpolations whose delimiters cannot be located | `Killed` where an assertion reads the rendered string |
+| `TPL-STRIP-FLIP` | An interpolation carrying `${~` or `~}` | The marker is already present | — | Interpolations with no strip marker: adding one is a no-op unless adjacent whitespace exists, and would emit mutants unobservable by construction | `Unobservable` unless whitespace reaches an assertion |
+| `TPL-IF-COLLAPSE` | `%{if c}A%{else}B%{endif}` | The conditional's source begins with `%{` | The whole directive is replaced by one branch's source | Ternary conditionals, which the `COND-*` operators own | `Killed` where an assertion exercises the other branch |
+| `HEREDOC-INDENT-FLIP` | A template whose source begins `<<-` | — | — | Quoted templates and plain heredocs | `Killed` where an assertion compares rendered indentation |
+| `FN-SWAP` | A call to one of the curated pairs: `min`/`max`, `floor`/`ceil`, `upper`/`lower`, `startswith`/`endswith`, `alltrue`/`anytrue`, `concat`/`setunion` | The function name is in the curated table | — | Every other function; the metadata-driven catalogue is M3 | `Killed` where an assertion reads a value the pair disagrees on |
+| `FN-ARG-REORDER` | `coalesce`, `merge` or `concat` with at least two arguments | As above | The first two arguments are replaced with each other's source text | Calls with fewer than two arguments | `Killed` where an assertion reads a value precedence matters for |
+| `FN-DROP-DEFAULT` | `lookup(m, k, d)` with three arguments; `try(a, b, …)` with at least two | Argument count | — | `lookup` with two arguments; `try` with one | `Killed` or `KilledByError` where the fallback path is exercised |
+| `FN-TRY-FIRST` | `try(a, b, …)` with at least two arguments | Argument count | — | `try` with one argument | `Killed` where an assertion exercises the primary path |
+| `FN-CAN-TRUE` | `can(e)` | Argument count of one | — | — | `Killed` where an assertion exercises input the guard rejects |
+| `FN-DROP-WRAPPER` | `distinct`, `sort`, `compact`, `flatten` or `toset` with one argument | The function name is in the curated table and the call is not variadic | — | Variadic calls and every other function | `Killed` where an assertion reads the normalised value |
+| `FN-JOIN-SEP` | `join(sep, xs)` where `sep` is a non-empty string literal | The separator is a quoted literal with content | — | Computed separators and already-empty ones, which model no fault | `Killed` where an assertion reads the joined string |
+| `FN-DROP-EXPANSION` | A call whose final argument is expanded with `...` | The `...` marker is locatable before the closing parenthesis | — | Calls with no expansion | `Killed` or `KilledByError` where the call's result is read |
+| `COUNT-ZERO` | `count = e` on a `resource` | Every recorded consumption tolerates an empty collection | — | Bare and exact-index consumers; `dynamic` blocks, which `DYNAMIC-ZERO` owns | Deduplicated against `EXT-RESOURCE-DELETE`, which emits the same mutant wherever both fire |
+| `COUNT-ONE` | `count = n` where `n` is a literal other than one | The literal's own type | — | Computed counts | `Killed` where an assertion checks the instance count |
+| `COUNT-OFF-BY-ONE` | `count = n` where `n` is a literal | As above | — | Computed counts; `n - 1` is skipped where `n` is one, so the multiplicity gate is not bypassed | `Killed` where an assertion checks an exact count |
+| `FOREACH-EMPTY` | `for_each = e` on a `resource` | Every recorded consumption tolerates an empty collection | — | As `COUNT-ZERO` | Deduplicated against `EXT-RESOURCE-DELETE` wherever both fire |
+| `FOREACH-TO-COUNT` | `for_each = toset(x)` or `for_each = [ … ]` on a `resource` | The collection is a set built from an indexable list | `count = length(x)` replaces the `for_each`, and every `each.key` and `each.value` in the block becomes `x[count.index]` | Map collections, whose keys `count` cannot reproduce | `Killed` where an assertion depends on instance keys rather than ordinals |
+| `DYNAMIC-ZERO` | `for_each` inside a `dynamic` block | — | — | — | `Killed` where an assertion reads the generated nested block |
+| `DEPENDS-DROP` | `depends_on = [ … ]` | — | The whole line is removed, so no blank line is left behind | — | `StructurallyUnassertable`: ordering has no projection an assertion can read |
+| `PROVIDER-ALIAS-SWAP` | `provider = <name>.<alias>` on a `resource` | Another alias of the same provider is declared, and the two have identical mock status | — | Swaps that would cross from a mocked configuration to an unmocked one — such a swap would route execution past a safety gate that has already run | `Killed` where an assertion checks placement |
+| `VAR-DEFAULT-CHANGE` | `default = v` in a `variable` block | The default's own type is decidable from the literal | — | Defaults whose type is not decidable | `Killed` where a run block relies on the default |
+| `VAR-DEFAULT-REMOVE` | As above | — | The whole line is removed | — | `KilledByError` where a run block omits the variable |
+| `VAR-DEFAULT-NULL` | As above | The variable does not declare `nullable = false` | — | Variables declared not nullable, where the mutant is doomed | `Killed` where a run block relies on the default |
+| `VAR-NULLABLE-FLIP` | `nullable = false` | The literal is exactly `false` | — | `nullable = true`, which models no fault | `Killed` where a test passes null explicitly |
+| `VAR-OPTIONAL-DEFAULT-DROP` | `optional(type, default)` inside a `type` constraint | The call has exactly two arguments | — | `optional(type)` | `Killed` where a test exercises the object without that attribute |
+| `VAR-VALIDATION-REMOVE` | A `validation` block inside a `variable` | The enclosing variable is known | The whole block is removed | `validation` blocks outside a variable | `StructurallyUnassertable` unless a run block uses `expect_failures` |
+| `VAR-VALIDATION-WEAKEN` | `condition` inside a `validation` block | The enclosing variable's name | Emits exactly `can(var.<name>)` | — | `StructurallyUnassertable` unless exercised. `condition = true` is never emitted: Terraform rejects a validation condition that does not refer to its own variable, so that form is 100% `Invalid` |
+| `VAR-VALIDATION-NEGATE` | As above | — | — | — | `KilledByError` where a run block passes a valid value |
+| `VAR-SENSITIVE-FLIP` | `sensitive = true` in a `variable` | The literal is exactly `true` | — | `sensitive = false` | Rarely killed: a sensitivity pseudo-test detector |
+| `PRE-POST-REMOVE` | A `precondition` or `postcondition` block | — | The whole block is removed | — | `StructurallyUnassertable` unless a run block uses `expect_failures` |
+| `PRE-POST-NEGATE` | `condition` inside a `precondition` or `postcondition` | — | — | — | `KilledByError` where a run block asserts the happy path |
+| `CHECK-REMOVE` | An `assert` block inside a `check` | The enclosing block is a `check` | The whole block is removed | `assert` blocks in test files, which are never mutated | `StructurallyUnassertable` unless the check is exercised |
+| `CHECK-NEGATE` | `condition` inside a `check`'s `assert` | As above | — | — | `Killed` where a run block exercises the check |
+| `OUT-SENSITIVE-FLIP` | `sensitive = true` in an `output` | The literal is exactly `true` | — | `sensitive = false` | Rarely killed: a sensitivity pseudo-test detector |
+
+### Tier 4 and the packs
+
+No row above belongs to Tier 4 or to a domain pack. `--tier deep` is accepted as a name so that
+configuration can refer to it, and it currently enables nothing beyond `standard`.
 
 ## Suppression
 
