@@ -113,14 +113,62 @@ output "name" {
 	return module
 }
 
+// TestRemoteModuleResolvesUnderInheritedGitLocation proves the engine is immune
+// to a caller that exports GIT_DIR and GIT_WORK_TREE — a git hook, or this
+// repository's own mutation gate. Without the guard, Terraform's module
+// installer inherits them and every remote module fails to download.
+//
+// It does not run in parallel: t.Setenv and t.Parallel are incompatible.
+func TestRemoteModuleResolvesUnderInheritedGitLocation(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is required to build the remote-module fixture")
+	}
+
+	root, found := repositoryRoot(t)
+	if !found {
+		t.Skip("repository root not found")
+	}
+
+	t.Setenv("GIT_DIR", filepath.Join(root, ".git"))
+	t.Setenv("GIT_WORK_TREE", root)
+
+	origin := gitOrigin(t)
+	module := remoteConsumer(t, origin)
+
+	result, err := engine.Run(t.Context(), baseConfig(t, module))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if got := stateOf(t, result, "output.name"); got != report.Killed {
+		t.Fatalf("the remote module's output = %s, want %s", got, report.Killed)
+	}
+}
+
 func git(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
 	//nolint:gosec // every argument is a literal or a test-owned temporary path.
 	command := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir}, args...)...)
-	command.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	command.Env = gitEnvironment()
 
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
 	}
+}
+
+// gitEnvironment strips every GIT_* variable the caller inherited before adding
+// back only what this fixture needs. Without that, a harness that exports
+// GIT_DIR or GIT_WORK_TREE — the repository's own mutation gate does — would
+// redirect these commands at the checkout instead of the temporary fixture.
+func gitEnvironment() []string {
+	environment := []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null"}
+
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "GIT_") {
+			environment = append(environment, entry)
+		}
+	}
+
+	return environment
 }

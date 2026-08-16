@@ -26,6 +26,26 @@ var ErrNotExecuted = errors.New("terraform could not be executed")
 // non-zero exit carries no product meaning.
 var ErrCommandFailed = errors.New("terraform command failed")
 
+// gitLocationVariables pin git at one repository. Terraform shells out to git
+// to install remote modules, in directories of its own choosing, so inheriting
+// these turns a module download into "fatal: working tree ... already exists".
+// Anyone running the tool from a git hook exports them without knowing it.
+//
+// Only the location variables are removed: GIT_SSH_COMMAND, credential helpers
+// and the rest are how a private module source authenticates.
+//
+//nolint:gochecknoglobals // an immutable lookup table.
+var gitLocationVariables = map[string]bool{
+	"GIT_DIR":                          true,
+	"GIT_WORK_TREE":                    true,
+	"GIT_INDEX_FILE":                   true,
+	"GIT_OBJECT_DIRECTORY":             true,
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES": true,
+	"GIT_COMMON_DIR":                   true,
+	"GIT_NAMESPACE":                    true,
+	"GIT_PREFIX":                       true,
+}
+
 // Runner executes Terraform CLI commands.
 type Runner struct {
 	// Binary is the Terraform executable name or path.
@@ -55,7 +75,7 @@ const (
 func (r Runner) Run(ctx context.Context, dir string, args ...string) (Result, error) {
 	full := append([]string{"-chdir=" + dir}, args...)
 	command := exec.CommandContext(ctx, r.Binary, full...) //nolint:gosec // the binary and arguments are tool-controlled.
-	command.Env = append(os.Environ(), r.Env...)
+	command.Env = append(inheritedEnvironment(), r.Env...)
 
 	var stdout, stderr bytes.Buffer
 
@@ -228,6 +248,23 @@ func (r Runner) FmtCheck(ctx context.Context, dir string) ([]string, error) {
 	}
 
 	return unformatted, nil
+}
+
+// inheritedEnvironment is the process environment minus the variables that
+// would redirect Terraform's git subprocesses at the caller's repository.
+func inheritedEnvironment() []string {
+	environment := make([]string, 0, len(os.Environ()))
+
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if gitLocationVariables[name] {
+			continue
+		}
+
+		environment = append(environment, entry)
+	}
+
+	return environment
 }
 
 func combinedTail(result Result) string {
