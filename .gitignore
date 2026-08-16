@@ -1,6 +1,9 @@
 .terraform/
-.terraform.lock.hcl
 *.tfstate
 *.tfstate.backup
 /dist/
 /tf-mut
+/.artifacts/
+/.tools/
+mise.local.toml
+mise.local.lock

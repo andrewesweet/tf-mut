@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+mapfile -t shell_paths <tools/shell-files
+
+bash -n "${shell_paths[@]}"
+shfmt -d -i 2 -ci -bn "${shell_paths[@]}"
+shellcheck "${shell_paths[@]}"

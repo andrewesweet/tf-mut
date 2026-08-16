@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+json_files=(
+  .claude/settings.json
+  .claude/skills/tf-mut-gopls-plugin/.claude-plugin/plugin.json
+  .claude/skills/tf-mut-gopls-plugin/.lsp.json
+  .codex/hooks.json
+)
+for json_file in "${json_files[@]}"; do
+  jq -e . "$json_file" >/dev/null
+done
+
+test -L CLAUDE.md
+[[ $(readlink CLAUDE.md) == AGENTS.md ]]
+test -L .agents/skills/tf-mut-development
+[[ $(readlink .agents/skills/tf-mut-development) == ../../.claude/skills/tf-mut-development ]]
+cmp -s AGENTS.md CLAUDE.md
+cmp -s .claude/skills/tf-mut-development/SKILL.md \
+  .agents/skills/tf-mut-development/SKILL.md
+
+for recipe in doctor fmt-check agent-check; do
+  grep -q "just $recipe" .claude/settings.json
+  grep -q "just $recipe" .codex/hooks.json
+done
+
+jq -e '.hooks.PreToolUse[] | select(.matcher == "Bash|Edit|Write")' \
+  .codex/hooks.json >/dev/null
+
+if grep -REq 'decision[[:space:]]*=[[:space:]]*"allow"' .codex/rules; then
+  echo "Codex project rules must never auto-allow commands" >&2
+  exit 1
+fi
+
+interactive_recipes=(
+  tools-install tools-update providers-update deps-update update
+  test-integration test-performance security
+)
+for recipe in "${interactive_recipes[@]}"; do
+  grep -q "\"$recipe\"" .codex/rules/just.rules
+done
+
+if command -v codex >/dev/null; then
+  codex execpolicy check --rules .codex/rules/just.rules -- \
+    mise exec -- just tools-update >/dev/null
+fi
+
+go test ./internal/buildchain -count=1
+
+echo "agent adapters: ok"

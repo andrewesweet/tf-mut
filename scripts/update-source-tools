@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+export GOCACHE="$repo_root/.artifacts/cache/go-build"
+export GOMODCACHE="$repo_root/.tools/cache/go-mod"
+export GOTOOLCHAIN=local
+export GOWORK=off
+
+for tool_module in gopls goimports govulncheck; do
+  (
+    cd "$repo_root/tools/$tool_module"
+    go get tool@upgrade
+    go mod tidy
+  )
+done
+
+for tool_module in goimports govulncheck; do
+  (
+    cd "$repo_root/tools/$tool_module"
+    go get golang.org/x/mod@upgrade
+    go mod tidy
+  )
+done
+
+scripts/install-source-tools

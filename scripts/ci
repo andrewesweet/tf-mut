@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+mkdir -p .artifacts
+before=$(mktemp "$repo_root/.artifacts/ci-source-before.XXXXXX")
+after=$(mktemp "$repo_root/.artifacts/ci-source-after.XXXXXX")
+trap 'rm -f "$before" "$after"' EXIT
+
+snapshot_source() {
+  git diff --binary --no-ext-diff HEAD
+  while IFS= read -r -d '' source_path; do
+    if [[ -L $source_path ]]; then
+      printf 'symlink %s -> %s\n' "$source_path" "$(readlink "$source_path")"
+    elif [[ -f $source_path ]]; then
+      stat -c 'mode %a %n' "$source_path"
+      sha256sum "$source_path"
+    fi
+  done < <(git ls-files --others --exclude-standard -z | sort -z)
+}
+
+snapshot_source >"$before"
+
+just doctor
+just fmt-check
+just mod-check
+just typecheck
+just lint
+just build
+just test
+just agent-check
+
+snapshot_source >"$after"
+if ! cmp -s "$before" "$after"; then
+  echo "just ci changed source-tree content or metadata:" >&2
+  diff -u "$before" "$after" >&2 || true
+  exit 1
+fi

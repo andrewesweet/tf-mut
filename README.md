@@ -2,8 +2,26 @@
 
 Mutation testing for `terraform test`, designed for fully-mocked unit tests.
 
-> **Status: design phase.** This repository currently contains research and a product design.
-> No implementation yet.
+> **Status: build-chain bootstrap.** The accepted design, pinned local/CI control plane, and a
+> minimal version command exist. The Terraform mutation engine is not implemented yet.
+
+## Bootstrap and build
+
+The initial supported platform is Linux x86-64, including WSL2. Install the mise version pinned
+in `mise.toml`, then run:
+
+```bash
+mise trust
+MISE_CONFIG_DIR="$PWD/.artifacts/mise-config" mise install --yes
+MISE_CONFIG_DIR="$PWD/.artifacts/mise-config" mise exec -- just tools-install
+MISE_CONFIG_DIR="$PWD/.artifacts/mise-config" mise exec -- just ci
+```
+
+After bootstrap, Just is the shared local/CI control plane. `just --list` documents focused
+format, lint, type, test, fuzz, mutation, and security recipes for Go, Bash, JSON, YAML, TOML,
+Terraform, and GitHub Actions. `just security` is intentionally separate from the reproducible
+`just ci` gate because vulnerability databases change over time. CodeQL additionally analyzes
+every language it supports here (Go and GitHub Actions) in GitHub's code-scanning environment.
 
 ## The problem
 
@@ -41,10 +59,12 @@ work. An independent adversarial review drove these corrections — see
 | [`docs/design/agent-integration.md`](docs/design/agent-integration.md) | Failure-mode taxonomy, and driving the tool from a coding agent |
 | [`docs/reviews/2026-08-15-adversarial-review.md`](docs/reviews/2026-08-15-adversarial-review.md) | Adversarial review round 1 (4 critical) and dispositions |
 | [`docs/reviews/2026-08-16-adversarial-review-r2.md`](docs/reviews/2026-08-16-adversarial-review-r2.md) | Round 2, external agent, over the round-1 revisions (5 critical) and dispositions |
+| [`docs/reviews/2026-08-16-build-chain-implementation-review.md`](docs/reviews/2026-08-16-build-chain-implementation-review.md) | Sol/xhigh adversarial review of the implemented build chain and dispositions |
 | [`docs/research/01-terraform-test-capabilities.md`](docs/research/01-terraform-test-capabilities.md) | What `terraform test` can do in v1.15.8, verified against the CLI |
 | [`docs/research/02-prior-art.md`](docs/research/02-prior-art.md) | Mutation testing prior art, and an analysis of Oasis |
 | [`docs/research/03-hcl2-tooling.md`](docs/research/03-hcl2-tooling.md) | HCL2 tooling and the mutable surface of the language |
 | [`docs/research/04-harness-spike.md`](docs/research/04-harness-spike.md) | Measured spike results — isolation, equivalence, throughput |
+| [`docs/research/05-go-build-chain.md`](docs/research/05-go-build-chain.md) | Accepted Go/Just/mise build-chain contract and implementation notes |
 
 ## Findings that shaped the design
 
@@ -87,6 +107,10 @@ reproduction steps in [`docs/research/04-harness-spike.md`](docs/research/04-har
 docs/design/      Product design and operator catalogue
 docs/research/    Research notes, all claims sourced or verified
 research/spikes/  Terraform fixtures used to verify the harness design
+cmd/              Minimal Go command-line entry point
+internal/         Go implementation packages
+scripts/          Private helpers behind the Just control plane
+tools/            Source-tool and Terraform-provider lock domains
 ```
 
 ## Licence

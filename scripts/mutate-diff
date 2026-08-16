@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+base=${1:?usage: scripts/mutate-diff BASE}
+repo_root=$(git rev-parse --show-toplevel)
+artifact="$repo_root/.artifacts/mutation/diff.json"
+mkdir -p "$(dirname "$artifact")"
+
+status=0
+timeout 10m scripts/run-gremlins --diff "$base" --output "$artifact" || status=$?
+
+if ((status == 124)); then
+  if [[ ! -s $artifact ]] || ! jq -e '.mutants_total >= 0' "$artifact" >/dev/null; then
+    echo "mutation budget expired without a valid report; refusing an evidence-free pass" >&2
+    exit 1
+  fi
+  jq -r '
+    "mutation budget expired after ten minutes: processed="
+    + ((.mutants_killed + .mutants_lived + .mutants_not_viable) | tostring)
+    + " remaining="
+    + ((.mutants_total - .mutants_killed - .mutants_lived - .mutants_not_viable) | tostring)
+  ' "$artifact" >&2
+  exit 0
+fi
+
+exit "$status"

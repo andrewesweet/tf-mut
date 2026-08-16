@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode=${1:-check}
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+case "$mode" in
+  check | write) ;;
+  *)
+    echo "usage: scripts/format [check|write]" >&2
+    exit 2
+    ;;
+esac
+
+mapfile -t terraform_paths <tools/terraform-format-paths
+mapfile -t terraform_skips < <(grep -Ev '^[[:space:]]*(#|$)' tools/terraform-format-skip)
+mapfile -t shell_paths <tools/shell-files
+mapfile -t json_paths <tools/json-files
+mapfile -t yaml_paths <tools/yaml-files
+mapfile -t toml_paths <tools/toml-files
+
+declared=$(mktemp)
+discovered=$(mktemp)
+trap 'rm -f "$declared" "$discovered"' EXIT
+printf '%s\n' "${terraform_paths[@]}" "${terraform_skips[@]}" | sed '/^$/d' | sort >"$declared"
+find research/spikes -type f \( -name '*.tf' -o -name '*.tftest.hcl' \) | sort >"$discovered"
+if ! cmp -s "$declared" "$discovered"; then
+  echo "Terraform format manifest is stale:" >&2
+  diff -u "$declared" "$discovered" >&2 || true
+  exit 1
+fi
+
+for skipped_path in "${terraform_skips[@]}"; do
+  test -f "$skipped_path"
+done
+
+if [[ $mode == write ]]; then
+  goimports -w cmd internal
+  gofumpt -extra -w cmd internal
+  shfmt -w -i 2 -ci -bn "${shell_paths[@]}"
+  for json_path in "${json_paths[@]}"; do
+    formatted=$(mktemp)
+    jq --indent 2 . "$json_path" >"$formatted"
+    if ! cmp -s "$json_path" "$formatted"; then
+      cp "$formatted" "$json_path"
+    fi
+    rm -f "$formatted"
+  done
+  yamlfmt -no_global_conf "${yaml_paths[@]}"
+  tombi format --offline "${toml_paths[@]}"
+  for terraform_path in "${terraform_paths[@]}"; do
+    terraform fmt "$terraform_path"
+  done
+  exit 0
+fi
+
+unformatted=$(goimports -l cmd internal)
+if [[ -n $unformatted ]]; then
+  echo "goimports required for:" >&2
+  echo "$unformatted" >&2
+  exit 1
+fi
+
+unformatted=$(gofumpt -extra -l cmd internal)
+if [[ -n $unformatted ]]; then
+  echo "gofumpt required for:" >&2
+  echo "$unformatted" >&2
+  exit 1
+fi
+
+shfmt -d -i 2 -ci -bn "${shell_paths[@]}"
+for json_path in "${json_paths[@]}"; do
+  if ! diff -u "$json_path" <(jq --indent 2 . "$json_path"); then
+    exit 1
+  fi
+done
+yamlfmt -no_global_conf -lint "${yaml_paths[@]}"
+tombi format --offline --check --diff "${toml_paths[@]}"
+
+for terraform_path in "${terraform_paths[@]}"; do
+  terraform fmt -check -diff "$terraform_path"
+done

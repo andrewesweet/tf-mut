@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+version=${1:?usage: scripts/update-provider VERSION}
+if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "provider version must be an exact semantic version" >&2
+  exit 2
+fi
+
+repo_root=$(git rev-parse --show-toplevel)
+fixture="$repo_root/research/spikes/fixture-b"
+
+sed -E -i \
+  "s|(null = \{ source = \"hashicorp/null\", version = \")[0-9]+\.[0-9]+\.[0-9]+(\" \})|\1${version}\2|" \
+  "$fixture/main.tf"
+printf 'registry.terraform.io/hashicorp/null %s linux_amd64\n' "$version" \
+  >"$repo_root/tools/providers.allowlist"
+
+terraform -chdir="$fixture" providers lock -platform=linux_amd64
+scripts/install-providers

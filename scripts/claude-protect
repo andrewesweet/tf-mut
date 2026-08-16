@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+payload=$(cat)
+protected='(Justfile|mise\.(toml|lock)|\.golangci\.yml|\.gitleaks\.toml|AGENTS\.md|CLAUDE\.md|\.github/|\.claude/|\.codex/|\.agents/|\.terraform\.lock\.hcl|tools/[^/]+/go\.(mod|sum))'
+
+if grep -Eq "$protected" <<<"$payload"; then
+  jq -cn '{
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "ask",
+      permissionDecisionReason: "This operation touches a build-chain, agent-policy, workflow, or lock file. Review it explicitly."
+    }
+  }'
+fi

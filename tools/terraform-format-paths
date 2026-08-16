@@ -1,0 +1,7 @@
+research/spikes/fixture-a/main.tf
+research/spikes/fixture-a/tests/unit.tftest.hcl
+research/spikes/fixture-b/main.tf
+research/spikes/fixture-b/tests/unit.tftest.hcl
+research/spikes/fixture-c/main.tf
+research/spikes/fixture-c/modules/net/main.tf
+research/spikes/fixture-c/tests/unit.tftest.hcl

@@ -1,0 +1,4 @@
+.claude/settings.json
+.claude/skills/tf-mut-gopls-plugin/.claude-plugin/plugin.json
+.claude/skills/tf-mut-gopls-plugin/.lsp.json
+.codex/hooks.json

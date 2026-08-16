@@ -19,7 +19,8 @@ terraform init
 terraform test
 ```
 
-`fixture-b` and `fixture-c` need network access on first `init` to fetch `hashicorp/null`.
-`fixture-a` needs none — it uses only the built-in `terraform_data` resource.
+Only `fixture-b` uses `hashicorp/null`; bootstrap installs its exact locked package into the
+repository-local filesystem mirror. Fixtures A and C use only built-in Terraform resources.
 
-`.terraform/` and lock files are gitignored; re-run `terraform init` after cloning.
+Generated `.terraform/` directories are ignored. Provider-bearing fixtures commit dependency
+locks and run offline after `just tools-install` populates the mirror.
