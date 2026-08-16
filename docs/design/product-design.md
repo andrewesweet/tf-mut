@@ -36,6 +36,12 @@ provider is involved. Measured honestly:
 | Null-provider fixture, plain `-json`, 8 workers | ~43 mutants/s |
 | Mocked-AWS module (10 resources, 10 runs), plain `-json` | ~0.36 mutants/s |
 | Same, with per-mutant `validate` + `-verbose` (the naive sequence) | ~0.10 mutants/s |
+| Mocked-AWS module, the implemented M1 engine, 8 jobs | 0.34 mutants/s (measured, `../research/06-m1-exit-gate.md`) |
+
+The M1 measurement added one constraint the spike could not see: against `hashicorp/aws`,
+parallelism is worth **1.08×** between one and eight jobs, against 3.0× for a provider-free
+population of the same size. Starting the provider plugin dominates, so `--jobs` is a
+small-schema lever and test selection is the only one that matters on real modules.
 
 The product stance follows from engineering around that, not from ignoring it:
 

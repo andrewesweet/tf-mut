@@ -2,8 +2,10 @@
 
 Mutation testing for `terraform test`, designed for fully-mocked unit tests.
 
-> **Status: build-chain bootstrap.** The accepted design, pinned local/CI control plane, and a
-> minimal version command exist. The Terraform mutation engine is not implemented yet.
+> **Status: M1 complete — the Tier 0 loop runs.** `tf-mut run` and `tf-mut preview` answer the
+> milestone's question against real Terraform: which resources are planned by a test and
+> asserted on by nothing. Tiers 1–5, plan fingerprinting, suggested assertions and
+> characterisation mode are later milestones.
 
 ## Bootstrap and build
 
@@ -22,6 +24,27 @@ format, lint, type, test, fuzz, mutation, and security recipes for Go, Bash, JSO
 Terraform, and GitHub Actions. `just security` is intentionally separate from the reproducible
 `just ci` gate because vulnerability databases change over time. CodeQL additionally analyzes
 every language it supports here (Go and GitHub Actions) in GitHub's code-scanning environment.
+
+## Using it
+
+```bash
+tf-mut run     [flags] [PATH]   # mutate the module and report pseudo-tested resources
+tf-mut preview [flags] [PATH]   # list the mutants as diffs, executing nothing
+```
+
+| Flag | Purpose |
+| --- | --- |
+| `--test-directory PATH` | Test directory relative to the module (default `tests`) |
+| `--jobs N` | Mutants executing concurrently (default: CPU count) |
+| `--timeout-factor F` | Multiple of the baseline run time; the budget is `max(F × baseline, 30 s)` |
+| `--min-score N` | Fail below this mutation score percentage |
+| `--allow-incomplete-score` | Let a timeout-affected score satisfy `--min-score` |
+| `--allow-real-infrastructure` | Required when any provider is unmocked |
+| `--allow-unsandboxed-effects` | Required for apply-mode provisioners and unsevered data sources |
+| `--reporter terminal\|json` | Output format |
+
+Exit codes: `0` ran clean, `1` findings (survivors, or a score below `--min-score`), `2`
+operational failure. The source tree of the module under test is never written to.
 
 ## The problem
 
@@ -65,6 +88,8 @@ work. An independent adversarial review drove these corrections — see
 | [`docs/research/03-hcl2-tooling.md`](docs/research/03-hcl2-tooling.md) | HCL2 tooling and the mutable surface of the language |
 | [`docs/research/04-harness-spike.md`](docs/research/04-harness-spike.md) | Measured spike results — isolation, equivalence, throughput |
 | [`docs/research/05-go-build-chain.md`](docs/research/05-go-build-chain.md) | Accepted Go/Just/mise build-chain contract and implementation notes |
+| [`docs/research/06-m1-exit-gate.md`](docs/research/06-m1-exit-gate.md) | M1 exit gates: the reproduction map, the deviations, and the measured real-provider numbers |
+| [`docs/schema/report-1.0.0.json`](docs/schema/report-1.0.0.json) | The versioned JSON report schema the `json` reporter emits |
 
 ## Findings that shaped the design
 
@@ -107,8 +132,13 @@ reproduction steps in [`docs/research/04-harness-spike.md`](docs/research/04-har
 docs/design/      Product design and operator catalogue
 docs/research/    Research notes, all claims sourced or verified
 research/spikes/  Terraform fixtures used to verify the harness design
-cmd/              Minimal Go command-line entry point
-internal/         Go implementation packages
+cmd/tf-mut/       Command-line entry point, a thin shell over the engine
+internal/engine/  The one testing seam: configuration in, report out
+internal/discovery/  Module and test-file parsing, closure, safety detection
+internal/mutation/   The Tier 0 operator catalogue and mutant generation
+internal/sandbox/    Sandbox materialisation, sharing rules, fresh-inode writes
+internal/tfexec/     The Terraform CLI and its machine-readable output
+internal/report/     The report value, and the terminal and JSON renderings
 scripts/          Private helpers behind the Just control plane
 tools/            Source-tool and Terraform-provider lock domains
 ```

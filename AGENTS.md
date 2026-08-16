@@ -1,8 +1,9 @@
 # tf-mut — agent instructions
 
 Mutation testing and characterisation-test scaffolding for `terraform test`, optimised for
-fully-mocked unit tests. The build-chain bootstrap and a minimal version command exist; the
-mutation engine is still specified per milestone in GitHub issues labelled `ready-for-agent`.
+fully-mocked unit tests. Milestone M1 is implemented: `tf-mut run` and `tf-mut preview` drive
+the Tier 0 loop end to end against real Terraform. Later milestones are still specified in
+GitHub issues labelled `ready-for-agent`.
 
 ## Reading order
 
@@ -12,6 +13,9 @@ mutation engine is still specified per milestone in GitHub issues labelled `read
 4. `docs/reviews/` — **all adversarial reviews and their dispositions. Read before changing
    any design decision**: many decisions exist specifically because a review refuted the
    obvious alternative, with experiments
+4a. `docs/research/06-m1-exit-gate.md` — what M1 actually shipped: the reproduction map from
+   review case to fixture to test, the three recorded deviations, and the measured
+   real-provider numbers
 5. `docs/design/mutation-operators.md`, `characterisation.md`, `agent-integration.md`
 6. `docs/research/01–04` — the verified factual base ([verified] = established by running
    Terraform v1.15.8, not by reading documentation)
@@ -67,6 +71,25 @@ When changing Go, Terraform fixtures, build-chain files, CI, or agent adapters, 
 `tf-mut-development` skill. It gives the shortest focused red/green route without duplicating
 this repository contract.
 
+## Implementation map
+
+| Package | Responsibility |
+| --- | --- |
+| `internal/engine` | The seam. `Run(ctx, Config) (Report, error)` — version gate, safety gates, baseline, generation, execution, classification, findings |
+| `internal/discovery` | `hclsyntax` parsing of modules and `.tftest.hcl` files; the `..`-closure; provider and effect inventories; reference forms |
+| `internal/mutation` | The Tier 0 catalogue, applied through `hclwrite`; content-derived identifiers; deduplication; diffs |
+| `internal/sandbox` | Closure-rooted materialisation, provider and remote-module sharing, fresh-inode writes |
+| `internal/tfexec` | The Terraform CLI: `version`, `init`, `validate`, `providers schema`, `fmt`, and the `test -json` stream |
+| `internal/report` | The report value, its state and metric definitions, and the terminal and JSON renderings |
+
+The JSON reporter's contract is published at `docs/schema/report-1.0.0.json` and validated in
+the suite. Changing a field's name or meaning means a new schema version and a new file.
+
+Two rules the engine enforces that are easy to break by accident: the safety gates are decided
+statically **before** any Terraform runs (a provisioner must not execute in order to be
+refused), and `terraform validate` runs **only** after a run-level error, where it is the sole
+discriminator between `Invalid` and `KilledByError`.
+
 ## Conventions
 
 - Implementation language is Go with `github.com/hashicorp/hcl/v2` — settled, see
@@ -80,3 +103,9 @@ this repository contract.
   absorb the previous milestone's implementation learnings before writing the next spec.
 - Safety gates (`--allow-real-infrastructure`, `--allow-unsandboxed-effects`) are
   load-bearing product decisions, not defaults to soften.
+- Engine fixtures live in `internal/engine/testdata/`. They are `terraform_data`-based and
+  offline unless the name says otherwise; `mocked-null` and `unmocked` need the provider
+  mirror (`just tools-install`) and skip without it, and `aws-mocked` is network-gated behind
+  the `integration` tag.
+- `.golangci.yml` disables a handful of linters with a stated reason each. Adding a disable is
+  allowed; adding one without the reason is not.

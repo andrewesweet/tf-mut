@@ -1,0 +1,348 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/andrewesweet/tf-mut/docs/schema/report-1.0.0.json",
+  "title": "tf-mut report",
+  "description": "The machine-readable result of a tf-mut run or preview. The version in schema_version changes whenever a consumer could break: removed fields, renamed fields, or changed semantics of an existing field.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "command",
+    "module",
+    "terraform_version",
+    "test_directory",
+    "baseline",
+    "mutants",
+    "findings",
+    "metrics",
+    "warnings",
+    "errors"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "command": {
+      "type": "string",
+      "enum": [
+        "run",
+        "preview"
+      ]
+    },
+    "module": {
+      "type": "string",
+      "description": "Absolute directory of the module under test."
+    },
+    "terraform_version": {
+      "type": "string"
+    },
+    "test_directory": {
+      "type": "string",
+      "description": "Test directory, relative to the module."
+    },
+    "baseline": {
+      "type": "object",
+      "required": [
+        "runs",
+        "assertions",
+        "duration_ms"
+      ],
+      "properties": {
+        "runs": {
+          "type": "integer"
+        },
+        "assertions": {
+          "type": "integer"
+        },
+        "duration_ms": {
+          "type": "integer"
+        }
+      }
+    },
+    "mutants": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/mutant"
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "mutation_score",
+        "assertion_score",
+        "reachability",
+        "incomplete",
+        "counts",
+        "scored"
+      ],
+      "properties": {
+        "mutation_score": {
+          "type": "number"
+        },
+        "assertion_score": {
+          "type": "number"
+        },
+        "reachability": {
+          "type": "number"
+        },
+        "incomplete": {
+          "type": "boolean",
+          "description": "True when a timeout made the score untrustworthy."
+        },
+        "counts": {
+          "type": "object",
+          "description": "Number of mutants in each state.",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "scored": {
+          "type": "integer"
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "description": "Mutants that produced no trustworthy verdict. Never a survivor.",
+      "items": {
+        "type": "object",
+        "required": [
+          "mutant_id",
+          "site",
+          "message"
+        ],
+        "properties": {
+          "mutant_id": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "position": {
+      "type": "object",
+      "required": [
+        "line",
+        "column"
+      ],
+      "properties": {
+        "line": {
+          "type": "integer"
+        },
+        "column": {
+          "type": "integer"
+        }
+      }
+    },
+    "range": {
+      "type": "object",
+      "required": [
+        "file",
+        "start",
+        "end"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Path relative to the local-module closure root."
+        },
+        "start": {
+          "$ref": "#/$defs/position"
+        },
+        "end": {
+          "$ref": "#/$defs/position"
+        }
+      }
+    },
+    "mutant": {
+      "type": "object",
+      "required": [
+        "id",
+        "operator",
+        "module",
+        "site",
+        "range",
+        "diff",
+        "state",
+        "runs",
+        "executed_runs",
+        "validated"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Content-derived and stable across runs and unrelated edits."
+        },
+        "operator": {
+          "type": "string",
+          "enum": [
+            "EXT-ATTR-DELETE",
+            "EXT-RESOURCE-DELETE",
+            "EXT-BODY-BLANK",
+            "EXT-OUTPUT-NULL",
+            "EXT-LOCAL-NULL",
+            "EXT-MODULE-INPUT-DELETE"
+          ]
+        },
+        "module": {
+          "type": "string",
+          "description": "Module directory relative to the closure root."
+        },
+        "site": {
+          "type": "string",
+          "description": "Semantic address of the mutation site."
+        },
+        "resource": {
+          "type": "string",
+          "description": "Managed resource address the site belongs to, when it has one."
+        },
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "diff": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "Invalid",
+            "Killed",
+            "KilledByError",
+            "Timeout",
+            "Survived",
+            "NoCoverage",
+            "Pending"
+          ]
+        },
+        "runs": {
+          "type": "array",
+          "description": "Per-run outcomes, recorded orthogonally to the aggregate state.",
+          "items": {
+            "type": "object",
+            "required": [
+              "file",
+              "run",
+              "status"
+            ],
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "run": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pass",
+                  "fail",
+                  "error",
+                  "skip"
+                ]
+              }
+            }
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "severity",
+              "summary",
+              "detail"
+            ],
+            "properties": {
+              "severity": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              },
+              "range": {
+                "$ref": "#/$defs/range"
+              },
+              "test_file": {
+                "type": "string"
+              },
+              "test_run": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "executed_runs": {
+          "type": "integer"
+        },
+        "validated": {
+          "type": "boolean",
+          "description": "Whether lazy validation ran, which happens only after a run-level error."
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "address",
+        "module",
+        "range",
+        "message",
+        "mutants"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "pseudo-tested"
+          ]
+        },
+        "address": {
+          "type": "string"
+        },
+        "module": {
+          "type": "string"
+        },
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "message": {
+          "type": "string"
+        },
+        "mutants": {
+          "type": "array",
+          "description": "Identifiers of the mutants supporting the finding.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
