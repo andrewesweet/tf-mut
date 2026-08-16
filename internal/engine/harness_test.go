@@ -280,3 +280,78 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatalf("writing %s: %v", path, err)
 	}
 }
+
+// runFixture copies a fixture and runs the engine over it.
+func runFixture(t *testing.T, name string) report.Report {
+	t.Helper()
+
+	result, err := engine.Run(t.Context(), baseConfig(t, copyFixture(t, name)))
+	if err != nil {
+		t.Fatalf("run %s: %v", name, err)
+	}
+
+	return result
+}
+
+// survivorsAt lists the survivors whose site is the given address.
+func survivorsAt(result report.Report, site string) []report.Mutant {
+	matching := []report.Mutant{}
+
+	for _, mutant := range result.Survivors() {
+		if mutant.Site == site {
+			matching = append(matching, mutant)
+		}
+	}
+
+	return matching
+}
+
+// verdicts renders the population as identifier, state and diagnosis, which is
+// the tuple every determinism assertion compares.
+func verdicts(result report.Report) []string {
+	rendered := make([]string, 0, len(result.Mutants))
+
+	for _, mutant := range result.Mutants {
+		diagnosis := ""
+		if mutant.Verdict != nil {
+			diagnosis = string(mutant.Verdict.Diagnosis)
+		}
+
+		rendered = append(rendered, mutant.ID+" "+string(mutant.State)+" "+diagnosis)
+	}
+
+	slices.Sort(rendered)
+
+	return rendered
+}
+
+// statesOnly drops the identifiers, which a file rename legitimately changes.
+func statesOnly(result report.Report) []string {
+	rendered := make([]string, 0, len(result.Mutants))
+
+	for _, mutant := range result.Mutants {
+		diagnosis := ""
+		if mutant.Verdict != nil {
+			diagnosis = string(mutant.Verdict.Diagnosis)
+		}
+
+		rendered = append(rendered, mutant.Operator+" "+mutant.Site+" "+
+			string(mutant.State)+" "+diagnosis)
+	}
+
+	slices.Sort(rendered)
+
+	return rendered
+}
+
+func diagnoses(result report.Report) map[report.Diagnosis]int {
+	return result.Metrics.Diagnoses
+}
+
+func renameFile(t *testing.T, dir, from, to string) {
+	t.Helper()
+
+	if err := os.Rename(filepath.Join(dir, from), filepath.Join(dir, to)); err != nil {
+		t.Fatalf("renaming %s: %v", from, err)
+	}
+}

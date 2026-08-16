@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
+	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
@@ -83,9 +84,15 @@ type Config struct {
 	// WorkDir is the parent of the run's temporary directory.
 	WorkDir string
 	// TestSelection restricts mutant execution to the named test files. It is
-	// the seam test selection will use; M1 leaves it empty, which runs the
-	// whole suite for every mutant.
+	// the seam test selection will use; the milestone leaves it empty, which
+	// runs the whole suite for every mutant.
 	TestSelection []string
+	// Tier is the operator breadth band.
+	Tier mutation.Tier
+	// IncludeOperators, when non-empty, restricts generation to these operators.
+	IncludeOperators []string
+	// ExcludeOperators removes operators from the population.
+	ExcludeOperators []string
 }
 
 func (c Config) withDefaults() Config {
@@ -179,13 +186,19 @@ func Run(ctx context.Context, config Config) (report.Report, error) {
 
 	warnings = append(warnings, prepared.warnings...)
 
-	generated, err := mutation.Generator{Configuration: configuration, Schemas: prepared.schemas}.Generate()
+	generated, err := mutation.Generator{
+		Configuration: configuration,
+		Schemas:       prepared.schemas,
+		Selection:     config.selection(),
+	}.Generate()
 	if err != nil {
 		return report.Report{}, err
 	}
 
+	warnings = append(warnings, generated.Warnings...)
+
 	result := shell(configuration, config, version.Terraform, moduleDir, prepared, warnings)
-	mutants := describe(configuration, generated)
+	mutants := describe(configuration, generated.Mutants)
 
 	if config.Preview {
 		result.Mutants = mutants
@@ -199,14 +212,16 @@ func Run(ctx context.Context, config Config) (report.Report, error) {
 		configuration: configuration,
 		config:        config,
 		prepared:      prepared,
-		generated:     generated,
+		generated:     generated.Mutants,
 		described:     mutants,
 		workRoot:      workRoot,
+		closure:       configuration.BuildClosure(),
 	})
 
 	result.Mutants = executed
 	result.Errors = failures
 	result.Metrics = report.ComputeMetrics(executed)
+	result.OperatorErrors = report.ComputeOperatorErrors(executed)
 	result.Findings = findings(configuration, executed)
 	result.Warnings = append(result.Warnings, unanswerableResources(configuration, executed)...)
 
@@ -229,15 +244,19 @@ func shell(
 		TerraformVersion: terraformVersion,
 		TestDirectory:    configuration.TestDirRelative(),
 		Baseline: report.Baseline{
-			Runs:       prepared.baselineRuns,
-			Assertions: countAssertions(configuration),
-			DurationMS: prepared.baselineDuration.Milliseconds(),
+			Runs:               prepared.baselineRuns,
+			Assertions:         countAssertions(configuration),
+			DurationMS:         prepared.baselineDuration.Milliseconds(),
+			Fingerprint:        baselineFingerprint(prepared),
+			VolatileComponents: prepared.mask.Paths(),
 		},
-		Mutants:  []report.Mutant{},
-		Findings: []report.Finding{},
-		Metrics:  report.Metrics{}, //nolint:exhaustruct // replaced once mutants have verdicts.
-		Warnings: warnings,
-		Errors:   []report.ExecutionError{},
+		Mutants:        []report.Mutant{},
+		Findings:       []report.Finding{},
+		Metrics:        report.Metrics{}, //nolint:exhaustruct // replaced once mutants have verdicts.
+		OperatorErrors: []report.OperatorErrors{},
+		Suppressions:   []report.Suppression{},
+		Warnings:       warnings,
+		Errors:         []report.ExecutionError{},
 	}
 }
 
@@ -290,6 +309,7 @@ func describe(configuration discovery.Configuration, generated []mutation.Mutant
 		described = append(described, report.Mutant{
 			ID:       mutant.ID,
 			Operator: string(mutant.Operator),
+			Tier:     string(mutation.TierOf(mutant.Operator)),
 			Module:   mutant.ModuleRel,
 			Site:     mutant.Site,
 			Resource: mutant.Resource,
@@ -305,4 +325,27 @@ func describe(configuration discovery.Configuration, generated []mutation.Mutant
 	}
 
 	return described
+}
+
+// selection is the operator population the configuration asks for.
+func (c Config) selection() mutation.Selection {
+	tier := c.Tier
+	if !tier.Valid() {
+		tier = mutation.TierStandard
+	}
+
+	return mutation.Selection{Tier: tier, Include: c.IncludeOperators, Exclude: c.ExcludeOperators}
+}
+
+// baselineFingerprint composes the unmutated suite's masked fingerprint, which
+// is what every mutant is compared against.
+func baselineFingerprint(prepared warm) string {
+	masked := make([]fingerprint.Payload, 0, len(prepared.payloads))
+
+	for _, payload := range prepared.payloads {
+		projected, _ := prepared.mask.Apply(payload)
+		masked = append(masked, projected)
+	}
+
+	return fingerprint.Fingerprint(masked)
 }

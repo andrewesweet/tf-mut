@@ -92,7 +92,11 @@ type Module struct {
 	// Rel is the module directory relative to the closure root.
 	Rel string
 	// Files lists the absolute paths of the module's .tf files.
-	Files       []string
+	Files []string
+	// Bodies holds the parsed body of each file, keyed by absolute path, so
+	// that generation, the impure scan and the reference closure all read the
+	// same syntax tree the inventories were built from.
+	Bodies      map[string]*hclsyntax.Body
 	Resources   []Block
 	DataSources []Block
 	Outputs     []Block
@@ -101,6 +105,8 @@ type Module struct {
 	Calls       []ModuleCall
 	// Providers are the provider local names the module requires.
 	Providers []string
+	// ProviderAliases are the provider configurations the module declares.
+	ProviderAliases []ProviderAlias
 	// Effects are constructs whose apply executes local side effects.
 	Effects []Effect
 	// References records how each resource address is consumed.
@@ -172,6 +178,8 @@ type TestSuite struct {
 	Runs []RunBlock
 	// MockedProviders lists provider local names covered by mock_provider.
 	MockedProviders []string
+	// Mocks lists every mock_provider block with the configuration it covers.
+	Mocks []ProviderAlias
 	// References records how test expressions consume resource addresses.
 	References map[string][]Reference
 }
@@ -371,4 +379,14 @@ func parseFile(parser *hclparse.Parser, path string) (*hclsyntax.Body, error) {
 	}
 
 	return body, nil
+}
+
+// relativePath renders a path relative to a base, for report-facing locations.
+func relativePath(base, path string) (string, error) {
+	rel, err := filepath.Rel(base, path)
+	if err != nil {
+		return "", fmt.Errorf("resolving %s: %w", path, err)
+	}
+
+	return filepath.ToSlash(rel), nil
 }

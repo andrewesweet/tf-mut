@@ -3,11 +3,13 @@ package engine
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
+	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
@@ -25,6 +27,18 @@ type warm struct {
 	baselineRuns     int
 	baselineDuration time.Duration
 	warnings         []string
+	// payloads is the canonical projection of the first baseline run, which is
+	// the reference every mutant fingerprint is compared against.
+	payloads []fingerprint.Payload
+	// mask is the volatile set: the union of the two-run baseline diff and the
+	// static impure scan.
+	mask fingerprint.Mask
+	// scan is the static volatility evidence, kept so that the mutant re-run
+	// rule can compare the mutant's own syntax against it.
+	scan discovery.VolatilityScan
+	// sources are the module files as discovery read them, keyed by absolute
+	// path, so that the mutant scan can substitute one and re-read the rest.
+	sources map[string][]byte
 }
 
 func prepare(
@@ -89,8 +103,14 @@ func prepare(
 	return prepared, nil
 }
 
-// runBaseline proves the suite is green before any mutant is trusted, and times
-// it for timeout calibration.
+// runBaseline proves the suite is green before any mutant is trusted, times it
+// for timeout calibration, and establishes the fingerprint the oracle compares
+// against.
+//
+// The suite runs twice, verbose. Once is not enough: the difference between two
+// runs of the same configuration is the only evidence that separates a value
+// the module computes from one the clock or a mock invented, and a single run
+// would offer the oracle a fingerprint it could not trust.
 func runBaseline(
 	ctx context.Context,
 	runner tfexec.Runner,
@@ -100,6 +120,7 @@ func runBaseline(
 	result, err := runner.Test(ctx, prepared.moduleDir, tfexec.TestOptions{
 		TestDirectory: configuration.TestDirRelative(),
 		Filters:       nil,
+		Verbose:       true,
 		Timeout:       0,
 	})
 	if err != nil {
@@ -124,7 +145,67 @@ func runBaseline(
 			ErrBaselineNoRuns, configuration.TestDirRelative())
 	}
 
+	return calibrateOracle(ctx, runner, configuration, prepared, result)
+}
+
+// calibrateOracle projects the baseline payloads and derives the volatile mask.
+func calibrateOracle(
+	ctx context.Context,
+	runner tfexec.Runner,
+	configuration discovery.Configuration,
+	prepared *warm,
+	first tfexec.TestResult,
+) error {
+	firstPayloads, err := fingerprint.Canonicalise(first.Payloads)
+	if err != nil {
+		return err
+	}
+
+	second, err := runner.Test(ctx, prepared.moduleDir, tfexec.TestOptions{
+		TestDirectory: configuration.TestDirRelative(),
+		Filters:       nil,
+		Verbose:       true,
+		Timeout:       0,
+	})
+	if err != nil {
+		return err
+	}
+
+	secondPayloads, err := fingerprint.Canonicalise(second.Payloads)
+	if err != nil {
+		return err
+	}
+
+	sources, err := moduleSources(configuration)
+	if err != nil {
+		return err
+	}
+
+	prepared.sources = sources
+	prepared.scan = configuration.ScanVolatility(sources)
+	prepared.payloads = firstPayloads
+	prepared.mask = fingerprint.Derive(firstPayloads, secondPayloads).
+		Merge(staticMask(prepared.scan, firstPayloads))
+
 	return nil
+}
+
+// moduleSources reads every module file, keyed by absolute path.
+func moduleSources(configuration discovery.Configuration) (map[string][]byte, error) {
+	sources := map[string][]byte{}
+
+	for _, module := range configuration.Modules {
+		for _, path := range module.Files {
+			content, err := os.ReadFile(path) //nolint:gosec // module paths come from discovery.
+			if err != nil {
+				return nil, fmt.Errorf("reading %s: %w", path, err)
+			}
+
+			sources[path] = content
+		}
+	}
+
+	return sources, nil
 }
 
 func describeFailures(failures []tfexec.RunOutcome, diagnostics []tfexec.Diagnostic) string {

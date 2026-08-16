@@ -44,33 +44,83 @@ var errUnknownSource = errors.New("mutation site is in an unknown source file")
 // errRewrite reports a file hclwrite could not re-parse for editing.
 var errRewrite = errors.New("mutation site could not be rewritten")
 
-// Generator produces the Tier 0 mutant population.
+// Selection is the operator population the run asked for.
+type Selection struct {
+	// Tier is the breadth band; operators above it are not generated.
+	Tier Tier
+	// Include, when non-empty, restricts generation to these operator
+	// identifiers regardless of tier.
+	Include []string
+	// Exclude removes operator identifiers from the population.
+	Exclude []string
+}
+
+// Enabled reports whether an operator is in the selected population.
+func (s Selection) Enabled(operator Operator) bool {
+	if slices.Contains(s.Exclude, string(operator)) {
+		return false
+	}
+
+	if len(s.Include) > 0 {
+		return slices.Contains(s.Include, string(operator))
+	}
+
+	tier := s.Tier
+	if !tier.Valid() {
+		tier = TierStandard
+	}
+
+	return tier.Includes(TierOf(operator))
+}
+
+// Generator produces the mutant population.
 type Generator struct {
 	// Configuration is the discovered module under test.
 	Configuration discovery.Configuration
 	// Schemas gates the deletion operators on per-attribute optionality.
 	Schemas tfexec.Schemas
+	// Selection is the operator population the run asked for.
+	Selection Selection
+}
+
+// Result is the generated population and what generation learned about itself.
+type Result struct {
+	Mutants  []Mutant
+	Warnings []string
 }
 
 // Generate returns the deduplicated mutant population in deterministic order.
-func (g Generator) Generate() ([]Mutant, error) {
+func (g Generator) Generate() (Result, error) {
 	sources, err := g.loadSources()
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 
 	mutants := []Mutant{}
+	warnings := []string{}
 
 	for _, module := range g.Configuration.Modules {
 		produced, err := g.generateModule(module, sources)
 		if err != nil {
-			return nil, err
+			return Result{}, err
 		}
 
 		mutants = append(mutants, produced...)
+
+		syntactic, rejected := g.generateSyntax(module, sources)
+		mutants = append(mutants, syntactic...)
+		warnings = append(warnings, rejected...)
 	}
 
-	return deduplicate(sortMutants(mutants)), nil
+	enabled := make([]Mutant, 0, len(mutants))
+
+	for _, mutant := range mutants {
+		if g.Selection.Enabled(mutant.Operator) {
+			enabled = append(enabled, mutant)
+		}
+	}
+
+	return Result{Mutants: deduplicate(sortMutants(enabled)), Warnings: warnings}, nil
 }
 
 type sourceFile struct {
@@ -104,7 +154,7 @@ func (g Generator) generateModule(module discovery.Module, sources map[string]so
 	mutants := []Mutant{}
 
 	for _, output := range module.Outputs {
-		where := site{anchor: output, operator: OutputNull, address: output.Address, resource: ""}
+		where := anchor{anchor: output, operator: OutputNull, address: output.Address, resource: ""}
 
 		mutant, err := g.build(module, sources, where, func(file *hclwrite.File) bool {
 			block := findBlock(file, "output", output.Name)
@@ -124,7 +174,7 @@ func (g Generator) generateModule(module discovery.Module, sources map[string]so
 	}
 
 	for _, local := range module.Locals {
-		where := site{anchor: local, operator: LocalNull, address: local.Address, resource: ""}
+		where := anchor{anchor: local, operator: LocalNull, address: local.Address, resource: ""}
 
 		mutant, err := g.build(module, sources, where, func(file *hclwrite.File) bool {
 			block := findNthBlock(file, "locals", local.LocalsIndex)
@@ -195,7 +245,7 @@ func (g Generator) generateAttributeDeletes(
 
 	for _, attribute := range g.optionalArguments(block) {
 		name := attribute.Name
-		where := site{
+		where := anchor{
 			anchor:   block,
 			operator: AttrDelete,
 			address:  block.Address + "." + name,
@@ -263,7 +313,7 @@ func (g Generator) generateInstanceMutant(
 			value = cty.MapValEmpty(cty.String)
 		}
 
-		where := site{
+		where := anchor{
 			anchor:   block,
 			operator: ResourceDelete,
 			address:  block.Address,
@@ -291,7 +341,7 @@ func (g Generator) generateInstanceMutant(
 		return nil, nil //nolint:nilnil // no body to blank is a legitimate absence of a mutant.
 	}
 
-	where := site{
+	where := anchor{
 		anchor:   block,
 		operator: BodyBlank,
 		address:  block.Address,
@@ -359,7 +409,7 @@ func (g Generator) generateCalls(module discovery.Module, sources map[string]sou
 				continue
 			}
 
-			anchor := discovery.Block{
+			block := discovery.Block{
 				Kind:      "module",
 				Name:      call.Name,
 				Address:   "module." + call.Name,
@@ -368,10 +418,10 @@ func (g Generator) generateCalls(module discovery.Module, sources map[string]sou
 				DefRange:  call.DefRange,
 			}
 
-			where := site{
-				anchor:   anchor,
+			where := anchor{
+				anchor:   block,
 				operator: ModuleInputDelete,
-				address:  anchor.Address + "." + name,
+				address:  block.Address + "." + name,
 				resource: "",
 			}
 
@@ -398,9 +448,9 @@ func (g Generator) generateCalls(module discovery.Module, sources map[string]sou
 	return mutants, nil
 }
 
-// site is everything a mutant needs to describe itself: which block it fires
-// on, under which operator, at which address.
-type site struct {
+// anchor is everything a block-level mutant needs to describe itself: which
+// block it fires on, under which operator, at which address.
+type anchor struct {
 	// anchor is the block whose file is rewritten and whose range is reported.
 	anchor discovery.Block
 	// operator is the operator producing the mutant.
@@ -415,7 +465,7 @@ type site struct {
 func (Generator) build(
 	module discovery.Module,
 	sources map[string]sourceFile,
-	where site,
+	where anchor,
 	rewrite func(*hclwrite.File) bool,
 ) (*Mutant, error) {
 	anchor := where.anchor
@@ -437,7 +487,8 @@ func (Generator) build(
 	mutated := file.Bytes()
 
 	return &Mutant{
-		ID:        identify(where.operator, source.rel, where.address),
+		ID: identify(where.operator, source.rel, where.address,
+			removedLines(source.content, mutated), addedLines(source.content, mutated)),
 		Operator:  where.operator,
 		ModuleRel: module.Rel,
 		File:      source.rel,

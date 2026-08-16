@@ -41,6 +41,7 @@ func parseModule(parser *hclparse.Parser, current queued) (Module, error) {
 	module := Module{
 		Dir:        current.dir,
 		Files:      files,
+		Bodies:     map[string]*hclsyntax.Body{},
 		References: map[string][]Reference{},
 	}
 
@@ -51,6 +52,8 @@ func parseModule(parser *hclparse.Parser, current queued) (Module, error) {
 		if err != nil {
 			return Module{}, err
 		}
+
+		module.Bodies[path] = body
 
 		if err := collectFile(&module, providers, path, body); err != nil {
 			return Module{}, err
@@ -109,6 +112,8 @@ func collectFile(module *Module, providers map[string]bool, path string, body *h
 			}
 
 			module.Variables = append(module.Variables, newBlock(variableBlock, path, relative, block))
+		case "provider":
+			collectProviderBlock(module, block)
 		case "terraform":
 			collectRequiredProviders(providers, block)
 		default:

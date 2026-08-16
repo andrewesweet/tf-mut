@@ -68,3 +68,52 @@ func splitLines(content []byte) []string {
 
 	return strings.Split(string(trimmed), "\n")
 }
+
+// removedLines and addedLines are the content halves of a rewrite, used to
+// derive a mutant identifier that survives a line move.
+//
+// The block operators rewrite through hclwrite rather than by byte range, so
+// the changed lines are the only place their site content and replacement
+// exist as text.
+func removedLines(original, mutated []byte) string {
+	removed, _ := changedLines(original, mutated)
+
+	return removed
+}
+
+func addedLines(original, mutated []byte) string {
+	_, added := changedLines(original, mutated)
+
+	return added
+}
+
+func changedLines(original, mutated []byte) (removed, added string) {
+	originalLines := splitLines(original)
+	mutatedLines := splitLines(mutated)
+
+	prefix := 0
+	for prefix < len(originalLines) && prefix < len(mutatedLines) &&
+		originalLines[prefix] == mutatedLines[prefix] {
+		prefix++
+	}
+
+	suffix := 0
+	for suffix < len(originalLines)-prefix && suffix < len(mutatedLines)-prefix &&
+		originalLines[len(originalLines)-1-suffix] == mutatedLines[len(mutatedLines)-1-suffix] {
+		suffix++
+	}
+
+	return strings.Join(trimAll(originalLines[prefix:len(originalLines)-suffix]), "\n"),
+		strings.Join(trimAll(mutatedLines[prefix:len(mutatedLines)-suffix]), "\n")
+}
+
+// trimAll removes indentation so that a line move that changes nesting depth
+// still yields the same identifier.
+func trimAll(lines []string) []string {
+	trimmed := make([]string, 0, len(lines))
+	for _, line := range lines {
+		trimmed = append(trimmed, strings.TrimSpace(line))
+	}
+
+	return trimmed
+}

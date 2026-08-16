@@ -260,7 +260,7 @@ func TestReportSatisfiesThePublishedSchema(t *testing.T) {
 	}
 
 	states := enumeration(t, schema, "state")
-	operators := enumeration(t, schema, "operator")
+	operators := schemaStrings(schemaMap(schemaMap(schema, "$defs"), "operator"), "enum")
 
 	for _, mutant := range result.Mutants {
 		if !slices.Contains(states, string(mutant.State)) {
@@ -281,7 +281,7 @@ func readSchema(t *testing.T) []byte {
 		t.Fatal("repository root not found")
 	}
 
-	path := filepath.Join(root, "docs", "schema", "report-1.0.0.json")
+	path := filepath.Join(root, "docs", "schema", "report-2.0.0.json")
 
 	content, err := os.ReadFile(path) //nolint:gosec // a repository-owned path.
 	if err != nil {

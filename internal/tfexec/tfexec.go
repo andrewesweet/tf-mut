@@ -1,8 +1,10 @@
-// Package tfexec runs the Terraform CLI and decodes its machine-readable output.
+// Package tfexec runs the Terraform CLI and decodes its machine-readable
+// output.
 //
 // Every command is executed with the global -chdir option so that the caller's
 // process working directory is never changed, which keeps concurrent mutant
-// execution safe.
+// execution safe. The test stream is decoded incrementally rather than
+// buffered, because a verbose run's output is measured in gigabytes.
 package tfexec
 
 import (
