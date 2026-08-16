@@ -1,0 +1,3 @@
+output "tier" {
+  value = "standard"
+}

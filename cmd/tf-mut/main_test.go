@@ -80,6 +80,7 @@ func FuzzInvalidCommand(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, command string) {
 		if command == versionCommand || command == versionFlag ||
+			command == runCommand || command == previewCommand ||
 			strings.ContainsRune(command, '\x00') {
 			t.Skip()
 		}
