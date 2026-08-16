@@ -23,6 +23,10 @@ const (
 	allowRealInfrastructure = "TF_MUT_ALLOW_REAL_INFRASTRUCTURE"
 	measureScaling          = "TF_MUT_MEASURE_SCALING"
 	measurementJobs         = 8
+
+	// awsMockedFixture is the realistically-sized provider fixture every
+	// network-gated measurement uses.
+	awsMockedFixture = "aws-mocked"
 )
 
 // measurement is the published shape of the exit-gate numbers.
@@ -46,10 +50,14 @@ type measurement struct {
 	Speedup           float64 `json:"speedup,omitempty"`
 }
 
+// It does not run in parallel: it is a wall-clock measurement, and a
+// concurrent test would be measuring the other test.
+//
+//nolint:paralleltest // a timing measurement cannot share the machine.
 func TestPerformanceAgainstAMockedRealProvider(t *testing.T) {
 	requireRealInfrastructureOptIn(t)
 
-	module := copyFixture(t, "aws-mocked")
+	module := copyFixture(t, awsMockedFixture)
 
 	config := networkConfig(t, module)
 	config.Jobs = measurementJobs
@@ -76,7 +84,7 @@ func TestPerformanceAgainstAMockedRealProvider(t *testing.T) {
 	}
 
 	recorded := measurement{
-		Fixture:          "aws-mocked",
+		Fixture:          awsMockedFixture,
 		TerraformVersion: result.TerraformVersion,
 		Cores:            runtime.NumCPU(),
 		Jobs:             config.Jobs,
@@ -118,7 +126,7 @@ func BenchmarkPerformanceMockedRealProvider(b *testing.B) {
 		config := engine.Config{ //nolint:exhaustruct // defaults are the point of the measurement.
 			ModuleDir: module,
 			Jobs:      measurementJobs,
-			Env:       []string{"CHECKPOINT_DISABLE=1", "TF_IN_AUTOMATION=1"},
+			Env:       []string{checkpointDisabled, inAutomation},
 			WorkDir:   b.TempDir(),
 		}
 
@@ -160,8 +168,8 @@ func networkConfig(t *testing.T, module string) engine.Config {
 
 	config := baseConfig(t, module)
 	config.Env = []string{
-		"CHECKPOINT_DISABLE=1",
-		"TF_IN_AUTOMATION=1",
+		checkpointDisabled,
+		inAutomation,
 		"TF_PLUGIN_CACHE_DIR=" + pluginCache(t),
 	}
 
@@ -212,19 +220,21 @@ func publish(t *testing.T, recorded measurement) {
 func benchmarkFixture(b *testing.B) string {
 	b.Helper()
 
-	target := filepath.Join(b.TempDir(), "aws-mocked")
-	source := filepath.Join("testdata", "aws-mocked")
+	target := filepath.Join(b.TempDir(), awsMockedFixture)
+	source := filepath.Join(fixtureRoot, awsMockedFixture)
 
 	if err := os.MkdirAll(filepath.Join(target, "tests"), 0o750); err != nil {
 		b.Fatalf("creating fixture: %v", err)
 	}
 
 	for _, name := range []string{"main.tf", filepath.Join("tests", "unit.tftest.hcl")} {
-		content, err := os.ReadFile(filepath.Join(source, name)) //nolint:gosec // repository-owned fixture.
+		//nolint:gosec // a repository-owned fixture path.
+		content, err := os.ReadFile(filepath.Join(source, name))
 		if err != nil {
 			b.Fatalf("reading fixture: %v", err)
 		}
 
+		//nolint:gosec // the destination is inside b.TempDir().
 		if err := os.WriteFile(filepath.Join(target, name), content, 0o600); err != nil {
 			b.Fatalf("writing fixture: %v", err)
 		}

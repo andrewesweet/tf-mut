@@ -80,9 +80,10 @@ fmt-check:
 # Run every read-only language and workflow quality gate.
 lint: lint-go lint-shell lint-config lint-actions
 
-# Run the pinned aggressive Go linters without fixes.
+# Run the pinned aggressive Go linters without fixes, over both build tags.
 lint-go:
     mise exec -- golangci-lint run ./...
+    mise exec -- golangci-lint run --build-tags=integration ./...
 
 # Parse and lint every declared Bash script with bash -n, shfmt, and shellcheck.
 lint-shell:

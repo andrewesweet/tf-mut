@@ -21,6 +21,11 @@ import (
 const (
 	fixtureRoot = "testdata"
 	testJobs    = 2
+
+	// checkpointDisabled and inAutomation keep Terraform from phoning home and
+	// from expecting a human at the terminal.
+	checkpointDisabled = "CHECKPOINT_DISABLE=1"
+	inAutomation       = "TF_IN_AUTOMATION=1"
 )
 
 // copyFixture copies a fixture into a temporary directory so that the tree the
@@ -66,8 +71,8 @@ func terraformEnv(t *testing.T) []string {
 	t.Helper()
 
 	environment := []string{
-		"CHECKPOINT_DISABLE=1",
-		"TF_IN_AUTOMATION=1",
+		checkpointDisabled,
+		inAutomation,
 		// Terraform's plugin cache is not safe for concurrent writers, and
 		// these tests run in parallel; each gets its own.
 		"TF_PLUGIN_CACHE_DIR=" + t.TempDir(),
