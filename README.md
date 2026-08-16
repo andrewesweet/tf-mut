@@ -90,6 +90,7 @@ work. An independent adversarial review drove these corrections — see
 | [`docs/research/04-harness-spike.md`](docs/research/04-harness-spike.md) | Measured spike results — isolation, equivalence, throughput |
 | [`docs/research/05-go-build-chain.md`](docs/research/05-go-build-chain.md) | Accepted Go/Just/mise build-chain contract and implementation notes |
 | [`docs/research/06-m1-exit-gate.md`](docs/research/06-m1-exit-gate.md) | M1 exit gates: the reproduction map, the deviations, and the measured real-provider numbers |
+| [`docs/research/07-m2-cost-model.md`](docs/research/07-m2-cost-model.md) | What M2's planned speed levers actually buy, measured — and why run-block splitting was dropped |
 | [`docs/schema/report-1.0.0.json`](docs/schema/report-1.0.0.json) | The versioned JSON report schema the `json` reporter emits |
 
 ## Findings that shaped the design

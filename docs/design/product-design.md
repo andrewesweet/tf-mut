@@ -153,6 +153,14 @@ Order mutants to surface findings early and cut work:
   either side) still matters — as a **prioritisation and predicted-diagnosis signal, never an
   exclusion rule**. Sound instantiation-reachability selection lands in M2; the graph-based
   cone refinement in M3.
+
+  **Measured yield (`../research/07-m2-cost-model.md`).** At *module* granularity — the level
+  M1 already decides statically — selection removes **0%** of run-block executions on a
+  single-module suite and 66.7% on one whose run blocks retarget a child. The ordinary shape
+  of a module's test suite is the first. Selection that helps the common case has to be finer
+  than the module: it has to know a resource whose `count` a run block sets to zero is not
+  instantiated. That is the attribute-level graph, and it is the only form of selection with
+  anything to offer a single-module suite.
 - **Run-block granularity via file splitting.** `-filter` is file-scoped, but the sandbox is
   ours: split each test file into synthesised one-run-per-file test files (verified working,
   round-one M7). Three constraints, all handled: run blocks containing a `module {}` block
@@ -165,13 +173,16 @@ Order mutants to surface findings early and cut work:
   from splitting accrues mainly to independent plan-mode suites — which is the design's
   target shape, but the claim is now scoped to it.
 
-  **Unmeasured, and now doubtful (M1 implementation review, M1-A).** Splitting produces
-  *more* `terraform test` invocations, and the M1 measurement found the dominant per-mutant
-  cost against a large-schema provider to be starting the plugin process, once per run
-  block, per invocation. Splitting may therefore add work on exactly the modules it was
-  meant to rescue. The design previously called this the primary viability lever on real
-  modules; that claim is withdrawn pending the experiment in open question 8, which M2 must
-  run before committing to the design.
+  **Measured, and withdrawn (`../research/07-m2-cost-model.md`).** Splitting produces *more*
+  `terraform test` invocations, and an invocation costs **1.6 s** against **0.012 s** for a
+  run block inside one — a ratio of 134 to 162 across two runs. Splitting an eight-run suite
+  costs **7.8×**; under perfect selection down to a single run block it saves **5%**, and at
+  two it already loses. Its ceiling across M1's whole population is 3%. This design previously called it the
+  primary viability lever on real modules; that claim is **withdrawn**, and the technique is
+  retained here only as a description of what is possible, not as something the roadmap
+  intends to build. It becomes worthwhile only where a single run block costs more than an
+  invocation — apply-mode suites against slow providers, not the mocked plan-mode suites this
+  design targets.
 - **Prioritisation.** Extreme-tier mutants first (few, cheap, highest signal), then contract,
   then language, then lifecycle. With `--fail-fast`, an early finding stops the run.
 - **Deduplication.** Mutants with identical `(file, range, replacement)` collapse.
@@ -621,29 +632,44 @@ instantiation-reachability selection** (R2-1/R2-13: selection by "does this run 
 the mutated block", computable without the full reference graph — the only sound exclusion
 rule).
 
-**M2 opens with a measurement, not a design.** M1 measured the per-mutant cost against a
-real provider schema and found it dominated by plugin startup rather than by anything the
-speed levers address (see the M1 implementation review, and open question 8). Splitting and
-selection are therefore specified only after the experiment settles which of them removes
-work. This is standing process rule 1 applied forwards instead of retrospectively.
+**The speed half of this milestone was measured before it was designed, and did not
+survive** (`../research/07-m2-cost-model.md`, commissioned as the pre-work M2 was blocked
+on). Run-block file splitting costs 7.8× on an eight-run suite and saves at most 3% under
+perfect selection: **it is dropped**, and R2-4's unreproduced state-identity closure leaves
+the milestone with it. Module-granular selection removes 0% of run-block executions on a
+single-module suite, so it ships as a correctness feature — `NoCoverage` assigned without
+execution — and not as a speed lever. Two-phase execution stays, justified by volume rather
+than time: `-verbose` costs 1.7× in wall time but **20,288×** in output bytes, 19.5 MB per
+run block, so the M2 decoder must stream and discard `provider_schemas` incrementally rather
+than buffer.
 
-Two consequences for R2-4 in particular. Its repair — the state-identity-aware prefix
-closure — has never been reproduced, so its reproduction fixture is an **entry** gate for
-the splitting work and is written red before the splitting code. And the seam it attaches to
-already exists: `Config.TestSelection`, applied to mutant execution and never to the
-baseline.
+What is left is the honesty half, and it is worth the milestone on its own: Tiers 1–3, the
+volatile mask, the full state model, survivor diagnosis, the reporters and the configuration
+file. The per-mutant floor against a real provider is 1.65 s of provider startup that no
+change inside this tool reaches; every remaining lever reduces the *mutant count* rather than
+the per-mutant cost — `--since`, the incremental cache, sampling — and all of them are M3.
 
-**Exit gate: a measured improvement on the M1 baseline** — the mocked-AWS fixture at
-0.3 mutants/s and 1.08× parallel scaling, published in `../research/06-m1-exit-gate.md`.
-The gate was previously stated as a `--since`-scoped run inside a time envelope, which no
-milestone that excludes `--since` can meet; either that flag moves into M2 or the gate is
-expressed over selection alone. It moved here from M1 because M1 lacks the speed levers that
-make it meaningful (R2-13).
+**Exit gate: honesty, not speed.** A speed gate cannot be met by a milestone with no speed
+lever in it. The gate is the fingerprint oracle surviving its own refutations — R2-2's
+unknown-value refinement and R2-9's component-granular volatility, each as an executable
+reproduction — plus the state model's precedence holding under the R2-8 ordering cases. The
+real-provider inner-loop demonstration moves to **M3**, which contains the levers that could
+achieve it.
 
-**M3 — Refinement and CI.** The attribute-level reference graph for cone-based
+**M3 — Refinement, speed and CI.** The attribute-level reference graph for cone-based
 *prioritisation* and predicted diagnoses (never exclusion — R2-1), static `Unobservable`
 pre-classification, incremental cache, `--since`, baseline file, JUnit/HTML/Stryker
 reporters, GitHub Action. Function-operator catalogue driven by `metadata functions -json`.
+
+**The speed work lands here rather than in M2**, because the measurement in
+`../research/07-m2-cost-model.md` left the per-mutant cost a constant that no execution-shape
+change reaches: every lever that remains reduces how many mutants run at all. That makes
+`--since`, the incremental cache and sampling the speed features, and it makes the
+attribute-level graph the only selection granularity with anything to offer a single-module
+suite. **Exit gate: the demonstrated real-provider inner loop** — a `--since`-scoped run on a
+mocked-AWS module inside the stated time envelope, measured against M1's published baseline
+of 0.3 mutants/s. It moved here from M2, and to M2 from M1, each time because the milestone
+it sat in lacked the levers that make it meaningful.
 
 **Post-MVP (unscheduled).** The explanatory uses of the reference graph: path-based survivor
 explanations, `terraform graph` as the cross-validation oracle for the in-process graph, cone
@@ -708,10 +734,16 @@ comparison.
    measurement adds a third: the per-run-block plugin startup that dominates real-provider
    cost is invisible to any harness change, so an upstream `test` that reuses one provider
    process across run blocks would be worth more than every lever in this design.
-8. **Does run-block splitting add or remove work?** (M1 implementation review, M1-A.) The
-   cost of a mutant against `hashicorp/aws` is plugin startup per run block per invocation,
-   and splitting creates more invocations. Three experiments on the existing `aws-mocked`
-   fixture settle it: one invocation with *n* run blocks against *n* invocations of one; the
-   marginal cost of `-verbose` measured through this harness rather than inferred from C1;
-   and how many run blocks instantiation-reachability selection actually removes from a
-   realistic suite. **M2 runs these before specifying either lever.**
+8. ~~**Does run-block splitting add or remove work?**~~ **Answered
+   (`../research/07-m2-cost-model.md`): it adds work.** An invocation costs 1.6 s, a run
+   block inside one costs 0.012 s, and splitting an eight-run suite costs 7.8×. Its ceiling
+   under perfect selection is 3%. Splitting is dropped from the roadmap; the technique
+   remains described in §3 for the case where a run block costs more than an invocation,
+   which mocked plan-mode suites do not reach. The same measurement answered the other two
+   questions it was paired with: `-verbose` costs 1.7× in time and 20,288× in volume, and
+   module-granular selection removes 0% of run-block executions on a single-module suite.
+9. **What reduces the mutant count?** The measurement above leaves the per-mutant floor at
+   1.6 s of provider startup, unreachable from inside this tool. Every remaining lever is
+   therefore a reduction in how many mutants run at all: `--since`, the incremental cache,
+   sampling, and tier selection. They are scheduled M3, which now carries the real-provider
+   inner-loop exit gate that M2 cannot meet.
