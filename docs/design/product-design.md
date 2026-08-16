@@ -767,14 +767,19 @@ comparison.
    mode leaves unknown, widening the killable surface — and `MockMasked` only exists there.
    Whether to prefer them per run block, or let the suite decide, needs measuring on real
    modules.
-3. ~~**Per-mutant volatility.**~~ **Disposed by the M2 spec (spec review C4).** A mutation
-   can expose volatility the baseline mask never saw. Rule: when a survivor's delta is
+3. ~~**Per-mutant volatility.**~~ **Disposed by the M2 spec (spec review C4), corrected by
+   implementation (M2-2), clause retired by the M3 spec.** A mutation can expose volatility
+   the baseline mask never saw. Rule as implemented and proven: when a survivor's delta is
    confined to schema-`computed` attributes or paths the static impure scan over the
    *mutant's* AST marks suspicious, phase two re-runs that mutant once; attributes differing
-   across the two mutant runs are mutant-volatile and masked; a delta that then empties
-   follows the fingerprint-identical rules; residual undecidability is the
-   `indeterminate-volatility` diagnosis. A reproduction where volatility exists only under
-   mutation is a mandatory M2 fixture.
+   across the two mutant runs are **undecidable, not maskable** — quoting M2-2: "A path
+   volatile in the mutant and stable in the baseline is undecidable, not maskable. Masking it
+   on both sides erases the difference the mutation made." Residual undecidability is the
+   `indeterminate-volatility` diagnosis. The original clause "a delta that then empties
+   follows the fingerprint-identical rules" is **retired**: applied to mutant-only volatility
+   it produces a false proof of unobservability for a mutant an ordinary equality assertion
+   would kill, and it was unreachable in the correct implementation. The C4 reproduction
+   remains in the honesty gate.
 4. **Sandbox cost at `..`-closure scale.** M6's fix roots the sandbox at the closure of
    upward module sources, which for a deep monorepo can approach the whole repo per mutant.
    Reflink (`cp --reflink=auto`) and overlayfs need measuring; this interacts with M9's

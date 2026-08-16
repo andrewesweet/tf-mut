@@ -33,3 +33,16 @@ criticals are all "this is not implementable as written", not "this is wrong". A
 spec's acceptance criteria must be executable statements about public contracts, and a
 catalogue-scale deliverable needs its applicability matrix as a named artefact, not an
 adjective. Both are now AGENTS.md-adjacent conventions carried by the revised spec.
+
+## Addendum — 16 August 2026, M3 spec
+
+One clause of the C4 disposition is **retired** by the M3 spec, per implementation decision
+M2-2 (`2026-08-16-m2-implementation-review.md`): "a delta that then empties follows the
+fingerprint-identical rules". Applied to a path that is volatile only under the mutant, the
+clause produces a false proof of unobservability for a mutant an ordinary equality assertion
+would kill. The implemented and proven rule is M2-2's: such a path is undecidable, not
+maskable, and classifies `indeterminate-volatility`. The rest of the C4 disposition — the
+re-run trigger, mutant-volatile masking of paths the baseline already knew volatile, and the
+mandatory mutation-only-volatility reproduction — stands unchanged. Recorded here so the
+disposition record and the implementation no longer disagree; `product-design.md` §13.3
+corrected in the same change.
