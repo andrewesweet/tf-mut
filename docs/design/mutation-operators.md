@@ -151,6 +151,12 @@ never asserted on.
 
 ### Function calls
 
+Sequencing note (M2 spec review, M2): the **hard-coded high-signal pairs and forms in this
+table ship in M2**; the general, `metadata functions -json`-driven catalogue that derives
+substitutions from arity and type compatibility remains M3. Two deliberately different
+deliverables — a curated list now, a generated one later — and the M2 applicability matrix
+covers only the curated list.
+
 | ID | Original | Mutated | Fault modelled |
 | --- | --- | --- | --- |
 | `FN-SWAP` | `min` ↔ `max`, `floor` ↔ `ceil`, `upper` ↔ `lower`, `startswith` ↔ `endswith`, `alltrue` ↔ `anytrue`, `concat` ↔ `setunion` | pairwise substitution | Wrong function |
@@ -181,7 +187,7 @@ ways that are easy to get wrong and almost never asserted on — `toset` in part
 | `DYNAMIC-ZERO` | `dynamic "b" { for_each = e }` | `for_each = []` | An assertion reads the generated nested block |
 | `DYNAMIC-ONE` | `dynamic "b"` | `for_each` sliced to one | An assertion counts nested blocks |
 | `DEPENDS-DROP` | `depends_on = [a, b]` | entry removed / block removed | Rarely killable — a deliberate pseudo-test detector |
-| `PROVIDER-ALIAS-SWAP` | `provider = aws.a` | another declared alias of the same type | An assertion checks region/account placement |
+| `PROVIDER-ALIAS-SWAP` | `provider = aws.a` | another declared alias of the same type **and identical mock status** — a swap must never move a resource from a mocked to an unmocked provider, which would bypass the safety gates (M2 spec review, M3) | An assertion checks region/account placement |
 
 `FOREACH-TO-COUNT` is a Terraform-specific fault that has no analogue in general-purpose
 mutation testing and causes real production incidents (resource replacement on list reorder).
@@ -274,6 +280,16 @@ matters; inverting it is a ready-made, curated, realistic mutation. That gives t
 maintained upstream instead of a hand-written list.
 
 ---
+
+## Applicability matrix (required before Tier 1–3 implementation)
+
+From the M2 spec review (C5, M2): "type-preserving where decidable" is a design rule, not an
+applicability specification, and per-operator error counts over an unspecified catalogue
+measure specification gaps rather than operator quality. Before any Tier 1–3 operator is
+implemented, this document gains a matrix with one row per enabled operator: the exact source
+forms accepted, the type/schema evidence required to fire, any coordinated rewrites, the
+cases skipped and why, and the expected classification of the mutants it emits. Each row is
+fixture-backed. Authoring the matrix is the first deliverable of the M2 operator sub-scope.
 
 ## Suppression
 

@@ -293,7 +293,7 @@ fail one run and error another; changing file order must not change the verdict)
 | 4 | `Timeout` | No kill; ≥ 1 run exceeded `max(factor × baseline, 30 s)` | **Denominator** — and any timeout marks the whole score *incomplete* |
 | 5 | `Survived` | All runs pass; masked fingerprint differs from baseline — or is `indeterminate` (unknown values or undecomposable volatility in scope, R2-2/R2-9) | Denominator. Diagnoses include `mock-masked` (differs only in schema-`computed` attributes, apply mode) and `indeterminate-unknown-values` |
 | 6 | `StructurallyUnassertable` | Fingerprint identical **and** the construct has no plan/state projection (`lifecycle`, `depends_on`, unexercised `validation`) | Denominator, with fix guidance |
-| 7 | `Unobservable` | Fingerprint identical, the construct projects, **and no value in the mutant's evaluated paths is unknown** | **Excluded** |
+| 7 | `Unobservable` | Fingerprint identical, the construct projects, **and no unknown value appears anywhere in any selected run's payload** (the M2-spec-review C2 conservative rule: "evaluated paths" needs provenance the M3 graph supplies, so until then the whole-payload test is the only sound one) | **Excluded** |
 | 8 | `NoCoverage` | No run block instantiates the mutated block (assigned statically, before execution) | Denominator (reported separately) |
 | — | `Ignored` | Suppressed by config, comment or baseline | **Excluded** |
 
@@ -306,9 +306,12 @@ unless `--allow-incomplete-score` is set. **`Unobservable` requires no unknowns 
 (R2-2): the reviewer proved plan-JSON equality does not imply unassertability — cty retains
 *refinements* of unknown values (the known `"stable-"` prefix of an unknown string) that the
 plan serialisation discards, and a legal `startswith` assertion killed a fingerprint-identical
-mutant. Fingerprint-identical mutants with unknowns in their evaluated paths are `Survived`
+mutant. Fingerprint-identical mutants with any unknown in the selected runs' payloads are `Survived`
 with the `indeterminate-unknown-values` diagnosis, and the suggestion engine never claims
-impossibility for them.
+impossibility for them. Stated cost of the conservative whole-payload rule (M2 spec review,
+C2): plan-mode mocked runs almost always carry unknowns, so `Unobservable` rarely fires in
+plan mode and the oracle reaches full power on apply-mode mocked runs — one more reason the
+design favours them. Path-scoped narrowing arrives with M3's provenance, not before.
 
 The `Killed`/`KilledByError` split (review M8) exists because Terraform's plan-time evaluation
 is strong enough that **a suite with zero assertions still kills mutants** — verified: an
@@ -344,8 +347,8 @@ R2-2 it does not even prove unassertability under current inputs when unknown va
 scope: the assertion evaluator sees cty *refinements* of unknowns (a known string prefix, a
 known collection bound) that the plan JSON discards, so a fingerprint-identical mutant can
 still be killed by a legal assertion. What identical fingerprints *do* prove: no assertion
-over the **serialised** plan/state, under current inputs, with **no unknowns in the mutant's
-evaluated paths**, can tell the mutant apart. Only that case is excluded as `Unobservable`;
+over the **serialised** plan/state, under current inputs, with **no unknown values anywhere
+in the selected runs' payloads**, can tell the mutant apart. Only that case is excluded as `Unobservable`;
 it reports as `unobservable-under-current-inputs`, simultaneously an equivalence signal and
 a coverage signal, and the tool tells the user which reading applies:
 
@@ -652,9 +655,17 @@ the per-mutant cost — `--since`, the incremental cache, sampling — and all o
 **Exit gate: honesty, not speed.** A speed gate cannot be met by a milestone with no speed
 lever in it. The gate is the fingerprint oracle surviving its own refutations — R2-2's
 unknown-value refinement and R2-9's component-granular volatility, each as an executable
-reproduction — plus the state model's precedence holding under the R2-8 ordering cases. The
-real-provider inner-loop demonstration moves to **M3**, which contains the levers that could
-achieve it.
+reproduction, plus the mutation-introduced-volatility case the spec review added (C4) — and
+the state model's precedence holding under the R2-8 ordering cases. The real-provider
+inner-loop demonstration moves to **M3**, which contains the levers that could achieve it.
+
+**Internal structure (M2 spec review, rescope recommendation).** One milestone, three ordered
+sub-scopes: **M2a** — streaming decoder, normative fingerprint contract, unknown and
+volatility handling, the exclusive state/diagnosis model, JSON schema v2; **M2b** — the
+Tier 1–3 catalogue behind its applicability matrix (see the operator catalogue); **M2c** —
+configuration, suppression, SARIF and policy/precedence semantics. The honesty gate attaches
+to M2a, and M2b/M2c cannot close the milestone while any M2a gate is red — operator and
+interface breadth must not be able to hide a failed oracle behind a large green checklist.
 
 **M3 — Refinement, speed and CI.** The attribute-level reference graph for cone-based
 *prioritisation* and predicted diagnoses (never exclusion — R2-1), static `Unobservable`
@@ -711,12 +722,14 @@ comparison.
    mode leaves unknown, widening the killable surface — and `MockMasked` only exists there.
    Whether to prefer them per run block, or let the suite decide, needs measuring on real
    modules.
-3. **Per-mutant volatility.** The static-plus-runtime volatile mask (§3) handles baseline
-   volatility, but a mutation can itself change *which* values are generated (e.g. altering
-   how many mock instances exist), producing volatility the baseline mask never saw. The
-   review's M5(c) — second-quantised `timestamp()` — shows the class is real. May require the
-   mask to be recomputed from the mutant's own two-phase runs when fingerprints differ only
-   in suspicious attributes.
+3. ~~**Per-mutant volatility.**~~ **Disposed by the M2 spec (spec review C4).** A mutation
+   can expose volatility the baseline mask never saw. Rule: when a survivor's delta is
+   confined to schema-`computed` attributes or paths the static impure scan over the
+   *mutant's* AST marks suspicious, phase two re-runs that mutant once; attributes differing
+   across the two mutant runs are mutant-volatile and masked; a delta that then empties
+   follows the fingerprint-identical rules; residual undecidability is the
+   `indeterminate-volatility` diagnosis. A reproduction where volatility exists only under
+   mutation is a mandatory M2 fixture.
 4. **Sandbox cost at `..`-closure scale.** M6's fix roots the sandbox at the closure of
    upward module sources, which for a deep monorepo can approach the whole repo per mutant.
    Reflink (`cp --reflink=auto`) and overlayfs need measuring; this interacts with M9's
@@ -727,7 +740,9 @@ comparison.
    `plan_format_version`/`state_format_version` payloads that carry the same "no compatibility
    promise" caveat the design used to reject `terraform graph`. Posture: pin the accepted
    version range, fail loudly outside it, and treat OpenTofu as a tested matrix — its `test`
-   command already diverges — rather than a `--engine` flag that implies parity.
+   command already diverges — rather than a `--engine` flag that implies parity. *Version
+   pinning with a negative test is an M2 spec deliverable (spec review C2); the OpenTofu
+   matrix remains open.*
 7. **Upstream asks worth filing.** `-filter=file::run`; a `-verbose` mode that omits
    `provider_schemas` from per-run messages (C1 makes this a 26× marginal-cost issue); native
    coverage remains [#37605](https://github.com/hashicorp/terraform/issues/37605). M1's
