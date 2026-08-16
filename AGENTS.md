@@ -64,6 +64,19 @@ millisecond-fast; the one real-provider performance measurement is network-gated
 separate. The R1/R2 reproduction cases (recipes in review docs and issue #1) are mandatory
 fixtures.
 
+**Two exceptions, both narrow, both here rather than taken quietly.** Neither may be widened
+without amending this section.
+
+1. `internal/fingerprint` is tested directly on payload *shapes* — null against absent against
+   empty, an addressed collection Terraform reordered, a value that changed type between two
+   runs. These are contracts about documents, and driving the real binary into producing each
+   shape on demand is not possible; the shapes themselves are taken from recorded real output.
+   Every *verdict* the shapes lead to is still asserted through the engine seam.
+2. `internal/tfexec` is tested directly for the streaming memory gate, which is a claim about
+   this project's retained heap and has no exported surface to make the claim about. Its input
+   is recorded real `terraform test -verbose -json` output with the provider schemas inflated;
+   the M2 spec is explicit that manipulating recorded real output "is not a fake runner".
+
 ## Build and verification
 
 Linux x86-64 is the initial supported development platform. Install the mise version pinned in
@@ -96,7 +109,7 @@ this repository contract.
 | `internal/config` | `.tf-mut.hcl` and the inline suppression directives |
 | `internal/sandbox` | Closure-rooted materialisation, provider and remote-module sharing, fresh-inode writes |
 | `internal/tfexec` | The Terraform CLI: `version`, `init`, `validate`, `providers schema`, `fmt`, and the `test -json` stream |
-| `internal/report` | The report value, its state and metric definitions, and the terminal and JSON renderings |
+| `internal/report` | The report value, its state, diagnosis and metric definitions, and the terminal, JSON and SARIF renderings |
 
 The JSON reporter's contract is published at `docs/schema/report-2.0.0.json` and validated in
 the suite; `report-1.0.0.json` remains published for M1 consumers. Changing a field's name or
@@ -141,8 +154,11 @@ spec requires is still named.
 - Safety gates (`--allow-real-infrastructure`, `--allow-unsandboxed-effects`) are
   load-bearing product decisions, not defaults to soften.
 - Engine fixtures live in `internal/engine/testdata/`. They are `terraform_data`-based and
-  offline unless the name says otherwise; `mocked-null` and `unmocked` need the provider
-  mirror (`just tools-install`) and skip without it, and `aws-mocked` is network-gated behind
-  the `integration` tag.
+  offline unless the name says otherwise; `mocked-null`, `mocked-aliases` and `unmocked` need
+  the provider mirror (`just tools-install`) and skip without it, and `aws-mocked` is
+  network-gated behind the `integration` tag. Every fixture is in the Terraform format manifest
+  except `unformatted`, which is named in `tools/terraform-format-skip` with its reason: an
+  unformatted fixture makes `hclwrite` re-align the file it round-trips, which silently turns
+  every Tier 0 mutant's diff into a whole-file one.
 - `.golangci.yml` disables a handful of linters with a stated reason each. Adding a disable is
   allowed; adding one without the reason is not.

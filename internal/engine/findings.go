@@ -158,14 +158,19 @@ func resourceRange(configuration discovery.Configuration, entry *evidence, fallb
 	return fallback
 }
 
-// unanswerableResources names resources no extreme mutant fired on, so that a
-// resource whose every argument is schema-required cannot silently disappear
-// from the pseudo-tested headline.
+// unanswerableResources names resources no enabled operator fired on at all, so
+// that silence is never mistaken for a verdict.
+//
+// The definition is over every enabled tier rather than over Tier 0 alone: with
+// the expression, collection and contract operators in the population, a
+// resource whose every argument is schema-required is usually still reachable
+// through its own expressions, and warning about it would be noise. What the
+// warning still catches is the resource this run genuinely says nothing about.
 func unanswerableResources(configuration discovery.Configuration, mutants []report.Mutant) []string {
 	covered := map[string]bool{}
 
 	for _, mutant := range mutants {
-		if mutant.Resource != "" && extremeOperators[mutant.Operator] {
+		if mutant.Resource != "" {
 			covered[mutant.Module+"|"+mutant.Resource] = true
 		}
 	}
@@ -189,7 +194,8 @@ func unanswerableResources(configuration discovery.Configuration, mutants []repo
 	slices.Sort(missing)
 
 	return []string{fmt.Sprintf(
-		"%d resource(s) have no extreme mutant, so this run says nothing about them: %s",
+		"%d resource(s) have no mutant under any enabled operator, "+
+			"so this run says nothing about them: %s",
 		len(missing), strings.Join(missing, ", "),
 	)}
 }

@@ -51,8 +51,8 @@ type Closure struct {
 	assertions []Assertion
 }
 
-// Verdict is what the closure concluded about one delta address.
-type Verdict struct {
+// Reach is what the closure concluded about one delta address.
+type Reach struct {
 	// Read reports a proven read by an assertion.
 	Read bool
 	// Defeated reports that the closure could not decide, because the only
@@ -86,9 +86,9 @@ func (c Configuration) BuildClosure() Closure {
 
 // Reads reports whether any assertion reads the address, directly or through
 // the output and local closure.
-func (c Closure) Reads(address string) Verdict {
+func (c Closure) Reads(address string) Reach {
 	target := normaliseAddress(address)
-	defeated := Verdict{Read: false, Defeated: false, Assertion: Assertion{}, Construct: ""}
+	defeated := Reach{Read: false, Defeated: false, Assertion: Assertion{}, Construct: ""}
 
 	for _, assertion := range c.assertions {
 		verdict := c.reach(assertion.Ref, target, map[string]bool{})
@@ -118,8 +118,8 @@ func (c Closure) record(address string, attributes []Attribute, wanted string) {
 }
 
 // reach walks one reference and everything it expands to.
-func (c Closure) reach(from Ref, target string, seen map[string]bool) Verdict {
-	empty := Verdict{Read: false, Defeated: false, Assertion: Assertion{}, Construct: ""}
+func (c Closure) reach(from Ref, target string, seen map[string]bool) Reach {
+	empty := Reach{Read: false, Defeated: false, Assertion: Assertion{}, Construct: ""}
 
 	if seen[from.Address] {
 		return empty
@@ -129,10 +129,10 @@ func (c Closure) reach(from Ref, target string, seen map[string]bool) Verdict {
 
 	if overlaps(from.Address, target) {
 		if from.Precise {
-			return Verdict{Read: true, Defeated: false, Assertion: Assertion{}, Construct: from.Construct}
+			return Reach{Read: true, Defeated: false, Assertion: Assertion{}, Construct: from.Construct}
 		}
 
-		return Verdict{Read: false, Defeated: true, Assertion: Assertion{}, Construct: from.Construct}
+		return Reach{Read: false, Defeated: true, Assertion: Assertion{}, Construct: from.Construct}
 	}
 
 	result := empty
@@ -270,18 +270,50 @@ func collectRefs(expr hclsyntax.Expression, precise bool, construct string, refs
 	}
 }
 
-// childExpressions lists the direct sub-expressions of a node.
+// childExpressions lists the *direct* sub-expressions of a node.
+//
+// It is written out by hand rather than delegating to `hclsyntax.VisitAll`,
+// which walks the whole subtree. That difference is load-bearing: a splat nested
+// inside a function call would be reached both as itself — where the walk above
+// marks it imprecise — and as an ordinary descendant, and the second visit would
+// hand back a precise reference for a projection nobody can follow. The honest
+// `unasserted` fallback would then never fire where it matters most.
 func childExpressions(expr hclsyntax.Expression) []hclsyntax.Expression {
-	children := []hclsyntax.Expression{}
-
-	_ = hclsyntax.VisitAll(expr, func(node hclsyntax.Node) hcl.Diagnostics {
-		nested, ok := node.(hclsyntax.Expression)
-		if ok && nested != expr {
-			children = append(children, nested)
-		}
-
+	switch typed := expr.(type) {
+	case *hclsyntax.BinaryOpExpr:
+		return []hclsyntax.Expression{typed.LHS, typed.RHS}
+	case *hclsyntax.UnaryOpExpr:
+		return []hclsyntax.Expression{typed.Val}
+	case *hclsyntax.ConditionalExpr:
+		return []hclsyntax.Expression{typed.Condition, typed.TrueResult, typed.FalseResult}
+	case *hclsyntax.FunctionCallExpr:
+		return typed.Args
+	case *hclsyntax.ParenthesesExpr:
+		return []hclsyntax.Expression{typed.Expression}
+	case *hclsyntax.TemplateExpr:
+		return typed.Parts
+	case *hclsyntax.TemplateWrapExpr:
+		return []hclsyntax.Expression{typed.Wrapped}
+	case *hclsyntax.TemplateJoinExpr:
+		return []hclsyntax.Expression{typed.Tuple}
+	case *hclsyntax.TupleConsExpr:
+		return typed.Exprs
+	case *hclsyntax.ObjectConsExpr:
+		return objectChildren(typed)
+	case *hclsyntax.ObjectConsKeyExpr:
+		return []hclsyntax.Expression{typed.Wrapped}
+	default:
+		// Traversals, literals and the anonymous splat symbol have no children,
+		// and every expression that loses provenance is handled by the caller.
 		return nil
-	})
+	}
+}
+
+func objectChildren(expr *hclsyntax.ObjectConsExpr) []hclsyntax.Expression {
+	children := make([]hclsyntax.Expression, 0, len(expr.Items)*addressParts)
+	for _, item := range expr.Items {
+		children = append(children, item.KeyExpr, item.ValueExpr)
+	}
 
 	return children
 }

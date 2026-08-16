@@ -19,8 +19,7 @@ import (
 // every run passed produced any observable difference at all, and if so what
 // the suite would have had to do to notice.
 type oracle struct {
-	plan    executionPlan
-	closure discovery.Closure
+	plan executionPlan
 }
 
 // observe runs phase two for one phase-one survivor and assigns its final state
@@ -50,7 +49,20 @@ func (o oracle) observe(
 	delta := fingerprint.Compare(mask, o.plan.prepared.payloads, payloads)
 	unstable := []string{}
 
-	if rerun, reason := o.needsRerun(index, delta); rerun {
+	// A run block the baseline fingerprinted and the mutant did not is an
+	// operational condition, not a verdict: phase one reported every run as
+	// passing, so a missing payload means the two phases disagree and neither
+	// can be trusted over the other.
+	if len(delta.MissingRuns) > 0 {
+		return verdict, &report.ExecutionError{
+			MutantID: verdict.ID,
+			Site:     verdict.Site,
+			Message: "the fingerprint run produced no payload for " +
+				strings.Join(delta.MissingRuns, ", ") + ", which phase one reported as passing",
+		}
+	}
+
+	if o.needsRerun(index, delta) {
 		second, _, rerunErr := o.fingerprintRun(ctx, built)
 		if rerunErr != nil {
 			return verdict, &report.ExecutionError{
@@ -64,7 +76,6 @@ func (o oracle) observe(
 		unstable = mutantMask.Paths()
 		mask = mask.MergeMutantVolatility(mutantMask)
 		delta = fingerprint.Compare(mask, o.plan.prepared.payloads, payloads)
-		_ = reason
 	}
 
 	return o.classify(verdict, payloads, delta, mask, unstable), nil
@@ -114,23 +125,23 @@ const (
 // confined to attributes the provider fills in, or touches a resource the
 // static impure scan over the *mutant's* own syntax marks suspicious, the
 // mutant is run once more and the difference between its two runs is masked.
-func (o oracle) needsRerun(index int, delta fingerprint.Delta) (bool, string) {
-	if delta.Empty() || len(delta.Changes) == 0 {
-		return false, ""
+func (o oracle) needsRerun(index int, delta fingerprint.Delta) bool {
+	if len(delta.Changes) == 0 {
+		return false
 	}
 
 	if o.computedConfined(delta) {
-		return true, "delta confined to schema-computed attributes"
+		return true
 	}
 
 	scan := o.mutantScan(index)
 	for _, address := range delta.Addresses() {
 		if scan.Suspicious(resourceOf(address)) {
-			return true, "delta touches a statically impure resource of the mutant"
+			return true
 		}
 	}
 
-	return false, ""
+	return false
 }
 
 // mutantScan runs the static impure scan over the mutant's own syntax.
@@ -193,25 +204,35 @@ func (o oracle) classify(
 
 	if proven(delta) {
 		verdict.State = report.Survived
-		verdict.Verdict = o.diagnoseDelta(delta, mask)
+		verdict.Verdict = o.diagnoseDelta(delta, mask, payloads)
 
 		return verdict
 	}
 
-	// No difference could be proven. The unknown rule comes first and is
-	// deliberately conservative: cty keeps refinements of unknown values that
-	// the plan serialisation discards, so an identical fingerprint over a
-	// payload with any unknown in it does not prove unassertability (R2-2).
+	// No difference could be proven.
+	//
+	// `StructurallyUnassertable` comes first because it claims nothing about
+	// equality: the construct has no plan or state projection at all, which is a
+	// static property of the construct and true whatever the payload contains.
+	// Ordering it below the unknown rule would hide every untested contract
+	// behind `indeterminate-unknown-values` in plan mode, where unknowns are
+	// almost always present — and story 4 exists precisely so that contract
+	// findings count against the reader instead of vanishing.
+	//
+	// The unknown rule then leads the rest, and is deliberately conservative:
+	// cty keeps refinements of unknown values that the plan serialisation
+	// discards, so an identical fingerprint over a payload with any unknown in
+	// it does not prove unassertability (R2-2).
 	switch {
-	case len(unknowns) > 0:
-		verdict.State = report.Survived
-		verdict.Verdict = unknownVerdict(unknowns, mask)
-	case delta.Indeterminate || len(delta.MissingRuns) > 0:
-		verdict.State = report.Survived
-		verdict.Verdict = volatilityVerdict(delta, mask, unstable)
 	case !mutation.Projects(operator):
 		verdict.State = report.StructurallyUnassertable
 		verdict.Verdict = unassertableVerdict(operator)
+	case len(unknowns) > 0:
+		verdict.State = report.Survived
+		verdict.Verdict = unknownVerdict(unknowns, mask)
+	case delta.Indeterminate:
+		verdict.State = report.Survived
+		verdict.Verdict = volatilityVerdict(delta, mask, unstable)
 	default:
 		verdict.State = report.Unobservable
 		verdict.Verdict = unobservableVerdict(mask)
@@ -230,19 +251,26 @@ func proven(delta fingerprint.Delta) bool {
 	return len(delta.Changes) > 0
 }
 
-func (o oracle) diagnoseDelta(delta fingerprint.Delta, mask fingerprint.Mask) *report.Verdict {
-	if o.plan.configuration.Tests.HasApplyRun() && o.computedConfined(delta) {
+func (o oracle) diagnoseDelta(
+	delta fingerprint.Delta,
+	mask fingerprint.Mask,
+	payloads []fingerprint.Payload,
+) *report.Verdict {
+	// Apply mode is a property of the runs the delta actually came from, not of
+	// the suite: in a mixed suite a plan-mode change is not a mock's doing, and
+	// a mock cannot overwrite a value in a mode where it stays unknown.
+	if appliedDelta(delta, payloads) && o.computedConfined(delta) {
 		return mockMaskedVerdict(delta, mask)
 	}
 
 	for _, address := range delta.Addresses() {
-		if closureVerdict := o.closure.Reads(address); closureVerdict.Read {
+		if closureVerdict := o.plan.closure.Reads(address); closureVerdict.Read {
 			return weakAssertionVerdict(delta, mask, address, closureVerdict)
 		}
 	}
 
 	for _, address := range delta.Addresses() {
-		if closureVerdict := o.closure.Reads(address); closureVerdict.Defeated {
+		if closureVerdict := o.plan.closure.Reads(address); closureVerdict.Defeated {
 			return unassertedVerdict(delta, mask, address, closureVerdict)
 		}
 	}
@@ -268,6 +296,14 @@ func unknownVerdict(unknowns []string, mask fingerprint.Mask) *report.Verdict {
 }
 
 func volatilityVerdict(delta fingerprint.Delta, mask fingerprint.Mask, unstable []string) *report.Verdict {
+	// Where the mutant was not re-run — the baseline's own mask could not
+	// decompose a value — the undecidable paths are the evidence. The field is
+	// never empty: a diagnosis the reader cannot act on is the failure this
+	// milestone exists to avoid.
+	if len(unstable) == 0 {
+		unstable = mask.Undecidables()
+	}
+
 	return &report.Verdict{
 		Diagnosis: report.IndeterminateVolatility,
 		Message: "the comparison could not be made soundly: values moved between runs in a way " +
@@ -336,7 +372,7 @@ func weakAssertionVerdict(
 	delta fingerprint.Delta,
 	mask fingerprint.Mask,
 	address string,
-	closure discovery.Verdict,
+	closure discovery.Reach,
 ) *report.Verdict {
 	return &report.Verdict{
 		Diagnosis: report.WeakAssertion,
@@ -373,7 +409,7 @@ func unassertedVerdict(
 	delta fingerprint.Delta,
 	mask fingerprint.Mask,
 	address string,
-	closure discovery.Verdict,
+	closure discovery.Reach,
 ) *report.Verdict {
 	return &report.Verdict{
 		Diagnosis: report.Unasserted,
@@ -487,4 +523,21 @@ func stripInstanceKeys(address string) string {
 	}
 
 	return builder.String()
+}
+
+// appliedDelta reports whether every change came from a run that produced a
+// state payload, which is the only mode in which a mock can mask a value.
+func appliedDelta(delta fingerprint.Delta, payloads []fingerprint.Payload) bool {
+	kinds := make(map[string]string, len(payloads))
+	for _, payload := range payloads {
+		kinds[payload.Key()] = payload.Kind
+	}
+
+	for _, change := range delta.Changes {
+		if kinds[change.Run] != tfexec.PayloadState {
+			return false
+		}
+	}
+
+	return len(delta.Changes) > 0
 }

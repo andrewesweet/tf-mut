@@ -4,7 +4,10 @@
 // value, so no two of them can disagree about a verdict.
 package report
 
-import "slices"
+import (
+	"cmp"
+	"slices"
+)
 
 // SchemaVersion is the version of the machine-readable report schema.
 //
@@ -422,15 +425,7 @@ func ComputeOperatorErrors(mutants []Mutant) []OperatorErrors {
 	}
 
 	slices.SortFunc(counts, func(left, right OperatorErrors) int {
-		if left.Operator < right.Operator {
-			return -1
-		}
-
-		if left.Operator > right.Operator {
-			return 1
-		}
-
-		return 0
+		return cmp.Compare(left.Operator, right.Operator)
 	})
 
 	return counts

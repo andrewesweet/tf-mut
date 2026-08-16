@@ -97,6 +97,7 @@ work. An independent adversarial review drove these corrections — see
 | [`docs/research/06-m1-exit-gate.md`](docs/research/06-m1-exit-gate.md) | M1 exit gates: the reproduction map, the deviations, and the measured real-provider numbers |
 | [`docs/research/07-m2-cost-model.md`](docs/research/07-m2-cost-model.md) | What M2's planned speed levers actually buy, measured — and why run-block splitting was dropped |
 | [`docs/research/08-m2-exit-gate.md`](docs/research/08-m2-exit-gate.md) | The honesty gate, the contract sweep from every normative behaviour to its test, and M2's measurements |
+| [`docs/schema/report-1.0.0.json`](docs/schema/report-1.0.0.json) | The M1 JSON report schema, still published for consumers that read it |
 | [`docs/schema/report-2.0.0.json`](docs/schema/report-2.0.0.json) | The versioned JSON report schema the `json` reporter emits |
 | [`docs/schema/sarif-2.1.0.json`](docs/schema/sarif-2.1.0.json) | The published SARIF schema the `sarif` reporter's output is validated against |
 

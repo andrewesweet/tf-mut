@@ -454,7 +454,7 @@ func sarifDocument(t *testing.T, result report.Report) map[string]any {
 	t.Helper()
 
 	buffer := bytes.Buffer{}
-	if err := report.WriteSARIF(&buffer, result); err != nil {
+	if err := report.WriteSARIF(&buffer, result, engine.RuleDescriptions()); err != nil {
 		t.Fatalf("writing SARIF: %v", err)
 	}
 

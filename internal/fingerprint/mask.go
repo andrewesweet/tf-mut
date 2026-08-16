@@ -76,30 +76,7 @@ func (m Mask) Paths() []string {
 
 // Merge returns the union of two masks, the more conservative entry winning.
 func (m Mask) Merge(other Mask) Mask {
-	merged := NewMask()
-	maps.Copy(merged.Spans, m.Spans)
-	maps.Copy(merged.Undecidable, m.Undecidable)
-
-	for path, span := range other.Spans {
-		existing, found := merged.Spans[path]
-		if !found {
-			merged.Spans[path] = span
-
-			continue
-		}
-
-		merged.Spans[path] = narrower(existing, span)
-	}
-
-	for path := range other.Undecidable {
-		merged.Undecidable[path] = true
-	}
-
-	for path := range merged.Undecidable {
-		delete(merged.Spans, path)
-	}
-
-	return merged
+	return m.union(other, false)
 }
 
 // MergeMutantVolatility folds a mask derived from two runs of the *mutant* into
@@ -112,29 +89,7 @@ func (m Mask) Merge(other Mask) Mask {
 // nobody can stand behind. Such a path is undecidable, which is what the C4
 // rule calls residual undecidability.
 func (m Mask) MergeMutantVolatility(other Mask) Mask {
-	merged := NewMask()
-	maps.Copy(merged.Spans, m.Spans)
-	maps.Copy(merged.Undecidable, m.Undecidable)
-
-	for path, span := range other.Spans {
-		if existing, known := m.Spans[path]; known {
-			merged.Spans[path] = narrower(existing, span)
-
-			continue
-		}
-
-		merged.Undecidable[path] = true
-	}
-
-	for path := range other.Undecidable {
-		merged.Undecidable[path] = true
-	}
-
-	for path := range merged.Undecidable {
-		delete(merged.Spans, path)
-	}
-
-	return merged
+	return m.union(other, true)
 }
 
 // narrower resolves two spans for the same path.
@@ -180,6 +135,14 @@ func Derive(first, second []Payload) Mask {
 	for _, payload := range first {
 		other, found := byKey[payload.Key()]
 		if !found {
+			// A run block one baseline run fingerprinted and the other did not
+			// is a shape difference across the whole run: nothing about it can
+			// be decomposed, and letting it vanish here would let a later
+			// comparison call the run identical.
+			for path := range payload.Values {
+				mask.Undecidable[path] = true
+			}
+
 			continue
 		}
 
@@ -349,4 +312,48 @@ func commonSuffix(left, right string) string {
 	}
 
 	return left[len(left)-length:]
+}
+
+// Undecidables lists the paths whose volatility the mask could not decompose,
+// which is the evidence an indeterminate comparison carries.
+func (m Mask) Undecidables() []string {
+	paths := make([]string, 0, len(m.Undecidable))
+	for path := range m.Undecidable {
+		paths = append(paths, path)
+	}
+
+	slices.Sort(paths)
+
+	return paths
+}
+
+// union combines two masks. When newIsUndecidable is set, a span the receiver
+// does not already carry becomes undecidable rather than being adopted.
+func (m Mask) union(other Mask, newIsUndecidable bool) Mask {
+	merged := NewMask()
+	maps.Copy(merged.Spans, m.Spans)
+	maps.Copy(merged.Undecidable, m.Undecidable)
+
+	for path, span := range other.Spans {
+		existing, known := m.Spans[path]
+
+		switch {
+		case known:
+			merged.Spans[path] = narrower(existing, span)
+		case newIsUndecidable:
+			merged.Undecidable[path] = true
+		default:
+			merged.Spans[path] = span
+		}
+	}
+
+	for path := range other.Undecidable {
+		merged.Undecidable[path] = true
+	}
+
+	for path := range merged.Undecidable {
+		delete(merged.Spans, path)
+	}
+
+	return merged
 }

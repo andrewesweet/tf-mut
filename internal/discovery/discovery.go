@@ -93,9 +93,10 @@ type Module struct {
 	Rel string
 	// Files lists the absolute paths of the module's .tf files.
 	Files []string
-	// Bodies holds the parsed body of each file, keyed by absolute path, so
-	// that generation, the impure scan and the reference closure all read the
-	// same syntax tree the inventories were built from.
+	// Bodies holds the parsed body of each module file, keyed by absolute path,
+	// so that generation reads the same syntax tree the inventories were built
+	// from. Test files are not here: the closure parses those itself, because
+	// they are not part of any module.
 	Bodies      map[string]*hclsyntax.Body
 	Resources   []Block
 	DataSources []Block

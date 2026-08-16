@@ -36,6 +36,13 @@ output "labels" {
   value = terraform_data.projected[*].input.label
 }
 
+# The same projection, wrapped in a call. A walk that visited whole subtrees
+# would reach the splat's source as an ordinary descendant and hand back a
+# precise reference for a projection nobody can follow.
+output "sorted_labels" {
+  value = sort(terraform_data.projected[*].input.label)
+}
+
 # Nothing at all reads this one.
 resource "terraform_data" "ignored" {
   input = "unwatched"

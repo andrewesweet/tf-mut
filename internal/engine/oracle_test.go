@@ -182,6 +182,27 @@ func TestADefeatedClosureDiagnosesUnassertedAndNamesTheConstruct(t *testing.T) {
 	}
 }
 
+func TestASplatInsideACallStillDefeatsTheClosure(t *testing.T) {
+	t.Parallel()
+
+	// The fixture projects the same splat twice, once bare and once wrapped in
+	// `sort(...)`. A closure walk that visited whole subtrees would reach the
+	// wrapped splat's source as an ordinary descendant and call the reference
+	// precise, so the honest fallback would never fire where it matters most.
+	result := runFixture(t, "closure")
+
+	for _, mutant := range survivorsAt(result, "terraform_data.projected.input") {
+		if !strings.Contains(mutant.Diff, "unreadable") {
+			continue
+		}
+
+		if mutant.Verdict.Diagnosis != report.Unasserted {
+			t.Fatalf("an attribute reachable only through a splat diagnosed %q, want %q",
+				mutant.Verdict.Diagnosis, report.Unasserted)
+		}
+	}
+}
+
 func TestAnUnreadResourceStillDiagnosesNoAssertion(t *testing.T) {
 	t.Parallel()
 
@@ -358,6 +379,25 @@ func TestConstructsWithNoProjectionAreStructurallyUnassertable(t *testing.T) {
 
 	if result.Count(report.StructurallyUnassertable) == 0 {
 		t.Fatal("the state never fired")
+	}
+}
+
+func TestAContractFindingSurvivesAPayloadFullOfUnknowns(t *testing.T) {
+	t.Parallel()
+
+	// `StructurallyUnassertable` claims nothing about equality: the construct
+	// has no plan or state projection at all, which is true whatever the payload
+	// contains. Ordering it below the unknown rule would hide every untested
+	// contract behind `indeterminate-unknown-values` in plan mode, where
+	// unknowns are almost always present.
+	result := runFixture(t, "contract")
+
+	if result.CountDiagnosis(report.IndeterminateUnknownValues) == 0 {
+		t.Fatal("the fixture carries no unknowns, so the ordering is not exercised")
+	}
+
+	if result.Count(report.StructurallyUnassertable) == 0 {
+		t.Fatalf("unknown values swallowed every contract finding: %v", result.Metrics.Counts)
 	}
 }
 

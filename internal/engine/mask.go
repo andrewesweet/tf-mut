@@ -1,8 +1,6 @@
 package engine
 
 import (
-	"strings"
-
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 )
@@ -38,27 +36,11 @@ func payloadPaths(payloads []fingerprint.Payload, address, attribute string) []s
 
 	for _, payload := range payloads {
 		for path := range payload.Values {
-			if attributePath(path, address, attribute) {
+			if fingerprint.AttributePath(path, address, attribute) {
 				found = append(found, path)
 			}
 		}
 	}
 
 	return found
-}
-
-// attributePath reports whether a canonical path is exactly the given argument
-// of the given resource, in either the plan or the state projection.
-func attributePath(path, address, attribute string) bool {
-	for _, body := range []string{
-		"resource_changes[" + address + "].change.after." + attribute,
-		"resource_changes[" + address + "].change.before." + attribute,
-		"root_module.resources[" + address + "].values." + attribute,
-	} {
-		if path == body || strings.HasPrefix(path, body+".") {
-			return true
-		}
-	}
-
-	return false
 }

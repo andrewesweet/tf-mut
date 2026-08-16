@@ -118,24 +118,6 @@ var (
 	ErrBaselineNoRuns = errors.New("baseline executed no run blocks")
 )
 
-// publishCatalogue hands the operator catalogue to the reporters once, so that
-// a SARIF rule carries the catalogue's own words rather than a paraphrase.
-//
-//nolint:gochecknoinits // one registration, at the only place that knows both.
-func init() {
-	descriptions := map[string]report.RuleDescription{}
-
-	for id, entry := range mutation.Descriptions() {
-		descriptions[id] = report.RuleDescription{
-			Tier:        string(entry.Tier),
-			Description: entry.Description,
-			Killer:      entry.Killer,
-		}
-	}
-
-	report.RegisterRules(descriptions)
-}
-
 // Run performs a complete mutation run and returns the report.
 func Run(ctx context.Context, settings Config) (report.Report, error) {
 	moduleDir, err := filepath.Abs(settings.ModuleDir)
@@ -417,4 +399,20 @@ func baselineFingerprint(prepared warm) string {
 	}
 
 	return fingerprint.Fingerprint(masked)
+}
+
+// RuleDescriptions renders the operator catalogue for the reporters, so that a
+// SARIF rule carries the catalogue's own words rather than a paraphrase.
+func RuleDescriptions() map[string]report.RuleDescription {
+	descriptions := make(map[string]report.RuleDescription, len(mutation.Catalogue()))
+
+	for id, entry := range mutation.Descriptions() {
+		descriptions[id] = report.RuleDescription{
+			Tier:        string(entry.Tier),
+			Description: entry.Description,
+			Killer:      entry.Killer,
+		}
+	}
+
+	return descriptions
 }

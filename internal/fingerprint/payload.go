@@ -181,10 +181,16 @@ const (
 // state could distinguish, and a `terraform test` assertion evaluates HCL
 // against the module: it can read a resource's values and which instances
 // exist, and it has no expression at all for the provider that served it, the
-// schema version it was written with, or its `depends_on` edges. Measured, not
-// assumed: `terraform test -verbose -json` v1.15.8 serialises `depends_on` into
-// `test_state`, which would otherwise make every DEPENDS-DROP mutant look
-// observable while remaining, by construction, unassertable.
+// schema version it was written with, or its `depends_on` edges.
+//
+// Every entry was checked against the real binary rather than reasoned about,
+// and that check removed one candidate. `depends_on` is here because
+// `terraform test -verbose -json` v1.15.8 serialises it into `test_state`,
+// which would otherwise make every DEPENDS-DROP mutant look observable while
+// remaining, by construction, unassertable. The sensitivity members are *not*
+// here, although they read like bookkeeping: `issensitive` is a Terraform
+// function, an assertion over it passes, and dropping them would have made
+// every sensitivity mutant invisible to the oracle.
 //
 //nolint:gochecknoglobals // an immutable lookup table.
 var unreachableMembers = map[string]bool{
@@ -192,9 +198,6 @@ var unreachableMembers = map[string]bool{
 	"schema_version":      true,
 	"mode":                true,
 	"depends_on":          true,
-	"sensitive_values":    true,
-	"before_sensitive":    true,
-	"after_sensitive":     true,
 	"replace_paths":       true,
 	"deposed_key":         true,
 	"tainted":             true,
@@ -404,6 +407,25 @@ const (
 	rootModule      = "root_module"
 	stateOutputs    = "outputs"
 )
+
+// AttributePath reports whether a canonical path is exactly the given argument
+// of the given resource, in either the plan or the state projection.
+//
+// The grammar of a canonical path is this package's, so the question is asked
+// here rather than by rebuilding the prefixes at the call site.
+func AttributePath(path, address, attribute string) bool {
+	for _, body := range []string{
+		resourceChanges + "[" + address + "].change.after." + attribute,
+		resourceChanges + "[" + address + "].change.before." + attribute,
+		rootModule + ".resources[" + address + "].values." + attribute,
+	} {
+		if path == body || strings.HasPrefix(path, body+".") {
+			return true
+		}
+	}
+
+	return false
+}
 
 // Address converts a canonical payload path into the Terraform address a
 // reader would recognise, which is what every diagnosis is expressed in.

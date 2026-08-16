@@ -133,7 +133,7 @@ with no test here is a gap; the two rows that have one are named in *What is not
 | `KilledByError` | `TestAnExercisedValidationKillsItsMutants`, and M1's discriminator cases |
 | `Timeout` | `TestTimeoutLandsInTheDenominatorAndFailsTheGate` |
 | `Survived` | `TestRunReportsKilledAndSurvivedOutputs`, and every diagnosis case |
-| `StructurallyUnassertable` | `TestConstructsWithNoProjectionAreStructurallyUnassertable`, `TestStructurallyUnassertableSitsInTheDenominator` |
+| `StructurallyUnassertable` | `TestConstructsWithNoProjectionAreStructurallyUnassertable`, `TestStructurallyUnassertableSitsInTheDenominator`, `TestAContractFindingSurvivesAPayloadFullOfUnknowns` |
 | `Unobservable` | `TestAKnownPayloadLetsTheOracleProveUnobservability` (assignment and exclusion from the scored set) |
 | `NoCoverage` | `TestNoCoverageIsAssignedWithoutExecuting` |
 | `Ignored` | `TestAReasonedSuppressionIgnoresTheMutantAndRecordsWhy`, `TestIgnoredMutantsLeaveTheScoredSetAndTheGate` |
@@ -148,7 +148,7 @@ with no test here is a gap; the two rows that have one are named in *What is not
 | `mock-masked` | Negative case only — see *What is not proven* |
 | `weak-assertion` | `TestADeltaSeenOnlyThroughALocalAndAnOutputIsNotNoAssertion` |
 | `no-assertion` | `TestAnUnreadResourceStillDiagnosesNoAssertion` |
-| `unasserted` | `TestADefeatedClosureDiagnosesUnassertedAndNamesTheConstruct` |
+| `unasserted` | `TestADefeatedClosureDiagnosesUnassertedAndNamesTheConstruct`, `TestASplatInsideACallStillDefeatsTheClosure` |
 | Exactly one per survivor, by precedence | `TestTheHigherDiagnosisWinsWhenTwoPredicatesHold` |
 | Each carries its required evidence | The diagnosis cases above assert their own evidence field |
 
@@ -174,6 +174,7 @@ with no test here is a gap; the two rows that have one are named in *What is not
 | Unknown settings are errors | `TestAnUnknownSettingIsAnError` |
 | Path and resource exclusion | `TestConfiguredPolicyShapesThePopulation` |
 | A reasonless directive does not suppress | `TestAReasonlessSuppressionDoesNotSuppress` |
+| Reporters merge additively | `TestConfiguredReportersMergeWithTheFlag`, `TestAnUnknownConfiguredReporterIsRefused` |
 | Attachment by operator identifier | `TestSuppressionAttachesByOperatorIdentifier` |
 | Configuration cannot hide a safety finding | `TestConfigurationCannotHideAnUnmockedProviderFromTheSafetyGate`, `TestConfigurationCannotHideAProvisionerFromTheSafetyGate` |
 | Exit codes over the post-suppression population | `TestIgnoredMutantsLeaveTheScoredSetAndTheGate` |
@@ -199,8 +200,9 @@ with no test here is a gap; the two rows that have one are named in *What is not
 | `FOREACH-TO-COUNT` rewrites every instance-key reference | `TestForEachToCountRewritesEveryInstanceKeyReference` |
 | `PROVIDER-ALIAS-SWAP` keeps mock status | `TestProviderAliasSwapKeepsMockStatus` |
 | Per-operator error counts are reported | `TestPerOperatorErrorCountsAreReported` |
-| The unanswerable-resource warning, both directions | `TestAResourceNoOperatorCanMutateIsWarnedAbout` |
+| The unanswerable-resource warning, over every enabled tier, both directions | `TestAResourceNoOperatorCanMutateIsWarnedAbout` |
 | Stable identifiers survive line moves and unrelated edits | `TestIdentifiersSurviveALineMove`, `TestIdentifiersAreStableAcrossRunsAndUnrelatedEdits` |
+| Byte-range operators change only the lines they own | `TestByteRangeOperatorsChangeOnlyTheLinesTheyOwn` |
 | The source tree is never written to | `TestRunReportsKilledAndSurvivedOutputs`, `TestPreviewCoversTheNewOperatorsWithoutExecutingTheSuite` |
 
 ## Reproduction map

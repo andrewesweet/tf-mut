@@ -25,6 +25,7 @@ the M3 spec author is expected to dispose of each, in either direction.
 | M2-C | **Two observations of a value cannot establish component granularity.** Two random hexadecimal identifiers share a leading character about six times in a hundred; a span inferred from the characters two baseline runs happen to have in common calls a volatile character stable, and every later run that disagrees is undecidable. | Run-derived masks are whole-value. Component granularity comes from the syntax, where the impure subcomponent is visible rather than inferred — which is what the R2-9 disposition actually says. The alternative is a verdict that changes with the weather. |
 | M2-D | **At Tiers 1–3, `Invalid` is 0.5% of the population and `KilledByError` is 7.7%** (222 mutants, 66 operators, applicability-matrix fixture). | Answers M1 open question 3. Lazy validation runs `validate` for 8.2% of mutants against 100% for eager; selective validation by operator would save a fraction of that and add a policy to maintain. Recommendation: keep lazy validation, do not build selective validation. |
 | M2-E | **Two operators were 100% `Invalid` and the per-operator counts found both.** `CHECK-REMOVE` removed a check's only assertion, which Terraform rejects; `OUT-SENSITIVE-FLIP` cleared `sensitive` on an output reading a sensitive variable, which Terraform also refuses. | Both repaired by adding the evidence gate the matrix row now records. The population's `Invalid` share fell from 1.3% to 0.5%. This is the argument for publishing per-operator counts rather than a single error rate: an aggregate of 1.3% looks like background noise, and the split showed two operators that never produced a usable mutant at all. |
+| M2-G | **`issensitive` is a Terraform function and an assertion over it passes.** The fingerprint's exclusion list was drafted to drop `sensitive_values`, `before_sensitive` and `after_sensitive` alongside the other bookkeeping members, on the reasoning that sensitivity is metadata. | Running it refuted that in one test. The three members stayed in the fingerprint; dropping them would have made every `OUT-SENSITIVE-FLIP` and `VAR-SENSITIVE-FLIP` delta invisible to the oracle. The list was drafted by reasoning and corrected by measurement, which is standing process rule 3 catching the same class of error a third time in one milestone. |
 | M2-F | **222 mutants over a fourteen-block module run two-phase in 4.4 s offline**; the whole offline suite, including three repeated-run determinism cases, is 21 s. | The two-phase split's cost is invisible on small-schema providers, as M1 predicted. It buys the fingerprint for the non-killed minority only. |
 
 ## Decisions
@@ -43,6 +44,23 @@ the M3 spec author is expected to dispose of each, in either direction.
 | M2-10 | `EXT-RESOURCE-DELETE` and `COUNT-ZERO` fire under identical conditions and emit identical text. | **Deduplication is by mutated file content, and the Tier 0 entry wins.** Recorded in the matrix rows rather than left for a reader to wonder where the Tier 2 mutants went. |
 
 ---
+
+## What review found after the milestone was declared done
+
+Recorded because the pattern matters more than the individual defects: all four were in code
+the gate ran green over, and three were invisible to any test the milestone had written.
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| M2-11 | The closure's child walk used `hclsyntax.VisitAll`, which walks the whole subtree rather than the direct children. A splat nested inside a function call was therefore reached twice — once as itself, marked imprecise, and once as an ordinary descendant, marked precise — so the second visit handed back a precise reference for a projection nobody can follow. | **Direct children are enumerated by hand.** The honest `unasserted` fallback would otherwise never fire where it matters most: on a projection wrapped in a call, which is the shape a real module writes. Pinned by `TestASplatInsideACallStillDefeatsTheClosure`. |
+| M2-12 | `StructurallyUnassertable` was ordered below the unknown rule, and a plan-mode payload almost always carries unknowns. | **The state comes first.** It claims nothing about equality — the construct has no projection at all, which is true whatever the payload contains — so the conservative unknown rule has nothing to protect there. As shipped, every untested contract in a plan-mode suite would have been reported as `indeterminate-unknown-values`, which is story 4 failing silently. The `contract` fixture was apply-only, so nothing caught it. |
+| M2-13 | `mock-masked` was gated on the *suite* having an apply run rather than on the delta's own runs, so a plan-mode change in a mixed suite could be blamed on a mock. And `Derive` skipped a run block one baseline run fingerprinted and the other did not, so a later comparison could call that run identical. | **Both narrowed.** Apply mode is a property of the runs the delta came from; a run present on one side only poisons the comparison rather than vanishing from it. |
+| M2-14 | A configured path exclusion fell back to a prefix match, so `generated` silently excluded `generated-other.tf` — and an over-broad exclusion raises a mutation score without anybody noticing. | **The fallback is gone.** Configuration must never fail in the direction that flatters the score. |
+
+Two smaller ones worth the line: the SARIF document reported an exit code computed from an
+empty gate, so it published a code the run never returned — it now reports none; and
+`indeterminate-volatility` could reach the report with an empty evidence field where the
+mutant had not been re-run, which is a diagnosis the reader cannot act on.
 
 ## Open questions for the M3 spec
 

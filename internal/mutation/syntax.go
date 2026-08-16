@@ -1,6 +1,7 @@
 package mutation
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -57,24 +58,15 @@ func describeRejections(rejected map[Operator]int) []string {
 	}
 
 	described := make([]string, 0, len(rejected))
-	for operator, count := range rejected {
+	for operator := range rejected {
 		described = append(described, string(operator))
-		_ = count
 	}
+
+	slices.Sort(described)
 
 	return []string{"discarded unparseable mutants from operator(s): " +
-		strings.Join(sortedStrings(described), ", ") +
+		strings.Join(described, ", ") +
 		"; this is an operator defect, not a finding about the module"}
-}
-
-func sortedStrings(values []string) []string {
-	for index := 1; index < len(values); index++ {
-		for back := index; back > 0 && values[back] < values[back-1]; back-- {
-			values[back], values[back-1] = values[back-1], values[back]
-		}
-	}
-
-	return values
 }
 
 // mutant converts an edit into the population entry the engine executes.

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -61,10 +62,13 @@ func TestEveryEnabledOperatorHasAGenerationSite(t *testing.T) {
 	// carry: an alias needs a real provider to configure, and a dynamic block
 	// needs a provider whose schema declares a nested block type, which neither
 	// offline provider has.
-	fixtures := []string{"operators", "dynamic"}
-	if _, mirrored := cliConfigFile(t); mirrored {
-		fixtures = append(fixtures, "aliases")
-	}
+	//
+	// `mocked-aliases` needs the provider mirror, so without it the alias
+	// operator has no site anywhere and the case skips rather than failing —
+	// the repository's convention for a mirror-backed fixture.
+	requireProviderMirror(t)
+
+	fixtures := []string{"operators", "dynamic", "mocked-aliases"}
 
 	modules := make([]string, 0, len(fixtures))
 	fired := map[string]bool{}
@@ -250,7 +254,7 @@ func TestProviderAliasSwapKeepsMockStatus(t *testing.T) {
 	t.Parallel()
 	requireProviderMirror(t)
 
-	module := copyFixture(t, "aliases")
+	module := copyFixture(t, "mocked-aliases")
 
 	swapped := preview(t, module, []string{"PROVIDER-ALIAS-SWAP"})
 	if len(swapped.Mutants) == 0 {
@@ -465,4 +469,61 @@ func identifierSet(result report.Report) []string {
 	slices.Sort(found)
 
 	return found
+}
+
+// hunkHeader matches a unified diff's line range.
+func hunkHeader() *regexp.Regexp {
+	return regexp.MustCompile(`@@ -(\d+)(?:,(\d+))? \+`)
+}
+
+func TestByteRangeOperatorsChangeOnlyTheLinesTheyOwn(t *testing.T) {
+	t.Parallel()
+
+	// The Tier 1 to Tier 3 operators rewrite byte ranges rather than re-printing
+	// a block, so a template mutation must leave every byte outside its own
+	// range alone. A whole-file diff would mean the rewrite went through a
+	// printer that reformatted something it does not own.
+	result := preview(t, copyFixture(t, "operators"), nil)
+
+	for _, mutant := range result.Mutants {
+		if mutation.TierOf(mutation.Operator(mutant.Operator)) == mutation.TierSmoke {
+			continue
+		}
+
+		start, length, found := removedLines(mutant.Diff)
+		if !found {
+			continue
+		}
+
+		// The removed hunk must lie inside the lines the mutant's own range
+		// spans, allowing for a deletion that takes the whole line with it.
+		if start < mutant.Range.Start.Line || start+length-1 > mutant.Range.End.Line+1 {
+			t.Fatalf("%s at %s:%d-%d rewrote lines %d-%d:\n%s",
+				mutant.Operator, mutant.Range.File,
+				mutant.Range.Start.Line, mutant.Range.End.Line,
+				start, start+length-1, mutant.Diff)
+		}
+	}
+}
+
+// removedLines reads the original-side line range out of a unified diff hunk.
+func removedLines(diff string) (start, length int, found bool) {
+	match := hunkHeader().FindStringSubmatch(diff)
+	if match == nil {
+		return 0, 0, false
+	}
+
+	start, err := strconv.Atoi(match[1])
+	if err != nil {
+		return 0, 0, false
+	}
+
+	length = 1
+	if match[2] != "" {
+		if length, err = strconv.Atoi(match[2]); err != nil {
+			return 0, 0, false
+		}
+	}
+
+	return start, length, true
 }

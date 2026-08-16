@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/andrewesweet/tf-mut/internal/buildinfo"
+	"github.com/andrewesweet/tf-mut/internal/config"
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
@@ -89,6 +90,9 @@ type options struct {
 	gate      report.Gate
 	reporter  string
 	sarifPath string
+	// reporters are the outputs `.tf-mut.hcl` asked for, merged additively with
+	// the reporter flag rather than replaced by it.
+	reporters []config.Reporter
 }
 
 func parse(command string, args []string, stderr io.Writer) (options, error) {
@@ -124,8 +128,13 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 		moduleDir = set.Arg(0)
 	}
 
-	if *reporter != reporterTerminal && *reporter != reporterJSON && *reporter != reporterSARIF {
+	if !knownReporter(*reporter) {
 		return options{}, fmt.Errorf("%w: %s", errUnknownReporter, *reporter)
+	}
+
+	configured, err := configuredReporters(moduleDir)
+	if err != nil {
+		return options{}, err
 	}
 
 	requested := false
@@ -170,7 +179,32 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 		},
 		reporter:  *reporter,
 		sarifPath: *sarifPath,
+		reporters: configured,
 	}, nil
+}
+
+func knownReporter(name string) bool {
+	return name == reporterTerminal || name == reporterJSON || name == reporterSARIF
+}
+
+// configuredReporters reads the module's own `reporter` blocks.
+//
+// The engine reads the same file for its own settings; this is the one part of
+// it the engine cannot act on, because writing a file is the command line's job
+// and not the seam's.
+func configuredReporters(moduleDir string) ([]config.Reporter, error) {
+	file, err := config.Load(moduleDir)
+	if err != nil {
+		return nil, fmt.Errorf("reading configuration: %w", err)
+	}
+
+	for _, configured := range file.Reporters {
+		if !knownReporter(configured.Name) {
+			return nil, fmt.Errorf("%w: %s", errUnknownReporter, configured.Name)
+		}
+	}
+
+	return file.Reporters, nil
 }
 
 // commaSeparated splits a repeated-value flag, which keeps the flag surface the
@@ -212,32 +246,54 @@ func execute(command string, args []string, stdout, stderr io.Writer) int {
 	return result.ExitCode(parsed.gate)
 }
 
+// render writes every requested output.
+//
+// Reporters merge additively: the flag chooses what goes to standard output,
+// and every `reporter` block in `.tf-mut.hcl` writes its own file as well. A
+// repository that has asked for a SARIF artefact on every run should not lose
+// it because someone passed `--reporter json` once.
 func render(stdout io.Writer, parsed options, result report.Report) error {
-	switch parsed.reporter {
+	if err := renderTo(stdout, parsed.reporter, result); err != nil {
+		return err
+	}
+
+	for _, configured := range parsed.reporters {
+		if configured.Path == "" {
+			continue
+		}
+
+		if err := renderFile(configured, result); err != nil {
+			return err
+		}
+	}
+
+	if parsed.reporter == reporterSARIF && parsed.sarifPath != "" {
+		return renderFile(config.Reporter{Name: reporterSARIF, Path: parsed.sarifPath}, result)
+	}
+
+	return nil
+}
+
+func renderTo(writer io.Writer, reporter string, result report.Report) error {
+	switch reporter {
 	case reporterJSON:
-		return report.WriteJSON(stdout, result)
+		return report.WriteJSON(writer, result)
 	case reporterSARIF:
-		return writeSARIF(stdout, parsed.sarifPath, result)
+		return report.WriteSARIF(writer, result, engine.RuleDescriptions())
 	default:
-		return report.WriteTerminal(stdout, result)
+		return report.WriteTerminal(writer, result)
 	}
 }
 
-// writeSARIF renders the code-scanning document, to a file when one was named
-// and to standard output otherwise.
-func writeSARIF(stdout io.Writer, path string, result report.Report) error {
-	if path == "" {
-		return report.WriteSARIF(stdout, result)
-	}
-
-	file, err := os.Create(path) //nolint:gosec // the path is the caller's own choice.
+func renderFile(configured config.Reporter, result report.Report) error {
+	file, err := os.Create(configured.Path)
 	if err != nil {
-		return fmt.Errorf("creating %s: %w", path, err)
+		return fmt.Errorf("creating %s: %w", configured.Path, err)
 	}
 
 	defer func() { _ = file.Close() }()
 
-	return report.WriteSARIF(file, result)
+	return renderTo(file, configured.Name, result)
 }
 
 func fail(stderr io.Writer, message string) int {

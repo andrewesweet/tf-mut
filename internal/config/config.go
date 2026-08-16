@@ -382,14 +382,17 @@ func (e Exclude) ExcludesResource(address string) bool {
 	return address != "" && slices.Contains(e.Resources, address)
 }
 
+// matchPath matches a whole path against a pattern.
+//
+// There is deliberately no prefix fallback: an exclusion that quietly covered
+// more than it named would raise a mutation score without anybody noticing,
+// which is the one direction configuration must never fail in.
 func matchPath(pattern, rel string) bool {
 	if prefix, found := strings.CutSuffix(pattern, "/**"); found {
 		return rel == prefix || strings.HasPrefix(rel, prefix+"/")
 	}
 
-	if matched, err := filepath.Match(pattern, rel); err == nil && matched {
-		return true
-	}
+	matched, err := filepath.Match(pattern, rel)
 
-	return strings.HasPrefix(rel, strings.TrimSuffix(pattern, "*"))
+	return err == nil && matched
 }

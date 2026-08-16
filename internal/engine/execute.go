@@ -169,7 +169,7 @@ func evaluate(
 
 	// Phase two: only a phase-one survivor is fingerprinted, which is the whole
 	// point of the split.
-	return oracle{plan: plan, closure: plan.closure}.observe(ctx, built, index, verdict)
+	return oracle{plan: plan}.observe(ctx, built, index, verdict)
 }
 
 // classify assigns the aggregate state by the normative precedence, and runs

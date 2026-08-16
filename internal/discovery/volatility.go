@@ -6,6 +6,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // impureFunctions return a different value on every evaluation.
@@ -15,14 +16,10 @@ import (
 //
 //nolint:gochecknoglobals // an immutable lookup table.
 var impureFunctions = map[string]bool{
-	"timestamp":      true,
-	"plantimestamp":  true,
-	"uuid":           true,
-	"bcrypt":         true,
-	"nonsensitive":   false,
-	"uuidv5":         false,
-	"base64sha256":   false,
-	"filebase64sha1": false,
+	"timestamp":     true,
+	"plantimestamp": true,
+	"uuid":          true,
+	"bcrypt":        true,
 }
 
 // volatileProviders generate values that differ per apply unless mocked.
@@ -83,7 +80,7 @@ func (c Configuration) ScanVolatility(sources map[string][]byte) VolatilityScan 
 			continue
 		}
 
-		scanBody(body, content, mocked, &scan)
+		scanBody(body, mocked, &scan)
 	}
 
 	slices.SortFunc(scan.Attributes, func(left, right VolatileAttribute) int {
@@ -106,7 +103,7 @@ func (c Configuration) mockedProviderNames() map[string]bool {
 	return mocked
 }
 
-func scanBody(body *hclsyntax.Body, source []byte, mocked map[string]bool, scan *VolatilityScan) {
+func scanBody(body *hclsyntax.Body, mocked map[string]bool, scan *VolatilityScan) {
 	for _, block := range body.Blocks {
 		if block.Type != resourceBlock && block.Type != dataBlock {
 			continue
@@ -125,7 +122,7 @@ func scanBody(body *hclsyntax.Body, source []byte, mocked map[string]bool, scan 
 			scan.Resources[address] = true
 		}
 
-		scanResource(address, block, source, scan)
+		scanResource(address, block, scan)
 	}
 }
 
@@ -137,7 +134,7 @@ func unmockedVolatileProvider(resourceType string, mocked map[string]bool) bool 
 	return slices.Contains(volatileProviders, provider) && !mocked[provider]
 }
 
-func scanResource(address string, block *hclsyntax.Block, source []byte, scan *VolatilityScan) {
+func scanResource(address string, block *hclsyntax.Block, scan *VolatilityScan) {
 	for name, attribute := range block.Body.Attributes {
 		if !containsImpureCall(attribute.Expr) {
 			continue
@@ -145,15 +142,14 @@ func scanResource(address string, block *hclsyntax.Block, source []byte, scan *V
 
 		scan.Resources[address] = true
 
-		prefix, suffix, whole := decomposeTemplate(attribute.Expr, source)
+		prefix, suffix, whole := decomposeTemplate(attribute.Expr)
 		scan.Attributes = append(scan.Attributes, VolatileAttribute{
 			Resource: address, Attribute: name, Prefix: prefix, Suffix: suffix, Whole: whole,
 		})
 	}
 
 	for _, nested := range block.Body.Blocks {
-		nestedScan := VolatilityScan{Attributes: []VolatileAttribute{}, Resources: scan.Resources}
-		scanResource(address, nested, source, &nestedScan)
+		scanResource(address, nested, scan)
 	}
 }
 
@@ -168,17 +164,13 @@ func containsImpureCall(expr hclsyntax.Expression) bool {
 		return nil
 	})
 
-	if call, ok := expr.(*hclsyntax.FunctionCallExpr); ok && impureFunctions[call.Name] {
-		found = true
-	}
-
 	return found
 }
 
 // decomposeTemplate separates the literal components of a template whose
 // interpolations are impure. A value with no literal component is wholly
 // volatile, which is a sound decomposition rather than an undecidable one.
-func decomposeTemplate(expr hclsyntax.Expression, source []byte) (prefix, suffix string, whole bool) {
+func decomposeTemplate(expr hclsyntax.Expression) (prefix, suffix string, whole bool) {
 	template, ok := expr.(*hclsyntax.TemplateExpr)
 	if !ok || len(template.Parts) == 0 {
 		return "", "", true
@@ -190,8 +182,6 @@ func decomposeTemplate(expr hclsyntax.Expression, source []byte) (prefix, suffix
 	if len(template.Parts) == 1 {
 		suffix = ""
 	}
-
-	_ = source
 
 	if prefix == "" && suffix == "" {
 		return "", "", true
@@ -206,7 +196,7 @@ func literalPart(expr hclsyntax.Expression) string {
 		return ""
 	}
 
-	if literal.Val.Type().FriendlyName() != "string" {
+	if literal.Val.Type() != cty.String {
 		return ""
 	}
 

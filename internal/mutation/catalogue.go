@@ -1,6 +1,9 @@
 package mutation
 
-import "slices"
+import (
+	"cmp"
+	"slices"
+)
 
 // Tier is the operator breadth band an operator belongs to.
 type Tier string
@@ -117,14 +120,7 @@ func Projects(operator Operator) bool {
 }
 
 func compareOperators(left, right Operator) int {
-	switch {
-	case left < right:
-		return -1
-	case left > right:
-		return 1
-	default:
-		return 0
-	}
+	return cmp.Compare(left, right)
 }
 
 // The fix guidance the non-projecting operators share.

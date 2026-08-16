@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"maps"
 	"slices"
 	"strings"
 )
@@ -98,18 +97,15 @@ type sarifRegion struct {
 
 type sarifInvocation struct {
 	ExecutionSuccessful bool      `json:"executionSuccessful"`
-	ExitCode            int       `json:"exitCode"`
 	Message             sarifText `json:"message"`
 }
 
-// RuleDescription supplies the catalogue text for one operator. The report
-// package does not import the operator catalogue — the dependency runs the
-// other way — so the description is injected once at start-up.
-//
-//nolint:gochecknoglobals // a package-level registry filled once at start-up.
-var ruleDescriptions = map[string]RuleDescription{}
-
 // RuleDescription is one operator's published documentation.
+//
+// The report package does not import the operator catalogue — the dependency
+// runs the other way — so the descriptions are passed in by the caller that
+// knows both, rather than registered into a package global by an import side
+// effect nobody can see at the call site.
 type RuleDescription struct {
 	// Tier is the breadth band the operator belongs to.
 	Tier string
@@ -117,11 +113,6 @@ type RuleDescription struct {
 	Description string
 	// Killer states what an assertion would have to inspect to catch it.
 	Killer string
-}
-
-// RegisterRules publishes the operator catalogue for the SARIF reporter.
-func RegisterRules(descriptions map[string]RuleDescription) {
-	maps.Copy(ruleDescriptions, descriptions)
 }
 
 // sarifLevel is the normative result set: which states reach SARIF at all, and
@@ -155,12 +146,12 @@ func sarifLevel(mutant Mutant) (string, bool) {
 //
 // Results are computed over the post-suppression population by construction:
 // a suppressed mutant carries the `Ignored` state, which the result set omits.
-func WriteSARIF(writer io.Writer, value Report) error {
+func WriteSARIF(writer io.Writer, value Report, rules map[string]RuleDescription) error {
 	document := sarifDocument{
 		Schema:  sarifSchema,
 		Version: sarifVersion,
 		Runs: []sarifRun{{
-			Tool:        sarifToolBlock{Driver: driver(value)},
+			Tool:        sarifToolBlock{Driver: driver(value, rules)},
 			Results:     results(value),
 			Invocations: []sarifInvocation{summary(value)},
 		}},
@@ -177,7 +168,7 @@ func WriteSARIF(writer io.Writer, value Report) error {
 }
 
 // driver publishes one rule per operator that appears in the population.
-func driver(value Report) sarifDriver {
+func driver(value Report, descriptions map[string]RuleDescription) sarifDriver {
 	seen := map[string]bool{}
 	rules := []sarifRule{}
 
@@ -187,7 +178,7 @@ func driver(value Report) sarifDriver {
 		}
 
 		seen[mutant.Operator] = true
-		rules = append(rules, rule(mutant.Operator))
+		rules = append(rules, rule(mutant.Operator, descriptions))
 	}
 
 	slices.SortFunc(rules, func(left, right sarifRule) int {
@@ -197,8 +188,8 @@ func driver(value Report) sarifDriver {
 	return sarifDriver{Name: sarifTool, InformationURI: sarifRules, Rules: rules}
 }
 
-func rule(operator string) sarifRule {
-	described, found := ruleDescriptions[operator]
+func rule(operator string, descriptions map[string]RuleDescription) sarifRule {
+	described, found := descriptions[operator]
 	if !found {
 		described = RuleDescription{Tier: "", Description: operator, Killer: ""}
 	}
@@ -297,9 +288,11 @@ func summary(value Report) sarifInvocation {
 		text += ". Not annotated here, and in the JSON report: " + strings.Join(omitted, ", ")
 	}
 
+	// No exit code: the gate that decides one belongs to the caller, and a
+	// document reporting a code the run never returned would be worse than a
+	// document reporting none.
 	return sarifInvocation{
 		ExecutionSuccessful: len(value.Errors) == 0,
-		ExitCode:            value.ExitCode(Gate{}), //nolint:exhaustruct // the gate is the caller's.
 		Message:             sarifText{Text: text + "."},
 	}
 }

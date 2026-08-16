@@ -1,5 +1,3 @@
-internal/engine/testdata/aliases/main.tf
-internal/engine/testdata/aliases/tests/unit.tftest.hcl
 internal/engine/testdata/all-killed/main.tf
 internal/engine/testdata/all-killed/tests/unit.tftest.hcl
 internal/engine/testdata/aws-mocked/main.tf
@@ -23,6 +21,8 @@ internal/engine/testdata/expect-failures/main.tf
 internal/engine/testdata/expect-failures/tests/unit.tftest.hcl
 internal/engine/testdata/foreach/main.tf
 internal/engine/testdata/foreach/tests/unit.tftest.hcl
+internal/engine/testdata/mocked-aliases/main.tf
+internal/engine/testdata/mocked-aliases/tests/unit.tftest.hcl
 internal/engine/testdata/mocked-null/main.tf
 internal/engine/testdata/mocked-null/tests/unit.tftest.hcl
 internal/engine/testdata/mutant-volatile/main.tf

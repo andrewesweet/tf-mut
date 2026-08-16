@@ -2,6 +2,7 @@ package mutation
 
 import (
 	"math/big"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -160,11 +161,7 @@ func sortedOperators(substitutions map[Operator]string) []Operator {
 		operators = append(operators, operator)
 	}
 
-	for index := 1; index < len(operators); index++ {
-		for back := index; back > 0 && operators[back] < operators[back-1]; back-- {
-			operators[back], operators[back-1] = operators[back-1], operators[back]
-		}
-	}
+	slices.Sort(operators)
 
 	return operators
 }
