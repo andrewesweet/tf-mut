@@ -35,6 +35,7 @@ func parseTests(parser *hclparse.Parser, moduleDir, testDir string) (TestSuite, 
 		Files:           []string{},
 		Runs:            []RunBlock{},
 		MockedProviders: []string{},
+		Mocks:           []ProviderAlias{},
 		References:      map[string][]Reference{},
 	}
 
@@ -84,6 +85,7 @@ func collectTestFile(suite *TestSuite, mocked map[string]bool, path, relative st
 		case mockProvider:
 			if len(block.Labels) == 1 {
 				mocked[block.Labels[0]] = true
+				suite.Mocks = append(suite.Mocks, mockedConfiguration(block))
 			}
 		case runBlock:
 			if len(block.Labels) == 1 {
@@ -92,6 +94,17 @@ func collectTestFile(suite *TestSuite, mocked map[string]bool, path, relative st
 		default:
 		}
 	}
+}
+
+// mockedConfiguration records which provider configuration a mock covers.
+func mockedConfiguration(block *hclsyntax.Block) ProviderAlias {
+	covered := ProviderAlias{Name: block.Labels[0], Alias: ""}
+
+	if attribute, found := block.Body.Attributes["alias"]; found {
+		covered.Alias = literalString(attribute.Expr)
+	}
+
+	return covered
 }
 
 func newRun(path, relative string, block *hclsyntax.Block) RunBlock {

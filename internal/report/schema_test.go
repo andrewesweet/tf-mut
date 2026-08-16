@@ -13,7 +13,7 @@ import (
 )
 
 // schemaPath is the published contract the JSON reporter promises to keep.
-const schemaPath = "../../docs/schema/report-1.0.0.json"
+const schemaPath = "../../docs/schema/report-2.0.0.json"
 
 func TestPublishedSchemaMatchesTheReportersVersion(t *testing.T) {
 	t.Parallel()
@@ -112,32 +112,112 @@ const (
 	sampleRun      = "defaults"
 	sampleResource = "terraform_data.app"
 	sampleTestFile = "tests/unit.tftest.hcl"
+	sampleMutantID = "0123456789ab"
+	sampleOutput   = "output.tier"
 )
 
 // sampleReport exercises every branch of the schema the engine can produce.
 func sampleReport() report.Report {
+	return report.Report{
+		SchemaVersion:    report.SchemaVersion,
+		Command:          report.CommandRun,
+		Module:           "/modules/example",
+		TerraformVersion: "1.15.8",
+		TestDirectory:    "tests",
+		Baseline: report.Baseline{
+			Runs: 1, Assertions: 2, DurationMS: 167,
+			Fingerprint:        "0f4c0e6a",
+			VolatileComponents: []string{"root_module.resources[terraform_data.app].values.id"},
+		},
+		Mutants:        sampleMutants(),
+		Findings:       sampleFindings(),
+		Metrics:        report.ComputeMetrics(sampleMutants()),
+		OperatorErrors: report.ComputeOperatorErrors(sampleMutants()),
+		Suppressions: []report.Suppression{{
+			Kind:      "config-operator",
+			Operators: []string{"STR-CASE"},
+			Reason:    "casing is normalised downstream",
+			Accepted:  true,
+			Range:     nil,
+			Mutants:   []string{sampleMutantID},
+			Rejection: "",
+		}},
+		Warnings: []string{"1 file(s) are not canonically formatted"},
+		Errors: []report.ExecutionError{{
+			MutantID: sampleMutantID,
+			Site:     sampleOutput,
+			Message:  "no run block executed, so no verdict is possible",
+		}},
+	}
+}
+
+func sampleFindings() []report.Finding {
+	return []report.Finding{{
+		ID:      "abcdef012345",
+		Kind:    report.PseudoTested,
+		Address: sampleResource,
+		Module:  ".",
+		Range: report.Range{
+			File:  sampleFile,
+			Start: report.Position{Line: 5, Column: 1},
+			End:   report.Position{Line: 7, Column: 2},
+		},
+		Message: "1 extreme mutant(s) executed and no assertion caught any of them.",
+		Mutants: []string{"ba9876543210"},
+	}}
+}
+
+//nolint:funlen // one literal covering every optional member of the schema.
+func sampleMutants() []report.Mutant {
 	mutants := []report.Mutant{
 		{
-			ID:       "0123456789ab",
+			ID:       sampleMutantID,
 			Operator: "EXT-OUTPUT-NULL",
+			Tier:     "smoke",
 			Module:   ".",
-			Site:     "output.tier",
+			Site:     sampleOutput,
 			Resource: "",
 			Range: report.Range{
 				File:  sampleFile,
 				Start: report.Position{Line: 1, Column: 1},
 				End:   report.Position{Line: 3, Column: 2},
 			},
-			Diff:         "--- a/main.tf\n+++ b/main.tf\n@@ -2 +2 @@\n-  value = \"x\"\n+  value = null\n",
-			State:        report.Survived,
-			Runs:         []report.RunOutcome{{File: sampleTestFile, Run: sampleRun, Status: "pass"}},
+			Diff:  "--- a/main.tf\n+++ b/main.tf\n@@ -2 +2 @@\n-  value = \"x\"\n+  value = null\n",
+			State: report.Survived,
+			Verdict: &report.Verdict{
+				Diagnosis: report.WeakAssertion,
+				Message:   "an assertion reads output.tier and still passed",
+				Fix:       "tighten the assertion at tests/unit.tftest.hcl:defaults",
+				Evidence: report.Evidence{
+					Delta: []report.Change{{
+						Run:      sampleTestFile + "::" + sampleRun,
+						Path:     "outputs.tier.value",
+						Address:  sampleOutput,
+						Baseline: `"critical"`,
+						Mutant:   "null",
+					}},
+					UnknownPaths:       []string{"terraform_data.app.id"},
+					VolatileComponents: []string{"root_module.resources[terraform_data.app].values.id"},
+					UnstableAttributes: nil,
+					Assertion:          sampleTestFile + ":" + sampleRun,
+					ClosureVerdict:     "read through the output and local closure",
+					DefeatedBy:         "",
+					MockResource:       "",
+				},
+			},
+			Runs: []report.RunOutcome{
+				{File: sampleTestFile, Run: sampleRun, Phase: 1, Status: "pass"},
+				{File: sampleTestFile, Run: sampleRun, Phase: 2, Status: "pass"},
+			},
 			Diagnostics:  nil,
 			ExecutedRuns: 1,
 			Validated:    false,
+			Suppression:  nil,
 		},
 		{
 			ID:       "ba9876543210",
 			Operator: "EXT-BODY-BLANK",
+			Tier:     "smoke",
 			Module:   ".",
 			Site:     sampleResource,
 			Resource: sampleResource,
@@ -146,9 +226,10 @@ func sampleReport() report.Report {
 				Start: report.Position{Line: 5, Column: 1},
 				End:   report.Position{Line: 7, Column: 2},
 			},
-			Diff:  "--- a/main.tf\n+++ b/main.tf\n@@ -6 +6,0 @@\n-  input = \"x\"\n",
-			State: report.KilledByError,
-			Runs:  []report.RunOutcome{{File: sampleTestFile, Run: sampleRun, Status: "error"}},
+			Diff:    "--- a/main.tf\n+++ b/main.tf\n@@ -6 +6,0 @@\n-  input = \"x\"\n",
+			State:   report.KilledByError,
+			Verdict: nil,
+			Runs:    []report.RunOutcome{{File: sampleTestFile, Run: sampleRun, Phase: 1, Status: "error"}},
 			Diagnostics: []report.Diagnostic{{
 				Severity: "error",
 				Summary:  "Attempt to get attribute from null value",
@@ -163,38 +244,23 @@ func sampleReport() report.Report {
 			}},
 			ExecutedRuns: 1,
 			Validated:    true,
+			Suppression: &report.Suppression{
+				Kind:      "comment",
+				Operators: []string{"EXT-BODY-BLANK"},
+				Reason:    "",
+				Accepted:  false,
+				Range: &report.Range{
+					File:  sampleFile,
+					Start: report.Position{Line: 4, Column: 1},
+					End:   report.Position{Line: 4, Column: 30},
+				},
+				Mutants:   nil,
+				Rejection: "no reason given, so the directive does not suppress",
+			},
 		},
 	}
 
-	return report.Report{
-		SchemaVersion:    report.SchemaVersion,
-		Command:          report.CommandRun,
-		Module:           "/modules/example",
-		TerraformVersion: "1.15.8",
-		TestDirectory:    "tests",
-		Baseline:         report.Baseline{Runs: 1, Assertions: 2, DurationMS: 167},
-		Mutants:          mutants,
-		Findings: []report.Finding{{
-			ID:      "abcdef012345",
-			Kind:    report.PseudoTested,
-			Address: sampleResource,
-			Module:  ".",
-			Range: report.Range{
-				File:  sampleFile,
-				Start: report.Position{Line: 5, Column: 1},
-				End:   report.Position{Line: 7, Column: 2},
-			},
-			Message: "1 extreme mutant(s) executed and no assertion caught any of them.",
-			Mutants: []string{"ba9876543210"},
-		}},
-		Metrics:  report.ComputeMetrics(mutants),
-		Warnings: []string{"1 file(s) are not canonically formatted"},
-		Errors: []report.ExecutionError{{
-			MutantID: "0123456789ab",
-			Site:     "output.tier",
-			Message:  "no run block executed, so no verdict is possible",
-		}},
-	}
+	return mutants
 }
 
 func loadSchema(t *testing.T) map[string]any {

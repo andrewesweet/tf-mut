@@ -111,7 +111,9 @@ func writeRun(builder *strings.Builder, value Report) {
 
 	writeFindings(builder, value)
 	writeSurvivors(builder, value)
+	writeUnassertable(builder, value)
 	writeMetrics(builder, value)
+	writeSuppressions(builder, value.Suppressions)
 	writeErrors(builder, value.Errors)
 	writeWarnings(builder, value.Warnings)
 }
@@ -132,6 +134,9 @@ func writeFindings(builder *strings.Builder, value Report) {
 	builder.WriteString("\n")
 }
 
+// writeSurvivors renders the run as a to-do list: every survivor names its
+// diagnosis and the change that would resolve it, which is the difference
+// between a tool that generates work and one that generates insight.
 func writeSurvivors(builder *strings.Builder, value Report) {
 	survivors := value.Survivors()
 	if len(survivors) == 0 {
@@ -143,6 +148,113 @@ func writeSurvivors(builder *strings.Builder, value Report) {
 	for _, mutant := range survivors {
 		fmt.Fprintf(builder, "  %s  %s  %s\n", mutant.Operator, location(mutant.Range), mutant.Site)
 		writeDiff(builder, mutant.Diff)
+		writeVerdict(builder, mutant.Verdict)
+	}
+}
+
+func writeUnassertable(builder *strings.Builder, value Report) {
+	unassertable := []Mutant{}
+
+	for _, mutant := range value.Mutants {
+		if mutant.State == StructurallyUnassertable {
+			unassertable = append(unassertable, mutant)
+		}
+	}
+
+	if len(unassertable) == 0 {
+		return
+	}
+
+	fmt.Fprintf(builder, "STRUCTURALLY UNASSERTABLE (%d)\n", len(unassertable))
+	builder.WriteString("  No plan or state projection, so no assertion could ever catch these.\n\n")
+
+	for _, mutant := range unassertable {
+		fmt.Fprintf(builder, "  %s  %s  %s\n", mutant.Operator, location(mutant.Range), mutant.Site)
+		writeVerdict(builder, mutant.Verdict)
+	}
+}
+
+func writeVerdict(builder *strings.Builder, verdict *Verdict) {
+	if verdict == nil {
+		return
+	}
+
+	if verdict.Diagnosis != "" {
+		fmt.Fprintf(builder, "    Diagnosis: %s\n", verdict.Diagnosis)
+	}
+
+	fmt.Fprintf(builder, "    %s.\n", verdict.Message)
+
+	for index, change := range verdict.Evidence.Delta {
+		if index >= shownChanges {
+			fmt.Fprintf(builder, "      ... and %d more\n", len(verdict.Evidence.Delta)-shownChanges)
+
+			break
+		}
+
+		fmt.Fprintf(builder, "      %s   %s -> %s\n",
+			changeLabel(change), rendered(change.Baseline), rendered(change.Mutant))
+	}
+
+	fmt.Fprintf(builder, "    Fix: %s.\n\n", verdict.Fix)
+}
+
+// shownChanges bounds the delta the terminal prints. The whole delta is in the
+// JSON report; a screen of it helps nobody.
+const shownChanges = 3
+
+// changeLabel names a change the way a reader would look for it: the Terraform
+// address, extended by the payload member where the address alone would not
+// distinguish two changes — an output's value, its type and its sensitivity all
+// belong to one address.
+func changeLabel(change Change) string {
+	if change.Address == "" {
+		return change.Path
+	}
+
+	segments := strings.Split(change.Path, ".")
+
+	last := segments[len(segments)-1]
+	if last == "" || strings.HasSuffix(change.Address, "."+last) || change.Address == last {
+		return change.Address
+	}
+
+	return change.Address + "." + last
+}
+
+// rendered shows an absent value as absent rather than as nothing at all.
+func rendered(value string) string {
+	if value == "" {
+		return "(absent)"
+	}
+
+	return value
+}
+
+func writeSuppressions(builder *strings.Builder, suppressions []Suppression) {
+	rejected := []Suppression{}
+
+	for _, suppression := range suppressions {
+		if !suppression.Accepted {
+			rejected = append(rejected, suppression)
+		}
+	}
+
+	if len(rejected) == 0 {
+		return
+	}
+
+	fmt.Fprintf(builder, "\nREJECTED SUPPRESSIONS (%d)\n", len(rejected))
+	builder.WriteString("  These directives suppressed nothing, so the findings stand.\n")
+
+	for _, suppression := range rejected {
+		where := ""
+		if suppression.Range != nil {
+			where = location(*suppression.Range) + "  "
+		}
+
+		fmt.Fprintf(builder, "  %s%s: %s\n", where,
+			strings.Join(suppression.Operators, ","), suppression.Rejection)
 	}
 }
 
@@ -154,13 +266,41 @@ func writeMetrics(builder *strings.Builder, value Report) {
 	fmt.Fprintf(builder, "  Assertion score  %6.1f%%   (assertion kills only)\n", metrics.AssertionScore*percent)
 	fmt.Fprintf(builder, "  Reachability     %6.1f%%\n\n", metrics.Reachability*percent)
 
-	fmt.Fprintf(builder, "  Killed %d   KilledByError %d   Survived %d   NoCoverage %d   Timeout %d   Invalid %d\n",
+	fmt.Fprintf(builder, "  Killed %d   KilledByError %d   Survived %d   Unassertable %d   NoCoverage %d\n",
 		value.Count(Killed), value.Count(KilledByError), value.Count(Survived),
-		value.Count(NoCoverage), value.Count(Timeout), value.Count(Invalid))
+		value.Count(StructurallyUnassertable), value.Count(NoCoverage))
+	fmt.Fprintf(builder, "  Timeout %d   Invalid %d   Unobservable %d   Ignored %d\n",
+		value.Count(Timeout), value.Count(Invalid),
+		value.Count(Unobservable), value.Count(Ignored))
+
+	writeDiagnoses(builder, value)
 
 	if metrics.Incomplete {
 		builder.WriteString("\n  Score is INCOMPLETE: at least one mutant timed out.\n")
 	}
+}
+
+// writeDiagnoses shows how the survivors divide, because "twenty survivors" and
+// "twenty survivors, eighteen of them indeterminate" are different situations.
+func writeDiagnoses(builder *strings.Builder, value Report) {
+	if len(value.Metrics.Diagnoses) == 0 {
+		return
+	}
+
+	names := make([]string, 0, len(value.Metrics.Diagnoses))
+	for diagnosis := range value.Metrics.Diagnoses {
+		names = append(names, string(diagnosis))
+	}
+
+	slices.Sort(names)
+
+	builder.WriteString("\n  Survivor diagnoses:")
+
+	for _, name := range names {
+		fmt.Fprintf(builder, "   %s %d", name, value.Metrics.Diagnoses[Diagnosis(name)])
+	}
+
+	builder.WriteString("\n")
 }
 
 func writeErrors(builder *strings.Builder, errors []ExecutionError) {

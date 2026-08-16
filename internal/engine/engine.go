@@ -11,9 +11,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"time"
 
+	"github.com/andrewesweet/tf-mut/internal/config"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
+	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
@@ -83,33 +86,21 @@ type Config struct {
 	// WorkDir is the parent of the run's temporary directory.
 	WorkDir string
 	// TestSelection restricts mutant execution to the named test files. It is
-	// the seam test selection will use; M1 leaves it empty, which runs the
-	// whole suite for every mutant.
+	// the seam test selection will use; the milestone leaves it empty, which
+	// runs the whole suite for every mutant.
 	TestSelection []string
-}
-
-func (c Config) withDefaults() Config {
-	if c.TestDirectory == "" {
-		c.TestDirectory = DefaultTestDirectory
-	}
-
-	if c.Jobs <= 0 {
-		c.Jobs = defaultJobs()
-	}
-
-	if c.TimeoutFactor <= 0 {
-		c.TimeoutFactor = DefaultTimeoutFactor
-	}
-
-	if c.TimeoutFloor <= 0 {
-		c.TimeoutFloor = DefaultTimeoutFloor
-	}
-
-	if c.TerraformBinary == "" {
-		c.TerraformBinary = DefaultTerraformBinary
-	}
-
-	return c
+	// Tier is the operator breadth band.
+	Tier mutation.Tier
+	// IncludeOperators, when non-empty, restricts generation to these operators.
+	IncludeOperators []string
+	// ExcludeOperators removes operators from the population.
+	ExcludeOperators []string
+	// ExcludePaths and ExcludeResources remove sites from the population.
+	ExcludePaths     []string
+	ExcludeResources []string
+	// SetFlags names the flags the caller set explicitly, so that a configured
+	// scalar can be overridden per scalar rather than per file.
+	SetFlags []string
 }
 
 // Operational failures. Every one of them aborts the run: none of them can be
@@ -128,22 +119,29 @@ var (
 )
 
 // Run performs a complete mutation run and returns the report.
-func Run(ctx context.Context, config Config) (report.Report, error) {
-	config = config.withDefaults()
-
-	runner := tfexec.Runner{Binary: config.TerraformBinary, Env: config.Env}
-
-	moduleDir, err := filepath.Abs(config.ModuleDir)
+func Run(ctx context.Context, settings Config) (report.Report, error) {
+	moduleDir, err := filepath.Abs(settings.ModuleDir)
 	if err != nil {
 		return report.Report{}, fmt.Errorf("resolving module directory: %w", err)
 	}
+
+	settings, configured, err := settings.withConfiguration(moduleDir)
+	if err != nil {
+		return report.Report{}, err
+	}
+
+	settings = settings.withDefaults()
+	settings.ExcludePaths = append(slices.Clone(settings.ExcludePaths), configured.Exclude.Paths...)
+	settings.ExcludeResources = append(slices.Clone(settings.ExcludeResources), configured.Exclude.Resources...)
+
+	runner := tfexec.Runner{Binary: settings.TerraformBinary, Env: settings.Env}
 
 	version, err := checkVersion(ctx, runner, moduleDir)
 	if err != nil {
 		return report.Report{}, err
 	}
 
-	configuration, err := discovery.Discover(moduleDir, config.TestDirectory)
+	configuration, err := discovery.Discover(moduleDir, settings.TestDirectory)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -153,8 +151,8 @@ func Run(ctx context.Context, config Config) (report.Report, error) {
 	// to accept the risk.
 	warnings := make([]string, 0, 1)
 
-	if !config.Preview {
-		warnings, err = checkSafety(configuration, config)
+	if !settings.Preview {
+		warnings, err = checkSafety(configuration, settings)
 		if err != nil {
 			return report.Report{}, err
 		}
@@ -165,29 +163,33 @@ func Run(ctx context.Context, config Config) (report.Report, error) {
 			ErrBaselineNoRuns, configuration.Tests.Dir)
 	}
 
-	workRoot, err := os.MkdirTemp(config.WorkDir, "tf-mut-")
+	workRoot, err := os.MkdirTemp(settings.WorkDir, "tf-mut-")
 	if err != nil {
 		return report.Report{}, fmt.Errorf("creating work directory: %w", err)
 	}
 
 	defer func() { _ = os.RemoveAll(workRoot) }()
 
-	prepared, err := prepare(ctx, runner, configuration, config, workRoot)
+	prepared, generated, err := build(ctx, runner, configuration, settings, workRoot)
 	if err != nil {
 		return report.Report{}, err
 	}
 
 	warnings = append(warnings, prepared.warnings...)
+	warnings = append(warnings, generated.Warnings...)
 
-	generated, err := mutation.Generator{Configuration: configuration, Schemas: prepared.schemas}.Generate()
-	if err != nil {
-		return report.Report{}, err
-	}
+	result := shell(configuration, settings, version.Terraform, moduleDir, prepared, warnings)
+	mutants := describe(configuration, generated.Mutants)
 
-	result := shell(configuration, config, version.Terraform, moduleDir, prepared, warnings)
-	mutants := describe(configuration, generated)
+	// Suppression runs after the safety gates by construction: the gates are
+	// decided from the parsed configuration before generation, so no exclusion
+	// can reach them.
+	mutants, suppressions, rejected := suppress(configuration,
+		settings.Exclude(), mutants)
+	result.Suppressions = suppressions
+	result.Warnings = append(result.Warnings, rejected...)
 
-	if config.Preview {
+	if settings.Preview {
 		result.Mutants = mutants
 		result.Metrics = report.ComputeMetrics(nil)
 
@@ -197,52 +199,91 @@ func Run(ctx context.Context, config Config) (report.Report, error) {
 	executed, failures := execute(ctx, executionPlan{
 		runner:        runner,
 		configuration: configuration,
-		config:        config,
+		config:        settings,
 		prepared:      prepared,
-		generated:     generated,
+		generated:     generated.Mutants,
 		described:     mutants,
 		workRoot:      workRoot,
+		closure:       configuration.BuildClosure(),
 	})
 
+	return complete(configuration, result, executed, failures), nil
+}
+
+// build warms one workspace and generates the population from it.
+func build(
+	ctx context.Context,
+	runner tfexec.Runner,
+	configuration discovery.Configuration,
+	settings Config,
+	workRoot string,
+) (warm, mutation.Result, error) {
+	prepared, err := prepare(ctx, runner, configuration, settings, workRoot)
+	if err != nil {
+		return warm{}, mutation.Result{}, err //nolint:exhaustruct // nothing was built.
+	}
+
+	generated, err := mutation.Generator{
+		Configuration: configuration,
+		Schemas:       prepared.schemas,
+		Selection:     settings.selection(),
+	}.Generate()
+
+	return prepared, generated, err
+}
+
+// complete fills in everything the report can only say once every mutant has a
+// verdict.
+func complete(
+	configuration discovery.Configuration,
+	result report.Report,
+	executed []report.Mutant,
+	failures []report.ExecutionError,
+) report.Report {
 	result.Mutants = executed
 	result.Errors = failures
 	result.Metrics = report.ComputeMetrics(executed)
+	result.OperatorErrors = report.ComputeOperatorErrors(executed)
 	result.Findings = findings(configuration, executed)
 	result.Warnings = append(result.Warnings, unanswerableResources(configuration, executed)...)
 
-	return result, nil
+	return result
 }
 
 // shell builds the report value's context: everything true of the run before
 // any mutant has a verdict.
 func shell(
 	configuration discovery.Configuration,
-	config Config,
+	settings Config,
 	terraformVersion, moduleDir string,
 	prepared warm,
 	warnings []string,
 ) report.Report {
 	return report.Report{
 		SchemaVersion:    report.SchemaVersion,
-		Command:          commandName(config),
+		Command:          commandName(settings),
 		Module:           moduleDir,
 		TerraformVersion: terraformVersion,
 		TestDirectory:    configuration.TestDirRelative(),
 		Baseline: report.Baseline{
-			Runs:       prepared.baselineRuns,
-			Assertions: countAssertions(configuration),
-			DurationMS: prepared.baselineDuration.Milliseconds(),
+			Runs:               prepared.baselineRuns,
+			Assertions:         countAssertions(configuration),
+			DurationMS:         prepared.baselineDuration.Milliseconds(),
+			Fingerprint:        baselineFingerprint(prepared),
+			VolatileComponents: prepared.mask.Paths(),
 		},
-		Mutants:  []report.Mutant{},
-		Findings: []report.Finding{},
-		Metrics:  report.Metrics{}, //nolint:exhaustruct // replaced once mutants have verdicts.
-		Warnings: warnings,
-		Errors:   []report.ExecutionError{},
+		Mutants:        []report.Mutant{},
+		Findings:       []report.Finding{},
+		Metrics:        report.Metrics{}, //nolint:exhaustruct // replaced once mutants have verdicts.
+		OperatorErrors: []report.OperatorErrors{},
+		Suppressions:   []report.Suppression{},
+		Warnings:       warnings,
+		Errors:         []report.ExecutionError{},
 	}
 }
 
-func commandName(config Config) report.Command {
-	if config.Preview {
+func commandName(settings Config) report.Command {
+	if settings.Preview {
 		return report.CommandPreview
 	}
 
@@ -290,6 +331,7 @@ func describe(configuration discovery.Configuration, generated []mutation.Mutant
 		described = append(described, report.Mutant{
 			ID:       mutant.ID,
 			Operator: string(mutant.Operator),
+			Tier:     string(mutation.TierOf(mutant.Operator)),
 			Module:   mutant.ModuleRel,
 			Site:     mutant.Site,
 			Resource: mutant.Resource,
@@ -305,4 +347,72 @@ func describe(configuration discovery.Configuration, generated []mutation.Mutant
 	}
 
 	return described
+}
+
+// Exclude is the site exclusion policy the run was given.
+func (c Config) Exclude() config.Exclude {
+	return config.Exclude{Paths: c.ExcludePaths, Resources: c.ExcludeResources}
+}
+
+func (c Config) withDefaults() Config {
+	if c.TestDirectory == "" {
+		c.TestDirectory = DefaultTestDirectory
+	}
+
+	if c.Jobs <= 0 {
+		c.Jobs = defaultJobs()
+	}
+
+	if c.TimeoutFactor <= 0 {
+		c.TimeoutFactor = DefaultTimeoutFactor
+	}
+
+	if c.TimeoutFloor <= 0 {
+		c.TimeoutFloor = DefaultTimeoutFloor
+	}
+
+	if c.TerraformBinary == "" {
+		c.TerraformBinary = DefaultTerraformBinary
+	}
+
+	return c
+}
+
+// selection is the operator population the configuration asks for.
+func (c Config) selection() mutation.Selection {
+	tier := c.Tier
+	if !tier.Valid() {
+		tier = mutation.TierStandard
+	}
+
+	return mutation.Selection{Tier: tier, Include: c.IncludeOperators, Exclude: c.ExcludeOperators}
+}
+
+// baselineFingerprint composes the unmutated suite's masked fingerprint, which
+// is what every mutant is compared against.
+func baselineFingerprint(prepared warm) string {
+	masked := make([]fingerprint.Payload, 0, len(prepared.payloads))
+
+	for _, payload := range prepared.payloads {
+		projected, _ := prepared.mask.Apply(payload)
+		masked = append(masked, projected)
+	}
+
+	return fingerprint.Fingerprint(masked)
+}
+
+// RuleDescriptions renders the operator catalogue for the reporters, so that a
+// SARIF rule carries the catalogue's own words rather than a paraphrase.
+func RuleDescriptions() map[string]report.RuleDescription {
+	descriptions := make(map[string]report.RuleDescription, len(mutation.Catalogue()))
+
+	for id, entry := range mutation.Descriptions() {
+		descriptions[id] = report.RuleDescription{
+			Tier:        string(entry.Tier),
+			Description: entry.Description,
+			Killer:      entry.Killer,
+		}
+	}
+
+	return descriptions
 }

@@ -1,8 +1,10 @@
-// Package tfexec runs the Terraform CLI and decodes its machine-readable output.
+// Package tfexec runs the Terraform CLI and decodes its machine-readable
+// output.
 //
 // Every command is executed with the global -chdir option so that the caller's
 // process working directory is never changed, which keeps concurrent mutant
-// execution safe.
+// execution safe. The test stream is decoded incrementally rather than
+// buffered, because a verbose run's output is measured in gigabytes.
 package tfexec
 
 import (
@@ -11,8 +13,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -72,44 +74,27 @@ const (
 //
 // A non-zero exit status is not an error: Terraform uses exit codes to report
 // test outcomes, so the caller inspects Result.ExitCode instead.
+// Run executes Terraform in dir with the supplied arguments, buffering stdout.
+//
+// It is StreamOutput with a consumer that keeps everything, rather than a second
+// implementation: the exit-status ladder and the environment stripping standing
+// process rule 5 requires are subtle enough that two copies would eventually
+// disagree, and the disagreement would be a verdict.
 func (r Runner) Run(ctx context.Context, dir string, args ...string) (Result, error) {
-	full := append([]string{"-chdir=" + dir}, args...)
-	command := exec.CommandContext(ctx, r.Binary, full...) //nolint:gosec // the binary and arguments are tool-controlled.
-	command.Env = append(inheritedEnvironment(), r.Env...)
+	stdout := bytes.Buffer{}
 
-	var stdout, stderr bytes.Buffer
+	result, err := r.StreamOutput(ctx, dir, func(reader io.Reader) error {
+		_, copyErr := io.Copy(&stdout, reader)
+		if copyErr != nil {
+			return fmt.Errorf("reading terraform output: %w", copyErr)
+		}
 
-	command.Stdout = &stdout
-	command.Stderr = &stderr
+		return nil
+	}, args...)
 
-	started := time.Now()
-	err := command.Run()
-	result := Result{
-		Stdout:   stdout.Bytes(),
-		Stderr:   stderr.Bytes(),
-		ExitCode: exitCodeUnavailable,
-		TimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded),
-		Duration: time.Since(started),
-	}
+	result.Stdout = stdout.Bytes()
 
-	if err == nil {
-		result.ExitCode = 0
-
-		return result, nil
-	}
-
-	exitErr := &exec.ExitError{}
-	if errors.As(err, &exitErr) {
-		result.ExitCode = exitErr.ExitCode()
-
-		return result, nil
-	}
-
-	if result.TimedOut {
-		return result, nil
-	}
-
-	return result, fmt.Errorf("%w: %s: %w", ErrNotExecuted, r.Binary, err)
+	return result, err
 }
 
 // Version describes the Terraform release reported by version -json.

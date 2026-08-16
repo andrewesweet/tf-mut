@@ -84,3 +84,32 @@ func (s Schemas) Optionality(kind, resourceType, attribute string) (optional, kn
 
 	return false, false
 }
+
+// Computed reports whether the named argument of a managed resource or data
+// source is one the provider fills in.
+//
+// It is the static half of the `mock-masked` diagnosis: a mock invents values
+// for exactly the computed attributes, so a delta confined to them says the
+// mock moved, not the module.
+func (s Schemas) Computed(kind, resourceType, attribute string) (computed, known bool) {
+	for _, provider := range s.ProviderSchemas {
+		schemas := provider.ResourceSchemas
+		if kind == dataSourceKind {
+			schemas = provider.DataSourceSchemas
+		}
+
+		schema, found := schemas[resourceType]
+		if !found {
+			continue
+		}
+
+		described, found := schema.Block.Attributes[attribute]
+		if !found {
+			return false, true
+		}
+
+		return described.Computed && !described.Optional && !described.Required, true
+	}
+
+	return false, false
+}

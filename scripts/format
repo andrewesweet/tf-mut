@@ -24,7 +24,7 @@ declared=$(mktemp)
 discovered=$(mktemp)
 trap 'rm -f "$declared" "$discovered"' EXIT
 printf '%s\n' "${terraform_paths[@]}" "${terraform_skips[@]}" | sed '/^$/d' | sort >"$declared"
-find research/spikes -type f \( -name '*.tf' -o -name '*.tftest.hcl' \) | sort >"$discovered"
+find research/spikes internal/engine/testdata -type f \( -name '*.tf' -o -name '*.tftest.hcl' \) | sort >"$discovered"
 if ! cmp -s "$declared" "$discovered"; then
   echo "Terraform format manifest is stale:" >&2
   diff -u "$declared" "$discovered" >&2 || true

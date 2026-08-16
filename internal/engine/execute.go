@@ -25,6 +25,7 @@ type executionPlan struct {
 	generated     []mutation.Mutant
 	described     []report.Mutant
 	workRoot      string
+	closure       discovery.Closure
 }
 
 // execute runs every executable mutant, bounded by the configured job count.
@@ -62,7 +63,7 @@ func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []report
 	}
 
 	for index, mutant := range plan.described {
-		if mutant.State == report.NoCoverage {
+		if mutant.State == report.NoCoverage || mutant.State == report.Ignored {
 			continue
 		}
 
@@ -161,7 +162,14 @@ func evaluate(
 	verdict.ExecutedRuns = result.ExecutedRuns()
 	verdict.Diagnostics = diagnostics(result.Diagnostics)
 
-	return classify(ctx, plan, built, verdict, result)
+	verdict, failure := classify(ctx, plan, built, verdict, result)
+	if failure != nil || verdict.State != report.Survived {
+		return verdict, failure
+	}
+
+	// Phase two: only a phase-one survivor is fingerprinted, which is the whole
+	// point of the split.
+	return oracle{plan: plan}.observe(ctx, built, index, verdict)
 }
 
 // classify assigns the aggregate state by the normative precedence, and runs
@@ -238,6 +246,7 @@ func runOutcomes(result tfexec.TestResult) []report.RunOutcome {
 		outcomes = append(outcomes, report.RunOutcome{
 			File:   run.File,
 			Run:    run.Run,
+			Phase:  phaseOne,
 			Status: run.Status,
 		})
 	}
