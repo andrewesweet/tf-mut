@@ -164,6 +164,14 @@ Order mutants to surface findings early and cut work:
   run shares. Honest consequence: apply→plan suites largely do not split, and the speedup
   from splitting accrues mainly to independent plan-mode suites — which is the design's
   target shape, but the claim is now scoped to it.
+
+  **Unmeasured, and now doubtful (M1 implementation review, M1-A).** Splitting produces
+  *more* `terraform test` invocations, and the M1 measurement found the dominant per-mutant
+  cost against a large-schema provider to be starting the plugin process, once per run
+  block, per invocation. Splitting may therefore add work on exactly the modules it was
+  meant to rescue. The design previously called this the primary viability lever on real
+  modules; that claim is withdrawn pending the experiment in open question 8, which M2 must
+  run before committing to the design.
 - **Prioritisation.** Extreme-tier mutants first (few, cheap, highest signal), then contract,
   then language, then lifecycle. With `--fail-fast`, an early finding stops the run.
 - **Deduplication.** Mutants with identical `(file, range, replacement)` collapse.
@@ -611,9 +619,26 @@ survivor diagnosis, JSON and SARIF reporters, `.tf-mut.hcl`. Two-phase execution
 file splitting with the **state-identity-aware prefix closure** (R2-4), and **sound
 instantiation-reachability selection** (R2-1/R2-13: selection by "does this run instantiate
 the mutated block", computable without the full reference graph — the only sound exclusion
-rule). **Exit gate: the demonstrated real-provider inner loop** — a `--since`-scoped run on
-a mocked-AWS module inside the stated time envelope; this gate moved here from M1 because
-M1 lacks the speed levers that make it meaningful (R2-13).
+rule).
+
+**M2 opens with a measurement, not a design.** M1 measured the per-mutant cost against a
+real provider schema and found it dominated by plugin startup rather than by anything the
+speed levers address (see the M1 implementation review, and open question 8). Splitting and
+selection are therefore specified only after the experiment settles which of them removes
+work. This is standing process rule 1 applied forwards instead of retrospectively.
+
+Two consequences for R2-4 in particular. Its repair — the state-identity-aware prefix
+closure — has never been reproduced, so its reproduction fixture is an **entry** gate for
+the splitting work and is written red before the splitting code. And the seam it attaches to
+already exists: `Config.TestSelection`, applied to mutant execution and never to the
+baseline.
+
+**Exit gate: a measured improvement on the M1 baseline** — the mocked-AWS fixture at
+0.3 mutants/s and 1.08× parallel scaling, published in `../research/06-m1-exit-gate.md`.
+The gate was previously stated as a `--since`-scoped run inside a time envelope, which no
+milestone that excludes `--since` can meet; either that flag moves into M2 or the gate is
+expressed over selection alone. It moved here from M1 because M1 lacks the speed levers that
+make it meaningful (R2-13).
 
 **M3 — Refinement and CI.** The attribute-level reference graph for cone-based
 *prioritisation* and predicted diagnoses (never exclusion — R2-1), static `Unobservable`
@@ -679,4 +704,14 @@ comparison.
    command already diverges — rather than a `--engine` flag that implies parity.
 7. **Upstream asks worth filing.** `-filter=file::run`; a `-verbose` mode that omits
    `provider_schemas` from per-run messages (C1 makes this a 26× marginal-cost issue); native
-   coverage remains [#37605](https://github.com/hashicorp/terraform/issues/37605).
+   coverage remains [#37605](https://github.com/hashicorp/terraform/issues/37605). M1's
+   measurement adds a third: the per-run-block plugin startup that dominates real-provider
+   cost is invisible to any harness change, so an upstream `test` that reuses one provider
+   process across run blocks would be worth more than every lever in this design.
+8. **Does run-block splitting add or remove work?** (M1 implementation review, M1-A.) The
+   cost of a mutant against `hashicorp/aws` is plugin startup per run block per invocation,
+   and splitting creates more invocations. Three experiments on the existing `aws-mocked`
+   fixture settle it: one invocation with *n* run blocks against *n* invocations of one; the
+   marginal cost of `-verbose` measured through this harness rather than inferred from C1;
+   and how many run blocks instantiation-reachability selection actually removes from a
+   realistic suite. **M2 runs these before specifying either lever.**

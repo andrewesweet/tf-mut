@@ -13,9 +13,11 @@ GitHub issues labelled `ready-for-agent`.
 4. `docs/reviews/` — **all adversarial reviews and their dispositions. Read before changing
    any design decision**: many decisions exist specifically because a review refuted the
    obvious alternative, with experiments
-4a. `docs/research/06-m1-exit-gate.md` — what M1 actually shipped: the reproduction map from
-   review case to fixture to test, the three recorded deviations, and the measured
-   real-provider numbers
+4a. `docs/reviews/2026-08-16-m1-implementation-review.md` and
+   `docs/research/06-m1-exit-gate.md` — what implementing M1 measured, decided and deferred,
+   and the reproduction map from review case to fixture to test. **Read both before writing
+   the next milestone spec**: they carry the measurements that outrank the design prose, and
+   the open questions the next spec has to dispose of
 5. `docs/design/mutation-operators.md`, `characterisation.md`, `agent-integration.md`
 6. `docs/research/01–04` — the verified factual base ([verified] = established by running
    Terraform v1.15.8, not by reading documentation)
@@ -37,6 +39,15 @@ If you find a genuine conflict, fix the losing document in the same change.
    research corrected four widely-repeated false claims (`-filter` scope, mock+apply,
    `relevant_attributes`, mock determinism). Fixtures in `research/spikes/` are cheap to
    extend; extend them.
+4. **A speed lever is unbuilt design until its cost model has been measured on the fixture it
+   targets.** M1 measured parallelism at 1.08× against a real provider schema where the spike
+   had measured 3–8× against a 3.4 KB one, and the bottleneck turned out to be a cost no
+   harness change reaches. Specify the experiment before the lever, not after.
+5. **The tool controls the environment it hands Terraform.** Inheriting the caller's
+   ambient environment wholesale broke remote module installation under an exported
+   `GIT_DIR`, and let a fixture write into the real checkout's git configuration. Anything
+   that redirects a subprocess at another location is stripped; anything that authenticates
+   one is kept.
 
 ## Testing seam (fixed decision — do not reopen per milestone)
 
@@ -100,7 +111,11 @@ discriminator between `Invalid` and `KilledByError`.
 - Preserve `GOTOOLCHAIN=local`; toolchain drift must fail rather than download another Go.
 - The source tree of a module under test is never written to. Sandboxes only.
 - New milestone specs: run `/to-spec` against the design docs; one milestone per spec;
-  absorb the previous milestone's implementation learnings before writing the next spec.
+  absorb the previous milestone's implementation learnings first — they live in
+  `docs/reviews/<date>-<milestone>-implementation-review.md` and the milestone's exit-gate
+  document under `docs/research/`. Where a spec restates a review finding, **quote it rather
+  than paraphrase**: M1's one costly conflict was an acceptance criterion that reworded a
+  disposition and inverted it.
 - Safety gates (`--allow-real-infrastructure`, `--allow-unsandboxed-effects`) are
   load-bearing product decisions, not defaults to soften.
 - Engine fixtures live in `internal/engine/testdata/`. They are `terraform_data`-based and
