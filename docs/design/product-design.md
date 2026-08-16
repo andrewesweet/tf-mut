@@ -714,6 +714,19 @@ mocked-AWS module inside the stated time envelope, measured against M1's publish
 of 0.3 mutants/s. It moved here from M2, and to M2 from M1, each time because the milestone
 it sat in lacked the levers that make it meaningful.
 
+**What M2 hands over, and what it settled.** The M3 spec author's reading list, the facts M3
+inherits and the five things M3 is expected to unblock are collected in
+`../research/08-m2-exit-gate.md`; the open questions are in
+`../reviews/2026-08-16-m2-implementation-review.md`. Three of them bear directly on the scope
+above. The graph's *provenance* role now has two named consumers beyond selection: path-scoped
+unknown handling, which would let `Unobservable` fire in plan mode where it currently almost
+never can, and a forward cone that would replace the closure's coarsest answer, where a
+whole-object read diagnoses `weak-assertion` without saying which attribute moved. And M2's
+own real-provider gap is concrete rather than theoretical: `mock-masked`'s positive case and
+`DYNAMIC-ZERO`'s classification are unprovable on the offline providers, so M3's real-provider
+fixture should carry both — or `mock-masked` should be withdrawn rather than shipped with a
+positive case that has never fired.
+
 **Post-MVP (unscheduled).** The explanatory uses of the reference graph: path-based survivor
 explanations, `terraform graph` as the cross-validation oracle for the in-process graph, cone
 rendering in `explain`. The graph's *selection* role moved to M3; what remains deferred is

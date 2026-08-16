@@ -224,6 +224,57 @@ Every fixture, and the case it exists for.
 | `dynamic` | `DYNAMIC-ZERO`'s generation site, previewed rather than run |
 | `aliases` | `PROVIDER-ALIAS-SWAP` and its mock-status guard, both directions |
 
+## Reading list for the M3 spec author
+
+The repository convention is that a milestone spec absorbs the previous milestone's learnings
+before it is written. This is that list, ordered, with what each document settles — so that the
+M3 spec re-derives none of it.
+
+| Read | For |
+| --- | --- |
+| `../reviews/2026-08-16-m2-implementation-review.md` | The measurements M2 took (M2-A to M2-G), the decisions it made about ambiguous spec rules (M2-1 to M2-10), what post-hoc review found (M2-11 to M2-14), and **five open questions M3 must dispose of** |
+| This document | The gate, the contract sweep, the per-operator error data, and the two behaviours M2 could not prove offline |
+| `../reviews/2026-08-16-m2-spec-review.md` | The ten dispositions the M2 spec was built from. Several bind M3 directly: C2 defers path-scoped unknown handling to M3's provenance, C3 defers the full forward graph, M1 defers conditional-instantiation `NoCoverage`, M2 defers the metadata-driven function catalogue |
+| `07-m2-cost-model.md` | Why run-block splitting is **dropped, not deferred** — measured at 7.8× cost on an eight-run suite, 3% ceiling. M3 should not reopen it without a new measurement |
+| `06-m1-exit-gate.md` and `../reviews/2026-08-16-m1-implementation-review.md` | M1's real-provider baseline — 0.3 mutants/s, 1.08× parallel scaling against `hashicorp/aws` — which M3's inner-loop gate is measured against, and which M2 did not move |
+
+### What M3 inherits as settled
+
+Facts, not opinions. A spec that contradicts one of these should say so deliberately.
+
+- **The per-mutant floor is ~1.6 s of provider startup**, unreachable from inside this tool. Every
+  remaining speed lever reduces how many mutants run, not what each costs (`07-m2-cost-model.md`).
+- **Lazy validation stays; selective validation is not worth building.** `Invalid` is 0.5% and
+  `KilledByError` 7.7% at Tiers 1–3, so `validate` runs for 8.2% of the population against 100%
+  for eager. This answers M1 open question 3 with data, and closes it.
+- **The applicability matrix's evidence gates are the error-rate control**, not validation
+  policy: they are why `Invalid` is 0.5% rather than 1.3%.
+- **Component granularity in the volatile mask comes from the syntax.** Two observations of a
+  value cannot supply it, and a spec that asks for run-derived component masking is asking for
+  verdicts that move between runs.
+- **The unknown rule gates equality claims only.** A survivor with a proven delta is diagnosed
+  from the delta. M3's path-scoped provenance narrows *which* unknowns matter; it does not
+  change that.
+- **The payload's assertion-unreachable members are excluded from the fingerprint**, and the set
+  was established by running Terraform, not by reading its documentation — including one
+  correction, `issensitive`, that reasoning got wrong.
+
+### What M3 is expected to unblock
+
+Each of these is blocked on the attribute-level provenance graph M3 schedules, and each has a
+concrete first test waiting:
+
+1. **`mock-masked`'s positive case** — needs a provider with an attribute that is both
+   configurable and computed. M3's real-provider fixture is the natural home.
+2. **`DYNAMIC-ZERO`'s end-to-end classification** — needs a provider whose schema declares a
+   nested block type.
+3. **Path-scoped unknown handling** (C2) — would let `Unobservable` fire in plan mode, where it
+   currently almost never can.
+4. **Conditional-instantiation `NoCoverage`** (M1) — the module-level claim M2 ships is nearly
+   always empty on a single-module suite, which is open question 4 of the implementation review.
+5. **The full forward cone** (C3) — would replace the closure's coarsest answer, where a
+   whole-object read diagnoses `weak-assertion` without saying which attribute.
+
 ## What is not proven here
 
 Stated rather than left for a reader to discover.
