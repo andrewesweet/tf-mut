@@ -1,9 +1,10 @@
 # tf-mut — agent instructions
 
 Mutation testing and characterisation-test scaffolding for `terraform test`, optimised for
-fully-mocked unit tests. Milestone M1 is implemented: `tf-mut run` and `tf-mut preview` drive
-the Tier 0 loop end to end against real Terraform. Later milestones are still specified in
-GitHub issues labelled `ready-for-agent`.
+fully-mocked unit tests. Milestones M1 and M2 are implemented: `tf-mut run` and `tf-mut preview`
+drive Tiers 0–3 end to end against real Terraform, every survivor carries one diagnosis from the
+fingerprint oracle, and the terminal, JSON and SARIF reporters derive from one report value.
+Later milestones are still specified in GitHub issues labelled `ready-for-agent`.
 
 ## Reading order
 
@@ -13,11 +14,13 @@ GitHub issues labelled `ready-for-agent`.
 4. `docs/reviews/` — **all adversarial reviews and their dispositions. Read before changing
    any design decision**: many decisions exist specifically because a review refuted the
    obvious alternative, with experiments
-4a. `docs/reviews/2026-08-16-m1-implementation-review.md` and
-   `docs/research/06-m1-exit-gate.md` — what implementing M1 measured, decided and deferred,
-   and the reproduction map from review case to fixture to test. **Read both before writing
-   the next milestone spec**: they carry the measurements that outrank the design prose, and
-   the open questions the next spec has to dispose of
+4a. `docs/reviews/2026-08-16-m2-implementation-review.md` and
+   `docs/research/08-m2-exit-gate.md` — what implementing M2 measured, decided and deferred,
+   the contract sweep from every normative behaviour to its test, and the reproduction map.
+   **Read both before writing the next milestone spec**: they carry the measurements that
+   outrank the design prose, and the open questions the next spec has to dispose of. M1's
+   equivalents (`2026-08-16-m1-implementation-review.md`, `docs/research/06-m1-exit-gate.md`)
+   remain the record for the Tier 0 loop
 5. `docs/design/mutation-operators.md`, `characterisation.md`, `agent-integration.md`
 6. `docs/research/01–04` — the verified factual base ([verified] = established by running
    Terraform v1.15.8, not by reading documentation)
@@ -88,18 +91,37 @@ this repository contract.
 | --- | --- |
 | `internal/engine` | The seam. `Run(ctx, Config) (Report, error)` — version gate, safety gates, baseline, generation, execution, classification, findings |
 | `internal/discovery` | `hclsyntax` parsing of modules and `.tftest.hcl` files; the `..`-closure; provider and effect inventories; reference forms |
-| `internal/mutation` | The Tier 0 catalogue, applied through `hclwrite`; content-derived identifiers; deduplication; diffs |
+| `internal/mutation` | The operator catalogue and its applicability matrix. Tier 0 is applied through `hclwrite`; Tiers 1–3 rewrite byte ranges, so a mutant differs from the original only in the tokens its operator owns. Content-derived identifiers; deduplication; diffs |
+| `internal/fingerprint` | The oracle's arithmetic: canonical payload projection, the volatile mask, the masked delta. Decides what two runs can honestly be said to have in common, and never a verdict |
+| `internal/config` | `.tf-mut.hcl` and the inline suppression directives |
 | `internal/sandbox` | Closure-rooted materialisation, provider and remote-module sharing, fresh-inode writes |
 | `internal/tfexec` | The Terraform CLI: `version`, `init`, `validate`, `providers schema`, `fmt`, and the `test -json` stream |
 | `internal/report` | The report value, its state and metric definitions, and the terminal and JSON renderings |
 
-The JSON reporter's contract is published at `docs/schema/report-1.0.0.json` and validated in
-the suite. Changing a field's name or meaning means a new schema version and a new file.
+The JSON reporter's contract is published at `docs/schema/report-2.0.0.json` and validated in
+the suite; `report-1.0.0.json` remains published for M1 consumers. Changing a field's name or
+meaning means a new schema version and a new file. SARIF output is validated against the
+vendored `docs/schema/sarif-2.1.0.json`.
 
-Two rules the engine enforces that are easy to break by accident: the safety gates are decided
-statically **before** any Terraform runs (a provisioner must not execute in order to be
-refused), and `terraform validate` runs **only** after a run-level error, where it is the sole
-discriminator between `Invalid` and `KilledByError`.
+The operator catalogue's **applicability matrix** (`docs/design/mutation-operators.md`) is
+normative and enforced: a row naming an operator the catalogue does not enable, an enabled
+operator with no row, and an operator with no generation site in the fixtures are each a test
+failure. Adding an operator means adding its row and its site in the same change.
+
+Four rules the engine enforces that are easy to break by accident. The safety gates are decided
+statically **before** any Terraform runs — a provisioner must not execute in order to be
+refused, and no configured exclusion may reach them. `terraform validate` runs **only** after a
+run-level error, where it is the sole discriminator between `Invalid` and `KilledByError`.
+Phase two runs **only** for phase-one survivors, because `-verbose` costs 20,288× the output
+volume. And the oracle never claims an equality it cannot prove: an unknown value anywhere in
+the payload, or volatility it could not decompose, makes the comparison indeterminate rather
+than identical.
+
+`just gate` runs the M2a honesty gate — the reproductions the oracle has to survive. It is a
+separate recipe from `just test` on purpose: operator and interface breadth must not be able to
+hide a failed oracle behind a large green checklist. Two tests keep the recipe honest by
+checking that every name in it resolves to a test that exists, and that every reproduction the
+spec requires is still named.
 
 ## Conventions
 

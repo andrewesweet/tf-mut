@@ -10,6 +10,9 @@ import (
 	"github.com/zclconf/go-cty/cty"
 )
 
+// sensitiveArgument is the flag both a variable and an output can carry.
+const sensitiveArgument = "sensitive"
+
 // The meta-argument names Tier 2 fires on.
 const (
 	countArgument     = "count"
@@ -192,7 +195,7 @@ func variableEdits(source []byte, where site, attribute *hclsyntax.Attribute, nu
 		return defaultEdits(source, where, attribute, nullable)
 	case "nullable":
 		return flagEdits(VarNullableFlip, where, attribute, false)
-	case "sensitive":
+	case sensitiveArgument:
 		return flagEdits(VarSensitiveFlip, where, attribute, true)
 	case "type":
 		return optionalDefaultEdits(where, attribute)
@@ -276,12 +279,52 @@ func optionalDefaultEdits(where site, attribute *hclsyntax.Attribute) []edit {
 }
 
 // outputEdits offers the Tier 3 operators an output declaration's attributes.
-func outputEdits(where site, attribute *hclsyntax.Attribute) []edit {
-	if attribute.Name != "sensitive" {
+//
+// Clearing `sensitive` is skipped where the output's value reads a sensitive
+// variable: Terraform refuses to expose a sensitive value through a
+// non-sensitive output, so the mutant is statically doomed. Measured — the
+// operator reported an error rate of 1.00 on the matrix fixture before this
+// gate existed.
+func outputEdits(where site, block *hclsyntax.Block, attribute *hclsyntax.Attribute, sensitive map[string]bool) []edit {
+	if attribute.Name != sensitiveArgument {
+		return nil
+	}
+
+	if readsSensitiveVariable(block, sensitive) {
 		return nil
 	}
 
 	return flagEdits(OutSensitiveFlip, where, attribute, true)
+}
+
+// readsSensitiveVariable reports whether an output's value observes a variable
+// the module declares sensitive.
+func readsSensitiveVariable(block *hclsyntax.Block, sensitive map[string]bool) bool {
+	if block == nil {
+		return false
+	}
+
+	value, declared := block.Body.Attributes["value"]
+	if !declared {
+		return false
+	}
+
+	found := false
+
+	walkExpressionTree(value.Expr, func(expr hclsyntax.Expression) {
+		traversal, ok := expr.(*hclsyntax.ScopeTraversalExpr)
+		if !ok || len(traversal.Traversal) < referenceParts ||
+			traversal.Traversal.RootName() != "var" {
+			return
+		}
+
+		name, ok := traversal.Traversal[1].(hcl.TraverseAttr)
+		if ok && sensitive[name.Name] {
+			found = true
+		}
+	})
+
+	return found
 }
 
 // blockRemovalEdits deletes a whole contract block, which is the mutation that
@@ -307,15 +350,49 @@ func removalOperator(where site, block *hclsyntax.Block) (Operator, bool) {
 		return VarValidationRemove, true
 	case "precondition", "postcondition":
 		return PrePostRemove, true
-	case "assert":
-		if where.kind != checkKind {
-			return "", false
-		}
-
-		return CheckRemove, true
 	default:
 		return "", false
 	}
+}
+
+// checkRemovalEdits removes a check's assertion.
+//
+// Where the check declares only one, the whole block goes with it: Terraform
+// rejects a `check` with no assertion outright, so removing the assertion alone
+// would be a mutant that is 100% Invalid and grades nothing. Measured, not
+// assumed — the operator was written the other way first, and the per-operator
+// error counts reported it at an error rate of 1.00.
+func checkRemovalEdits(source []byte, where site, block *hclsyntax.Block) []edit {
+	if where.kind != checkKind || strings.ToLower(block.Type) != checkKind {
+		return nil
+	}
+
+	asserts := []*hclsyntax.Block{}
+
+	for _, nested := range block.Body.Blocks {
+		if strings.ToLower(nested.Type) == "assert" {
+			asserts = append(asserts, nested)
+		}
+	}
+
+	if len(asserts) == 0 {
+		return nil
+	}
+
+	if len(asserts) == 1 {
+		span := hcl.RangeBetween(block.TypeRange, block.CloseBraceRange)
+
+		return []edit{remove(CheckRemove, where, lineRange(source, span))}
+	}
+
+	edits := make([]edit, 0, len(asserts))
+
+	for _, assertion := range asserts {
+		span := hcl.RangeBetween(assertion.TypeRange, assertion.CloseBraceRange)
+		edits = append(edits, remove(CheckRemove, where, lineRange(source, span)))
+	}
+
+	return edits
 }
 
 // forEachToCountEdits rewrites a set-valued `for_each` as the equivalent

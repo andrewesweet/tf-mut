@@ -14,7 +14,7 @@ const (
 	sarifVersion = "2.1.0"
 	sarifSchema  = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/" +
 		"sarif-schema-2.1.0.json"
-	sarifTool = "tf-mut"
+	sarifTool  = "tf-mut"
 	sarifRules = "https://github.com/andrewesweet/tf-mut/blob/master/docs/design/" +
 		"mutation-operators.md"
 )
@@ -132,6 +132,7 @@ func RegisterRules(descriptions map[string]RuleDescription) {
 // is a warning: it is a real finding with a mechanical fix, but it is not a
 // defect in the assertion the annotation sits next to. `NoCoverage` is a note.
 // Everything else is JSON-only, and the run summary says so.
+//
 //nolint:exhaustive // every other state is JSON-only by the normative table.
 func sarifLevel(mutant Mutant) (string, bool) {
 	switch mutant.State {

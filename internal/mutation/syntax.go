@@ -104,7 +104,7 @@ func (g Generator) fileEdits(module discovery.Module, source []byte, body *hclsy
 			edits = append(edits, g.attributeEdits(module, source, where, attribute)...)
 		},
 		func(where site, block *hclsyntax.Block) {
-			edits = append(edits, g.blockEdits(source, where, block)...)
+			edits = append(edits, blockEdits(source, where, block, sensitiveVariables(module))...)
 		})
 
 	return edits
@@ -135,7 +135,7 @@ func (g Generator) attributeEdits(
 	}
 
 	if where.kind == outputKind && attribute.Name != "value" {
-		return outputEdits(where, attribute)
+		return outputEdits(where, outputBlock(module, where), attribute, sensitiveVariables(module))
 	}
 
 	return g.expressionOperators(source, where, attribute)
@@ -210,12 +210,44 @@ func literalBool(expr hclsyntax.Expression) bool {
 	return value.True()
 }
 
-func (Generator) blockEdits(source []byte, where site, block *hclsyntax.Block) []edit {
+func blockEdits(source []byte, where site, block *hclsyntax.Block, _ map[string]bool) []edit {
 	edits := blockRemovalEdits(source, where, block)
+	edits = append(edits, checkRemovalEdits(source, where, block)...)
 
 	if where.kind == resourceKind && !where.dynamic && where.address == where.resource {
 		edits = append(edits, forEachToCountEdits(source, where, block)...)
 	}
 
 	return edits
+}
+
+// sensitiveVariables names the variables a module declares sensitive.
+func sensitiveVariables(module discovery.Module) map[string]bool {
+	sensitive := map[string]bool{}
+
+	for _, variable := range module.Variables {
+		for _, attribute := range variable.Attributes {
+			if attribute.Name == sensitiveArgument && literalBool(attribute.Expr) {
+				sensitive[variable.Name] = true
+			}
+		}
+	}
+
+	return sensitive
+}
+
+// outputBlock finds the syntax of the output an attribute site belongs to.
+func outputBlock(module discovery.Module, where site) *hclsyntax.Block {
+	name := strings.TrimPrefix(where.address, outputKind+".")
+	name, _, _ = strings.Cut(name, ".")
+
+	for _, body := range module.Bodies {
+		for _, block := range body.Blocks {
+			if block.Type == outputKind && len(block.Labels) == 1 && block.Labels[0] == name {
+				return block
+			}
+		}
+	}
+
+	return nil
 }

@@ -151,3 +151,11 @@ output "secret" {
   value     = var.secret
   sensitive = true
 }
+
+# `sensitive = true` over a value nothing marks sensitive. OUT-SENSITIVE-FLIP
+# fires here, and is skipped on `output.secret` above, where Terraform would
+# refuse the non-sensitive output outright.
+output "guarded" {
+  value     = local.label
+  sensitive = true
+}

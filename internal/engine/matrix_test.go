@@ -438,3 +438,31 @@ func TestEveryOperatorInTheMatrixFixtureClassifiesThroughTheStateModel(t *testin
 // minimumOperatorsExercised guards against a fixture edit that quietly stops
 // exercising most of the catalogue.
 const minimumOperatorsExercised = 50
+
+func TestIdentifiersSurviveALineMove(t *testing.T) {
+	t.Parallel()
+
+	// The M1 suite already proves stability across runs and unrelated edits.
+	// This is the other half of the M4 disposition: the identifier carries no
+	// line number, so moving the whole file down survives it.
+	module := copyFixture(t, "skeleton")
+	before := identifierSet(preview(t, module, nil))
+
+	main := filepath.Join(module, "main.tf")
+	writeFile(t, main, "\n\n"+readFile(t, main))
+
+	if moved := identifierSet(preview(t, module, nil)); !slices.Equal(before, moved) {
+		t.Fatalf("identifiers moved with the lines:\n  %v\n  %v", before, moved)
+	}
+}
+
+func identifierSet(result report.Report) []string {
+	found := make([]string, 0, len(result.Mutants))
+	for _, mutant := range result.Mutants {
+		found = append(found, mutant.ID)
+	}
+
+	slices.Sort(found)
+
+	return found
+}

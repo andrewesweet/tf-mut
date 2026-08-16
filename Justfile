@@ -115,6 +115,13 @@ typecheck:
 mod-check:
     mise exec -- scripts/mod-check
 
+# Run the M2a honesty gate: the reproductions the oracle has to survive.
+gate:
+    mkdir -p "{{ artifact_dir }}/test"
+    mise exec -- gotestsum --format testname --junitfile "{{ artifact_dir }}/test/gate.xml" \
+      --raw-command -- go test ./internal/engine/ ./internal/fingerprint/ ./internal/tfexec/ \
+      -json -count=1 -run '^(TestUnknownRefinementSurvivesRatherThanBeingExcluded|TestAKnownPayloadLetsTheOracleProveUnobservability|TestAVolatileTemplateStillYieldsAFindingOnItsStableSuffix|TestADeterministicIdentifierIsNeverMasked|TestVolatilityFixturesClassifyIdenticallyAcrossRepeatedRuns|TestVolatilityIntroducedOnlyByTheMutantIsDecidedByARerun|TestStateAndDiagnosisAreIndependentOfOrderAndParallelism|TestADeltaSeenOnlyThroughALocalAndAnOutputIsNotNoAssertion|TestADefeatedClosureDiagnosesUnassertedAndNamesTheConstruct|TestConstructsWithNoProjectionAreStructurallyUnassertable|TestTheHigherDiagnosisWinsWhenTwoPredicatesHold|TestPhaseTwoRunsOnlyForPhaseOneSurvivors|TestAPayloadOutsideThePinnedVersionRangeIsAnOperationalFailure|TestVerboseDecodeOfALargeStreamStaysWithinTheHeapCeiling|TestTruncatedStreamIsAnErrorRatherThanAnEmptyResult|TestMalformedStreamIsAnErrorRatherThanAnEmptyResult)$'
+
 # Run fixed-seed Go/property/corpus tests and offline real-Terraform fixtures.
 test: _test-go _test-terraform
 

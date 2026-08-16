@@ -373,9 +373,9 @@ waste.
 | `VAR-SENSITIVE-FLIP` | `sensitive = true` in a `variable` | The literal is exactly `true` | — | `sensitive = false` | Rarely killed: a sensitivity pseudo-test detector |
 | `PRE-POST-REMOVE` | A `precondition` or `postcondition` block | — | The whole block is removed | — | `StructurallyUnassertable` unless a run block uses `expect_failures` |
 | `PRE-POST-NEGATE` | `condition` inside a `precondition` or `postcondition` | — | — | — | `KilledByError` where a run block asserts the happy path |
-| `CHECK-REMOVE` | An `assert` block inside a `check` | The enclosing block is a `check` | The whole block is removed | `assert` blocks in test files, which are never mutated | `StructurallyUnassertable` unless the check is exercised |
+| `CHECK-REMOVE` | A `check` block containing at least one `assert` | The number of assertions the check declares | Where the check declares one assertion the whole `check` block is removed, because Terraform rejects a check with none and the mutant would be 100% `Invalid`; where it declares several, one assertion is removed at a time | `check` blocks with no assertion; `assert` blocks in test files, which are never mutated | `StructurallyUnassertable` unless the check is exercised |
 | `CHECK-NEGATE` | `condition` inside a `check`'s `assert` | As above | — | — | `Killed` where a run block exercises the check |
-| `OUT-SENSITIVE-FLIP` | `sensitive = true` in an `output` | The literal is exactly `true` | — | `sensitive = false` | Rarely killed: a sensitivity pseudo-test detector |
+| `OUT-SENSITIVE-FLIP` | `sensitive = true` in an `output` | The literal is exactly `true`, and the output's value reads no variable the module declares sensitive | — | `sensitive = false`; outputs whose value reads a sensitive variable, where Terraform refuses the non-sensitive output outright and the mutant is doomed | Rarely killed: a sensitivity pseudo-test detector |
 
 ### Tier 4 and the packs
 
