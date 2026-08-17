@@ -122,6 +122,14 @@ gate:
       --raw-command -- go test ./internal/engine/ ./internal/fingerprint/ ./internal/tfexec/ \
       -json -count=1 -run '^(TestUnknownRefinementSurvivesRatherThanBeingExcluded|TestAKnownPayloadLetsTheOracleProveUnobservability|TestAVolatileTemplateStillYieldsAFindingOnItsStableSuffix|TestADeterministicIdentifierIsNeverMasked|TestVolatilityFixturesClassifyIdenticallyAcrossRepeatedRuns|TestVolatilityIntroducedOnlyByTheMutantIsDecidedByARerun|TestStateAndDiagnosisAreIndependentOfOrderAndParallelism|TestADeltaSeenOnlyThroughALocalAndAnOutputIsNotNoAssertion|TestADefeatedClosureDiagnosesUnassertedAndNamesTheConstruct|TestConstructsWithNoProjectionAreStructurallyUnassertable|TestTheHigherDiagnosisWinsWhenTwoPredicatesHold|TestPhaseTwoRunsOnlyForPhaseOneSurvivors|TestAPayloadOutsideThePinnedVersionRangeIsAnOperationalFailure|TestVerboseDecodeOfALargeStreamStaysWithinTheHeapCeiling|TestTruncatedStreamIsAnErrorRatherThanAnEmptyResult|TestMalformedStreamIsAnErrorRatherThanAnEmptyResult)$'
 
+
+# Run the M3 offline gates: graph soundness, the count levers, the gate table.
+gate-m3:
+    mkdir -p "{{ artifact_dir }}/test"
+    mise exec -- gotestsum --format testname --junitfile "{{ artifact_dir }}/test/gate-m3.xml" \
+      --raw-command -- go test ./internal/engine/ \
+      -json -count=1 -run '^(TestEveryGenerationSiteMapsIntoTheGraph|TestAnUnmappableSiteFallsBackClosed|TestAnUnmappablePayloadUnknownIsInCone|TestTheForwardConeUnionsSameResourceAttributes|TestGraphAgreesWithTerraformGraphOverTheCorpus|TestASeededMissingEdgeFailsTheSupplementalCheck|TestNoUserInvocationExecutesTerraformGraph|TestAnOutOfConeUnknownPermitsPlanModeUnobservable|TestOwnResourceUnknownsStayInCone|TestStaticUnobservableEqualsTheExecutedVerdict|TestTheContractFixtureClassifiesIdenticallyUnderTheShortcut|TestABodyOnlyMutantOfAnUninstantiatedBlockStaysNoCoverage|TestAMutantInsideTheConditionExecutes|TestAMutantUpstreamOfTheConditionExecutes|TestExcludedCategoriesFailClosedToExecution|TestDecidableToNonzeroControlsClassifyByExecution|TestAnUncommittedNewResourceIsSelected|TestStagedAndUnstagedChangesAreSelected|TestACommittedRangeIsSelected|TestARenameFollowsBothNames|TestADeletionSelectsTheWholeModule|TestAMissingRefIsAnError|TestOutsideARepositoryIsAnError|TestAMergeConflictIsAnError|TestAShallowCloneLackingTheRefIsAnError|TestNonTerraformClassChangesForceTheFullPopulation|TestSinceSelectionIsDeterministic|TestSamplingIsDeterministicAndNonAuthoritative|TestASampledGateIsRefusedWithoutTheOptIn|TestASecondUnchangedRunIsAllCacheHits|TestCacheInvalidationPerKeyDimension|TestMaskedBaselineFingerprintIsAKeyDimension|TestCacheIsRefusedUnderTheUnsafeOptIns|TestNoCacheDisablesReadsAndWrites|TestCorruptionIsAMiss|TestCacheEntriesAreOwnerOnly|TestASymlinkedCacheDirectoryIsRefused|TestEvictionIsDeterministicAndSizeCapped|TestConcurrentInvocationsShareTheCacheSafely|TestAdoptionThenRegression|TestAcceptedSurvivorsPassAndStayInScores|TestAnAcceptedIndeterminateTurningActionableIsNew|TestStaleAndUnobservedAreDistinguished|TestBaselineWriteIsRefusedOffTheFullPopulation|TestASampledFailOnNewIsRefusedWithoutTheOptIn|TestScopedFailOnNewJudgesTheSelectedPopulationOnly|TestBaselineNeverSuppressesSafetyGates|TestExitCodesAreDeterministicAcrossTheTable|TestVerdictInvarianceUnderSince|TestVerdictInvarianceUnderSampling|TestTheCachedRowOfTheGateTable|TestScopedMinScoreIsLabelledPartial|TestTheLockFileIsAKeyDimension|TestRemoteModulePayloadsAreAKeyDimension|TestAutoVarFilesAreAKeyDimension|TestProviderEnvironmentIsAKeyDimension|TestAnExistingLooseCacheDirectoryIsCorrected|TestAnAutoLoadedVariableFileDefeatsTheDefault|TestTerraformTfvarsDecidesOverTheDefault|TestAnIgnoredUntrackedVariableFileForcesTheFullPopulation|TestAWhitespaceFilenameSurvivesSelection|TestAJSONConfigurationChangeForcesTheFullPopulation|TestAFractionalSampleNeverKeepsNothing|TestProviderConfigurationMakesTheConeUnbounded|TestModuleWiringAgreesWithTerraformGraph)$'
+
 # Run fixed-seed Go/property/corpus tests and offline real-Terraform fixtures.
 test: _test-go _test-terraform
 
@@ -231,3 +239,12 @@ _test-go:
 
 _test-terraform:
     mise exec -- tests/build-chain/terraform-offline.sh
+
+# Package the built binaries as versioned, checksummed per-architecture assets.
+package-test-release version out_dir:
+    mkdir -p "{{ out_dir }}/{{ version }}"
+    mise exec -- env CGO_ENABLED=0 GOARCH=amd64 go build -trimpath -mod=readonly -o "{{ out_dir }}/amd64/tf-mut" ./cmd/tf-mut
+    mise exec -- env CGO_ENABLED=0 GOARCH=arm64 go build -trimpath -mod=readonly -o "{{ out_dir }}/arm64/tf-mut" ./cmd/tf-mut
+    tar -czf "{{ out_dir }}/{{ version }}/tf-mut_{{ version }}_linux_amd64.tar.gz" -C "{{ out_dir }}/amd64" tf-mut
+    tar -czf "{{ out_dir }}/{{ version }}/tf-mut_{{ version }}_linux_arm64.tar.gz" -C "{{ out_dir }}/arm64" tf-mut
+    cd "{{ out_dir }}/{{ version }}" && sha256sum -- *.tar.gz > checksums.txt

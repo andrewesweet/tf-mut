@@ -161,7 +161,7 @@ func measurePeakLiveHeap(t *testing.T, work func()) uint64 {
 
 	// The baseline has to be a collected heap, or the peak would include
 	// whatever the previous test left behind.
-	runtime.GC() //nolint:revive // deliberate: see above.
+	runtime.GC()
 
 	done := make(chan struct{})
 	peaks := make(chan uint64, 1)

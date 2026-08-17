@@ -101,6 +101,38 @@ type Config struct {
 	// SetFlags names the flags the caller set explicitly, so that a configured
 	// scalar can be overridden per scalar rather than per file.
 	SetFlags []string
+	// Since scopes the run to configuration changed since the git ref: the
+	// union of the committed range, the working tree and untracked files.
+	Since string
+	// SamplePercent selects a deterministic sample of the population.
+	SamplePercent float64
+	// HasSample reports whether sampling was requested.
+	HasSample bool
+	// SampleSeed seeds the deterministic sample.
+	SampleSeed int64
+	// AllowSampledGate is the separately named unsafe opt-in without which a
+	// sampled run can satisfy no gate.
+	AllowSampledGate bool
+	// NoCache disables cache reads and writes: the documented mitigation for
+	// the plan-values-on-disk risk, and the escape hatch for a shared cache.
+	NoCache bool
+	// FailOnNew fails the run on any finding the baseline does not accept.
+	FailOnNew bool
+	// WriteBaseline accepts the current findings as the baseline; permitted
+	// only on a full unsampled population.
+	WriteBaseline bool
+	// BaselinePath overrides the baseline file location, relative to the
+	// module directory unless absolute.
+	BaselinePath string
+	// GeneratedFunctions opts in to the generated function catalogue (M3e):
+	// FN-FAMILY-SWAP joins the population. Never part of standard until the
+	// published admission measurement, in a separate change.
+	GeneratedFunctions bool
+	// DisableStaticShortcuts turns the static pre-classifications off — the
+	// static Unobservable shortcut and the conditional-instantiation
+	// NoCoverage evaluator — so a control run can prove each shortcut equal
+	// to the executed verdict. It is a seam control, not a command-line flag.
+	DisableStaticShortcuts bool
 }
 
 // Operational failures. Every one of them aborts the run: none of them can be
@@ -130,9 +162,10 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		return report.Report{}, err
 	}
 
-	settings = settings.withDefaults()
-	settings.ExcludePaths = append(slices.Clone(settings.ExcludePaths), configured.Exclude.Paths...)
-	settings.ExcludeResources = append(slices.Clone(settings.ExcludeResources), configured.Exclude.Resources...)
+	settings, err = finalise(settings, configured)
+	if err != nil {
+		return report.Report{}, err
+	}
 
 	runner := tfexec.Runner{Binary: settings.TerraformBinary, Env: settings.Env}
 
@@ -175,11 +208,11 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		return report.Report{}, err
 	}
 
-	warnings = append(warnings, prepared.warnings...)
-	warnings = append(warnings, generated.Warnings...)
+	warnings = append(append(warnings, prepared.warnings...), generated.Warnings...)
 
+	graph := configuration.BuildGraph()
 	result := shell(configuration, settings, version.Terraform, moduleDir, prepared, warnings)
-	mutants := describe(configuration, generated.Mutants)
+	mutants := describe(configuration, graph, settings, generated.Mutants)
 
 	// Suppression runs after the safety gates by construction: the gates are
 	// decided from the parsed configuration before generation, so no exclusion
@@ -189,25 +222,120 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 	result.Suppressions = suppressions
 	result.Warnings = append(result.Warnings, rejected...)
 
+	// The count levers: --since and --sample scope the population, and the
+	// report says distinctly what was selected and what was left out.
+	selected, selectedGenerated, err := applyCountLevers(ctx, configuration, settings, &result,
+		mutants, generated.Mutants)
+	if err != nil {
+		return report.Report{}, err
+	}
+
 	if settings.Preview {
-		result.Mutants = mutants
+		result.Mutants = selected
 		result.Metrics = report.ComputeMetrics(nil)
 
 		return result, nil
 	}
 
-	executed, failures := execute(ctx, executionPlan{
+	executed, failures := executeWithCache(ctx, &result, version, executionPlan{
 		runner:        runner,
 		configuration: configuration,
 		config:        settings,
 		prepared:      prepared,
-		generated:     generated.Mutants,
-		described:     mutants,
+		generated:     selectedGenerated,
+		described:     selected,
 		workRoot:      workRoot,
 		closure:       configuration.BuildClosure(),
+		graph:         graph,
 	})
 
-	return complete(configuration, result, executed, failures), nil
+	return finish(configuration, settings, moduleDir, result, executed, failures)
+}
+
+// finish completes the report and applies the baseline gate.
+func finish(
+	configuration discovery.Configuration,
+	settings Config,
+	moduleDir string,
+	result report.Report,
+	executed []report.Mutant,
+	failures []report.ExecutionError,
+) (report.Report, error) {
+	result = complete(configuration, settings, result, executed, failures)
+
+	if err := applyBaselineGate(settings, moduleDir, &result); err != nil {
+		return report.Report{}, err
+	}
+
+	return result, nil
+}
+
+// executeWithCache replays cached verdicts under the coarse correct key
+// (M3b.2), executes what remains fresh, and stores the new verdicts. The
+// cache is nil — no reads, no writes — under either unsafe opt-in and under
+// --no-cache.
+func executeWithCache(
+	ctx context.Context,
+	result *report.Report,
+	terraform tfexec.Version,
+	plan executionPlan,
+) ([]report.Mutant, []report.ExecutionError) {
+	cache := openCache(plan.configuration, plan.config, plan.prepared, terraform)
+	if cache != nil {
+		result.Population.Cached = cache.load(plan.described)
+		result.Population.Fresh = result.Population.Selected - result.Population.Cached
+	}
+
+	executed, failures := execute(ctx, plan)
+
+	if cache != nil {
+		cache.store(executed)
+	}
+
+	return executed, failures
+}
+
+// finalise applies the configured exclusions and defaults, and refuses the
+// gate combinations the truth table forbids before any work is done.
+func finalise(settings Config, configured config.File) (Config, error) {
+	settings = settings.withDefaults()
+	settings.ExcludePaths = append(slices.Clone(settings.ExcludePaths), configured.Exclude.Paths...)
+	settings.ExcludeResources = append(slices.Clone(settings.ExcludeResources), configured.Exclude.Resources...)
+
+	// The gate truth table's sampled and write rows: refused before any work
+	// is done.
+	if err := checkSampledGate(settings); err != nil {
+		return Config{}, err
+	}
+
+	if err := checkBaselineWrite(settings); err != nil {
+		return Config{}, err
+	}
+
+	return settings, nil
+}
+
+// applyCountLevers scopes the described population and records the selection,
+// sampling and population facts on the report.
+func applyCountLevers(
+	ctx context.Context,
+	configuration discovery.Configuration,
+	settings Config,
+	result *report.Report,
+	mutants []report.Mutant,
+	generated []mutation.Mutant,
+) ([]report.Mutant, []mutation.Mutant, error) {
+	chosen, err := selectPopulation(ctx, configuration, settings, mutants)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	selected, selectedGenerated, population := chosen.apply(mutants, generated)
+	result.Selection = chosen.metadata
+	result.Sampling = chosen.sampling
+	result.Population = population
+
+	return selected, selectedGenerated, nil
 }
 
 // build warms one workspace and generates the population from it.
@@ -236,6 +364,7 @@ func build(
 // verdict.
 func complete(
 	configuration discovery.Configuration,
+	settings Config,
 	result report.Report,
 	executed []report.Mutant,
 	failures []report.ExecutionError,
@@ -246,8 +375,50 @@ func complete(
 	result.OperatorErrors = report.ComputeOperatorErrors(executed)
 	result.Findings = findings(configuration, executed)
 	result.Warnings = append(result.Warnings, unanswerableResources(configuration, executed)...)
+	result.Gates = gateOutcomes(settings, result)
 
 	return result
+}
+
+// scopeLabel names the population a gate was evaluated over.
+func scopeLabel(full bool) string {
+	if full {
+		return "full"
+	}
+
+	return "selected"
+}
+
+// gateOutcomes records the gate table's outcomes for this run (2.1.0). The
+// fail-on-new and baseline rows arrive with the baseline file (M3b.3); the
+// min-score row is recorded here, labelled partial over any scoped or sampled
+// population.
+func gateOutcomes(settings Config, result report.Report) *report.Gates {
+	// The gate table's non-Full rows: scoped, sampled, or served even partly
+	// from the cache — each evaluated over what actually ran, labelled
+	// partial.
+	partial := result.Sampling != nil ||
+		result.Population.Cached > 0 ||
+		(result.Selection.Mode == report.SelectionSince && result.Selection.ForcedFull == "")
+	scope := scopeLabel(!partial)
+
+	minScore := report.GateOutcome{
+		Evaluated: settings.HasMinScore,
+		Scope:     "", Partial: false, Passed: false, Refused: "",
+	}
+
+	if settings.HasMinScore {
+		minScore.Scope = scope
+		minScore.Partial = partial
+		minScore.Passed = (!result.Metrics.Incomplete || settings.AllowIncompleteScore) &&
+			result.Metrics.MutationScore*100 >= settings.MinScore
+	}
+
+	return &report.Gates{
+		MinScore:  minScore,
+		FailOnNew: report.GateOutcome{Evaluated: false, Scope: "", Partial: false, Passed: false, Refused: ""},
+		Baseline:  nil,
+	}
 }
 
 // shell builds the report value's context: everything true of the run before
@@ -263,6 +434,7 @@ func shell(
 		SchemaVersion:    report.SchemaVersion,
 		Command:          commandName(settings),
 		Module:           moduleDir,
+		ClosureRoot:      configuration.ClosureRoot,
 		TerraformVersion: terraformVersion,
 		TestDirectory:    configuration.TestDirRelative(),
 		Baseline: report.Baseline{
@@ -317,15 +489,40 @@ func countAssertions(configuration discovery.Configuration) int {
 }
 
 // describe converts generated mutants into report values, assigning the
-// statically decidable NoCoverage state before anything executes.
-func describe(configuration discovery.Configuration, generated []mutation.Mutant) []report.Mutant {
+// statically decidable states before anything executes: module-level
+// NoCoverage first — the structural precedence and the M2 behaviour — then
+// the guarded static Unobservable shortcut (M3a.2).
+func describe(
+	configuration discovery.Configuration,
+	graph *discovery.Graph,
+	settings Config,
+	generated []mutation.Mutant,
+) []report.Mutant {
 	exercised := configuration.ExercisedModules()
 	described := make([]report.Mutant, 0, len(generated))
 
 	for _, mutant := range generated {
 		state := report.Pending
-		if !exercised[mutant.ModuleRel] {
+
+		var verdict *report.Verdict
+
+		switch {
+		case !exercised[mutant.ModuleRel]:
 			state = report.NoCoverage
+		case !settings.Preview && !settings.DisableStaticShortcuts &&
+			conditionallyUncovered(configuration, graph, settings, mutant):
+			// The finer conditional-instantiation claim (M3a.3): the mutated
+			// multiplicity expression is statically zero under every relevant
+			// run. Module-level NoCoverage above remains the strict subset.
+			state = report.NoCoverage
+			verdict = conditionalNoCoverageVerdict()
+		case !settings.Preview && !settings.DisableStaticShortcuts &&
+			staticallyUnobservable(graph, mutant):
+			// A preview keeps Pending — the documented preview contract — so
+			// the shortcut fires only where execution would otherwise run.
+			state = report.Unobservable
+			verdict = staticUnobservableVerdict()
+		default:
 		}
 
 		described = append(described, report.Mutant{
@@ -340,13 +537,50 @@ func describe(configuration discovery.Configuration, generated []mutation.Mutant
 				Start: report.Position{Line: mutant.Range.Start.Line, Column: mutant.Range.Start.Column},
 				End:   report.Position{Line: mutant.Range.End.Line, Column: mutant.Range.End.Column},
 			},
-			Diff:  mutant.Diff,
-			State: state,
-			Runs:  []report.RunOutcome{},
+			Diff:    mutant.Diff,
+			State:   state,
+			Verdict: verdict,
+			Runs:    []report.RunOutcome{},
 		})
 	}
 
 	return described
+}
+
+// staticallyUnobservable applies the guarded static shortcut (M3a.2, review
+// C2). The structural precedence comes first: a non-projecting operator —
+// every contract and ordering operator — is never statically classified, and
+// execution decides its state. The shortcut then fires only where the site
+// maps into the graph (unmapped fails closed to execution) and its forward
+// cone reaches nothing observable: no resource, data source, output, check or
+// contract construct.
+func staticallyUnobservable(graph *discovery.Graph, mutant mutation.Mutant) bool {
+	if !mutation.Projects(mutant.Operator) {
+		return false
+	}
+
+	cone, ok := graph.SiteCone(mutant.ModuleRel, mutant.Site)
+	if !ok {
+		return false
+	}
+
+	return !cone.ContainsObservable()
+}
+
+// staticUnobservableVerdict is the finding a statically classified mutant
+// carries: the same claim the executed verdict would make, reached without
+// the execution.
+func staticUnobservableVerdict() *report.Verdict {
+	return &report.Verdict{
+		Diagnosis: "",
+		Message: "the mutated node's forward cone reaches no resource, data source, output, " +
+			"check or contract construct, so no plan or state could reflect the change and " +
+			"no assertion could ever read it",
+		Fix: "either the construct is genuinely dead — delete it — or nothing consumes it " +
+			"yet: wire it into a resource or an output and re-run",
+		//nolint:exhaustruct // no delta exists: nothing executed.
+		Evidence: report.Evidence{ClosureVerdict: "statically unobservable: empty observable cone"},
+	}
 }
 
 // Exclude is the site exclusion policy the run was given.
@@ -385,7 +619,10 @@ func (c Config) selection() mutation.Selection {
 		tier = mutation.TierStandard
 	}
 
-	return mutation.Selection{Tier: tier, Include: c.IncludeOperators, Exclude: c.ExcludeOperators}
+	return mutation.Selection{
+		Tier: tier, Include: c.IncludeOperators, Exclude: c.ExcludeOperators,
+		GeneratedFamilies: c.GeneratedFunctions,
+	}
 }
 
 // baselineFingerprint composes the unmutated suite's masked fingerprint, which

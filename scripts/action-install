@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# The tf-mut Action's install step (M3d.2, issue #52): download the caller's
+# pinned release asset for this architecture, verify it against the release's
+# published checksums, and refuse to execute anything unverified.
+set -euo pipefail
+
+: "${VERSION:?a pinned release version is required}"
+: "${BASE_URL:?the release download base URL is required}"
+
+if [[ $VERSION == "latest" ]]; then
+  echo "::error::a pinned release version is required; 'latest' is never accepted" >&2
+  exit 1
+fi
+
+arch=$(uname -m)
+case "$arch" in
+  x86_64) asset="tf-mut_${VERSION}_linux_amd64.tar.gz" ;;
+  aarch64) asset="tf-mut_${VERSION}_linux_arm64.tar.gz" ;;
+  *)
+    echo "::error::unsupported architecture $arch" >&2
+    exit 1
+    ;;
+esac
+
+directory=$(mktemp -d)
+curl -sSfL "$BASE_URL/$VERSION/$asset" -o "$directory/$asset"
+curl -sSfL "$BASE_URL/$VERSION/checksums.txt" -o "$directory/checksums.txt"
+
+# Verification failure fails the Action: nothing unverified executes.
+(cd "$directory" && grep " $asset\$" checksums.txt | sha256sum --check --strict -)
+
+tar -xzf "$directory/$asset" -C "$directory" tf-mut
+install -m 0755 "$directory/tf-mut" /usr/local/bin/tf-mut
+tf-mut version

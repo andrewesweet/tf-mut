@@ -1,0 +1,114 @@
+# The tf-mut GitHub Action (M3d.2, issue #52), under the M4-disposition trust
+# and failure-order contract: capture the run's exit code with the documented
+# non-blocking pattern, then upload SARIF, then create-or-update the comment,
+# then exit with the captured code. See ACTION.md for the permission,
+# fork-degradation and distribution contract.
+name: tf-mut
+description: >-
+  Mutation testing for terraform test. Runs tf-mut over the pull request, uploads SARIF annotations, and maintains a PR comment — and the check outcome is the run's own exit code, whatever the uploads manage.
+author: andrewesweet
+inputs:
+  version:
+    description: >-
+      The tf-mut release version to install (for example v0.3.0). Required: the Action never resolves "latest" — an unpinned tool in CI is an unverified tool.
+    required: true
+  args:
+    description: Arguments passed to `tf-mut run` after the module path.
+    required: false
+    default: "--since origin/${{ github.base_ref || 'master' }}"
+  module:
+    description: The module directory to mutate.
+    required: false
+    default: "."
+  download-base-url:
+    description: >-
+      Base URL for release assets. The default is this repository's releases; overriding it is for mirrors and for this repository's own workflow test. Checksum verification applies wherever the assets come from.
+    required: false
+    default: "https://github.com/andrewesweet/tf-mut/releases/download"
+  comment:
+    description: Maintain a PR comment with the markdown summary.
+    required: false
+    default: "true"
+  sarif-category:
+    description: >-
+      Category for the code-scanning upload. GitHub permits one upload per job per tool/category, so a workflow invoking this Action more than once in a job must give each invocation its own category. Empty means uncategorised.
+    required: false
+    default: ""
+outputs:
+  exit-code:
+    description: The tf-mut run's own exit code, before any upload ran.
+    value: ${{ steps.run.outputs.exit_code }}
+  sarif-outcome:
+    description: >-
+      The SARIF upload step's outcome (success/failure/skipped) — the degradation contract made observable, so a caller can assert that a read-only token degraded rather than silently vanished.
+    value: ${{ steps.sarif.outcome }}
+  comment-outcome:
+    description: The PR-comment step's outcome (success/failure/skipped).
+    value: ${{ steps.comment.outcome }}
+runs:
+  using: composite
+  steps:
+    - name: Install tf-mut from the checksummed release asset
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        BASE_URL: ${{ inputs.download-base-url }}
+      # The logic lives in scripts/action-install, under the repository's
+      # shared shell parse, format and lint gates.
+      run: '"$GITHUB_ACTION_PATH/scripts/action-install"'
+    - name: Run tf-mut and capture the exit code
+      id: run
+      shell: bash
+      env:
+        MODULE: ${{ inputs.module }}
+        RUN_ARGS: ${{ inputs.args }}
+      # The documented non-blocking pattern lives in scripts/action-run,
+      # under the shared shell gates: the run's exit code is captured, the
+      # uploads happen either way, and the final step exits with this code.
+      run: '"$GITHUB_ACTION_PATH/scripts/action-run"'
+    - name: Upload SARIF
+      id: sarif
+      # Degrades gracefully: a fork or Dependabot PR carries a read-only
+      # token, the upload is skipped or fails without consequence, and the
+      # check outcome is preserved by the final step.
+      uses: github/codeql-action/upload-sarif@f3712979fa5f215279b101dd0a2e3bdfb4353324 # v3.37.7
+      continue-on-error: true
+      with:
+        sarif_file: tf-mut.sarif
+        category: ${{ inputs.sarif-category }}
+    - name: Create or update the PR comment
+      id: comment
+      if: inputs.comment == 'true' && github.event_name == 'pull_request'
+      # Same degradation contract as the SARIF upload.
+      continue-on-error: true
+      uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+      with:
+        # A transient 5xx on the issues API must not cost the PR its comment;
+        # permission refusals (403/404) are not retried and still degrade.
+        retries: 3
+        script: |
+          const fs = require('fs');
+          const marker = '<!-- tf-mut-report -->';
+          let body = marker + '\n';
+          try {
+            body += fs.readFileSync('tf-mut-summary.md', 'utf8');
+          } catch (error) {
+            body += 'tf-mut produced no summary: ' + error.message;
+          }
+          const {owner, repo} = context.repo;
+          const issue_number = context.issue.number;
+          const comments = await github.rest.issues.listComments({owner, repo, issue_number});
+          const existing = comments.data.find(c => c.body && c.body.startsWith(marker));
+          if (existing) {
+            await github.rest.issues.updateComment({owner, repo, comment_id: existing.id, body});
+          } else {
+            await github.rest.issues.createComment({owner, repo, issue_number, body});
+          }
+    - name: Exit with the captured code
+      shell: bash
+      env:
+        EXIT_CODE: ${{ steps.run.outputs.exit_code }}
+      run: |
+        set -euo pipefail
+        echo "tf-mut exited $EXIT_CODE; uploads ran with their own outcomes"
+        exit "$EXIT_CODE"

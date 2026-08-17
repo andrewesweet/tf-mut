@@ -26,9 +26,12 @@ type Gate struct {
 	HasMinScore bool
 	// AllowIncompleteScore permits a passing gate despite a timeout.
 	AllowIncompleteScore bool
+	// FailOnNew fails on any finding the baseline does not accept.
+	FailOnNew bool
 }
 
-// ExitCode applies the gate to the report.
+// ExitCode applies the gate to the report. Requested gates compose: where
+// both --min-score and --fail-on-new are given, both must pass.
 func (r Report) ExitCode(gate Gate) int {
 	if r.Command == CommandPreview {
 		return ExitClean
@@ -38,12 +41,12 @@ func (r Report) ExitCode(gate Gate) int {
 		return ExitOperational
 	}
 
-	if gate.HasMinScore {
-		if r.Metrics.Incomplete && !gate.AllowIncompleteScore {
+	if gate.HasMinScore || gate.FailOnNew {
+		if gate.HasMinScore && !r.minScorePasses(gate) {
 			return ExitFindings
 		}
 
-		if r.Metrics.MutationScore*percent < gate.MinScore {
+		if gate.FailOnNew && r.NewFindings() > 0 {
 			return ExitFindings
 		}
 
@@ -55,6 +58,26 @@ func (r Report) ExitCode(gate Gate) int {
 	}
 
 	return ExitClean
+}
+
+// minScorePasses applies the score gate. The incomplete-score marker is never
+// suppressed by anything: a baseline cannot make a timeout-affected score
+// trustworthy.
+func (r Report) minScorePasses(gate Gate) bool {
+	if r.Metrics.Incomplete && !gate.AllowIncompleteScore {
+		return false
+	}
+
+	return r.Metrics.MutationScore*percent >= gate.MinScore
+}
+
+// NewFindings counts the findings the baseline gate judged new.
+func (r Report) NewFindings() int {
+	if r.Gates == nil || r.Gates.Baseline == nil {
+		return 0
+	}
+
+	return len(r.Gates.Baseline.New)
 }
 
 const percent = 100.0
@@ -199,8 +222,10 @@ func writeVerdict(builder *strings.Builder, verdict *Verdict) {
 	fmt.Fprintf(builder, "    Fix: %s.\n\n", verdict.Fix)
 }
 
-// shownChanges bounds the delta the terminal prints. The whole delta is in the
-// JSON report; a screen of it helps nobody.
+// shownChanges bounds the delta the terminal prints. Set from measured
+// survivor data (M3c, docs/research/09-m3-real-provider-gate.md): the median
+// real survivor delta is exactly three changes; the whole delta is in the
+// JSON report.
 const shownChanges = 3
 
 // changeLabel names a change the way a reader would look for it: the Terraform

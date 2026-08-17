@@ -13,7 +13,7 @@ import (
 )
 
 // schemaPath is the published contract the JSON reporter promises to keep.
-const schemaPath = "../../docs/schema/report-2.0.0.json"
+const schemaPath = "../../docs/schema/report-2.1.0.json"
 
 func TestPublishedSchemaMatchesTheReportersVersion(t *testing.T) {
 	t.Parallel()
@@ -148,6 +148,23 @@ func sampleReport() report.Report {
 			Site:     sampleOutput,
 			Message:  "no run block executed, so no verdict is possible",
 		}},
+		Population: report.Population{Selected: 2, Omitted: 3, Cached: 0, Fresh: 2},
+		Selection:  report.Selection{Mode: report.SelectionSince, Ref: "main", ForcedFull: ""},
+		Sampling:   &report.Sampling{RatePercent: 25, Seed: 42, Authoritative: false},
+		Gates: &report.Gates{
+			MinScore: report.GateOutcome{
+				Evaluated: true, Scope: "selected", Partial: true, Passed: true, Refused: "",
+			},
+			FailOnNew: report.GateOutcome{
+				Evaluated: false, Scope: "", Partial: false, Passed: false, Refused: "",
+			},
+			Baseline: &report.BaselineGate{
+				Path: ".tf-mut-baseline.json", Accepted: 4, Matched: 3,
+				New: []string{sampleMutantID}, Stale: nil,
+				Unobserved:        []string{"fedcba987654"},
+				StalenessReported: false, Write: "refused",
+			},
+		},
 	}
 }
 
@@ -173,7 +190,7 @@ func sampleMutants() []report.Mutant {
 		{
 			ID:       sampleMutantID,
 			Operator: "EXT-OUTPUT-NULL",
-			Tier:     "smoke",
+			Tier:     smokeTier,
 			Module:   ".",
 			Site:     sampleOutput,
 			Resource: "",
@@ -202,7 +219,6 @@ func sampleMutants() []report.Mutant {
 					Assertion:          sampleTestFile + ":" + sampleRun,
 					ClosureVerdict:     "read through the output and local closure",
 					DefeatedBy:         "",
-					MockResource:       "",
 				},
 			},
 			Runs: []report.RunOutcome{
@@ -213,11 +229,18 @@ func sampleMutants() []report.Mutant {
 			ExecutedRuns: 1,
 			Validated:    false,
 			Suppression:  nil,
+			Provenance: &report.Provenance{
+				Selection:      report.SelectionSince,
+				Reason:         "main.tf changed since main",
+				Execution:      report.ExecutionFresh,
+				CacheKey:       "",
+				BaselineStatus: "new",
+			},
 		},
 		{
 			ID:       "ba9876543210",
 			Operator: "EXT-BODY-BLANK",
-			Tier:     "smoke",
+			Tier:     smokeTier,
 			Module:   ".",
 			Site:     sampleResource,
 			Resource: sampleResource,
@@ -266,14 +289,20 @@ func sampleMutants() []report.Mutant {
 func loadSchema(t *testing.T) map[string]any {
 	t.Helper()
 
-	content, err := os.ReadFile(schemaPath)
+	return loadSchemaFile(t, schemaPath)
+}
+
+func loadSchemaFile(t *testing.T, path string) map[string]any {
+	t.Helper()
+
+	content, err := os.ReadFile(path) //nolint:gosec // repository-owned schema path.
 	if err != nil {
-		t.Fatalf("reading %s: %v", schemaPath, err)
+		t.Fatalf("reading %s: %v", path, err)
 	}
 
 	schema := map[string]any{}
 	if err := json.Unmarshal(content, &schema); err != nil {
-		t.Fatalf("decoding %s: %v", schemaPath, err)
+		t.Fatalf("decoding %s: %v", path, err)
 	}
 
 	return schema
@@ -326,18 +355,24 @@ func validateObject(root, schema, document map[string]any, path string) []string
 		}
 	}
 
-	properties, ok := schema["properties"].(map[string]any)
-	if !ok {
-		return problems
+	properties, hasProperties := schema["properties"].(map[string]any)
+	if !hasProperties {
+		properties = map[string]any{}
 	}
+
+	additional, hasAdditional := schema["additionalProperties"].(map[string]any)
 
 	for key, value := range document {
 		property, described := properties[key].(map[string]any)
-		if !described {
+		if described {
+			problems = append(problems, validate(root, property, value, path+"."+key)...)
+
 			continue
 		}
 
-		problems = append(problems, validate(root, property, value, path+"."+key)...)
+		if hasAdditional {
+			problems = append(problems, validate(root, additional, value, path+"."+key)...)
+		}
 	}
 
 	return problems

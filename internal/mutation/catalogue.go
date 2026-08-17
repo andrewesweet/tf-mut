@@ -131,9 +131,9 @@ const (
 		"dependency exists to guarantee, or accept the mutant"
 )
 
-//nolint:funlen,revive // one flat table; splitting it would only hide the catalogue.
-func buildCatalogue() map[Operator]Entry {
-	entries := []Entry{
+// extremeEntries is the Tier 0 table.
+func extremeEntries() []Entry {
+	return []Entry{
 		// Tier 0 — extreme.
 		{
 			AttrDelete, TierSmoke, "Deletes one schema-optional argument assignment so the provider default applies",
@@ -159,7 +159,13 @@ func buildCatalogue() map[Operator]Entry {
 			ModuleInputDelete, TierSmoke, "Deletes an input argument on a module call",
 			"any assertion observes the child's behaviour under that input", true, "",
 		},
+	}
+}
 
+// expressionEntries is the Tier 1 table for conditionals, boolean and
+// comparison operators, arithmetic, literals and collections.
+func expressionEntries() []Entry {
+	return []Entry{
 		// Tier 1 — conditionals.
 		{
 			CondSwap, TierStandard, "Swaps the arms of a conditional",
@@ -241,7 +247,12 @@ func buildCatalogue() map[Operator]Entry {
 			NullInject, TierStandard, "Replaces a schema-optional argument value with null",
 			"an assertion reads the attribute", true, "",
 		},
+	}
+}
 
+// collectionEntries is the Tier 1 table for collection operators.
+func collectionEntries() []Entry {
+	return []Entry{
 		// Tier 1 — collections.
 		{
 			CollDropFirst, TierStandard, "Drops the first element of a tuple",
@@ -263,7 +274,13 @@ func buildCatalogue() map[Operator]Entry {
 			CollReverse, TierStandard, "Reverses the order of a tuple",
 			"an assertion reads the collection in order", true, "",
 		},
+	}
+}
 
+// projectionEntries is the Tier 1 table for for-expressions, traversals,
+// templates and the curated functions.
+func projectionEntries() []Entry {
+	return []Entry{
 		// Tier 1 — for expressions and traversals.
 		{
 			ForDropIf, TierStandard, "Drops the filter of a for expression",
@@ -341,7 +358,17 @@ func buildCatalogue() map[Operator]Entry {
 			FnDropExpansion, TierStandard, "Removes an argument expansion",
 			"an assertion reads the call's result", true, "",
 		},
+		{
+			FnFamilySwap, TierStandard,
+			"Substitutes a function for another member of its semantic family (opt-in, M3e)",
+			"an assertion reads a value the family members disagree on", true, "",
+		},
+	}
+}
 
+// metaEntries is the Tier 2 meta-argument table.
+func metaEntries() []Entry {
+	return []Entry{
 		// Tier 2 — meta-arguments.
 		{
 			CountZero, TierStandard, "Empties a counted resource's instance set",
@@ -375,7 +402,12 @@ func buildCatalogue() map[Operator]Entry {
 			ProviderAliasSwap, TierStandard, "Swaps a provider alias for another of identical mock status",
 			"an assertion checks region or account placement", true, "",
 		},
+	}
+}
 
+// contractEntries is the Tier 3 module-contract table.
+func contractEntries() []Entry {
+	return []Entry{
 		// Tier 3 — module contract.
 		{
 			VarDefaultChange, TierStandard, "Changes a variable's default to a type-appropriate alternative",
@@ -434,6 +466,21 @@ func buildCatalogue() map[Operator]Entry {
 			"rarely: a sensitivity pseudo-test detector", true, "",
 		},
 	}
+}
+
+// catalogueCapacity sizes the assembled table; the audit tests hold the real
+// count against the applicability matrix.
+const catalogueCapacity = 96
+
+// buildCatalogue assembles the flat per-tier tables into the catalogue.
+func buildCatalogue() map[Operator]Entry {
+	entries := make([]Entry, 0, catalogueCapacity)
+	entries = append(entries, extremeEntries()...)
+	entries = append(entries, expressionEntries()...)
+	entries = append(entries, collectionEntries()...)
+	entries = append(entries, projectionEntries()...)
+	entries = append(entries, metaEntries()...)
+	entries = append(entries, contractEntries()...)
 
 	table := make(map[Operator]Entry, len(entries))
 	for _, entry := range entries {

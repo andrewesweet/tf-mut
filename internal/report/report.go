@@ -13,8 +13,11 @@ import (
 //
 // It changes whenever a consumer could break: removed fields, renamed fields,
 // or changed semantics of an existing field. Version 2 is the M2 break, taken
-// once at the start of the milestone rather than twice during it.
-const SchemaVersion = "2.0.0"
+// once at the start of the milestone rather than twice during it. 2.1.0 is the
+// M3 additive revision (review M3): cache provenance per mutant, sampling
+// metadata, baseline acceptance and staleness, the population split, and the
+// gate table's outcomes.
+const SchemaVersion = "2.1.0"
 
 // Command names what produced a report.
 type Command string
@@ -49,7 +52,10 @@ const (
 	// construct with no plan or state projection. In the denominator, with a fix.
 	StructurallyUnassertable State = "StructurallyUnassertable"
 	// Unobservable marks a fingerprint-identical mutant of a construct that does
-	// project, proven over a payload with no unknown value anywhere. Excluded.
+	// project, proven over a payload with no unknown value in the mutation's
+	// forward cone (M3a.2; the whole-payload rule remains the floor wherever
+	// the address mapping fails) — or classified statically, where the cone
+	// reaches nothing observable at all. Excluded.
 	Unobservable State = "Unobservable"
 	// NoCoverage marks a mutant in a module no run block instantiates, assigned
 	// statically. The claim is module-level absence and nothing finer.
@@ -74,8 +80,16 @@ const (
 	// IndeterminateVolatility marks a survivor whose delta remained undecidable
 	// after the mutant was re-run.
 	IndeterminateVolatility Diagnosis = "indeterminate-volatility"
-	// MockMasked marks an apply-mode survivor whose delta is confined to
-	// schema-computed attributes the mock invented.
+	// MockMasked is withdrawn (M3, issue #50, prove-or-withdraw): its positive
+	// case cannot fire — a stable apply-mode delta in an optional-computed
+	// attribute is attributable to the module, and a computed-only attribute's
+	// mock value is either deterministic and identical on both sides or random
+	// and masked by the volatility re-run, measured against hashicorp/aws
+	// (docs/research/09-m3-real-provider-gate.md). The value stays declared so
+	// the 2.1.0 schema remains additive over 2.0 documents; the oracle never
+	// emits it again.
+	//
+	// Deprecated: never emitted since M3.
 	MockMasked Diagnosis = "mock-masked"
 	// WeakAssertion marks a survivor an assertion reads yet does not catch.
 	WeakAssertion Diagnosis = "weak-assertion"
@@ -157,7 +171,10 @@ type Evidence struct {
 	ClosureVerdict string `json:"closure_verdict,omitempty"`
 	// DefeatedBy names the construct that defeated the closure computation.
 	DefeatedBy string `json:"defeated_by,omitempty"`
-	// MockResource names the mock default that would pin a mock-masked value.
+	// MockResource was carried only by the withdrawn mock-masked diagnosis;
+	// the field stays declared so 2.0 documents remain readable.
+	//
+	// Deprecated: never emitted since M3.
 	MockResource string `json:"mock_resource,omitempty"`
 }
 
@@ -222,6 +239,130 @@ type Mutant struct {
 	// Suppression records the directive or exclusion that made the mutant
 	// Ignored.
 	Suppression *Suppression `json:"suppression,omitempty"`
+	// Provenance records why the mutant is in this run and how its verdict
+	// was obtained (2.1.0).
+	Provenance *Provenance `json:"provenance,omitempty"`
+}
+
+// The selection modes a mutant's provenance can name.
+const (
+	// SelectionFull marks a mutant selected because the whole population ran.
+	SelectionFull = "full"
+	// SelectionSince marks a mutant selected by `--since`.
+	SelectionSince = "since"
+	// SelectionSample marks a mutant selected by `--sample`.
+	SelectionSample = "sample"
+)
+
+// The execution provenances a mutant can carry.
+const (
+	// ExecutionFresh marks a verdict computed by this run.
+	ExecutionFresh = "fresh"
+	// ExecutionCached marks a verdict replayed from the incremental cache,
+	// with evidence rehydrated against the current tree.
+	ExecutionCached = "cached"
+)
+
+// Provenance records why a mutant is in this run and how its verdict was
+// obtained — the facts the gate table's population split is audited from.
+type Provenance struct {
+	// Selection is full, since or sample.
+	Selection string `json:"selection"`
+	// Reason states, in the reader's terms, why the selection chose this
+	// mutant.
+	Reason string `json:"reason,omitempty"`
+	// Execution is fresh or cached.
+	Execution string `json:"execution"`
+	// CacheKey is the cache key basis hash for a cached verdict.
+	CacheKey string `json:"cache_key,omitempty"`
+	// BaselineStatus is new, accepted or unobserved once a baseline gate has
+	// judged the mutant; empty where no baseline was involved.
+	BaselineStatus string `json:"baseline_status,omitempty"`
+}
+
+// Population is the count split every scoped, cached or sampled run must
+// report distinctly, so a reader always knows what this run actually proved.
+type Population struct {
+	// Selected is the number of mutants this run selected.
+	Selected int `json:"selected"`
+	// Omitted is the number generated but left out by --since or --sample.
+	Omitted int `json:"omitted"`
+	// Cached is the number of selected mutants whose verdicts were replayed.
+	Cached int `json:"cached"`
+	// Fresh is the number of selected mutants executed by this run.
+	Fresh int `json:"fresh"`
+}
+
+// Selection records how the population was chosen.
+type Selection struct {
+	// Mode is full or since.
+	Mode string `json:"mode"`
+	// Ref is the --since ref, where one was given.
+	Ref string `json:"ref,omitempty"`
+	// ForcedFull states why a --since run fell back to the full population,
+	// naming the changed file class that forced it.
+	ForcedFull string `json:"forced_full,omitempty"`
+}
+
+// Sampling records the sampling metadata. A sampled run is never
+// authoritative: no gate may consume it without the named unsafe opt-in.
+type Sampling struct {
+	RatePercent float64 `json:"rate_percent"`
+	Seed        int64   `json:"seed"`
+	// Authoritative is always false: it is published so that no consumer has
+	// to know the rule to apply it.
+	Authoritative bool `json:"authoritative"`
+	// GateOptIn reports that --allow-sampled-gate was used: the run's gates
+	// were satisfied by a sample, and the report says so.
+	GateOptIn bool `json:"gate_opt_in,omitempty"`
+}
+
+// GateOutcome is one row outcome of the normative gate table.
+type GateOutcome struct {
+	// Evaluated reports whether the gate ran at all.
+	Evaluated bool `json:"evaluated"`
+	// Scope is full or selected — the population the gate was evaluated over.
+	Scope string `json:"scope,omitempty"`
+	// Partial marks an evaluation over less than the full population.
+	Partial bool `json:"partial,omitempty"`
+	// Passed is the outcome where the gate was evaluated.
+	Passed bool `json:"passed,omitempty"`
+	// Refused states why the gate refused to evaluate, where it did.
+	Refused string `json:"refused,omitempty"`
+}
+
+// BaselineGate records what the baseline file contributed to the run.
+type BaselineGate struct {
+	// Path is the baseline file, relative to the module.
+	Path string `json:"path"`
+	// Accepted is the number of baseline entries.
+	Accepted int `json:"accepted"`
+	// Matched is the number of current findings accepted by the baseline.
+	Matched int `json:"matched"`
+	// New lists the mutant identifiers of findings the baseline does not
+	// accept.
+	New []string `json:"new"`
+	// Stale lists accepted identifiers with no current finding — only a full
+	// population may report these.
+	Stale []string `json:"stale,omitempty"`
+	// Unobserved lists accepted identifiers outside a scoped population,
+	// which are not stale: this run says nothing about them.
+	Unobserved []string `json:"unobserved,omitempty"`
+	// StalenessReported is true only on a full population.
+	StalenessReported bool `json:"staleness_reported"`
+	// Write records whether a baseline write was permitted or refused, where
+	// one was requested.
+	Write string `json:"write,omitempty"`
+}
+
+// BaselineWritten records a permitted, completed baseline write.
+const BaselineWritten = "written"
+
+// Gates is the gate table's outcomes for this run.
+type Gates struct {
+	MinScore  GateOutcome   `json:"min_score"`
+	FailOnNew GateOutcome   `json:"fail_on_new"`
+	Baseline  *BaselineGate `json:"baseline,omitempty"`
 }
 
 // Finding is an actionable result addressed to a place in the module.
@@ -298,6 +439,9 @@ type Report struct {
 	Command Command `json:"command"`
 	// Module is the absolute directory of the module under test.
 	Module string `json:"module"`
+	// ClosureRoot is the absolute directory containing every local module;
+	// mutant file paths are relative to it (2.1.0).
+	ClosureRoot string `json:"closure_root,omitempty"`
 	// TerraformVersion is the version of the Terraform binary used.
 	TerraformVersion string `json:"terraform_version"`
 	// TestDirectory is the test directory relative to the module.
@@ -313,6 +457,14 @@ type Report struct {
 	Warnings     []string      `json:"warnings"`
 	// Errors lists mutants that could not be evaluated at all.
 	Errors []ExecutionError `json:"errors"`
+	// Population is the selected/omitted/cached/fresh split (2.1.0).
+	Population Population `json:"population"`
+	// Selection records how the population was chosen (2.1.0).
+	Selection Selection `json:"selection"`
+	// Sampling is present only on a sampled run (2.1.0).
+	Sampling *Sampling `json:"sampling,omitempty"`
+	// Gates is the gate table's outcomes (2.1.0). Absent in a preview.
+	Gates *Gates `json:"gates,omitempty"`
 }
 
 // Count returns the number of mutants in the given state.

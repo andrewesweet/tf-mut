@@ -1,4 +1,6 @@
 .claude/skills/tf-mut-gopls-plugin/launch-gopls
+scripts/action-install
+scripts/action-run
 scripts/check-agent-parity
 scripts/ci
 scripts/claude-protect

@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
@@ -15,7 +16,9 @@ import (
 // type compatibility — remains M3. Nothing here consults Terraform's function
 // metadata, and the boundary is asserted by a test.
 //
-//nolint:gochecknoglobals // immutable lookup tables.
+// family table below legitimately shares member names with the curated pairs.
+//
+//nolint:gochecknoglobals,goconst // immutable lookup tables; the generated
 var (
 	// swappableFunctions are the pairs whose confusion is a real fault.
 	swappableFunctions = map[string]string{
@@ -42,6 +45,96 @@ var (
 // concatFunction appears in two curated groups, which is why it is named.
 const concatFunction = "concat"
 
+// coreNamespace is the alias prefix generation canonicalises (M3e, review
+// C7): `core::floor` and `floor` are one function, matched canonically and
+// replaced with the caller's own spelling preserved.
+const coreNamespace = "core::"
+
+// functionFamilies is the generated catalogue (M3e, #53): explicitly
+// justified semantic families extending the curated set, each named in the
+// applicability matrix with its justification. Substitution never crosses a
+// family — signature compatibility is not a fault model (C7) — and members
+// are real Terraform functions.
+//
+//nolint:gochecknoglobals // an immutable lookup table.
+var functionFamilies = map[string][]string{
+	"order-statistics": {"min", "max"},
+	"rounding":         {"floor", "ceil"},
+	"case":             {"upper", "lower", "title"},
+	"string-search":    {"startswith", "endswith", "strcontains"},
+	"set-algebra":      {concatFunction, "setunion", "setintersection", "setsubtract"},
+}
+
+// exactArityMembers constrains replacements whose arity is stricter than the
+// family's: substituting into them at another arity would only manufacture
+// Invalid mutants.
+//
+//nolint:gochecknoglobals // an immutable lookup table.
+var exactArityMembers = map[string]int{
+	"setsubtract": pairArguments,
+}
+
+// canonicalFunctionName strips the core:: alias for matching.
+func canonicalFunctionName(name string) string {
+	return strings.TrimPrefix(name, coreNamespace)
+}
+
+// functionNameSpan is the source range of a call's name together with the
+// caller's own namespace prefix, so every substitution preserves the
+// spelling it found.
+func functionNameSpan(expr *hclsyntax.FunctionCallExpr) (hcl.Range, string) {
+	prefix := ""
+	if strings.HasPrefix(expr.Name, coreNamespace) {
+		prefix = coreNamespace
+	}
+
+	name := expr.Range()
+	name.End.Byte = name.Start.Byte + len(expr.Name)
+
+	return name, prefix
+}
+
+// familyOf returns the family a canonical function name belongs to.
+func familyOf(name string) ([]string, bool) {
+	for _, members := range functionFamilies {
+		if slices.Contains(members, name) {
+			return members, true
+		}
+	}
+
+	return nil, false
+}
+
+// familySwapEdits emits the generated substitutions: every other member of
+// the call's own family, with the caller's core:: spelling preserved. The
+// selection gate keeps these out of every population that has not opted in,
+// and content deduplication keeps the curated entry wherever both fire.
+func familySwapEdits(where site, expr *hclsyntax.FunctionCallExpr) []edit {
+	canonical := canonicalFunctionName(expr.Name)
+
+	members, found := familyOf(canonical)
+	if !found {
+		return nil
+	}
+
+	name, prefix := functionNameSpan(expr)
+	edits := []edit{}
+
+	for _, member := range members {
+		if member == canonical {
+			continue
+		}
+
+		if arity, exact := exactArityMembers[member]; exact && len(expr.Args) != arity {
+			continue
+		}
+
+		edits = append(edits, replace(FnFamilySwap, where, name, prefix+member))
+	}
+
+	return edits
+}
+
 // The argument counts the fallback operators require.
 const (
 	lookupWithDefault = 3
@@ -60,11 +153,14 @@ func functionEdits(source []byte, where site, expr *hclsyntax.FunctionCallExpr) 
 func functionSwapEdits(source []byte, where site, expr *hclsyntax.FunctionCallExpr) []edit {
 	edits := []edit{}
 
-	if replacement, found := swappableFunctions[expr.Name]; found {
-		name := expr.Range()
-		name.End.Byte = name.Start.Byte + len(expr.Name)
-		edits = append(edits, replace(FnSwap, where, name, replacement))
+	// Curated matching canonicalises the core:: alias too (C7), and the
+	// replacement keeps the caller's spelling.
+	if replacement, found := swappableFunctions[canonicalFunctionName(expr.Name)]; found {
+		name, prefix := functionNameSpan(expr)
+		edits = append(edits, replace(FnSwap, where, name, prefix+replacement))
 	}
+
+	edits = append(edits, familySwapEdits(where, expr)...)
 
 	if reorderableFunctions[expr.Name] && len(expr.Args) >= pairArguments {
 		edits = append(edits, edit{

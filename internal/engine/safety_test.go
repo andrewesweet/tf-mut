@@ -150,7 +150,7 @@ func rewritePlanMode(t *testing.T, path string) {
 func TestSourceTreeIsUntouchedByEveryRun(t *testing.T) {
 	t.Parallel()
 
-	for _, fixture := range []string{"skeleton", "discriminate", "count-tolerant", "foreach"} {
+	for _, fixture := range []string{"skeleton", discriminateFixture, "count-tolerant", "foreach"} {
 		t.Run(fixture, func(t *testing.T) {
 			t.Parallel()
 

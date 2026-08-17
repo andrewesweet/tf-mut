@@ -29,6 +29,10 @@ const DataDirName = ".terraform"
 // LockFileName is Terraform's dependency lock file.
 const LockFileName = ".terraform.lock.hcl"
 
+// CacheDirName is tf-mut's own project-local verdict cache, which must never
+// be copied into a sandbox.
+const CacheDirName = ".tf-mut-cache"
+
 const (
 	modulesDirName  = "modules"
 	modulesFileName = "modules.json"
@@ -42,8 +46,9 @@ const (
 //
 //nolint:gochecknoglobals // an immutable lookup table.
 var skippedDirs = map[string]bool{
-	DataDirName: true,
-	".git":      true,
+	DataDirName:  true,
+	".git":       true,
+	CacheDirName: true,
 }
 
 // linkableSuffixes are the file kinds Terraform reads and never writes, and so
@@ -139,11 +144,17 @@ func copyTree(spec Spec) error {
 		slashed := filepath.ToSlash(relative)
 		target := filepath.Join(spec.Target, relative)
 
-		if entry.IsDir() {
-			if skippedDirs[entry.Name()] {
+		if skippedDirs[entry.Name()] {
+			// Skipped whatever its type: a symlink wearing a skipped name must
+			// not be followed or copied either.
+			if entry.IsDir() {
 				return filepath.SkipDir
 			}
 
+			return nil
+		}
+
+		if entry.IsDir() {
 			return os.MkdirAll(target, directoryMode)
 		}
 

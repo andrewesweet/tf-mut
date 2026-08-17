@@ -44,4 +44,9 @@ run "queue_sizing" {
     condition     = aws_sqs_queue.work.visibility_timeout_seconds == 30
     error_message = "development queues use the short visibility timeout"
   }
+
+  assert {
+    condition     = length(aws_dynamodb_table.state.attribute) == 1
+    error_message = "the state table declares exactly its hash key attribute"
+  }
 }

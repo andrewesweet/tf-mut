@@ -39,13 +39,15 @@ func (g Generator) metaEdits(
 			return nil
 		}
 
-		return g.countEdits(module, where, attribute)
+		return append(g.countEdits(module, where, attribute),
+			multiplicityExpressionEdits(source, where, attribute)...)
 	case forEachArgument:
 		if where.dynamic {
 			return dynamicEdits(where, attribute)
 		}
 
-		return g.forEachEdits(module, where, attribute)
+		return append(g.forEachEdits(module, where, attribute),
+			multiplicityExpressionEdits(source, where, attribute)...)
 	case dependsOnArgument:
 		return []edit{remove(DependsDrop, where, lineRange(source, attribute.SrcRange))}
 	case providerArgument:
@@ -53,6 +55,29 @@ func (g Generator) metaEdits(
 	default:
 		return nil
 	}
+}
+
+// multiplicityExpressionEdits runs the conditional, boolean and comparison
+// operators inside a count or for_each expression (M3a.3, review C1: "a
+// mutant inside the condition executes" needs a generation site there).
+// Literals, collections and the other expression shapes stay with Tier 2,
+// which the matrix assigns them to.
+func multiplicityExpressionEdits(source []byte, where site, attribute *hclsyntax.Attribute) []edit {
+	edits := []edit{}
+
+	walkExpressionTree(attribute.Expr, func(expr hclsyntax.Expression) {
+		switch typed := expr.(type) {
+		case *hclsyntax.ConditionalExpr:
+			edits = append(edits, conditionalEdits(source, where, typed)...)
+		case *hclsyntax.BinaryOpExpr:
+			edits = append(edits, binaryEdits(source, where, typed)...)
+		case *hclsyntax.UnaryOpExpr:
+			edits = append(edits, unaryEdits(source, where, typed)...)
+		default:
+		}
+	})
+
+	return edits
 }
 
 func (g Generator) countEdits(module discovery.Module, where site, attribute *hclsyntax.Attribute) []edit {

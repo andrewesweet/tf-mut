@@ -1,10 +1,13 @@
 # tf-mut — agent instructions
 
 Mutation testing and characterisation-test scaffolding for `terraform test`, optimised for
-fully-mocked unit tests. Milestones M1 and M2 are implemented: `tf-mut run` and `tf-mut preview`
-drive Tiers 0–3 end to end against real Terraform, every survivor carries one diagnosis from the
-fingerprint oracle, and the terminal, JSON and SARIF reporters derive from one report value.
-Later milestones are still specified in GitHub issues labelled `ready-for-agent`.
+fully-mocked unit tests. Milestones M1, M2 and M3 are implemented: `tf-mut run` and `tf-mut
+preview` drive Tiers 0–3 end to end against real Terraform, every survivor carries one
+diagnosis from the fingerprint oracle, the attribute-level reference graph sharpens the
+oracle behind fail-closed adapters, `--since`, the verdict cache and the baseline gate table
+make runs fast and CI honest, and seven reporters (terminal, JSON, SARIF,
+mutation-testing-elements, HTML, JUnit, markdown) derive from one report value. Later
+milestones are still specified in GitHub issues labelled `ready-for-agent`.
 
 ## Reading order
 
@@ -77,6 +80,14 @@ without amending this section.
    is recorded real `terraform test -verbose -json` output with the provider schemas inflated;
    the M2 spec is explicit that manipulating recorded real output "is not a fake runner".
 
+3. The M3 reference graph's adapters are exercised directly over `discovery.BuildGraph`,
+   `SiteCone` and cone membership (`internal/engine/graph_test.go`), because issue #44
+   mandates it: the fail-closed adapter sweep runs "over every operator generation site in
+   the applicability-matrix fixture", and the supplemental `terraform graph` comparison is
+   test-suite-only by the M3 spec review's M1 disposition. Every verdict the graph leads to
+   — path-scoped unknowns, static `Unobservable`, conditional `NoCoverage` — is still
+   asserted through the engine seam.
+
 ## Build and verification
 
 Linux x86-64 is the initial supported development platform. Install the mise version pinned in
@@ -111,10 +122,13 @@ this repository contract.
 | `internal/tfexec` | The Terraform CLI: `version`, `init`, `validate`, `providers schema`, `fmt`, and the `test -json` stream |
 | `internal/report` | The report value, its state, diagnosis and metric definitions, and the terminal, JSON and SARIF renderings |
 
-The JSON reporter's contract is published at `docs/schema/report-2.0.0.json` and validated in
-the suite; `report-1.0.0.json` remains published for M1 consumers. Changing a field's name or
-meaning means a new schema version and a new file. SARIF output is validated against the
-vendored `docs/schema/sarif-2.1.0.json`.
+The JSON reporter's contract is published at `docs/schema/report-2.1.0.json` and validated in
+the suite; `report-2.0.0.json` and `report-1.0.0.json` remain published for earlier
+consumers. Changing a field's name or meaning means a new schema version and a new file.
+SARIF output is validated against the vendored `docs/schema/sarif-2.1.0.json`; the
+mutation-testing-elements adapter against the vendored
+`docs/schema/mutation-testing-report-2.0.0.json` (declared lossy — tf-mut's metrics are the
+authoritative ones); JUnit structurally against `docs/schema/junit-jenkins.xsd`.
 
 The operator catalogue's **applicability matrix** (`docs/design/mutation-operators.md`) is
 normative and enforced: a row naming an operator the catalogue does not enable, an enabled
@@ -126,12 +140,15 @@ statically **before** any Terraform runs — a provisioner must not execute in o
 refused, and no configured exclusion may reach them. `terraform validate` runs **only** after a
 run-level error, where it is the sole discriminator between `Invalid` and `KilledByError`.
 Phase two runs **only** for phase-one survivors, because `-verbose` costs 20,288× the output
-volume. And the oracle never claims an equality it cannot prove: an unknown value anywhere in
-the payload, or volatility it could not decompose, makes the comparison indeterminate rather
-than identical.
+volume. And the oracle never claims an equality it cannot prove: an unknown value in the
+mutation's forward cone — judged under the fail-closed address adapters, with the M2
+whole-payload rule as the floor wherever a mapping fails — or volatility it could not
+decompose, makes the comparison indeterminate rather than identical.
 
-`just gate` runs the M2a honesty gate — the reproductions the oracle has to survive. It is a
-separate recipe from `just test` on purpose: operator and interface breadth must not be able to
+`just gate` runs the M2a honesty gate — the reproductions the oracle has to survive — and
+`just gate-m3` runs the M3 offline gates: graph soundness, the count levers and the gate
+table, audited by name exactly as the honesty gate is. Both are separate recipes from
+`just test` on purpose: operator and interface breadth must not be able to
 hide a failed oracle behind a large green checklist. Two tests keep the recipe honest by
 checking that every name in it resolves to a test that exists, and that every reproduction the
 spec requires is still named.
@@ -144,7 +161,12 @@ spec requires is still named.
   helper must remain in `tools/shell-files` and pass the shared parse, format and lint gates.
 - Keep CI thin: bootstrap locked tools, then invoke the same Just recipes used locally.
 - Preserve `GOTOOLCHAIN=local`; toolchain drift must fail rather than download another Go.
-- The source tree of a module under test is never written to. Sandboxes only.
+- The source tree of a module under test is never written to. Sandboxes only. Two recorded
+  exceptions, both tool-owned files the user asks for: the verdict cache in the
+  project-local `.tf-mut-cache/` directory (M3 spec review M6; `--no-cache` removes even
+  that), and the acceptance list `.tf-mut-baseline.json`, written only on an explicit
+  `--write-baseline` over a full, unsampled, freshly executed population. Module sources
+  themselves are never written.
 - New milestone specs: run `/to-spec` against the design docs; one milestone per spec;
   absorb the previous milestone's implementation learnings first — they live in
   `docs/reviews/<date>-<milestone>-implementation-review.md` and the milestone's exit-gate

@@ -86,6 +86,11 @@ const (
 	FnDropWrapper   Operator = "FN-DROP-WRAPPER"
 	FnJoinSep       Operator = "FN-JOIN-SEP"
 	FnDropExpansion Operator = "FN-DROP-EXPANSION"
+
+	// FnFamilySwap is the generated function catalogue (M3e, #53): pairwise
+	// substitution inside explicitly justified semantic families, behind an
+	// opt-in and never in `standard` until the admission gate is passed.
+	FnFamilySwap Operator = "FN-FAMILY-SWAP"
 )
 
 // The Tier 2 meta-argument operators.

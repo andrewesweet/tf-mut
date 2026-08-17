@@ -2,6 +2,8 @@
 .claude/skills/tf-mut-gopls-plugin/.claude-plugin/plugin.json
 .claude/skills/tf-mut-gopls-plugin/.lsp.json
 .codex/hooks.json
+docs/schema/mutation-testing-report-2.0.0.json
 docs/schema/report-1.0.0.json
 docs/schema/report-2.0.0.json
+docs/schema/report-2.1.0.json
 docs/schema/sarif-2.1.0.json

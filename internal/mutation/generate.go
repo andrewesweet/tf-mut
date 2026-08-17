@@ -53,11 +53,22 @@ type Selection struct {
 	Include []string
 	// Exclude removes operator identifiers from the population.
 	Exclude []string
+	// GeneratedFamilies opts in to the generated function catalogue (M3e).
+	// Without it, FN-FAMILY-SWAP is never generated: admission to `standard`
+	// is a separate, evidence-carrying change.
+	GeneratedFamilies bool
 }
 
 // Enabled reports whether an operator is in the selected population.
 func (s Selection) Enabled(operator Operator) bool {
 	if slices.Contains(s.Exclude, string(operator)) {
+		return false
+	}
+
+	// The generated catalogue is gated on its own opt-in, ahead of tiers and
+	// includes: it may widen `standard` only after the published admission
+	// measurement, in a separate change.
+	if operator == FnFamilySwap && !s.GeneratedFamilies {
 		return false
 	}
 
@@ -533,7 +544,7 @@ func findBlock(file *hclwrite.File, blockType string, labels ...string) *hclwrit
 			continue
 		}
 
-		if labelsEqual(block.Labels(), labels) {
+		if slices.Equal(block.Labels(), labels) {
 			return block
 		}
 	}
@@ -559,18 +570,13 @@ func findNthBlock(file *hclwrite.File, blockType string, index int) *hclwrite.Bl
 	return nil
 }
 
-func labelsEqual(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
+// generatedRank orders generated operators after curated ones.
+func generatedRank(operator Operator) int {
+	if operator == FnFamilySwap {
+		return 1
 	}
 
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-
-	return true
+	return 0
 }
 
 func sortMutants(mutants []Mutant) []Mutant {
@@ -581,6 +587,13 @@ func sortMutants(mutants []Mutant) []Mutant {
 
 		if left.Range.Start.Byte != right.Range.Start.Byte {
 			return left.Range.Start.Byte - right.Range.Start.Byte
+		}
+
+		// Curated identifiers win deduplication: generated operators sort
+		// after every curated one at the same site, so the content-dedup
+		// below keeps the curated entry.
+		if generatedRank(left.Operator) != generatedRank(right.Operator) {
+			return generatedRank(left.Operator) - generatedRank(right.Operator)
 		}
 
 		if left.Operator != right.Operator {

@@ -199,12 +199,16 @@ func (o oracle) classify(
 	mask fingerprint.Mask,
 	unstable []string,
 ) report.Mutant {
-	unknowns := fingerprint.Unknowns(payloads)
+	// The path-scoped unknown rule (M3a.2): an unknown blocks the equality
+	// claim iff its path lies in the mutation's forward cone, under the
+	// fail-closed adapters — an unmappable site keeps the whole-payload
+	// floor, an unmappable unknown counts as in-cone.
+	unknowns := o.blockingUnknowns(verdict, fingerprint.Unknowns(payloads))
 	operator := mutation.Operator(verdict.Operator)
 
 	if proven(delta) {
 		verdict.State = report.Survived
-		verdict.Verdict = o.diagnoseDelta(delta, mask, payloads)
+		verdict.Verdict = o.diagnoseDelta(delta, mask)
 
 		return verdict
 	}
@@ -241,6 +245,27 @@ func (o oracle) classify(
 	return verdict
 }
 
+// blockingUnknowns keeps the unknowns that lie in the mutation's forward
+// cone. A site that does not map into the graph falls back to the whole
+// payload — every unknown blocks — and an unknown that does not map is
+// treated as in-cone by the adapter itself.
+func (o oracle) blockingUnknowns(verdict report.Mutant, unknowns []string) []string {
+	cone, ok := o.plan.graph.SiteCone(verdict.Module, verdict.Site)
+	if !ok {
+		return unknowns
+	}
+
+	blocking := []string{}
+
+	for _, unknown := range unknowns {
+		if cone.ContainsPayloadAddress(unknown) {
+			blocking = append(blocking, unknown)
+		}
+	}
+
+	return blocking
+}
+
 // proven reports a difference the oracle can stand behind.
 //
 // An undecidable path elsewhere in the payload does not unmake an observed
@@ -251,18 +276,12 @@ func proven(delta fingerprint.Delta) bool {
 	return len(delta.Changes) > 0
 }
 
-func (o oracle) diagnoseDelta(
-	delta fingerprint.Delta,
-	mask fingerprint.Mask,
-	payloads []fingerprint.Payload,
-) *report.Verdict {
-	// Apply mode is a property of the runs the delta actually came from, not of
-	// the suite: in a mixed suite a plan-mode change is not a mock's doing, and
-	// a mock cannot overwrite a value in a mode where it stays unknown.
-	if appliedDelta(delta, payloads) && o.computedConfined(delta) {
-		return mockMaskedVerdict(delta, mask)
-	}
-
+func (o oracle) diagnoseDelta(delta fingerprint.Delta, mask fingerprint.Mask) *report.Verdict {
+	// The mock-masked diagnosis was withdrawn here (M3, issue #50): a stable
+	// apply-mode delta confined to computed-flagged attributes is
+	// attributable to the module wherever the attribute is configurable, and
+	// a computed-only attribute cannot produce one. The delta falls through
+	// to the closure diagnoses, which is what it always was.
 	for _, address := range delta.Addresses() {
 		if closureVerdict := o.plan.closure.Reads(address); closureVerdict.Read {
 			return weakAssertionVerdict(delta, mask, address, closureVerdict)
@@ -345,29 +364,6 @@ func unobservableVerdict(mask fingerprint.Mask) *report.Verdict {
 	}
 }
 
-func mockMaskedVerdict(delta fingerprint.Delta, mask fingerprint.Mask) *report.Verdict {
-	address := ""
-	if addresses := delta.Addresses(); len(addresses) > 0 {
-		address = addresses[0]
-	}
-
-	coordinates, _ := schemaAttribute(address)
-
-	return &report.Verdict{
-		Diagnosis: report.MockMasked,
-		Message: "the only difference is in attributes the provider computes, which the mock " +
-			"invented rather than the module: no assertion can pin them as they stand",
-		Fix: fmt.Sprintf("give the mock a fixed value, for example "+
-			"mock_resource %q { defaults = { %s = ... } }, then re-run",
-			coordinates.resource, coordinates.attribute),
-		Evidence: report.Evidence{ //nolint:exhaustruct // each diagnosis names its own subset.
-			Delta:              changes(delta),
-			VolatileComponents: mask.Paths(),
-			MockResource:       coordinates.resource,
-		},
-	}
-}
-
 func weakAssertionVerdict(
 	delta fingerprint.Delta,
 	mask fingerprint.Mask,
@@ -431,7 +427,8 @@ func unassertedVerdict(
 
 // maxReportedChanges bounds the delta a report carries. A mutant that empties a
 // resource changes every attribute of it, and a hundred lines of evidence
-// serves nobody.
+// serves nobody. Confirmed by measurement (M3c): only 4.3% of real survivors
+// saturate this cap, all of them whole-resource mutants.
 const maxReportedChanges = 20
 
 func changes(delta fingerprint.Delta) []report.Change {
@@ -523,21 +520,4 @@ func stripInstanceKeys(address string) string {
 	}
 
 	return builder.String()
-}
-
-// appliedDelta reports whether every change came from a run that produced a
-// state payload, which is the only mode in which a mock can mask a value.
-func appliedDelta(delta fingerprint.Delta, payloads []fingerprint.Payload) bool {
-	kinds := make(map[string]string, len(payloads))
-	for _, payload := range payloads {
-		kinds[payload.Key()] = payload.Kind
-	}
-
-	for _, change := range delta.Changes {
-		if kinds[change.Run] != tfexec.PayloadState {
-			return false
-		}
-	}
-
-	return len(delta.Changes) > 0
 }
