@@ -31,6 +31,10 @@ const (
 	reporterTerminal = "terminal"
 	reporterJSON     = "json"
 	reporterSARIF    = "sarif"
+	reporterMTE      = "mte"
+	reporterHTML     = "html"
+	reporterJUnit    = "junit"
+	reporterMarkdown = "markdown"
 
 	usage = `usage: tf-mut <command> [flags] [PATH]
 
@@ -61,7 +65,7 @@ Flags for run and preview:
   --exclude-operator ID[,ID]   Remove operators from the population
   --exclude-path GLOB[,GLOB]   Remove sites in matching files
   --exclude-resource ADDR[,..] Remove sites in matching resources
-  --reporter terminal|json|sarif  Output format (default terminal)
+  --reporter FORMAT            terminal|json|sarif|mte|html|junit|markdown (default terminal)
   --sarif-path PATH            Where to write the SARIF document
 
 Settings also readable from .tf-mut.hcl at the module root. A flag given on the
@@ -240,7 +244,13 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 }
 
 func knownReporter(name string) bool {
-	return name == reporterTerminal || name == reporterJSON || name == reporterSARIF
+	switch name {
+	case reporterTerminal, reporterJSON, reporterSARIF,
+		reporterMTE, reporterHTML, reporterJUnit, reporterMarkdown:
+		return true
+	default:
+		return false
+	}
 }
 
 // configuredReporters reads the module's own `reporter` blocks.
@@ -336,6 +346,14 @@ func renderTo(writer io.Writer, reporter string, result report.Report) error {
 		return report.WriteJSON(writer, result)
 	case reporterSARIF:
 		return report.WriteSARIF(writer, result, engine.RuleDescriptions())
+	case reporterMTE:
+		return report.WriteMTE(writer, result)
+	case reporterHTML:
+		return report.WriteHTML(writer, result)
+	case reporterJUnit:
+		return report.WriteJUnit(writer, result)
+	case reporterMarkdown:
+		return report.WriteMarkdown(writer, result)
 	default:
 		return report.WriteTerminal(writer, result)
 	}
