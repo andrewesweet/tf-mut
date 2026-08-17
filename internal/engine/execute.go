@@ -66,7 +66,8 @@ func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []report
 	}
 
 	for index, mutant := range plan.described {
-		if mutant.State == report.NoCoverage || mutant.State == report.Ignored {
+		if mutant.State == report.NoCoverage || mutant.State == report.Ignored ||
+			mutant.State == report.Unobservable {
 			continue
 		}
 

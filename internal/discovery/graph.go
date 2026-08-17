@@ -475,6 +475,48 @@ func (c Cone) ContainsPayloadAddress(address string) bool {
 	return c.contains(node)
 }
 
+// ContainsObservable reports whether the cone reaches anything an execution
+// could observe or a test could kill: a resource or data node, an output, a
+// check, or a contract construct (validation, precondition, postcondition —
+// killable via expect_failures, per the C2 structural guard). A cone with no
+// observable node supports the static Unobservable shortcut; anything else
+// must execute.
+func (c Cone) ContainsObservable() bool {
+	for node := range c.members {
+		if isResourceBlock(node) {
+			return true
+		}
+
+		if _, owned := c.graph.owners[node]; owned {
+			return true
+		}
+
+		if observableAddress(node.address) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// observableAddress reports an output, check or contract-construct address.
+func observableAddress(address string) bool {
+	segments := strings.Split(address, ".")
+	if segments[0] == outputBlock || segments[0] == checkBlock {
+		return true
+	}
+
+	for _, segment := range segments {
+		switch segment {
+		case "validation", "precondition", "postcondition":
+			return true
+		default:
+		}
+	}
+
+	return false
+}
+
 // ContainsResource reports whether the cone reaches a resource: directly, or
 // through the same-resource attribute union.
 func (c Cone) ContainsResource(moduleRel, address string) bool {

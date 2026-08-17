@@ -113,6 +113,10 @@ type Config struct {
 	// AllowSampledGate is the separately named unsafe opt-in without which a
 	// sampled run can satisfy no gate.
 	AllowSampledGate bool
+	// DisableStaticUnobservable turns the static Unobservable shortcut off, so
+	// a control run can prove the shortcut equal to the executed verdict. It
+	// is a seam control, not a command-line flag.
+	DisableStaticUnobservable bool
 }
 
 // Operational failures. Every one of them aborts the run: none of them can be
@@ -188,11 +192,11 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		return report.Report{}, err
 	}
 
-	warnings = append(warnings, prepared.warnings...)
-	warnings = append(warnings, generated.Warnings...)
+	warnings = append(append(warnings, prepared.warnings...), generated.Warnings...)
 
+	graph := configuration.BuildGraph()
 	result := shell(configuration, settings, version.Terraform, moduleDir, prepared, warnings)
-	mutants := describe(configuration, generated.Mutants)
+	mutants := describe(configuration, graph, settings, generated.Mutants)
 
 	// Suppression runs after the safety gates by construction: the gates are
 	// decided from the parsed configuration before generation, so no exclusion
@@ -226,7 +230,7 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		described:     selected,
 		workRoot:      workRoot,
 		closure:       configuration.BuildClosure(),
-		graph:         configuration.BuildGraph(),
+		graph:         graph,
 	})
 
 	return complete(configuration, settings, result, executed, failures), nil
@@ -411,15 +415,33 @@ func countAssertions(configuration discovery.Configuration) int {
 }
 
 // describe converts generated mutants into report values, assigning the
-// statically decidable NoCoverage state before anything executes.
-func describe(configuration discovery.Configuration, generated []mutation.Mutant) []report.Mutant {
+// statically decidable states before anything executes: module-level
+// NoCoverage first — the structural precedence and the M2 behaviour — then
+// the guarded static Unobservable shortcut (M3a.2).
+func describe(
+	configuration discovery.Configuration,
+	graph *discovery.Graph,
+	settings Config,
+	generated []mutation.Mutant,
+) []report.Mutant {
 	exercised := configuration.ExercisedModules()
 	described := make([]report.Mutant, 0, len(generated))
 
 	for _, mutant := range generated {
 		state := report.Pending
-		if !exercised[mutant.ModuleRel] {
+
+		var verdict *report.Verdict
+
+		switch {
+		case !exercised[mutant.ModuleRel]:
 			state = report.NoCoverage
+		case !settings.Preview && !settings.DisableStaticUnobservable &&
+			staticallyUnobservable(graph, mutant):
+			// A preview keeps Pending — the documented preview contract — so
+			// the shortcut fires only where execution would otherwise run.
+			state = report.Unobservable
+			verdict = staticUnobservableVerdict()
+		default:
 		}
 
 		described = append(described, report.Mutant{
@@ -434,13 +456,50 @@ func describe(configuration discovery.Configuration, generated []mutation.Mutant
 				Start: report.Position{Line: mutant.Range.Start.Line, Column: mutant.Range.Start.Column},
 				End:   report.Position{Line: mutant.Range.End.Line, Column: mutant.Range.End.Column},
 			},
-			Diff:  mutant.Diff,
-			State: state,
-			Runs:  []report.RunOutcome{},
+			Diff:    mutant.Diff,
+			State:   state,
+			Verdict: verdict,
+			Runs:    []report.RunOutcome{},
 		})
 	}
 
 	return described
+}
+
+// staticallyUnobservable applies the guarded static shortcut (M3a.2, review
+// C2). The structural precedence comes first: a non-projecting operator —
+// every contract and ordering operator — is never statically classified, and
+// execution decides its state. The shortcut then fires only where the site
+// maps into the graph (unmapped fails closed to execution) and its forward
+// cone reaches nothing observable: no resource, data source, output, check or
+// contract construct.
+func staticallyUnobservable(graph *discovery.Graph, mutant mutation.Mutant) bool {
+	if !mutation.Projects(mutant.Operator) {
+		return false
+	}
+
+	cone, ok := graph.SiteCone(mutant.ModuleRel, mutant.Site)
+	if !ok {
+		return false
+	}
+
+	return !cone.ContainsObservable()
+}
+
+// staticUnobservableVerdict is the finding a statically classified mutant
+// carries: the same claim the executed verdict would make, reached without
+// the execution.
+func staticUnobservableVerdict() *report.Verdict {
+	return &report.Verdict{
+		Diagnosis: "",
+		Message: "the mutated node's forward cone reaches no resource, data source, output, " +
+			"check or contract construct, so no plan or state could reflect the change and " +
+			"no assertion could ever read it",
+		Fix: "either the construct is genuinely dead — delete it — or nothing consumes it " +
+			"yet: wire it into a resource or an output and re-run",
+		//nolint:exhaustruct // no delta exists: nothing executed.
+		Evidence: report.Evidence{ClosureVerdict: "statically unobservable: empty observable cone"},
+	}
 }
 
 // Exclude is the site exclusion policy the run was given.

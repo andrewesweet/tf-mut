@@ -37,6 +37,8 @@ internal/engine/testdata/operators/main.tf
 internal/engine/testdata/operators/tests/unit.tftest.hcl
 internal/engine/testdata/oracle/main.tf
 internal/engine/testdata/oracle/tests/unit.tftest.hcl
+internal/engine/testdata/out-of-cone/main.tf
+internal/engine/testdata/out-of-cone/tests/main.tftest.hcl
 internal/engine/testdata/policy/generated.tf
 internal/engine/testdata/policy/main.tf
 internal/engine/testdata/policy/tests/unit.tftest.hcl
@@ -46,8 +48,12 @@ internal/engine/testdata/provisioner/main.tf
 internal/engine/testdata/provisioner/tests/unit.tftest.hcl
 internal/engine/testdata/red-baseline/main.tf
 internal/engine/testdata/red-baseline/tests/unit.tftest.hcl
+internal/engine/testdata/redundant-in-resource/main.tf
+internal/engine/testdata/redundant-in-resource/tests/main.tftest.hcl
 internal/engine/testdata/skeleton/main.tf
 internal/engine/testdata/skeleton/tests/unit.tftest.hcl
+internal/engine/testdata/static-unobservable/main.tf
+internal/engine/testdata/static-unobservable/tests/main.tftest.hcl
 internal/engine/testdata/unformatted/tests/unit.tftest.hcl
 internal/engine/testdata/unknown-refinement/main.tf
 internal/engine/testdata/unknown-refinement/tests/unit.tftest.hcl

@@ -199,7 +199,11 @@ func (o oracle) classify(
 	mask fingerprint.Mask,
 	unstable []string,
 ) report.Mutant {
-	unknowns := fingerprint.Unknowns(payloads)
+	// The path-scoped unknown rule (M3a.2): an unknown blocks the equality
+	// claim iff its path lies in the mutation's forward cone, under the
+	// fail-closed adapters — an unmappable site keeps the whole-payload
+	// floor, an unmappable unknown counts as in-cone.
+	unknowns := o.blockingUnknowns(verdict, fingerprint.Unknowns(payloads))
 	operator := mutation.Operator(verdict.Operator)
 
 	if proven(delta) {
@@ -239,6 +243,27 @@ func (o oracle) classify(
 	}
 
 	return verdict
+}
+
+// blockingUnknowns keeps the unknowns that lie in the mutation's forward
+// cone. A site that does not map into the graph falls back to the whole
+// payload — every unknown blocks — and an unknown that does not map is
+// treated as in-cone by the adapter itself.
+func (o oracle) blockingUnknowns(verdict report.Mutant, unknowns []string) []string {
+	cone, ok := o.plan.graph.SiteCone(verdict.Module, verdict.Site)
+	if !ok {
+		return unknowns
+	}
+
+	blocking := []string{}
+
+	for _, unknown := range unknowns {
+		if cone.ContainsPayloadAddress(unknown) {
+			blocking = append(blocking, unknown)
+		}
+	}
+
+	return blocking
 }
 
 // proven reports a difference the oracle can stand behind.

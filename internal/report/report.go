@@ -52,7 +52,10 @@ const (
 	// construct with no plan or state projection. In the denominator, with a fix.
 	StructurallyUnassertable State = "StructurallyUnassertable"
 	// Unobservable marks a fingerprint-identical mutant of a construct that does
-	// project, proven over a payload with no unknown value anywhere. Excluded.
+	// project, proven over a payload with no unknown value in the mutation's
+	// forward cone (M3a.2; the whole-payload rule remains the floor wherever
+	// the address mapping fails) — or classified statically, where the cone
+	// reaches nothing observable at all. Excluded.
 	Unobservable State = "Unobservable"
 	// NoCoverage marks a mutant in a module no run block instantiates, assigned
 	// statically. The claim is module-level absence and nothing finer.
