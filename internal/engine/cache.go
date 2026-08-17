@@ -197,38 +197,16 @@ func resolvedConfiguration(settings Config) string {
 		settings.ExcludePaths, settings.ExcludeResources, settings.TestSelection)
 }
 
-// relevantEnvironment lists the sorted Terraform- and provider-shaped entries
-// from the process environment and the run's additions: the TF_ surface
-// (TF_VAR_, TF_CLI_ and the rest) plus the major providers' configuration
-// prefixes, which the C4 disposition names as key inputs. Over-inclusion
-// costs a miss; exclusion could cost a lie.
+// relevantEnvironment is the whole effective environment — the process's
+// plus the run's additions, sorted. Any provider can read any variable, so
+// no allowlist can be sound (re-review of #48): "any doubt is a miss" makes
+// the whole environment the key, and over-inclusion costs only misses.
 func relevantEnvironment(settings Config) []string {
-	entries := []string{}
-
-	for _, entry := range append(os.Environ(), settings.Env...) {
-		if relevantEnvironmentEntry(entry) {
-			entries = append(entries, entry)
-		}
-	}
+	entries := append(append([]string{}, os.Environ()...), settings.Env...)
 
 	slices.Sort(entries)
 
 	return slices.Compact(entries)
-}
-
-// relevantEnvironmentEntry admits the environment prefixes that can reach a
-// verdict.
-func relevantEnvironmentEntry(entry string) bool {
-	for _, prefix := range []string{
-		"TF_", "AWS_", "AMAZON_", "GOOGLE_", "GCLOUD_", "CLOUDSDK_",
-		"ARM_", "AZURE_", "OCI_", "ALICLOUD_", "DIGITALOCEAN_", "VAULT_", "CONSUL_",
-	} {
-		if strings.HasPrefix(entry, prefix) {
-			return true
-		}
-	}
-
-	return false
 }
 
 // hashAutoVarFiles hashes terraform.tfvars and every *.auto.tfvars — HCL and

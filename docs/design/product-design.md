@@ -814,9 +814,10 @@ comparison.
    `run.<name>` consumers. An upstream `-filter=file::run` would still be cleaner and cheaper;
    worth the issue, no longer a blocker.
 2. **`apply`-mode mocked tests are richer but slower.** They expose state and outputs that plan
-   mode leaves unknown, widening the killable surface — and `MockMasked` only exists there.
-   Whether to prefer them per run block, or let the suite decide, needs measuring on real
-   modules.
+   mode leaves unknown, widening the killable surface. (This question originally cited
+   `MockMasked` as apply-only; that diagnosis was withdrawn in M3 — #50 — and the remaining
+   trade is killable-surface width against run time.) Whether to prefer them per run block,
+   or let the suite decide, needs measuring on real modules.
 3. ~~**Per-mutant volatility.**~~ **Disposed by the M2 spec (spec review C4), corrected by
    implementation (M2-2), clause retired by the M3 spec.** A mutation can expose volatility
    the baseline mask never saw. Rule as implemented and proven: when a survivor's delta is

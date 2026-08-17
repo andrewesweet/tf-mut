@@ -5,6 +5,8 @@ package engine_test
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"net/http"
 	"os"
@@ -22,6 +24,11 @@ import (
 
 // secondTerraformVersion is the adjacent release the dimension test drives.
 const secondTerraformVersion = "1.15.7"
+
+// secondTerraformArchiveSHA256 pins the release archive, from HashiCorp's
+// published terraform_1.15.7_SHA256SUMS: nothing unverified executes, cached
+// or freshly downloaded (re-review of #48).
+const secondTerraformArchiveSHA256 = "73bbb8f5188ad75d4fb853fd100ae4d7e146ef7af7db18776109642fdb7759d2"
 
 // It downloads a release archive; nothing else should share the network
 // budget.
@@ -67,6 +74,24 @@ func TestTerraformIdentityIsAKeyDimension(t *testing.T) {
 }
 
 // secondTerraform downloads and caches the adjacent release binary.
+// verifiedArchive reads a cached release archive and verifies it against the
+// pinned checksum; a missing or mismatched cache is simply not a cache.
+func verifiedArchive(t *testing.T, path string) ([]byte, bool) {
+	t.Helper()
+
+	content, err := os.ReadFile(path) //nolint:gosec // repository-owned cache path.
+	if err != nil {
+		return nil, false
+	}
+
+	digest := sha256.Sum256(content)
+	if hex.EncodeToString(digest[:]) != secondTerraformArchiveSHA256 {
+		return nil, false
+	}
+
+	return content, true
+}
+
 func secondTerraform(t *testing.T) string {
 	t.Helper()
 
@@ -76,33 +101,45 @@ func secondTerraform(t *testing.T) string {
 	}
 
 	directory := filepath.Join(root, ".artifacts", "cache", "terraform-"+secondTerraformVersion)
+	archivePath := filepath.Join(directory,
+		"terraform_"+secondTerraformVersion+"_linux_amd64.zip")
 	binary := filepath.Join(directory, "terraform")
 
-	if _, err := os.Stat(binary); err == nil {
-		return binary
-	}
+	// The verified archive is the only trusted artefact: the binary is
+	// re-extracted from it on every use, and a cached archive is re-verified
+	// rather than trusted for having a name.
+	archive, cached := verifiedArchive(t, archivePath)
+	if !cached {
+		if err := os.MkdirAll(directory, 0o750); err != nil {
+			t.Fatalf("creating %s: %v", directory, err)
+		}
 
-	if err := os.MkdirAll(directory, 0o750); err != nil {
-		t.Fatalf("creating %s: %v", directory, err)
-	}
+		url := "https://releases.hashicorp.com/terraform/" + secondTerraformVersion +
+			"/terraform_" + secondTerraformVersion + "_linux_amd64.zip"
 
-	url := "https://releases.hashicorp.com/terraform/" + secondTerraformVersion +
-		"/terraform_" + secondTerraformVersion + "_linux_amd64.zip"
+		response, err := http.Get(url) //nolint:noctx // a fixed release URL in a gated test.
+		if err != nil {
+			t.Fatalf("downloading %s: %v", url, err)
+		}
 
-	response, err := http.Get(url) //nolint:noctx // a fixed release URL in a gated test.
-	if err != nil {
-		t.Fatalf("downloading %s: %v", url, err)
-	}
+		defer func() { _ = response.Body.Close() }()
 
-	defer func() { _ = response.Body.Close() }()
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("downloading %s: %s", url, response.Status)
+		}
 
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("downloading %s: %s", url, response.Status)
-	}
+		archive, err = io.ReadAll(response.Body)
+		if err != nil {
+			t.Fatalf("reading release archive: %v", err)
+		}
 
-	archive, err := io.ReadAll(response.Body)
-	if err != nil {
-		t.Fatalf("reading release archive: %v", err)
+		if digest := sha256.Sum256(archive); hex.EncodeToString(digest[:]) != secondTerraformArchiveSHA256 {
+			t.Fatalf("the downloaded archive does not match the pinned checksum: %x", digest)
+		}
+
+		if err := os.WriteFile(archivePath, archive, 0o600); err != nil {
+			t.Fatalf("caching archive: %v", err)
+		}
 	}
 
 	reader, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))

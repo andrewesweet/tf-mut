@@ -403,7 +403,8 @@ func sampleRank(seed int64, id string) uint64 {
 // and the caller's personal git configuration is neutralised so that a global
 // ignore pattern — `*.tfvars` is a popular one — cannot silently hide a
 // changed file from selection (standing process rule 5). The repository's own
-// .gitignore is project intent and stays in force.
+// .gitignore shapes nothing either: Terraform does not read git ignore rules,
+// so ignored untracked files are enumerated explicitly by the caller above.
 func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	//nolint:gosec // fixed binary; tool-controlled arguments.
 	command := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)

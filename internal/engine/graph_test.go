@@ -277,3 +277,52 @@ func TestModuleWiringAgreesWithTerraformGraph(t *testing.T) {
 		}
 	}
 }
+
+// TestARemoteModuleCallMakesTheConeUnbounded is the #44 re-review's first
+// reproduction: a remote call's wiring is unmodellable, so the call and its
+// input nodes make any cone unbounded — an EXT-MODULE-INPUT-DELETE site maps,
+// and precisely because it maps, it must never license a graph-derived proof.
+func TestARemoteModuleCallMakesTheConeUnbounded(t *testing.T) {
+	t.Parallel()
+
+	configuration := discover(t, copyFixture(t, "module-wiring"))
+	graph := configuration.BuildGraph()
+
+	for _, site := range []string{"module.remote.prefix", "var.remote_prefix.default"} {
+		cone, ok := graph.SiteCone(".", site)
+		if !ok {
+			t.Fatalf("%s did not map into the graph", site)
+		}
+
+		if !cone.ContainsObservable() {
+			t.Fatalf("the cone of %s reports nothing observable; a remote call's missing "+
+				"wiring would license a false static Unobservable", site)
+		}
+
+		if !cone.ContainsPayloadAddress("module.remote.anything.at.all") {
+			t.Fatalf("the cone of %s excluded a remote payload address; the unknown rule "+
+				"would claim a false equality", site)
+		}
+	}
+}
+
+// TestAWholeObjectModuleReadDrawsAnEdge is the #44 re-review's second
+// reproduction: `output "whole_child" { value = module.child }` reads every
+// child output, and the reference must wire rather than being silently
+// dropped — a mutation inside the child reaches the root output.
+func TestAWholeObjectModuleReadDrawsAnEdge(t *testing.T) {
+	t.Parallel()
+
+	configuration := discover(t, copyFixture(t, "module-wiring"))
+	graph := configuration.BuildGraph()
+
+	cone, ok := graph.SiteCone("child", "local.shaped")
+	if !ok {
+		t.Fatal("the child's local.shaped did not map into the graph")
+	}
+
+	if !cone.ContainsPayloadAddress("output.whole_child") {
+		t.Fatal("a mutation inside the child does not reach the whole-object reader; " +
+			"the reference was silently dropped")
+	}
+}

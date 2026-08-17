@@ -41,6 +41,12 @@ jobs:
     name: Failure order and checksum gate
     needs: package
     runs-on: ubuntu-24.04
+    # The Action's documented least-privilege caller permissions, so the
+    # publication effects — SARIF upload and PR comment — are assertable.
+    permissions:
+      contents: read
+      security-events: write # The SARIF upload the contract job asserts.
+      pull-requests: write # The maintained PR comment the contract job asserts.
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -90,6 +96,8 @@ jobs:
           set -euo pipefail
           test "$EXIT_CODE" = "0"
           test -s tf-mut.sarif
+          # Isolate the red invocation's assertions from this run's outputs.
+          rm -f tf-mut.sarif tf-mut-summary.md
       - name: A failing run still publishes before the check goes red
         id: failing
         continue-on-error: true
@@ -99,20 +107,38 @@ jobs:
           download-base-url: file:///tmp/tf-mut-release
           module: /tmp/failing
           args: ""
-          comment: "false"
+          comment: "true"
       - name: The failure order held for the red run
         env:
           FAILING_OUTCOME: ${{ steps.failing.outcome }}
           FAILING_EXIT: ${{ steps.failing.outputs.exit-code }}
+          SARIF_OUTCOME: ${{ steps.failing.outputs.sarif-outcome }}
+          COMMENT_OUTCOME: ${{ steps.failing.outputs.comment-outcome }}
         run: |
           set -euo pipefail
           # The composite failed — with the run's own findings exit code,
-          # captured before the uploads — and the SARIF and summary were
-          # still produced: the publication path survived the red run.
+          # captured before the uploads — and the freshly produced SARIF and
+          # summary prove the publication path survived the red run.
           test "$FAILING_OUTCOME" = "failure"
           test "$FAILING_EXIT" = "1"
           test -s tf-mut.sarif
           test -s tf-mut-summary.md
+          # Under the documented write permissions the publication steps
+          # themselves succeeded after the red run.
+          test "$SARIF_OUTCOME" = "success"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            test "$COMMENT_OUTCOME" = "success"
+          fi
+      - name: The comment effect is visible on the pull request
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+            --jq '[.[] | select(.body | startswith("<!-- tf-mut-report -->"))] | length' |
+            grep -qv '^0$'
       - name: A corrupted release asset fails the install
         id: corrupted
         continue-on-error: true
@@ -166,6 +192,16 @@ jobs:
       - name: The degraded run preserves the check outcome
         env:
           EXIT_CODE: ${{ steps.degraded.outputs.exit-code }}
+          SARIF_OUTCOME: ${{ steps.degraded.outputs.sarif-outcome }}
+          COMMENT_OUTCOME: ${{ steps.degraded.outputs.comment-outcome }}
         run: |
           set -euo pipefail
+          # The check outcome is the run's own, and the publication steps
+          # demonstrably degraded rather than succeeding on a read-only
+          # token: the comment step must not have completed a write, and the
+          # SARIF step must not have uploaded.
           test "$EXIT_CODE" = "0"
+          test "$SARIF_OUTCOME" != "success"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            test "$COMMENT_OUTCOME" != "success"
+          fi

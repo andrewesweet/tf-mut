@@ -124,8 +124,21 @@ factor), `TestTheMockMaskedRefutationHolds` (the withdrawal's evidence), publish
   the vendored XSD (hierarchy, permitted children, attribute presence and requirements); the
   Action derives SARIF and markdown from one run via `--output`, pins upload-sarif v3, and
   its workflow exercises the failing-run publication path and a genuinely corrupted asset;
-  the inner-loop gate pins a 4x factor floor against the published 14.6x and the fixture's
-  content digest.
+  the inner-loop gate pins a 4x factor floor against the published measurement and the
+  fixture's content digest.
+- **Corrections from the adversarial re-review** (round two, recorded on the same issues):
+  unmodelled module wiring — remote calls, unresolvable module references, whole-object
+  module reads — is unbounded or wired, never silently dropped; the cache keys the whole
+  effective environment, no allowlist; the second-binary identity fixture verifies its
+  download against the pinned HashiCorp checksum before anything executes; the variables-file
+  fixtures joined the Terraform format manifest and format discovery covers `.tfvars`; the
+  JUnit validator implements the used dialect in full — well-formedness, sequence order,
+  occurrence bounds, attribute types with the SUREFIRE_TIME restriction — and is proven by
+  negative witnesses; the Action exposes its upload and comment outcomes, the workflow
+  asserts the real publication effects under write permissions and the degraded outcomes
+  under a read-only token with isolated outputs, and the release recipe packages both
+  documented architectures; and the implementation review, the `.gitignore` semantics and
+  the last normative `mock-masked` sentence were brought into agreement.
 
 ## What remains for M4
 

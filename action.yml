@@ -33,6 +33,13 @@ outputs:
   exit-code:
     description: The tf-mut run's own exit code, before any upload ran.
     value: ${{ steps.run.outputs.exit_code }}
+  sarif-outcome:
+    description: >-
+      The SARIF upload step's outcome (success/failure/skipped) — the degradation contract made observable, so a caller can assert that a read-only token degraded rather than silently vanished.
+    value: ${{ steps.sarif.outcome }}
+  comment-outcome:
+    description: The PR-comment step's outcome (success/failure/skipped).
+    value: ${{ steps.comment.outcome }}
 runs:
   using: composite
   steps:
@@ -55,6 +62,7 @@ runs:
       # uploads happen either way, and the final step exits with this code.
       run: '"$GITHUB_ACTION_PATH/scripts/action-run"'
     - name: Upload SARIF
+      id: sarif
       # Degrades gracefully: a fork or Dependabot PR carries a read-only
       # token, the upload is skipped or fails without consequence, and the
       # check outcome is preserved by the final step.
@@ -63,6 +71,7 @@ runs:
       with:
         sarif_file: tf-mut.sarif
     - name: Create or update the PR comment
+      id: comment
       if: inputs.comment == 'true' && github.event_name == 'pull_request'
       # Same degradation contract as the SARIF upload.
       continue-on-error: true

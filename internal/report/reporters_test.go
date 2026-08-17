@@ -3,9 +3,13 @@ package report_test
 import (
 	"encoding/json"
 	"encoding/xml"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -309,71 +313,113 @@ func TestJUnitMapsEveryStateInTheVendoredDialect(t *testing.T) {
 }
 
 // assertJUnitValidatesAgainstTheVendoredSchema validates the emitted
-// document against docs/schema/junit-jenkins.xsd: every element must be
-// declared, carry only declared attributes with every use="required" one
-// present, and contain only the children its content model declares, in
-// sequence order where the model is a sequence. The validator is built from
-// the schema file itself, so dialect drift fails here.
+// document against docs/schema/junit-jenkins.xsd — the used dialect in full:
+// well-formedness, element declarations, content models with sequence order
+// and occurrence bounds, attribute vocabularies with required attributes,
+// and simple-type pattern restrictions such as SUREFIRE_TIME. The validator
+// is built from the schema file itself and proven by negative witnesses.
 func assertJUnitValidatesAgainstTheVendoredSchema(t *testing.T, document string) {
 	t.Helper()
 
-	schema := loadJUnitSchema(t)
+	if err := validateJUnit(loadJUnitSchema(t), document); err != nil {
+		t.Fatalf("the JUnit document does not validate against the vendored schema: %v", err)
+	}
+}
 
+// junitParticle is one entry of a content model: an element reference with
+// its occurrence bounds.
+type junitParticle struct {
+	name string
+	min  int
+	max  int // -1 is unbounded
+}
+
+// junitElement is one declared element: its content model, attributes and
+// attribute types.
+type junitElement struct {
+	// choice lists the members of an unbounded choice group; nil where the
+	// model is a sequence.
+	choice map[string]bool
+	// sequence lists the ordered particles of a sequence model.
+	sequence []junitParticle
+	// attributes maps each declared attribute to its simple-type pattern
+	// (nil where the type is unrestricted).
+	attributes map[string]*regexp.Regexp
+	required   map[string]bool
+}
+
+// validateJUnit validates a document against the parsed dialect. Every
+// decoder error is a validation failure: a truncated document must never
+// pass by ending early.
+func validateJUnit(schema map[string]junitElement, document string) error {
 	decoder := xml.NewDecoder(strings.NewReader(document))
-	stack := []string{}
+
+	type frame struct {
+		name     string
+		children []string
+	}
+
+	stack := []frame{}
 
 	for {
-		token, decodeErr := decoder.Token()
-		if decodeErr != nil {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
 			break
+		}
+
+		if err != nil {
+			return fmt.Errorf("malformed XML: %w", err)
 		}
 
 		switch typed := token.(type) {
 		case xml.StartElement:
-			parent := ""
-			if len(stack) > 0 {
-				parent = stack[len(stack)-1]
+			name := typed.Name.Local
+
+			if _, found := schema[name]; !found {
+				return fmt.Errorf("element %q is not declared", name)
 			}
 
-			validateJUnitElement(t, schema, typed, parent)
-			stack = append(stack, typed.Name.Local)
-		case xml.EndElement:
 			if len(stack) > 0 {
-				stack = stack[:len(stack)-1]
+				stack[len(stack)-1].children = append(stack[len(stack)-1].children, name)
+			}
+
+			if err := validateJUnitAttributes(schema[name], typed); err != nil {
+				return fmt.Errorf("element %q: %w", name, err)
+			}
+
+			stack = append(stack, frame{name: name, children: nil})
+		case xml.EndElement:
+			top := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+
+			if err := validateJUnitChildren(schema[top.name], top.name, top.children); err != nil {
+				return err
 			}
 		default:
 		}
 	}
+
+	if len(stack) != 0 {
+		return fmt.Errorf("document ended inside %q", stack[len(stack)-1].name)
+	}
+
+	return nil
 }
 
-// validateJUnitElement holds one element to its declaration: it must exist,
-// be permitted inside its parent, and carry only declared attributes with
-// every required one present.
-func validateJUnitElement(
-	t *testing.T,
-	schema map[string]junitElement,
-	element xml.StartElement,
-	parent string,
-) {
-	t.Helper()
-
-	name := element.Name.Local
-
-	declared, found := schema[name]
-	if !found {
-		t.Fatalf("element %q is not declared by the vendored dialect schema", name)
-	}
-
-	if parent != "" && !schema[parent].children[name] {
-		t.Fatalf("element %q is not permitted inside %q by the vendored schema", name, parent)
-	}
-
+// validateJUnitAttributes holds an element's attributes to the declaration:
+// vocabulary, required presence, and simple-type patterns.
+func validateJUnitAttributes(declared junitElement, element xml.StartElement) error {
 	seen := map[string]bool{}
 
 	for _, attribute := range element.Attr {
-		if !declared.attributes[attribute.Name.Local] {
-			t.Fatalf("attribute %q on %q is not declared by the vendored schema",
-				attribute.Name.Local, name)
+		pattern, allowed := declared.attributes[attribute.Name.Local]
+		if !allowed {
+			return fmt.Errorf("attribute %q is not declared", attribute.Name.Local)
+		}
+
+		if pattern != nil && !pattern.MatchString(attribute.Value) {
+			return fmt.Errorf("attribute %q value %q violates its type restriction",
+				attribute.Name.Local, attribute.Value)
 		}
 
 		seen[attribute.Name.Local] = true
@@ -381,27 +427,67 @@ func validateJUnitElement(
 
 	for required := range declared.required {
 		if !seen[required] {
-			t.Fatalf("element %q is missing the required attribute %q", name, required)
+			return fmt.Errorf("required attribute %q is missing", required)
 		}
 	}
+
+	return nil
 }
 
-// junitElement is one declared element's content model.
-type junitElement struct {
-	children   map[string]bool
-	attributes map[string]bool
-	required   map[string]bool
+// validateJUnitChildren holds an element's child sequence to its content
+// model: membership for a choice group, order and occurrence bounds for a
+// sequence.
+func validateJUnitChildren(declared junitElement, name string, children []string) error {
+	if declared.choice != nil {
+		for _, child := range children {
+			if !declared.choice[child] {
+				return fmt.Errorf("element %q is not permitted inside %q", child, name)
+			}
+		}
+
+		return nil
+	}
+
+	index := 0
+
+	for _, particle := range declared.sequence {
+		count := 0
+
+		for index < len(children) && children[index] == particle.name {
+			index++
+			count++
+
+			if particle.max >= 0 && count > particle.max {
+				return fmt.Errorf("element %q occurs more than %d time(s) inside %q",
+					particle.name, particle.max, name)
+			}
+		}
+
+		if count < particle.min {
+			return fmt.Errorf("element %q occurs %d time(s) inside %q; the sequence requires %d",
+				particle.name, count, name, particle.min)
+		}
+	}
+
+	if index != len(children) {
+		return fmt.Errorf("element %q is out of sequence inside %q", children[index], name)
+	}
+
+	return nil
 }
 
 // The vendored XSD's own shape, as encoding/xml sees it.
 type xsAttribute struct {
 	Name string `xml:"name,attr"`
 	Use  string `xml:"use,attr"`
+	Type string `xml:"type,attr"`
 }
 
 type xsElementRef struct {
-	Ref  string `xml:"ref,attr"`
-	Name string `xml:"name,attr"`
+	Ref       string `xml:"ref,attr"`
+	Name      string `xml:"name,attr"`
+	MinOccurs string `xml:"minOccurs,attr"`
+	MaxOccurs string `xml:"maxOccurs,attr"`
 }
 
 type xsComplexType struct {
@@ -418,16 +504,25 @@ type xsElement struct {
 	Complex *xsComplexType `xml:"complexType"`
 }
 
+type xsSimpleType struct {
+	Name    string `xml:"name,attr"`
+	Pattern struct {
+		Value string `xml:"value,attr"`
+	} `xml:"restriction>pattern"`
+}
+
 type xsSchema struct {
-	Elements []xsElement     `xml:"element"`
-	Types    []xsComplexType `xml:"complexType"`
+	Elements    []xsElement     `xml:"element"`
+	Types       []xsComplexType `xml:"complexType"`
+	SimpleTypes []xsSimpleType  `xml:"simpleType"`
 }
 
 // junitModel builds one element's content model from its complex type.
-func junitModel(complexType *xsComplexType) junitElement {
+func junitModel(complexType *xsComplexType, patterns map[string]*regexp.Regexp) junitElement {
 	model := junitElement{
-		children:   map[string]bool{},
-		attributes: map[string]bool{},
+		choice:     nil,
+		sequence:   nil,
+		attributes: map[string]*regexp.Regexp{},
 		required:   map[string]bool{},
 	}
 
@@ -435,22 +530,24 @@ func junitModel(complexType *xsComplexType) junitElement {
 		return model
 	}
 
-	for _, group := range [][]xsElementRef{
-		complexType.Sequence, complexType.Choice, complexType.SeqChoice,
-	} {
-		for _, child := range group {
-			if child.Ref != "" {
-				model.children[child.Ref] = true
-			}
-
-			if child.Name != "" {
-				model.children[child.Name] = true
-			}
+	choice := append(append([]xsElementRef{}, complexType.Choice...), complexType.SeqChoice...)
+	if len(choice) > 0 {
+		model.choice = map[string]bool{}
+		for _, child := range choice {
+			model.choice[refName(child)] = true
+		}
+	} else if len(complexType.Sequence) > 0 {
+		for _, child := range complexType.Sequence {
+			model.sequence = append(model.sequence, junitParticle{
+				name: refName(child),
+				min:  occurs(child.MinOccurs, 1),
+				max:  occurs(child.MaxOccurs, 1),
+			})
 		}
 	}
 
 	for _, attribute := range complexType.Attributes {
-		model.attributes[attribute.Name] = true
+		model.attributes[attribute.Name] = patterns[attribute.Type]
 
 		if attribute.Use == "required" {
 			model.required[attribute.Name] = true
@@ -460,9 +557,33 @@ func junitModel(complexType *xsComplexType) junitElement {
 	return model
 }
 
-// loadJUnitSchema parses the vendored XSD's element declarations: global
-// xs:element entries with inline or named complex types, children collected
-// from their choice and sequence refs, attributes with their use.
+func refName(child xsElementRef) string {
+	if child.Ref != "" {
+		return child.Ref
+	}
+
+	return child.Name
+}
+
+// occurs parses an occurrence bound; "unbounded" is -1.
+func occurs(value string, fallback int) int {
+	switch value {
+	case "":
+		return fallback
+	case "unbounded":
+		return -1
+	default:
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return fallback
+		}
+
+		return parsed
+	}
+}
+
+// loadJUnitSchema parses the vendored XSD: simple-type patterns, then every
+// global element declaration with its inline or named complex type.
 func loadJUnitSchema(t *testing.T) map[string]junitElement {
 	t.Helper()
 
@@ -474,6 +595,14 @@ func loadJUnitSchema(t *testing.T) map[string]junitElement {
 	parsed := xsSchema{}
 	if err := xml.Unmarshal(content, &parsed); err != nil {
 		t.Fatalf("parsing %s: %v", junitSchemaPath, err)
+	}
+
+	patterns := map[string]*regexp.Regexp{}
+
+	for _, simple := range parsed.SimpleTypes {
+		if simple.Pattern.Value != "" {
+			patterns[simple.Name] = regexp.MustCompile("^(?:" + simple.Pattern.Value + ")$")
+		}
 	}
 
 	namedTypes := map[string]xsComplexType{}
@@ -491,7 +620,7 @@ func loadJUnitSchema(t *testing.T) map[string]junitElement {
 			}
 		}
 
-		schema[element.Name] = junitModel(complexType)
+		schema[element.Name] = junitModel(complexType, patterns)
 	}
 
 	if len(schema) == 0 {
@@ -500,6 +629,38 @@ func loadJUnitSchema(t *testing.T) map[string]junitElement {
 	}
 
 	return schema
+}
+
+// TestTheJUnitValidatorRejectsTheNegativeWitnesses proves the validator is a
+// validator: malformed XML, out-of-sequence children, violated occurrence
+// bounds, missing required attributes and broken SUREFIRE_TIME values must
+// each fail.
+func TestTheJUnitValidatorRejectsTheNegativeWitnesses(t *testing.T) {
+	t.Parallel()
+
+	schema := loadJUnitSchema(t)
+
+	witnesses := map[string]string{
+		"malformed, truncated XML": `<testsuites name="x" tests="1"><testsuite`,
+		"undeclared element":       `<testsuites><imposter/></testsuites>`,
+		"out-of-sequence rerun children": `<testsuites><testsuite name="s" tests="1" failures="0" errors="0">` +
+			`<testcase name="c"><rerunFailure type="t"><system-out>o</system-out>` +
+			`<stackTrace>s</stackTrace></rerunFailure></testcase></testsuite></testsuites>`,
+		"occurrence bound violated": `<testsuites><testsuite name="s" tests="1" failures="0" errors="0">` +
+			`<testcase name="c"><rerunFailure type="t"><stackTrace>a</stackTrace>` +
+			`<stackTrace>b</stackTrace></rerunFailure></testcase></testsuite></testsuites>`,
+		"missing required attribute": `<testsuites><testsuite name="s" tests="1" failures="0" errors="0">` +
+			`<testcase/></testsuite></testsuites>`,
+		"undeclared attribute": `<testsuites bogus="1"></testsuites>`,
+		"SUREFIRE_TIME restriction violated": `<testsuites><testsuite name="s" tests="1" failures="0" ` +
+			`errors="0" time="not-a-time"></testsuite></testsuites>`,
+	}
+
+	for name, witness := range witnesses {
+		if err := validateJUnit(schema, witness); err == nil {
+			t.Errorf("the validator accepted the %s witness", name)
+		}
+	}
 }
 
 // TestMarkdownCarriesGateOutcomeAndNewVersusAccepted: the PR summary shows

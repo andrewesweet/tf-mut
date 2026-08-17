@@ -13,6 +13,7 @@ internal/engine/testdata/closure/main.tf
 internal/engine/testdata/closure/tests/unit.tftest.hcl
 internal/engine/testdata/conditional-autovar/main.tf
 internal/engine/testdata/conditional-autovar/tests/main.tftest.hcl
+internal/engine/testdata/conditional-autovar/x.auto.tfvars
 internal/engine/testdata/conditional-function/main.tf
 internal/engine/testdata/conditional-function/tests/main.tftest.hcl
 internal/engine/testdata/conditional-nocoverage/main.tf
@@ -24,6 +25,7 @@ internal/engine/testdata/conditional-runref/tests/main.tftest.hcl
 internal/engine/testdata/conditional-target/main.tf
 internal/engine/testdata/conditional-target/tests/main.tftest.hcl
 internal/engine/testdata/conditional-tfvars/main.tf
+internal/engine/testdata/conditional-tfvars/terraform.tfvars
 internal/engine/testdata/conditional-tfvars/tests/main.tftest.hcl
 internal/engine/testdata/contract/main.tf
 internal/engine/testdata/contract/tests/unit.tftest.hcl
@@ -48,6 +50,9 @@ internal/engine/testdata/mocked-aliases/main.tf
 internal/engine/testdata/mocked-aliases/tests/unit.tftest.hcl
 internal/engine/testdata/mocked-null/main.tf
 internal/engine/testdata/mocked-null/tests/unit.tftest.hcl
+internal/engine/testdata/module-wiring/child/main.tf
+internal/engine/testdata/module-wiring/main.tf
+internal/engine/testdata/module-wiring/tests/main.tftest.hcl
 internal/engine/testdata/mutant-volatile/main.tf
 internal/engine/testdata/mutant-volatile/tests/unit.tftest.hcl
 internal/engine/testdata/no-optional-arguments/main.tf

@@ -47,6 +47,10 @@ type Graph struct {
 	// moduleByPath resolves a module-call path from the root to the
 	// closure-relative directory of the module it instantiates.
 	moduleByPath map[string]string
+	// unbounded marks nodes whose influence the graph does not model edge by
+	// edge — provider configuration, and module calls it could not wire — so
+	// any cone touching one contains everything and licenses nothing.
+	unbounded map[nodeID]bool
 }
 
 // Cone is the forward cone of one mutation site: the closure from the mutated
@@ -73,6 +77,7 @@ func (c Configuration) BuildGraph() *Graph {
 		owners:       map[nodeID]nodeID{},
 		sources:      map[nodeID][]nodeID{},
 		moduleByPath: map[string]string{},
+		unbounded:    map[nodeID]bool{},
 	}
 
 	relByDir := map[string]string{}
@@ -177,6 +182,7 @@ func (b *graphBuilder) buildBlock(block *hclsyntax.Block) {
 		// makes any cone that touches it unbounded, so no shortcut can turn
 		// this into a proof (review of #44).
 		owner := b.declare(providerBlock + "." + block.Labels[0])
+		b.graph.unbounded[owner] = true
 		b.walkBody(block.Body, providerBlock+"."+block.Labels[0], owner, nodeID{})
 	default:
 	}
@@ -244,11 +250,19 @@ func (b *graphBuilder) declare(address string) nodeID {
 func (b *graphBuilder) wireCall(name string, callNode nodeID) {
 	call, found := b.callByName(name)
 	if !found || !call.Local {
+		// A remote call — or one discovery could not place — is wiring the
+		// graph cannot model: a changed input can alter every resource and
+		// output in the called module, so the call and its inputs make any
+		// cone that touches them unbounded (re-review of #44).
+		b.markCallUnbounded(name, callNode)
+
 		return
 	}
 
 	childRel, ok := b.relByDir[call.Dir]
 	if !ok {
+		b.markCallUnbounded(name, callNode)
+
 		return
 	}
 
@@ -266,6 +280,19 @@ func (b *graphBuilder) wireCall(name string, callNode nodeID) {
 		if node.module == childRel && strings.HasPrefix(node.address, outputBlock+".") {
 			b.graph.dependents[node] = append(b.graph.dependents[node], callNode)
 			b.graph.sources[callNode] = append(b.graph.sources[callNode], node)
+		}
+	}
+}
+
+// markCallUnbounded marks a module call node and every declared input node
+// under it as unbounded.
+func (b *graphBuilder) markCallUnbounded(name string, callNode nodeID) {
+	b.graph.unbounded[callNode] = true
+
+	prefix := callNode.address + "."
+	for node := range b.graph.nodes {
+		if node.module == callNode.module && strings.HasPrefix(node.address, prefix) {
+			b.graph.unbounded[node] = true
 		}
 	}
 }
@@ -316,7 +343,7 @@ func (b *graphBuilder) resolveRef(address string) (nodeID, bool) {
 // edge, and provisioners have no payload projection to lose it for.
 func unresolvableRoot(name string) bool {
 	switch name {
-	case "each", countKeyword, "self", "path", terraformBlock, "run", outputBlock, moduleBlock:
+	case "each", countKeyword, "self", "path", terraformBlock, "run", outputBlock:
 		return true
 	default:
 		return false
@@ -324,19 +351,32 @@ func unresolvableRoot(name string) bool {
 }
 
 // resolveCallRef resolves module.<call>.<output>... to the child's output.
+// Every shape it cannot express — a whole-object module read, a remote
+// module's output, an output name discovery never saw — falls back to the
+// call's own node, which remote wiring has already marked unbounded, so no
+// reference is ever silently dropped (re-review of #44).
 func (b *graphBuilder) resolveCallRef(parsed Addr) (nodeID, bool) {
-	if len(parsed.ModulePath) != 1 || len(parsed.Parts) == 0 {
+	if len(parsed.ModulePath) == 0 {
 		return nodeID{}, false
+	}
+
+	callNode := nodeID{module: b.module.Rel, address: moduleBlock + "." + parsed.ModulePath[0]}
+	if !b.graph.nodes[callNode] {
+		return nodeID{}, false
+	}
+
+	if len(parsed.ModulePath) != 1 || len(parsed.Parts) == 0 {
+		return callNode, true
 	}
 
 	call, found := b.callByName(parsed.ModulePath[0])
 	if !found || !call.Local {
-		return nodeID{}, false
+		return callNode, true
 	}
 
 	childRel, ok := b.relByDir[call.Dir]
 	if !ok {
-		return nodeID{}, false
+		return callNode, true
 	}
 
 	node := nodeID{module: childRel, address: outputBlock + "." + parsed.Parts[0]}
@@ -344,7 +384,7 @@ func (b *graphBuilder) resolveCallRef(parsed Addr) (nodeID, bool) {
 		return node, true
 	}
 
-	return nodeID{}, false
+	return callNode, true
 }
 
 // SiteCone maps a mutation site into the graph and returns its forward cone.
@@ -617,7 +657,7 @@ func (g *Graph) forwardCone(start nodeID) Cone {
 			touched[current] = true
 		}
 
-		if strings.HasPrefix(current.address, providerBlock+".") {
+		if g.unbounded[current] || strings.HasPrefix(current.address, providerBlock+".") {
 			unbounded = true
 		}
 

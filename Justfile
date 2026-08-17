@@ -240,9 +240,11 @@ _test-go:
 _test-terraform:
     mise exec -- tests/build-chain/terraform-offline.sh
 
-# Package the built binary as versioned, checksummed release assets.
+# Package the built binaries as versioned, checksummed per-architecture assets.
 package-test-release version out_dir:
     mkdir -p "{{ out_dir }}/{{ version }}"
-    mise exec -- env CGO_ENABLED=0 go build -trimpath -mod=readonly -o "{{ out_dir }}/tf-mut" ./cmd/tf-mut
-    tar -czf "{{ out_dir }}/{{ version }}/tf-mut_{{ version }}_linux_amd64.tar.gz" -C "{{ out_dir }}" tf-mut
+    mise exec -- env CGO_ENABLED=0 GOARCH=amd64 go build -trimpath -mod=readonly -o "{{ out_dir }}/amd64/tf-mut" ./cmd/tf-mut
+    mise exec -- env CGO_ENABLED=0 GOARCH=arm64 go build -trimpath -mod=readonly -o "{{ out_dir }}/arm64/tf-mut" ./cmd/tf-mut
+    tar -czf "{{ out_dir }}/{{ version }}/tf-mut_{{ version }}_linux_amd64.tar.gz" -C "{{ out_dir }}/amd64" tf-mut
+    tar -czf "{{ out_dir }}/{{ version }}/tf-mut_{{ version }}_linux_arm64.tar.gz" -C "{{ out_dir }}/arm64" tf-mut
     cd "{{ out_dir }}/{{ version }}" && sha256sum -- *.tar.gz > checksums.txt
