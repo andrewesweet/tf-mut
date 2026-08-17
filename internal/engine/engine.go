@@ -113,10 +113,11 @@ type Config struct {
 	// AllowSampledGate is the separately named unsafe opt-in without which a
 	// sampled run can satisfy no gate.
 	AllowSampledGate bool
-	// DisableStaticUnobservable turns the static Unobservable shortcut off, so
-	// a control run can prove the shortcut equal to the executed verdict. It
-	// is a seam control, not a command-line flag.
-	DisableStaticUnobservable bool
+	// DisableStaticShortcuts turns the static pre-classifications off — the
+	// static Unobservable shortcut and the conditional-instantiation
+	// NoCoverage evaluator — so a control run can prove each shortcut equal
+	// to the executed verdict. It is a seam control, not a command-line flag.
+	DisableStaticShortcuts bool
 }
 
 // Operational failures. Every one of them aborts the run: none of them can be
@@ -435,7 +436,14 @@ func describe(
 		switch {
 		case !exercised[mutant.ModuleRel]:
 			state = report.NoCoverage
-		case !settings.Preview && !settings.DisableStaticUnobservable &&
+		case !settings.Preview && !settings.DisableStaticShortcuts &&
+			conditionallyUncovered(configuration, graph, settings, mutant):
+			// The finer conditional-instantiation claim (M3a.3): the mutated
+			// multiplicity expression is statically zero under every relevant
+			// run. Module-level NoCoverage above remains the strict subset.
+			state = report.NoCoverage
+			verdict = conditionalNoCoverageVerdict()
+		case !settings.Preview && !settings.DisableStaticShortcuts &&
 			staticallyUnobservable(graph, mutant):
 			// A preview keeps Pending — the documented preview contract — so
 			// the shortcut fires only where execution would otherwise run.

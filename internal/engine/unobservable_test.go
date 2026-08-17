@@ -110,7 +110,7 @@ func TestStaticUnobservableEqualsTheExecutedVerdict(t *testing.T) {
 	}
 
 	control := baseConfig(t, module)
-	control.DisableStaticUnobservable = true
+	control.DisableStaticShortcuts = true
 
 	executed, err := engine.Run(t.Context(), control)
 	if err != nil {
@@ -170,7 +170,7 @@ func TestTheContractFixtureClassifiesIdenticallyUnderTheShortcut(t *testing.T) {
 	}
 
 	control := baseConfig(t, module)
-	control.DisableStaticUnobservable = true
+	control.DisableStaticShortcuts = true
 
 	executed, err := engine.Run(t.Context(), control)
 	if err != nil {

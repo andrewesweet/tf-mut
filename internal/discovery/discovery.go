@@ -167,6 +167,12 @@ type RunBlock struct {
 	// Assertions counts the assert blocks in the run.
 	Assertions int
 	DefRange   hcl.Range
+	// Variables are the run-level variable assignments, part of the
+	// conditional-instantiation evaluator's enumerated context (M3a.3).
+	Variables []Attribute
+	// HasPlanTarget reports a plan_options block with a target, which changes
+	// what the run instantiates and fails the evaluator closed.
+	HasPlanTarget bool
 }
 
 // TestSuite is the discovered test inventory.
@@ -183,6 +189,9 @@ type TestSuite struct {
 	Mocks []ProviderAlias
 	// References records how test expressions consume resource addresses.
 	References map[string][]Reference
+	// FileVariables are each test file's file-level variable assignments,
+	// keyed by absolute file path (M3a.3 evaluator context).
+	FileVariables map[string][]Attribute
 }
 
 // Configuration is everything discovery learned about the module under test.

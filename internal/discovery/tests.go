@@ -22,6 +22,8 @@ const (
 	assertBlock    = "assert"
 	mockProvider   = "mock_provider"
 	providerBlock  = "provider"
+	variablesBlock = "variables"
+	planOptions    = "plan_options"
 )
 
 func parseTests(parser *hclparse.Parser, moduleDir, testDir string) (TestSuite, error) {
@@ -37,6 +39,7 @@ func parseTests(parser *hclparse.Parser, moduleDir, testDir string) (TestSuite, 
 		MockedProviders: []string{},
 		Mocks:           []ProviderAlias{},
 		References:      map[string][]Reference{},
+		FileVariables:   map[string][]Attribute{},
 	}
 
 	files, err := listFiles(absoluteTestDir, testFileSuffix)
@@ -91,6 +94,8 @@ func collectTestFile(suite *TestSuite, mocked map[string]bool, path, relative st
 			if len(block.Labels) == 1 {
 				suite.Runs = append(suite.Runs, newRun(path, relative, block))
 			}
+		case variablesBlock:
+			suite.FileVariables[path] = append(suite.FileVariables[path], attributesOf(block.Body)...)
 		default:
 		}
 	}
@@ -129,6 +134,12 @@ func newRun(path, relative string, block *hclsyntax.Block) RunBlock {
 		case moduleBlock:
 			if source, found := nested.Body.Attributes["source"]; found {
 				run.ModuleSource = literalString(source.Expr)
+			}
+		case variablesBlock:
+			run.Variables = append(run.Variables, attributesOf(nested.Body)...)
+		case planOptions:
+			if _, found := nested.Body.Attributes["target"]; found {
+				run.HasPlanTarget = true
 			}
 		default:
 		}

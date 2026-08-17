@@ -176,6 +176,12 @@ ways that are easy to get wrong and almost never asserted on — `toset` in part
 
 ## Tier 2 — Terraform meta-arguments and structure (`standard`)
 
+Multiplicity expressions are shared ground since M3a.3 (review C1): the conditional, boolean
+and comparison operators of Tier 1 fire *inside* a `count` or `for_each` expression — "a
+mutant inside the condition executes" needs a generation site there — while literals,
+collections and every other expression shape inside a meta-argument stay with the Tier 2
+operators below, as their matrix rows record.
+
 | ID | Site | Mutation | Kills when |
 | --- | --- | --- | --- |
 | `COUNT-ZERO` | `count = n` | `count = 0` | Any assertion counts or indexes instances |

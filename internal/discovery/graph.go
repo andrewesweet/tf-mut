@@ -40,6 +40,10 @@ type Graph struct {
 	// owners maps an attribute node to its enclosing resource or data block
 	// node, which is what the same-resource attribute union is computed from.
 	owners map[nodeID]nodeID
+	// sources lists, per node, the nodes its expression observes — pure
+	// reference edges, without the block-union edges, so upstream questions
+	// are answered from dataflow alone (M3a.3).
+	sources map[nodeID][]nodeID
 	// moduleByPath resolves a module-call path from the root to the
 	// closure-relative directory of the module it instantiates.
 	moduleByPath map[string]string
@@ -63,6 +67,7 @@ func (c Configuration) BuildGraph() *Graph {
 		nodes:        map[nodeID]bool{},
 		dependents:   map[nodeID][]nodeID{},
 		owners:       map[nodeID]nodeID{},
+		sources:      map[nodeID][]nodeID{},
 		moduleByPath: map[string]string{},
 	}
 
@@ -236,6 +241,7 @@ func (b *graphBuilder) wireCall(name string, callNode nodeID) {
 		inputNode := nodeID{module: b.module.Rel, address: moduleBlock + "." + name + "." + input.Name}
 		childVar := nodeID{module: childRel, address: "var." + input.Name}
 		b.graph.dependents[inputNode] = append(b.graph.dependents[inputNode], childVar)
+		b.graph.sources[childVar] = append(b.graph.sources[childVar], inputNode)
 	}
 
 	// Child outputs feed the call: a reader of module.<name>.<output> resolves
@@ -244,6 +250,7 @@ func (b *graphBuilder) wireCall(name string, callNode nodeID) {
 	for node := range b.graph.nodes {
 		if node.module == childRel && strings.HasPrefix(node.address, outputBlock+".") {
 			b.graph.dependents[node] = append(b.graph.dependents[node], callNode)
+			b.graph.sources[callNode] = append(b.graph.sources[callNode], node)
 		}
 	}
 }
@@ -268,6 +275,7 @@ func (b *graphBuilder) link(expr hclsyntax.Expression, reader nodeID) {
 		}
 
 		b.graph.dependents[source] = append(b.graph.dependents[source], reader)
+		b.graph.sources[reader] = append(b.graph.sources[reader], source)
 	}
 }
 
@@ -338,6 +346,53 @@ func (g *Graph) SiteCone(moduleRel, site string) (Cone, bool) {
 	}
 
 	return g.forwardCone(start), true
+}
+
+// MultiplicityGuard reports whether a mutation site is in, under, or
+// graph-upstream of a multiplicity expression, in which case the mutant must
+// always execute (M3a.3, review C1). The walk follows pure reference edges
+// from the multiplicity attribute towards its inputs; a site overlaps the
+// closure when either address contains the other, so a whole-block mutation
+// of the resource — which owns the expression — or of any upstream block is
+// caught. A multiplicity node the graph cannot find fails closed to true.
+func (g *Graph) MultiplicityGuard(moduleRel, metaAddress, siteModule, site string) bool {
+	start := nodeID{module: moduleRel, address: strings.Join(splitAddress(metaAddress), ".")}
+	if !g.nodes[start] {
+		return true
+	}
+
+	closure := map[nodeID]bool{}
+	queue := []nodeID{start}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		if closure[current] {
+			continue
+		}
+
+		closure[current] = true
+
+		queue = append(queue, g.sources[current]...)
+	}
+
+	siteAddress := strings.Join(splitAddress(site), ".")
+
+	for node := range closure {
+		if node.module == siteModule && addressesOverlap(node.address, siteAddress) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// addressesOverlap reports whether one canonical address contains the other.
+func addressesOverlap(left, right string) bool {
+	return left == right ||
+		strings.HasPrefix(left, right+".") ||
+		strings.HasPrefix(right, left+".")
 }
 
 // mapModulePaths records every module-call path from the root, so payload

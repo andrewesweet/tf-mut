@@ -4,6 +4,16 @@ internal/engine/testdata/aws-mocked/main.tf
 internal/engine/testdata/aws-mocked/tests/unit.tftest.hcl
 internal/engine/testdata/closure/main.tf
 internal/engine/testdata/closure/tests/unit.tftest.hcl
+internal/engine/testdata/conditional-function/main.tf
+internal/engine/testdata/conditional-function/tests/main.tftest.hcl
+internal/engine/testdata/conditional-nocoverage/main.tf
+internal/engine/testdata/conditional-nocoverage/tests/main.tftest.hcl
+internal/engine/testdata/conditional-nonzero/main.tf
+internal/engine/testdata/conditional-nonzero/tests/main.tftest.hcl
+internal/engine/testdata/conditional-runref/main.tf
+internal/engine/testdata/conditional-runref/tests/main.tftest.hcl
+internal/engine/testdata/conditional-target/main.tf
+internal/engine/testdata/conditional-target/tests/main.tftest.hcl
 internal/engine/testdata/contract/main.tf
 internal/engine/testdata/contract/tests/unit.tftest.hcl
 internal/engine/testdata/count-indexed/main.tf
