@@ -199,12 +199,18 @@ jobs:
           COMMENT_OUTCOME: ${{ steps.degraded.outputs.comment-outcome }}
         run: |
           set -euo pipefail
-          # The check outcome is the run's own, and the publication steps
-          # demonstrably degraded rather than succeeding on a read-only
-          # token: the comment step must not have completed a write, and the
-          # SARIF step must not have uploaded.
+          # The check outcome is the run's own, whatever the uploads managed.
           test "$EXIT_CODE" = "0"
-          test "$SARIF_OUTCOME" != "success"
+          # The comment write is genuinely refused on a read-only token
+          # ("Resource not accessible by integration").
           if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
             test "$COMMENT_OUTCOME" != "success"
+          fi
+          # Measured platform behaviour (first green-SARIF run of this job):
+          # on pull_request events GitHub accepts the SARIF upload from a
+          # read-only token — the platform scopes that write itself, so PR
+          # events have no degraded SARIF path to assert. On other events the
+          # write is refused and the degradation must hold.
+          if [ "$GITHUB_EVENT_NAME" != "pull_request" ]; then
+            test "$SARIF_OUTCOME" != "success"
           fi

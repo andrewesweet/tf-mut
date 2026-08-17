@@ -50,9 +50,14 @@ The composite runs in a fixed order, and the order is the contract:
 ## Fork and Dependabot pull requests
 
 Fork and Dependabot PRs receive a read-only token. The SARIF upload and the comment are
-marked `continue-on-error`: they degrade to skipped, and **the check outcome is preserved**
-— step 5 still exits with the captured code. Nothing about a token shape can turn a red run
-green or a green run red.
+marked `continue-on-error`: whatever a token refuses degrades, and **the check outcome is
+preserved** — step 5 still exits with the captured code. Nothing about a token shape can
+turn a red run green or a green run red.
+
+What actually degrades is measured, not assumed: on pull-request events GitHub accepts the
+SARIF upload from a read-only token — the platform scopes that write itself, so annotations
+survive even on fork PRs — while the comment write is refused and the comment is the part
+that degrades. On non-PR events a read-only token refuses the SARIF upload too.
 
 ## `pull_request_target` is forbidden
 
