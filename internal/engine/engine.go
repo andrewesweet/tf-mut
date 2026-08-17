@@ -101,6 +101,18 @@ type Config struct {
 	// SetFlags names the flags the caller set explicitly, so that a configured
 	// scalar can be overridden per scalar rather than per file.
 	SetFlags []string
+	// Since scopes the run to configuration changed since the git ref: the
+	// union of the committed range, the working tree and untracked files.
+	Since string
+	// SamplePercent selects a deterministic sample of the population.
+	SamplePercent float64
+	// HasSample reports whether sampling was requested.
+	HasSample bool
+	// SampleSeed seeds the deterministic sample.
+	SampleSeed int64
+	// AllowSampledGate is the separately named unsafe opt-in without which a
+	// sampled run can satisfy no gate.
+	AllowSampledGate bool
 }
 
 // Operational failures. Every one of them aborts the run: none of them can be
@@ -130,9 +142,10 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		return report.Report{}, err
 	}
 
-	settings = settings.withDefaults()
-	settings.ExcludePaths = append(slices.Clone(settings.ExcludePaths), configured.Exclude.Paths...)
-	settings.ExcludeResources = append(slices.Clone(settings.ExcludeResources), configured.Exclude.Resources...)
+	settings, err = finalise(settings, configured)
+	if err != nil {
+		return report.Report{}, err
+	}
 
 	runner := tfexec.Runner{Binary: settings.TerraformBinary, Env: settings.Env}
 
@@ -189,8 +202,16 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 	result.Suppressions = suppressions
 	result.Warnings = append(result.Warnings, rejected...)
 
+	// The count levers: --since and --sample scope the population, and the
+	// report says distinctly what was selected and what was left out.
+	selected, selectedGenerated, err := applyCountLevers(ctx, configuration, settings, &result,
+		mutants, generated.Mutants)
+	if err != nil {
+		return report.Report{}, err
+	}
+
 	if settings.Preview {
-		result.Mutants = mutants
+		result.Mutants = selected
 		result.Metrics = report.ComputeMetrics(nil)
 
 		return result, nil
@@ -201,14 +222,52 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		configuration: configuration,
 		config:        settings,
 		prepared:      prepared,
-		generated:     generated.Mutants,
-		described:     mutants,
+		generated:     selectedGenerated,
+		described:     selected,
 		workRoot:      workRoot,
 		closure:       configuration.BuildClosure(),
 		graph:         configuration.BuildGraph(),
 	})
 
-	return complete(configuration, result, executed, failures), nil
+	return complete(configuration, settings, result, executed, failures), nil
+}
+
+// finalise applies the configured exclusions and defaults, and refuses the
+// gate combinations the truth table forbids before any work is done.
+func finalise(settings Config, configured config.File) (Config, error) {
+	settings = settings.withDefaults()
+	settings.ExcludePaths = append(slices.Clone(settings.ExcludePaths), configured.Exclude.Paths...)
+	settings.ExcludeResources = append(slices.Clone(settings.ExcludeResources), configured.Exclude.Resources...)
+
+	// The gate truth table's sampled row: refused before any work is done.
+	if err := checkSampledGate(settings); err != nil {
+		return Config{}, err
+	}
+
+	return settings, nil
+}
+
+// applyCountLevers scopes the described population and records the selection,
+// sampling and population facts on the report.
+func applyCountLevers(
+	ctx context.Context,
+	configuration discovery.Configuration,
+	settings Config,
+	result *report.Report,
+	mutants []report.Mutant,
+	generated []mutation.Mutant,
+) ([]report.Mutant, []mutation.Mutant, error) {
+	chosen, err := selectPopulation(ctx, configuration, settings, mutants)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	selected, selectedGenerated, population := chosen.apply(mutants, generated)
+	result.Selection = chosen.metadata
+	result.Sampling = chosen.sampling
+	result.Population = population
+
+	return selected, selectedGenerated, nil
 }
 
 // build warms one workspace and generates the population from it.
@@ -237,6 +296,7 @@ func build(
 // verdict.
 func complete(
 	configuration discovery.Configuration,
+	settings Config,
 	result report.Report,
 	executed []report.Mutant,
 	failures []report.ExecutionError,
@@ -247,8 +307,41 @@ func complete(
 	result.OperatorErrors = report.ComputeOperatorErrors(executed)
 	result.Findings = findings(configuration, executed)
 	result.Warnings = append(result.Warnings, unanswerableResources(configuration, executed)...)
+	result.Gates = gateOutcomes(settings, result)
 
 	return result
+}
+
+// gateOutcomes records the gate table's outcomes for this run (2.1.0). The
+// fail-on-new and baseline rows arrive with the baseline file (M3b.3); the
+// min-score row is recorded here, labelled partial over any scoped or sampled
+// population.
+func gateOutcomes(settings Config, result report.Report) *report.Gates {
+	partial := result.Sampling != nil ||
+		(result.Selection.Mode == report.SelectionSince && result.Selection.ForcedFull == "")
+
+	scope := "full"
+	if partial {
+		scope = "selected"
+	}
+
+	minScore := report.GateOutcome{
+		Evaluated: settings.HasMinScore,
+		Scope:     "", Partial: false, Passed: false, Refused: "",
+	}
+
+	if settings.HasMinScore {
+		minScore.Scope = scope
+		minScore.Partial = partial
+		minScore.Passed = (!result.Metrics.Incomplete || settings.AllowIncompleteScore) &&
+			result.Metrics.MutationScore*100 >= settings.MinScore
+	}
+
+	return &report.Gates{
+		MinScore:  minScore,
+		FailOnNew: report.GateOutcome{Evaluated: false, Scope: "", Partial: false, Passed: false, Refused: ""},
+		Baseline:  nil,
+	}
 }
 
 // shell builds the report value's context: everything true of the run before

@@ -48,6 +48,11 @@ Flags for run and preview:
   --allow-real-infrastructure  Permit execution against unmocked providers
   --allow-unsandboxed-effects  Permit apply-mode provisioners and unsevered data sources
   --tier smoke|standard|deep   Operator breadth (default standard)
+  --since REF                  Run only mutants in configuration changed since REF,
+                               including staged, unstaged and untracked changes
+  --sample N                   Run a deterministic N% sample (non-authoritative)
+  --seed N                     Seed for --sample (default 0)
+  --allow-sampled-gate         Let a sampled run satisfy --min-score (unsafe)
   --operator ID[,ID]           Restrict generation to these operators
   --exclude-operator ID[,ID]   Remove operators from the population
   --exclude-path GLOB[,GLOB]   Remove sites in matching files
@@ -95,29 +100,53 @@ type options struct {
 	reporters []config.Reporter
 }
 
+// flagValues collects the parsed flag pointers, so declaring the surface and
+// reading it can be two short functions instead of one long one.
+type flagValues struct {
+	testDirectory, reporter, sarifPath, tier *string
+	operators, excludeOperators              *string
+	excludePaths, excludeResources, since    *string
+	jobs                                     *int
+	timeoutFactor, minScore, sample          *float64
+	seed                                     *int64
+	allowIncomplete, allowReal, allowEffects *bool
+	allowSampledGate                         *bool
+}
+
+func declareFlags(set *flag.FlagSet) flagValues {
+	return flagValues{
+		testDirectory: set.String("test-directory", engine.DefaultTestDirectory,
+			"test directory relative to the module"),
+		jobs: set.Int("jobs", 0, "mutants to execute concurrently"),
+		timeoutFactor: set.Float64("timeout-factor", engine.DefaultTimeoutFactor,
+			"multiple of the baseline run time"),
+		minScore: set.Float64("min-score", 0, "fail below this mutation score percentage"),
+		allowIncomplete: set.Bool("allow-incomplete-score", false,
+			"let a timeout-affected score satisfy --min-score"),
+		allowReal: set.Bool("allow-real-infrastructure", false,
+			"permit execution against unmocked providers"),
+		allowEffects: set.Bool("allow-unsandboxed-effects", false,
+			"permit apply-mode provisioners and unsevered data sources"),
+		reporter:         set.String("reporter", reporterTerminal, "output format: terminal, json or sarif"),
+		sarifPath:        set.String("sarif-path", "", "where to write the SARIF document"),
+		tier:             set.String("tier", "", "operator breadth: smoke, standard or deep"),
+		operators:        set.String("operator", "", "restrict generation to these operator identifiers"),
+		excludeOperators: set.String("exclude-operator", "", "remove these operator identifiers"),
+		excludePaths:     set.String("exclude-path", "", "remove sites in files matching these globs"),
+		excludeResources: set.String("exclude-resource", "", "remove sites in these resource addresses"),
+		since:            set.String("since", "", "run only mutants in configuration changed since this git ref"),
+		sample:           set.Float64("sample", 0, "run a deterministic percentage sample of the population"),
+		seed:             set.Int64("seed", 0, "seed for --sample"),
+		allowSampledGate: set.Bool("allow-sampled-gate", false,
+			"let a sampled run satisfy a gate (unsafe)"),
+	}
+}
+
 func parse(command string, args []string, stderr io.Writer) (options, error) {
 	set := flag.NewFlagSet("tf-mut "+command, flag.ContinueOnError)
 	set.SetOutput(stderr)
 
-	testDirectory := set.String("test-directory", engine.DefaultTestDirectory,
-		"test directory relative to the module")
-	jobs := set.Int("jobs", 0, "mutants to execute concurrently")
-	timeoutFactor := set.Float64("timeout-factor", engine.DefaultTimeoutFactor,
-		"multiple of the baseline run time")
-	minScore := set.Float64("min-score", 0, "fail below this mutation score percentage")
-	allowIncomplete := set.Bool("allow-incomplete-score", false,
-		"let a timeout-affected score satisfy --min-score")
-	allowReal := set.Bool("allow-real-infrastructure", false,
-		"permit execution against unmocked providers")
-	allowEffects := set.Bool("allow-unsandboxed-effects", false,
-		"permit apply-mode provisioners and unsevered data sources")
-	reporter := set.String("reporter", reporterTerminal, "output format: terminal, json or sarif")
-	sarifPath := set.String("sarif-path", "", "where to write the SARIF document")
-	tier := set.String("tier", "", "operator breadth: smoke, standard or deep")
-	operators := set.String("operator", "", "restrict generation to these operator identifiers")
-	excludeOperators := set.String("exclude-operator", "", "remove these operator identifiers")
-	excludePaths := set.String("exclude-path", "", "remove sites in files matching these globs")
-	excludeResources := set.String("exclude-resource", "", "remove sites in these resource addresses")
+	values := declareFlags(set)
 
 	if err := set.Parse(args); err != nil {
 		return options{}, fmt.Errorf("parsing flags: %w", err)
@@ -128,8 +157,8 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 		moduleDir = set.Arg(0)
 	}
 
-	if !knownReporter(*reporter) {
-		return options{}, fmt.Errorf("%w: %s", errUnknownReporter, *reporter)
+	if !knownReporter(*values.reporter) {
+		return options{}, fmt.Errorf("%w: %s", errUnknownReporter, *values.reporter)
 	}
 
 	configured, err := configuredReporters(moduleDir)
@@ -138,6 +167,7 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 	}
 
 	requested := false
+	sampled := false
 	given := []string{}
 
 	set.Visit(func(flagged *flag.Flag) {
@@ -146,39 +176,48 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 		if flagged.Name == engine.FlagMinScore {
 			requested = true
 		}
+
+		if flagged.Name == "sample" {
+			sampled = true
+		}
 	})
 
 	return options{
 		config: engine.Config{
 			ModuleDir:               moduleDir,
-			TestDirectory:           *testDirectory,
-			Jobs:                    *jobs,
-			TimeoutFactor:           *timeoutFactor,
+			TestDirectory:           *values.testDirectory,
+			Jobs:                    *values.jobs,
+			TimeoutFactor:           *values.timeoutFactor,
 			TimeoutFloor:            0,
-			MinScore:                *minScore,
+			MinScore:                *values.minScore,
 			HasMinScore:             requested,
-			AllowIncompleteScore:    *allowIncomplete,
-			AllowRealInfrastructure: *allowReal,
-			AllowUnsandboxedEffects: *allowEffects,
+			AllowIncompleteScore:    *values.allowIncomplete,
+			AllowRealInfrastructure: *values.allowReal,
+			AllowUnsandboxedEffects: *values.allowEffects,
 			Preview:                 command == previewCommand,
 			TerraformBinary:         "",
 			Env:                     nil,
 			WorkDir:                 "",
 			TestSelection:           nil,
-			Tier:                    mutation.Tier(*tier),
-			IncludeOperators:        commaSeparated(*operators),
-			ExcludeOperators:        commaSeparated(*excludeOperators),
-			ExcludePaths:            commaSeparated(*excludePaths),
-			ExcludeResources:        commaSeparated(*excludeResources),
+			Tier:                    mutation.Tier(*values.tier),
+			IncludeOperators:        commaSeparated(*values.operators),
+			ExcludeOperators:        commaSeparated(*values.excludeOperators),
+			ExcludePaths:            commaSeparated(*values.excludePaths),
+			ExcludeResources:        commaSeparated(*values.excludeResources),
 			SetFlags:                given,
+			Since:                   *values.since,
+			SamplePercent:           *values.sample,
+			HasSample:               sampled,
+			SampleSeed:              *values.seed,
+			AllowSampledGate:        *values.allowSampledGate,
 		},
 		gate: report.Gate{
-			MinScore:             *minScore,
+			MinScore:             *values.minScore,
 			HasMinScore:          requested,
-			AllowIncompleteScore: *allowIncomplete,
+			AllowIncompleteScore: *values.allowIncomplete,
 		},
-		reporter:  *reporter,
-		sarifPath: *sarifPath,
+		reporter:  *values.reporter,
+		sarifPath: *values.sarifPath,
 		reporters: configured,
 	}, nil
 }

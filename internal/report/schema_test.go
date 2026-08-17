@@ -13,7 +13,7 @@ import (
 )
 
 // schemaPath is the published contract the JSON reporter promises to keep.
-const schemaPath = "../../docs/schema/report-2.0.0.json"
+const schemaPath = "../../docs/schema/report-2.1.0.json"
 
 func TestPublishedSchemaMatchesTheReportersVersion(t *testing.T) {
 	t.Parallel()
@@ -148,6 +148,23 @@ func sampleReport() report.Report {
 			Site:     sampleOutput,
 			Message:  "no run block executed, so no verdict is possible",
 		}},
+		Population: report.Population{Selected: 2, Omitted: 3, Cached: 0, Fresh: 2},
+		Selection:  report.Selection{Mode: report.SelectionSince, Ref: "main", ForcedFull: ""},
+		Sampling:   &report.Sampling{RatePercent: 25, Seed: 42, Authoritative: false},
+		Gates: &report.Gates{
+			MinScore: report.GateOutcome{
+				Evaluated: true, Scope: "selected", Partial: true, Passed: true, Refused: "",
+			},
+			FailOnNew: report.GateOutcome{
+				Evaluated: false, Scope: "", Partial: false, Passed: false, Refused: "",
+			},
+			Baseline: &report.BaselineGate{
+				Path: ".tf-mut-baseline.json", Accepted: 4, Matched: 3,
+				New: []string{sampleMutantID}, Stale: nil,
+				Unobserved:        []string{"fedcba987654"},
+				StalenessReported: false, Write: "refused",
+			},
+		},
 	}
 }
 
@@ -213,6 +230,13 @@ func sampleMutants() []report.Mutant {
 			ExecutedRuns: 1,
 			Validated:    false,
 			Suppression:  nil,
+			Provenance: &report.Provenance{
+				Selection:      report.SelectionSince,
+				Reason:         "main.tf changed since main",
+				Execution:      report.ExecutionFresh,
+				CacheKey:       "",
+				BaselineStatus: "new",
+			},
 		},
 		{
 			ID:       "ba9876543210",

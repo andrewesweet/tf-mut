@@ -277,7 +277,7 @@ func readFile(t *testing.T, path string) string {
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil { //nolint:gosec // fixture copy under t.TempDir.
 		t.Fatalf("writing %s: %v", path, err)
 	}
 }
