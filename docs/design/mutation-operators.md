@@ -174,6 +174,20 @@ ways that are easy to get wrong and almost never asserted on — `toset` in part
 
 ---
 
+### The generated function families (M3e, opt-in)
+
+Each family is a justified fault model — functions an author actually confuses — never a
+signature grouping. Members are real Terraform functions; `setsubtract` is substituted only
+at its exact arity of two.
+
+| Family | Members | Justification |
+| --- | --- | --- |
+| order-statistics | `min`, `max` | Choosing the wrong extreme is the classic boundary fault; fully covered by the curated pair |
+| rounding | `floor`, `ceil` | Rounding direction faults; fully covered by the curated pair |
+| case | `upper`, `lower`, `title` | Case normalisation confusions — `title` extends the curated `upper`/`lower` pair |
+| string-search | `startswith`, `endswith`, `strcontains` | Anchored-versus-unanchored match confusions — `strcontains` extends the curated pair |
+| set-algebra | `concat`, `setunion`, `setintersection`, `setsubtract` | Collection-combination faults: the wrong combinator changes cardinality and order semantics |
+
 ## Tier 2 — Terraform meta-arguments and structure (`standard`)
 
 Multiplicity expressions are shared ground since M3a.3 (review C1): the conditional, boolean
@@ -360,6 +374,7 @@ waste.
 | `FN-DROP-WRAPPER` | `distinct`, `sort`, `compact`, `flatten` or `toset` with one argument | The function name is in the curated table and the call is not variadic | — | Variadic calls and every other function | `Killed` where an assertion reads the normalised value |
 | `FN-JOIN-SEP` | `join(sep, xs)` where `sep` is a non-empty string literal | The separator is a quoted literal with content | — | Computed separators and already-empty ones, which model no fault | `Killed` where an assertion reads the joined string |
 | `FN-DROP-EXPANSION` | A call whose final argument is expanded with `...` | The `...` marker is locatable before the closing parenthesis | — | Calls with no expansion | `Killed` or `KilledByError` where the call's result is read |
+| `FN-FAMILY-SWAP` | A call to a member of a generated semantic family (M3e), behind `--generated-functions` | The family table in the Tier 1 section is the fault model; signature compatibility is not one (M3 spec review C7) | `core::` aliases canonicalised, the caller's spelling preserved; curated identifiers win deduplication; `setsubtract` substituted only at its exact arity; **not in `standard`** — admission requires the published M3e measurement, in a separate change | Cross-family pairs (`file` -> `upper` is the named impossible case) | `Killed` where an assertion reads a value the family members disagree on |
 | `COUNT-ZERO` | `count = e` on a `resource` | Every recorded consumption tolerates an empty collection | — | Bare and exact-index consumers; `dynamic` blocks, which `DYNAMIC-ZERO` owns | Deduplicated against `EXT-RESOURCE-DELETE`, which emits the same mutant wherever both fire |
 | `COUNT-ONE` | `count = n` where `n` is a literal other than one | The literal's own type | — | Computed counts | `Killed` where an assertion checks the instance count |
 | `COUNT-OFF-BY-ONE` | `count = n` where `n` is a literal | As above | — | Computed counts; `n - 1` is skipped where `n` is one, so the multiplicity gate is not bypassed | `Killed` where an assertion checks an exact count |

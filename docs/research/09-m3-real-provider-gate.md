@@ -87,12 +87,34 @@ changes per survivor — the measured median — and the JSON keeps twenty, whic
 for 95.7% of real survivors. Both bounds now rest on a measurement rather than a guess; the
 full distribution is in `.artifacts/performance/m3-inner-loop.json`.
 
+## The M3e admission measurement (#53)
+
+The generated function catalogue's admission evidence, measured on the network-gated
+`aws-applied` fixture with `--generated-functions`:
+
+| Quantity | Value |
+| --- | --- |
+| Candidate sites (family-function calls) | 3 |
+| Generated mutants | 5 |
+| Per-pair invalid rate | 0 of 5, every pair |
+| Per-pair error rate | 0 of 5, every pair |
+| Pairs | `title->upper` killed, `title->lower` killed, `startswith->strcontains` unobserved-class, `setunion->setintersection` survived, `setunion->setsubtract` survived |
+
+Zero invalid and zero error mutants across every generated pair — the arity guard on
+`setsubtract` and the family fault model doing exactly what C7 demanded of them. The
+per-pair table and the extended per-operator error counts are in
+`.artifacts/performance/m3e-admission.json`. **Admission to `standard` remains a separate,
+evidence-carrying change**: this document is the evidence, and the decision is deliberately
+not taken here.
+
 ## Reproduction
 
 ```bash
 TF_MUT_ALLOW_REAL_INFRASTRUCTURE=1 mise exec -- \
-  go test -tags=integration -run 'TestInnerLoopGate|TestTheMockMaskedRefutation' \
+  go test -tags=integration \
+  -run 'TestInnerLoopGate|TestTheMockMaskedRefutation|TestAdmissionMeasurement' \
   -timeout 90m ./internal/engine/
 ```
 
-The measurement lands in `.artifacts/performance/m3-inner-loop.json`.
+The measurements land in `.artifacts/performance/m3-inner-loop.json` and
+`.artifacts/performance/m3e-admission.json`.

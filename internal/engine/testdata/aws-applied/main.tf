@@ -19,11 +19,32 @@ provider "aws" {
   region = "eu-west-2"
 }
 
+# The M3e admission-measurement sites (#53): one call per generated family,
+# observable through the queue tags so the mutants have something to move.
+locals {
+  budget   = min(300, 900)
+  ceiling  = ceil(1.5)
+  label    = title("work")
+  anchored = startswith("tf-mut", "tf")
+  merged   = setunion(["a"], ["b"])
+}
+
 resource "aws_sqs_queue" "work" {
   name                              = "tf-mut-applied-work"
-  kms_data_key_reuse_period_seconds = 300
+  kms_data_key_reuse_period_seconds = local.budget
+
+  tags = {
+    Label    = local.label
+    Ceiling  = tostring(local.ceiling)
+    Anchored = tostring(local.anchored)
+    Merged   = join(",", local.merged)
+  }
 }
 
 output "queue" {
   value = aws_sqs_queue.work.name
+}
+
+output "label" {
+  value = local.label
 }

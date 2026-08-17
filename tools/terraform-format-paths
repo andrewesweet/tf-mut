@@ -36,6 +36,8 @@ internal/engine/testdata/empty-tests/main.tf
 internal/engine/testdata/empty-tests/tests/unit.tftest.hcl
 internal/engine/testdata/expect-failures/main.tf
 internal/engine/testdata/expect-failures/tests/unit.tftest.hcl
+internal/engine/testdata/families/main.tf
+internal/engine/testdata/families/tests/main.tftest.hcl
 internal/engine/testdata/foreach/main.tf
 internal/engine/testdata/foreach/tests/unit.tftest.hcl
 internal/engine/testdata/mocked-aliases/main.tf

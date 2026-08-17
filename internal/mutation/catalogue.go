@@ -131,7 +131,7 @@ const (
 		"dependency exists to guarantee, or accept the mutant"
 )
 
-//nolint:funlen,revive // one flat table; splitting it would only hide the catalogue.
+//nolint:funlen,revive,maintidx // one flat table; splitting it would only hide the catalogue.
 func buildCatalogue() map[Operator]Entry {
 	entries := []Entry{
 		// Tier 0 — extreme.
@@ -340,6 +340,11 @@ func buildCatalogue() map[Operator]Entry {
 		{
 			FnDropExpansion, TierStandard, "Removes an argument expansion",
 			"an assertion reads the call's result", true, "",
+		},
+		{
+			FnFamilySwap, TierStandard,
+			"Substitutes a function for another member of its semantic family (opt-in, M3e)",
+			"an assertion reads a value the family members disagree on", true, "",
 		},
 
 		// Tier 2 — meta-arguments.

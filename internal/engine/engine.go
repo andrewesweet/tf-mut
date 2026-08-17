@@ -124,6 +124,10 @@ type Config struct {
 	// BaselinePath overrides the baseline file location, relative to the
 	// module directory unless absolute.
 	BaselinePath string
+	// GeneratedFunctions opts in to the generated function catalogue (M3e):
+	// FN-FAMILY-SWAP joins the population. Never part of standard until the
+	// published admission measurement, in a separate change.
+	GeneratedFunctions bool
 	// DisableStaticShortcuts turns the static pre-classifications off — the
 	// static Unobservable shortcut and the conditional-instantiation
 	// NoCoverage evaluator — so a control run can prove each shortcut equal
@@ -606,7 +610,10 @@ func (c Config) selection() mutation.Selection {
 		tier = mutation.TierStandard
 	}
 
-	return mutation.Selection{Tier: tier, Include: c.IncludeOperators, Exclude: c.ExcludeOperators}
+	return mutation.Selection{
+		Tier: tier, Include: c.IncludeOperators, Exclude: c.ExcludeOperators,
+		GeneratedFamilies: c.GeneratedFunctions,
+	}
 }
 
 // baselineFingerprint composes the unmutated suite's masked fingerprint, which

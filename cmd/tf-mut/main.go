@@ -61,6 +61,7 @@ Flags for run and preview:
   --fail-on-new                Fail on findings the baseline does not accept
   --write-baseline             Accept the current findings as the baseline
   --baseline PATH              Baseline file (default ".tf-mut-baseline.json")
+  --generated-functions        Opt in to the generated function-family operators
   --operator ID[,ID]           Restrict generation to these operators
   --exclude-operator ID[,ID]   Remove operators from the population
   --exclude-path GLOB[,GLOB]   Remove sites in matching files
@@ -120,6 +121,7 @@ type flagValues struct {
 	allowIncomplete, allowReal, allowEffects *bool
 	allowSampledGate, noCache                *bool
 	failOnNew, writeBaseline                 *bool
+	generatedFunctions                       *bool
 	baselinePath                             *string
 }
 
@@ -155,6 +157,8 @@ func declareFlags(set *flag.FlagSet) flagValues {
 		writeBaseline: set.Bool("write-baseline", false,
 			"accept the current findings as the baseline"),
 		baselinePath: set.String("baseline", "", "baseline file location"),
+		generatedFunctions: set.Bool("generated-functions", false,
+			"opt in to the generated function-family operators"),
 	}
 }
 
@@ -230,6 +234,7 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 			FailOnNew:               *values.failOnNew,
 			WriteBaseline:           *values.writeBaseline,
 			BaselinePath:            *values.baselinePath,
+			GeneratedFunctions:      *values.generatedFunctions,
 		},
 		gate: report.Gate{
 			MinScore:             *values.minScore,

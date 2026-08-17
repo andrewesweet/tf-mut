@@ -82,6 +82,22 @@ func TestEveryEnabledOperatorHasAGenerationSite(t *testing.T) {
 		}
 	}
 
+	// The generated catalogue's site lives in the families fixture and fires
+	// only behind its opt-in (M3e): the default populations above must never
+	// carry it, so its site is witnessed by an opted-in preview.
+	optedIn := baseConfig(t, copyFixture(t, "families"))
+	optedIn.Preview = true
+	optedIn.GeneratedFunctions = true
+
+	familyResult, err := engine.Run(t.Context(), optedIn)
+	if err != nil {
+		t.Fatalf("families preview: %v", err)
+	}
+
+	for _, mutant := range familyResult.Mutants {
+		fired[mutant.Operator] = true
+	}
+
 	for _, entry := range mutation.Catalogue() {
 		if fired[string(entry.Operator)] || isolatedSite(t, modules, entry.Operator) {
 			continue
@@ -194,6 +210,7 @@ func TestTheCuratedFunctionListIsClosed(t *testing.T) {
 		}
 	}
 
+	//nolint:goconst // sample function names, shared with the family tables by nature.
 	for _, name := range []string{"substr", "contains", "length", "upper"} {
 		if name == "upper" {
 			continue
