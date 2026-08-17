@@ -4,7 +4,7 @@ Milestone M3 ([issue #33](https://github.com/andrewesweet/tf-mut/issues/33), rev
 its sub-scope tickets #44–#54), closed against the spec's own definition of done. The three
 exit gates:
 
-1. **The M3a/M3b offline gates are green** — `just gate-m3`, 68 named cases, audited by
+1. **The M3a/M3b offline gates are green** — `just gate-m3`, 72 named cases, audited by
    `TestTheM3GateNamesOnlyTestsThatExist` and `TestTheM3GateCoversEveryNamedRequirement` so
    the recipe can neither name a ghost nor quietly drop a requirement.
 2. **The M3c real-provider gate is published with both debts settled** —
@@ -48,10 +48,10 @@ predates the M3a/M3b gates; no M3e work predates M3c.
 | Unresolvable situations error | `TestAMissingRefIsAnError`, `TestOutsideARepositoryIsAnError`, `TestAMergeConflictIsAnError`, `TestAShallowCloneLackingTheRefIsAnError` |
 | Non-`.tf` classes force the full population | `TestNonTerraformClassChangesForceTheFullPopulation` (one case per class) |
 | Deterministic, labelled sampling | `TestSamplingIsDeterministicAndNonAuthoritative`, `TestSinceSelectionIsDeterministic` |
-| Cache: coarse correct key, one fixture per dimension | `TestCacheInvalidationPerKeyDimension`, `TestMaskedBaselineFingerprintIsAKeyDimension` |
+| Cache: coarse correct key, one fixture per dimension | `TestCacheInvalidationPerKeyDimension` (source closure, child module, tests, resolved configuration, environment), `TestMaskedBaselineFingerprintIsAKeyDimension`, `TestTheLockFileIsAKeyDimension`, `TestRemoteModulePayloadsAreAKeyDimension`. The Terraform-identity dimension is hashed into the key but has no invalidation fixture: exercising it needs a second Terraform binary, and a shimmed version string is a fake runner the seam forbids — recorded here as the one untested dimension |
 | Cache refused under the unsafe opt-ins and `--no-cache` | `TestCacheIsRefusedUnderTheUnsafeOptIns`, `TestNoCacheDisablesReadsAndWrites` |
 | Disk-format safety, each behaviour | `TestCorruptionIsAMiss`, `TestCacheEntriesAreOwnerOnly`, `TestASymlinkedCacheDirectoryIsRefused`, `TestEvictionIsDeterministicAndSizeCapped`, `TestConcurrentInvocationsShareTheCacheSafely` |
-| The gate truth table, row by row | `TestAdoptionThenRegression`, `TestAcceptedSurvivorsPassAndStayInScores`, `TestScopedFailOnNewJudgesTheSelectedPopulationOnly`, `TestASampledGateIsRefusedWithoutTheOptIn`, `TestASampledFailOnNewIsRefusedWithoutTheOptIn`, `TestBaselineWriteIsRefusedOffTheFullPopulation` |
+| The gate truth table, row by row | `TestAdoptionThenRegression`, `TestAcceptedSurvivorsPassAndStayInScores`, `TestScopedFailOnNewJudgesTheSelectedPopulationOnly`, `TestScopedMinScoreIsLabelledPartial`, `TestTheCachedRowOfTheGateTable` (staleness not reported, gates partial, write refused with `--no-cache` the remedy), `TestASampledGateIsRefusedWithoutTheOptIn`, `TestASampledFailOnNewIsRefusedWithoutTheOptIn`, `TestBaselineWriteIsRefusedOffTheFullPopulation` |
 | Transition cases | `TestAdoptionThenRegression` (killed-regressed), `TestAnAcceptedIndeterminateTurningActionableIsNew` |
 | Unobserved distinguished from stale | `TestStaleAndUnobservedAreDistinguished` |
 | Baseline suppresses nothing else | `TestBaselineNeverSuppressesSafetyGates`; the incomplete-score marker is untouched by construction (`minScorePasses`) |
@@ -60,10 +60,10 @@ predates the M3a/M3b gates; no M3e work predates M3c.
 
 ### M3c — the real-provider gate (#50)
 
-Network-gated: `TestInnerLoopGateAgainstTheRealProvider` (pinned protocol, enumerated
-selection, invariance, factor), `TestTheMockMaskedRefutationHolds` (the withdrawal's
-evidence), published in `09-m3-real-provider-gate.md` and
-`.artifacts/performance/m3-inner-loop.json`.
+Network-gated: `TestInnerLoopGateAgainstTheRealProvider` (pinned protocol, the twelve
+selected mutant identifiers enumerated literally alongside the four sites, invariance,
+factor), `TestTheMockMaskedRefutationHolds` (the withdrawal's evidence), published in
+`09-m3-real-provider-gate.md` and `.artifacts/performance/m3-inner-loop.json`.
 
 ### M3d — reporters and the Action (#51, #52)
 
@@ -75,7 +75,7 @@ evidence), published in `09-m3-real-provider-gate.md` and
 | HTML self-contained, licence shipped | `TestHTMLIsSelfContainedWithPinnedViewerAndLicence` |
 | JUnit maps every state, vendored dialect | `TestJUnitMapsEveryStateInTheVendoredDialect` |
 | Markdown gate outcome and new-versus-accepted | `TestMarkdownCarriesGateOutcomeAndNewVersusAccepted` |
-| Action failure order, checksum gate, degradation | `.github/workflows/action-test.yml` (three jobs), install and checksum bash additionally proven locally; the workflow executes on the next push to GitHub |
+| Action failure order, checksum gate, degradation | `.github/workflows/action-test.yml` (three jobs); the install and run logic lives in `scripts/action-install` and `scripts/action-run` under the shared shell gates and is proven end to end locally; the workflow itself executes on the next push to GitHub |
 
 ### M3e — the generated catalogue (#53)
 
@@ -98,10 +98,18 @@ evidence), published in `09-m3-real-provider-gate.md` and
   companion commit); no document still states it. No deviation.
 - **The M3e admission decision**: recorded in the matrix (opt-in, not `standard`) and the
   research document (evidence published, decision deliberately not taken). No deviation.
-- **One deliberate deviation, recorded**: the never-write contract gained its single
-  tool-owned exception — the project-local `.tf-mut-cache/` directory — required by the M6
-  disposition's "project-local default location" and recorded in `AGENTS.md` and the
-  harness's tree-digest assertion.
+- **Two deliberate deviations, recorded in `AGENTS.md`**: the never-write contract's
+  tool-owned exceptions — the project-local `.tf-mut-cache/` directory (M6's "project-local
+  default location") and the `.tf-mut-baseline.json` acceptance list, written only on an
+  explicit `--write-baseline` over a full fresh population. The testing seam gained its
+  third recorded exception: the graph adapters are exercised directly, as issue #44's
+  adapter sweep mandates, with every graph-led verdict still asserted through the engine
+  seam.
+- **Post-review corrections in the closing change**: the cached row of the gate truth table
+  — a population served even partly from the cache now refuses baseline writes, reports no
+  staleness, and labels its gates partial, as the normative table always said;
+  `--allow-sampled-gate` use is now reported (`sampling.gate_opt_in`); and the Action's
+  install and run logic moved under the repository's shell gates.
 
 ## What remains for M4
 

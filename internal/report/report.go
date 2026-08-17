@@ -303,6 +303,9 @@ type Sampling struct {
 	// Authoritative is always false: it is published so that no consumer has
 	// to know the rule to apply it.
 	Authoritative bool `json:"authoritative"`
+	// GateOptIn reports that --allow-sampled-gate was used: the run's gates
+	// were satisfied by a sample, and the report says so.
+	GateOptIn bool `json:"gate_opt_in,omitempty"`
 }
 
 // GateOutcome is one row outcome of the normative gate table.

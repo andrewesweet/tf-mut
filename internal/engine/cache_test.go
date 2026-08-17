@@ -3,6 +3,7 @@ package engine_test
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -391,5 +392,70 @@ func TestConcurrentInvocationsShareTheCacheSafely(t *testing.T) {
 	third := cachedRun(t, config)
 	if third.Population.Cached == 0 {
 		t.Fatal("the cache two concurrent runs wrote could not be replayed")
+	}
+}
+
+// TestTheLockFileIsAKeyDimension: a lock content change invalidates the whole
+// population, even when no source file moved.
+func TestTheLockFileIsAKeyDimension(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+
+	// A minimal valid lock: comments only, which init accepts and preserves.
+	lock := filepath.Join(module, ".terraform.lock.hcl")
+	writeFile(t, lock, "# This file is maintained automatically by \"terraform init\".\n")
+
+	config := baseConfig(t, module)
+	cachedRun(t, config)
+
+	appendFile(t, lock, "# touched\n")
+
+	result := cachedRun(t, config)
+	if result.Population.Cached != 0 {
+		t.Fatalf("%d cached verdicts survived a lock change", result.Population.Cached)
+	}
+}
+
+// TestRemoteModulePayloadsAreAKeyDimension: the module inventory includes the
+// materialised remote payloads, so a change inside the remote module — with
+// the root untouched — invalidates the cache.
+//
+// It does not run in parallel: the fixture drives git the way the remote
+// tests do, serially.
+//
+//nolint:paralleltest // shares the git fixture pattern with remote_test.go.
+func TestRemoteModulePayloadsAreAKeyDimension(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is required to build the remote-module fixture")
+	}
+
+	origin := gitOrigin(t)
+	module := remoteConsumer(t, origin)
+
+	config := baseConfig(t, module)
+
+	first := cachedRun(t, config)
+	if first.Population.Cached != 0 {
+		t.Fatal("the first run hit an empty cache")
+	}
+
+	warm := cachedRun(t, config)
+	if warm.Population.Cached == 0 {
+		t.Fatal("an unchanged remote module missed the cache; the dimension test is vacuous")
+	}
+
+	// Change the remote module's content and re-commit: the root module tree
+	// is untouched, and only the downloaded payload differs.
+	child := filepath.Join(origin, "mod", "main.tf")
+	appendFile(t, child, "\n# remote payload touched\n")
+	git(t, origin, "add", ".")
+	git(t, origin, "-c", "user.email=tests@example.invalid", "-c", "user.name=tf-mut tests",
+		"commit", "--quiet", "-m", "touch the payload")
+
+	invalidated := cachedRun(t, config)
+	if invalidated.Population.Cached != 0 {
+		t.Fatalf("%d cached verdicts survived a remote payload change",
+			invalidated.Population.Cached)
 	}
 }

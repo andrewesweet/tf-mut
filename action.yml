@@ -41,60 +41,19 @@ runs:
       env:
         VERSION: ${{ inputs.version }}
         BASE_URL: ${{ inputs.download-base-url }}
-      run: |
-        set -euo pipefail
-
-        if [ -z "$VERSION" ] || [ "$VERSION" = "latest" ]; then
-          echo "::error::a pinned release version is required; 'latest' is never accepted" >&2
-          exit 1
-        fi
-
-        arch="$(uname -m)"
-        case "$arch" in
-          x86_64) asset="tf-mut_${VERSION}_linux_amd64.tar.gz" ;;
-          aarch64) asset="tf-mut_${VERSION}_linux_arm64.tar.gz" ;;
-          *) echo "::error::unsupported architecture $arch" >&2; exit 1 ;;
-        esac
-
-        directory="$(mktemp -d)"
-        curl -sSfL "$BASE_URL/$VERSION/$asset" -o "$directory/$asset"
-        curl -sSfL "$BASE_URL/$VERSION/checksums.txt" -o "$directory/checksums.txt"
-
-        # Verification failure fails the Action: nothing unverified executes.
-        (cd "$directory" && grep " $asset\$" checksums.txt | sha256sum --check --strict -)
-
-        tar -xzf "$directory/$asset" -C "$directory" tf-mut
-        install -m 0755 "$directory/tf-mut" /usr/local/bin/tf-mut
-        tf-mut version
+      # The logic lives in scripts/action-install, under the repository's
+      # shared shell parse, format and lint gates.
+      run: '"$GITHUB_ACTION_PATH/scripts/action-install"'
     - name: Run tf-mut and capture the exit code
       id: run
       shell: bash
       env:
         MODULE: ${{ inputs.module }}
         RUN_ARGS: ${{ inputs.args }}
-      run: |
-        set -euo pipefail
-
-        # The documented non-blocking pattern: the run's exit code is
-        # captured, the uploads happen either way, and the final step exits
-        # with this code.
-        set +e
-        # shellcheck disable=SC2086 # the caller's args are a word list.
-        tf-mut run --reporter sarif $RUN_ARGS "$MODULE" > tf-mut.sarif
-        code=$?
-        set -e
-
-        echo "exit_code=$code" >> "$GITHUB_OUTPUT"
-
-        set +e
-        # shellcheck disable=SC2086
-        tf-mut run --reporter markdown $RUN_ARGS "$MODULE" > tf-mut-summary.md
-        set -e
-
-        {
-          echo "## tf-mut exit code: $code"
-          cat tf-mut-summary.md 2>/dev/null || true
-        } >> "$GITHUB_STEP_SUMMARY"
+      # The documented non-blocking pattern lives in scripts/action-run,
+      # under the shared shell gates: the run's exit code is captured, the
+      # uploads happen either way, and the final step exits with this code.
+      run: '"$GITHUB_ACTION_PATH/scripts/action-run"'
     - name: Upload SARIF
       # Degrades gracefully: a fork or Dependabot PR carries a read-only
       # token, the upload is skipped or fails without consequence, and the

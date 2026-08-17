@@ -195,13 +195,20 @@ func hashBytes(content []byte) string {
 }
 
 // hashTree hashes every regular file under root, in path order, without
-// following symlinks. An absent root hashes nothing.
+// following symlinks. An absent root hashes nothing. Git metadata inside a
+// downloaded module is skipped: the payload Terraform evaluates is the
+// checked-out working tree, and .git carries clone-time clocks that would
+// churn the key on every run.
 func hashTree(write func(kind, name, value string), root string) error {
 	paths := []string{}
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
+		}
+
+		if info.IsDir() && info.Name() == ".git" {
+			return filepath.SkipDir
 		}
 
 		if info.Mode().IsRegular() {

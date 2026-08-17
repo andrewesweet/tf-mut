@@ -544,7 +544,7 @@ func findBlock(file *hclwrite.File, blockType string, labels ...string) *hclwrit
 			continue
 		}
 
-		if labelsEqual(block.Labels(), labels) {
+		if slices.Equal(block.Labels(), labels) {
 			return block
 		}
 	}
@@ -577,20 +577,6 @@ func generatedRank(operator Operator) int {
 	}
 
 	return 0
-}
-
-func labelsEqual(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-
-	return true
 }
 
 func sortMutants(mutants []Mutant) []Mutant {

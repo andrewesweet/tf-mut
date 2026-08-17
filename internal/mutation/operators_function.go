@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
@@ -78,6 +79,21 @@ func canonicalFunctionName(name string) string {
 	return strings.TrimPrefix(name, coreNamespace)
 }
 
+// functionNameSpan is the source range of a call's name together with the
+// caller's own namespace prefix, so every substitution preserves the
+// spelling it found.
+func functionNameSpan(expr *hclsyntax.FunctionCallExpr) (hcl.Range, string) {
+	prefix := ""
+	if strings.HasPrefix(expr.Name, coreNamespace) {
+		prefix = coreNamespace
+	}
+
+	name := expr.Range()
+	name.End.Byte = name.Start.Byte + len(expr.Name)
+
+	return name, prefix
+}
+
 // familyOf returns the family a canonical function name belongs to.
 func familyOf(name string) ([]string, bool) {
 	for _, members := range functionFamilies {
@@ -101,14 +117,7 @@ func familySwapEdits(where site, expr *hclsyntax.FunctionCallExpr) []edit {
 		return nil
 	}
 
-	prefix := ""
-	if strings.HasPrefix(expr.Name, coreNamespace) {
-		prefix = coreNamespace
-	}
-
-	name := expr.Range()
-	name.End.Byte = name.Start.Byte + len(expr.Name)
-
+	name, prefix := functionNameSpan(expr)
 	edits := []edit{}
 
 	for _, member := range members {
@@ -147,13 +156,7 @@ func functionSwapEdits(source []byte, where site, expr *hclsyntax.FunctionCallEx
 	// Curated matching canonicalises the core:: alias too (C7), and the
 	// replacement keeps the caller's spelling.
 	if replacement, found := swappableFunctions[canonicalFunctionName(expr.Name)]; found {
-		prefix := ""
-		if strings.HasPrefix(expr.Name, coreNamespace) {
-			prefix = coreNamespace
-		}
-
-		name := expr.Range()
-		name.End.Byte = name.Start.Byte + len(expr.Name)
+		name, prefix := functionNameSpan(expr)
 		edits = append(edits, replace(FnSwap, where, name, prefix+replacement))
 	}
 

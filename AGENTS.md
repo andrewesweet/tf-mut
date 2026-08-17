@@ -80,6 +80,14 @@ without amending this section.
    is recorded real `terraform test -verbose -json` output with the provider schemas inflated;
    the M2 spec is explicit that manipulating recorded real output "is not a fake runner".
 
+3. The M3 reference graph's adapters are exercised directly over `discovery.BuildGraph`,
+   `SiteCone` and cone membership (`internal/engine/graph_test.go`), because issue #44
+   mandates it: the fail-closed adapter sweep runs "over every operator generation site in
+   the applicability-matrix fixture", and the supplemental `terraform graph` comparison is
+   test-suite-only by the M3 spec review's M1 disposition. Every verdict the graph leads to
+   — path-scoped unknowns, static `Unobservable`, conditional `NoCoverage` — is still
+   asserted through the engine seam.
+
 ## Build and verification
 
 Linux x86-64 is the initial supported development platform. Install the mise version pinned in
@@ -152,10 +160,12 @@ spec requires is still named.
   helper must remain in `tools/shell-files` and pass the shared parse, format and lint gates.
 - Keep CI thin: bootstrap locked tools, then invoke the same Just recipes used locally.
 - Preserve `GOTOOLCHAIN=local`; toolchain drift must fail rather than download another Go.
-- The source tree of a module under test is never written to. Sandboxes only. One recorded
-  exception (M3 spec review M6): the verdict cache lives in the project-local
-  `.tf-mut-cache/` directory, which the tool owns; module sources themselves are still never
-  written, and `--no-cache` removes even that.
+- The source tree of a module under test is never written to. Sandboxes only. Two recorded
+  exceptions, both tool-owned files the user asks for: the verdict cache in the
+  project-local `.tf-mut-cache/` directory (M3 spec review M6; `--no-cache` removes even
+  that), and the acceptance list `.tf-mut-baseline.json`, written only on an explicit
+  `--write-baseline` over a full, unsampled, freshly executed population. Module sources
+  themselves are never written.
 - New milestone specs: run `/to-spec` against the design docs; one milestone per spec;
   absorb the previous milestone's implementation learnings first — they live in
   `docs/reviews/<date>-<milestone>-implementation-review.md` and the milestone's exit-gate

@@ -380,18 +380,27 @@ func complete(
 	return result
 }
 
+// scopeLabel names the population a gate was evaluated over.
+func scopeLabel(full bool) string {
+	if full {
+		return "full"
+	}
+
+	return "selected"
+}
+
 // gateOutcomes records the gate table's outcomes for this run (2.1.0). The
 // fail-on-new and baseline rows arrive with the baseline file (M3b.3); the
 // min-score row is recorded here, labelled partial over any scoped or sampled
 // population.
 func gateOutcomes(settings Config, result report.Report) *report.Gates {
+	// The gate table's non-Full rows: scoped, sampled, or served even partly
+	// from the cache — each evaluated over what actually ran, labelled
+	// partial.
 	partial := result.Sampling != nil ||
+		result.Population.Cached > 0 ||
 		(result.Selection.Mode == report.SelectionSince && result.Selection.ForcedFull == "")
-
-	scope := "full"
-	if partial {
-		scope = "selected"
-	}
+	scope := scopeLabel(!partial)
 
 	minScore := report.GateOutcome{
 		Evaluated: settings.HasMinScore,

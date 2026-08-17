@@ -762,6 +762,10 @@
         },
         "authoritative": {
           "const": false
+        },
+        "gate_opt_in": {
+          "type": "boolean",
+          "description": "True where --allow-sampled-gate let this sample satisfy a gate."
         }
       }
     },

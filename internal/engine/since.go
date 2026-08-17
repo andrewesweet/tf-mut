@@ -330,6 +330,7 @@ func applySample(settings Config, mutants []report.Mutant, chosen *selection) {
 		RatePercent:   settings.SamplePercent,
 		Seed:          settings.SampleSeed,
 		Authoritative: false,
+		GateOptIn:     settings.AllowSampledGate && (settings.HasMinScore || settings.FailOnNew),
 	}
 }
 

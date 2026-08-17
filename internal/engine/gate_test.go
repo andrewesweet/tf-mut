@@ -261,6 +261,9 @@ func TestStaleAndUnobservedAreDistinguished(t *testing.T) {
 
 	full := baseConfig(t, module)
 	full.FailOnNew = true
+	// The Full row is the full, unsampled, freshly executed population: the
+	// cache would demote this run to the cached row.
+	full.NoCache = true
 
 	fullResult := runWith(t, full)
 
@@ -347,6 +350,10 @@ func TestASampledFailOnNewIsRefusedWithoutTheOptIn(t *testing.T) {
 	if result.Gates == nil || !result.Gates.FailOnNew.Evaluated {
 		t.Fatal("the opted-in sampled gate was not evaluated and reported")
 	}
+
+	if !result.Sampling.GateOptIn {
+		t.Fatal("the report does not record that --allow-sampled-gate was used")
+	}
 }
 
 // TestScopedFailOnNewJudgesTheSelectedPopulationOnly: an unselected finding
@@ -411,5 +418,72 @@ func TestExitCodesAreDeterministicAcrossTheTable(t *testing.T) {
 
 	if first != second {
 		t.Fatalf("the same gate configuration produced exits %d then %d", first, second)
+	}
+}
+
+// TestTheCachedRowOfTheGateTable pins the truth table's cached run shape: a
+// population served even partly from the cache reports no staleness, treats
+// unmatched entries as unobserved, labels its gates partial, and refuses a
+// baseline write with --no-cache as the remedy.
+func TestTheCachedRowOfTheGateTable(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+	weakenTests(t, module)
+
+	adopt := baseConfig(t, module)
+	adopt.WriteBaseline = true
+	adopted := runWith(t, adopt)
+
+	if adopted.Gates.Baseline.Write != report.BaselineWritten {
+		t.Fatal("the fresh full run could not write the baseline")
+	}
+
+	// The same configuration replays from the cache.
+	cached := adopt
+	cached.WriteBaseline = false
+	cached.FailOnNew = true
+
+	replayed := runWith(t, cached)
+	if replayed.Population.Cached == 0 {
+		t.Fatal("the second run replayed nothing; the cached row is not being exercised")
+	}
+
+	baseline := replayed.Gates.Baseline
+	if baseline.StalenessReported || len(baseline.Stale) != 0 {
+		t.Fatalf("a cached population reported staleness: %+v", baseline)
+	}
+
+	if !replayed.Gates.FailOnNew.Partial || replayed.Gates.FailOnNew.Scope != "selected" {
+		t.Fatalf("a cached population's gate is not labelled partial over selected: %+v",
+			replayed.Gates.FailOnNew)
+	}
+
+	// A write over a cached population is refused, loudly.
+	rewrite := adopt
+	if _, err := engine.Run(t.Context(), rewrite); !errors.Is(err, engine.ErrBaselineWrite) {
+		t.Fatalf("a cached baseline write returned %v, want ErrBaselineWrite", err)
+	}
+}
+
+// TestScopedMinScoreIsLabelledPartial completes the table's --since row for
+// --min-score: evaluated over the selected population, labelled partial.
+func TestScopedMinScoreIsLabelledPartial(t *testing.T) {
+	t.Parallel()
+
+	module := gitFixture(t, "all-killed")
+
+	config := baseConfig(t, module)
+	config.Since = sinceHead
+	config.HasMinScore = true
+	config.MinScore = 0
+	config.NoCache = true
+
+	result := runWith(t, config)
+
+	if !result.Gates.MinScore.Evaluated || !result.Gates.MinScore.Partial ||
+		result.Gates.MinScore.Scope != "selected" {
+		t.Fatalf("a scoped --min-score outcome is not labelled partial over selected: %+v",
+			result.Gates.MinScore)
 	}
 }

@@ -65,6 +65,10 @@ func TestTheM3GateCoversEveryNamedRequirement(t *testing.T) {
 		"verdict invariance under --since":        "TestVerdictInvarianceUnderSince",
 		"verdict invariance under the cache":      "TestASecondUnchangedRunIsAllCacheHits",
 		"verdict invariance under sampling":       "TestVerdictInvarianceUnderSampling",
+		"the cached row of the gate table":        "TestTheCachedRowOfTheGateTable",
+		"scoped min-score labelled partial":       "TestScopedMinScoreIsLabelledPartial",
+		"the lock key dimension":                  "TestTheLockFileIsAKeyDimension",
+		"the remote-payload key dimension":        "TestRemoteModulePayloadsAreAKeyDimension",
 	}
 
 	named := map[string]bool{}

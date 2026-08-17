@@ -2,6 +2,7 @@ package engine
 
 import (
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -134,7 +135,7 @@ func mutatedMultiplicity(
 			continue
 		}
 
-		if !slicesEqual(candidate.Labels, labels) {
+		if !slices.Equal(candidate.Labels, labels) {
 			continue
 		}
 
@@ -164,16 +165,6 @@ func blockShape(block discovery.Block) (string, []string) {
 	}
 
 	return "resource", []string{block.Type, block.Name}
-}
-
-func slicesEqual(left, right []string) bool {
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-
-	return true
 }
 
 // relevantRuns lists the runs that instantiate the root module: every run

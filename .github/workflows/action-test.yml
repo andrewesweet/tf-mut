@@ -25,17 +25,13 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+      - uses: jdx/mise-action@3c2e0cf82a5b2e5249f0d3635a4d83d0ae861518 # v4
         with:
-          go-version-file: go.mod
+          version: 2026.8.6
+          install: true
           cache: true
-      - name: Build and package as release assets
-        run: |
-          set -euo pipefail
-          CGO_ENABLED=0 go build -trimpath -o tf-mut ./cmd/tf-mut
-          mkdir -p "release/$TEST_VERSION"
-          tar -czf "release/$TEST_VERSION/tf-mut_${TEST_VERSION}_linux_amd64.tar.gz" tf-mut
-          (cd "release/$TEST_VERSION" && sha256sum -- *.tar.gz > checksums.txt)
+      - name: Package the checkout as release assets
+        run: just package-test-release "$TEST_VERSION" "$PWD/release"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: tf-mut-test-release

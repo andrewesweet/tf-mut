@@ -93,11 +93,21 @@ func applyBaselineGate(settings Config, moduleDir string, result *report.Report)
 		return err
 	}
 
-	full := result.Population.Omitted == 0 && result.Sampling == nil
+	// The truth table's run shapes: a population that is scoped, sampled or
+	// served even partly from the cache is not the Full row. Staleness and a
+	// baseline write both require a full, unsampled, freshly executed
+	// population.
+	full := result.Population.Omitted == 0 && result.Sampling == nil &&
+		result.Population.Cached == 0
 	gate := judgeFindings(accepted, result, full)
 	gate.Path = filepath.Base(path)
 
 	if settings.WriteBaseline {
+		if !full {
+			return fmt.Errorf("%w: this run replayed %d cached verdict(s); use --no-cache",
+				ErrBaselineWrite, result.Population.Cached)
+		}
+
 		if writeErr := writeBaseline(path, result); writeErr != nil {
 			return writeErr
 		}
@@ -119,14 +129,6 @@ func applyBaselineGate(settings Config, moduleDir string, result *report.Report)
 	}
 
 	return nil
-}
-
-func scopeLabel(full bool) string {
-	if full {
-		return "full"
-	}
-
-	return "selected"
 }
 
 // judgeFindings applies the acceptance list to the current findings.

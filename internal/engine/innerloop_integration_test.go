@@ -40,6 +40,19 @@ func expectedSelectedSites() []string {
 	}
 }
 
+// expectedSelectedIDs enumerates the pinned diff's twelve mutant identifiers
+// (M5: "expected selected mutant IDs enumerated with a non-zero minimum").
+// Identifiers are content-derived, so this list moves only when the pinned
+// fixture or the operator catalogue does — which is exactly what the pin is
+// for.
+func expectedSelectedIDs() []string {
+	return []string{
+		"1a1018166288", "1b2dbea0dabe", "23142f1639df", "573d08a7c44e",
+		"6ced0d93372f", "8b506b269716", "afa0feaca4bc", "bc7c1b5a9868",
+		"dbd5e75e01ad", "e0f249e966dd", "e1598a8345a0", "e9aa8f23bea3",
+	}
+}
+
 // innerLoopMeasurement is the published shape of the M3c numbers.
 type innerLoopMeasurement struct {
 	Fixture           string   `json:"fixture"`
@@ -105,19 +118,7 @@ func TestInnerLoopGateAgainstTheRealProvider(t *testing.T) {
 
 	// The portable regression assertions: the enumerated selection, with a
 	// non-zero minimum, and the factor against the full-run baseline.
-	sites := selectedSites(scoped)
-	if len(scoped.Mutants) == 0 {
-		t.Fatal("the pinned diff selected nothing; an empty selection fails the gate")
-	}
-
-	if !slices.Equal(sites, expectedSelectedSites()) {
-		t.Fatalf("the pinned diff selected %v, expected %v", sites, expectedSelectedSites())
-	}
-
-	if scoped.Population.Omitted == 0 {
-		t.Fatal("the scoped run omitted nothing; the lever did not engage")
-	}
-
+	sites := assertPinnedSelection(t, scoped)
 	assertVerdictInvariance(t, full, scoped)
 
 	factor := fullSeconds / scopedSeconds
@@ -202,6 +203,44 @@ func TestTheMockMaskedRefutationHolds(t *testing.T) {
 	if !found {
 		t.Fatal("the refutation site generated no EXT-ATTR-DELETE mutant")
 	}
+}
+
+// assertPinnedSelection holds the gate's enumerated pins: the four sites and
+// the twelve mutant identifiers, with a non-zero minimum and a non-empty
+// omission.
+func assertPinnedSelection(t *testing.T, scoped report.Report) []string {
+	t.Helper()
+
+	sites := selectedSites(scoped)
+	if len(scoped.Mutants) == 0 {
+		t.Fatal("the pinned diff selected nothing; an empty selection fails the gate")
+	}
+
+	if !slices.Equal(sites, expectedSelectedSites()) {
+		t.Fatalf("the pinned diff selected %v, expected %v", sites, expectedSelectedSites())
+	}
+
+	ids := selectedIDs(scoped)
+	if !slices.Equal(ids, expectedSelectedIDs()) {
+		t.Fatalf("the pinned diff selected IDs %v, expected %v", ids, expectedSelectedIDs())
+	}
+
+	if scoped.Population.Omitted == 0 {
+		t.Fatal("the scoped run omitted nothing; the lever did not engage")
+	}
+
+	return sites
+}
+
+func selectedIDs(result report.Report) []string {
+	ids := make([]string, 0, len(result.Mutants))
+	for _, mutant := range result.Mutants {
+		ids = append(ids, mutant.ID)
+	}
+
+	slices.Sort(ids)
+
+	return ids
 }
 
 func selectedSites(result report.Report) []string {

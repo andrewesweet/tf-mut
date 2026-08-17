@@ -540,7 +540,9 @@ tf-mut preview   [PATH]   List mutants as unified diffs; execute nothing
 tf-mut coverage  [PATH]   Baseline-only coverage report (~1s)
 tf-mut suggest   [PATH]   Survivors plus generated assertions; --apply to write them
 tf-mut explain   ID       Everything about one mutant: diff, plan delta, why it survived
-tf-mut baseline  [PATH]   Write/update the accepted-survivors baseline
+tf-mut run --write-baseline   Write/update the accepted-findings baseline (M3: a run flag,
+                              not a subcommand — a write must ride the full fresh population
+                              it accepts)
 tf-mut init      [PATH]   Scaffold .tf-mut.hcl
 ```
 
@@ -632,8 +634,12 @@ committed baseline, and SARIF puts each survivor as an annotation on the exact l
 diff, with the suggested assertion in the message. A developer sees "this line you just wrote
 is not tested, here is the assertion that would test it" without leaving the PR.
 
-Adoption on an existing codebase is via `tf-mut baseline`: accept today's survivors, fail only
-on regressions. No flag day.
+Adoption on an existing codebase is via `--write-baseline`: accept today's findings into the
+project-local `.tf-mut-baseline.json` (by stable identifier and actionability class), then
+gate with `--fail-on-new` — CI fails on genuinely new findings and on nothing else. Writes
+and staleness reporting require a full, unsampled, freshly executed population; scoped,
+sampled and cached runs evaluate the gate over what actually ran, labelled partial, and
+refuse a rewrite. `--baseline PATH` relocates the file. No flag day.
 
 **The verdict cache and what it stores (M3b.2; M3 spec review M6).** Repeat runs replay
 verdicts from a project-local cache (`.tf-mut-cache/`, `0700`, atomic writes,
