@@ -7,8 +7,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && mise exec -- just doctor",
-            "timeout": 120
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && if [ -d .tools/bin ]; then mise exec -- just doctor; else MISE_CONFIG_DIR=\"$PWD/.artifacts/mise-config\" mise exec -- just tools-install; fi",
+            "timeout": 600
           }
         ]
       }
