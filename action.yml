@@ -83,6 +83,9 @@ runs:
       continue-on-error: true
       uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
       with:
+        # A transient 5xx on the issues API must not cost the PR its comment;
+        # permission refusals (403/404) are not retried and still degrade.
+        retries: 3
         script: |
           const fs = require('fs');
           const marker = '<!-- tf-mut-report -->';
