@@ -147,7 +147,9 @@ teaches the loop. Two skills ship with the tool, and installation is a tool subc
 skill version always matches the binary:
 
 ```
-tf-mut skill install [--agent claude|cursor|generic] [--path .]
+tf-mut skill install [--agent claude|generic] [--path .]
+# generic serves Cursor and every other agent framework; a dedicated cursor
+# adapter ships only if the generic form proves insufficient (M4 spec review, M4)
 ```
 
 - **`tf-mut-mutation`** — the grading loop. When to run `coverage` first, how to read the
