@@ -1,10 +1,13 @@
 # tf-mut — agent instructions
 
 Mutation testing and characterisation-test scaffolding for `terraform test`, optimised for
-fully-mocked unit tests. Milestones M1 and M2 are implemented: `tf-mut run` and `tf-mut preview`
-drive Tiers 0–3 end to end against real Terraform, every survivor carries one diagnosis from the
-fingerprint oracle, and the terminal, JSON and SARIF reporters derive from one report value.
-Later milestones are still specified in GitHub issues labelled `ready-for-agent`.
+fully-mocked unit tests. Milestones M1, M2 and M3 are implemented: `tf-mut run` and `tf-mut
+preview` drive Tiers 0–3 end to end against real Terraform, every survivor carries one
+diagnosis from the fingerprint oracle, the attribute-level reference graph sharpens the
+oracle behind fail-closed adapters, `--since`, the verdict cache and the baseline gate table
+make runs fast and CI honest, and seven reporters (terminal, JSON, SARIF,
+mutation-testing-elements, HTML, JUnit, markdown) derive from one report value. Later
+milestones are still specified in GitHub issues labelled `ready-for-agent`.
 
 ## Reading order
 
@@ -111,10 +114,13 @@ this repository contract.
 | `internal/tfexec` | The Terraform CLI: `version`, `init`, `validate`, `providers schema`, `fmt`, and the `test -json` stream |
 | `internal/report` | The report value, its state, diagnosis and metric definitions, and the terminal, JSON and SARIF renderings |
 
-The JSON reporter's contract is published at `docs/schema/report-2.0.0.json` and validated in
-the suite; `report-1.0.0.json` remains published for M1 consumers. Changing a field's name or
-meaning means a new schema version and a new file. SARIF output is validated against the
-vendored `docs/schema/sarif-2.1.0.json`.
+The JSON reporter's contract is published at `docs/schema/report-2.1.0.json` and validated in
+the suite; `report-2.0.0.json` and `report-1.0.0.json` remain published for earlier
+consumers. Changing a field's name or meaning means a new schema version and a new file.
+SARIF output is validated against the vendored `docs/schema/sarif-2.1.0.json`; the
+mutation-testing-elements adapter against the vendored
+`docs/schema/mutation-testing-report-2.0.0.json` (declared lossy — tf-mut's metrics are the
+authoritative ones); JUnit structurally against `docs/schema/junit-jenkins.xsd`.
 
 The operator catalogue's **applicability matrix** (`docs/design/mutation-operators.md`) is
 normative and enforced: a row naming an operator the catalogue does not enable, an enabled
@@ -130,8 +136,10 @@ volume. And the oracle never claims an equality it cannot prove: an unknown valu
 the payload, or volatility it could not decompose, makes the comparison indeterminate rather
 than identical.
 
-`just gate` runs the M2a honesty gate — the reproductions the oracle has to survive. It is a
-separate recipe from `just test` on purpose: operator and interface breadth must not be able to
+`just gate` runs the M2a honesty gate — the reproductions the oracle has to survive — and
+`just gate-m3` runs the M3 offline gates: graph soundness, the count levers and the gate
+table, audited by name exactly as the honesty gate is. Both are separate recipes from
+`just test` on purpose: operator and interface breadth must not be able to
 hide a failed oracle behind a large green checklist. Two tests keep the recipe honest by
 checking that every name in it resolves to a test that exists, and that every reproduction the
 spec requires is still named.

@@ -464,3 +464,29 @@ func applyIndexInfo(t *testing.T, dir, info string) {
 		t.Fatalf("git update-index: %v\n%s", err, output)
 	}
 }
+
+// TestVerdictInvarianceUnderSampling completes the levers' law for the third
+// lever: a sampled run's shared mutants carry verdicts identical to the full
+// run's.
+func TestVerdictInvarianceUnderSampling(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+
+	full, err := engine.Run(t.Context(), baseConfig(t, module))
+	if err != nil {
+		t.Fatalf("full run: %v", err)
+	}
+
+	config := baseConfig(t, module)
+	config.HasSample = true
+	config.SamplePercent = 60
+	config.SampleSeed = 7
+
+	sampled, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("sampled run: %v", err)
+	}
+
+	assertVerdictInvariance(t, full, sampled)
+}
