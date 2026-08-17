@@ -108,6 +108,9 @@ jobs:
           module: /tmp/failing
           args: ""
           comment: "true"
+          # GitHub permits one SARIF upload per job per tool/category; the
+          # green invocation above already claimed the default category.
+          sarif-category: failing-run
       - name: The failure order held for the red run
         env:
           FAILING_OUTCOME: ${{ steps.failing.outcome }}

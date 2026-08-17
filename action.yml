@@ -29,6 +29,11 @@ inputs:
     description: Maintain a PR comment with the markdown summary.
     required: false
     default: "true"
+  sarif-category:
+    description: >-
+      Category for the code-scanning upload. GitHub permits one upload per job per tool/category, so a workflow invoking this Action more than once in a job must give each invocation its own category. Empty means uncategorised.
+    required: false
+    default: ""
 outputs:
   exit-code:
     description: The tf-mut run's own exit code, before any upload ran.
@@ -70,6 +75,7 @@ runs:
       continue-on-error: true
       with:
         sarif_file: tf-mut.sarif
+        category: ${{ inputs.sarif-category }}
     - name: Create or update the PR comment
       id: comment
       if: inputs.comment == 'true' && github.event_name == 'pull_request'
