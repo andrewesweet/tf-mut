@@ -418,7 +418,7 @@ func checkSampledGate(settings Config) error {
 		return nil
 	}
 
-	if settings.HasMinScore {
+	if settings.HasMinScore || settings.FailOnNew {
 		return fmt.Errorf("%w", ErrSampledGate)
 	}
 

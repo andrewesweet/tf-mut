@@ -54,6 +54,9 @@ Flags for run and preview:
   --seed N                     Seed for --sample (default 0)
   --allow-sampled-gate         Let a sampled run satisfy --min-score (unsafe)
   --no-cache                   Disable the project-local verdict cache
+  --fail-on-new                Fail on findings the baseline does not accept
+  --write-baseline             Accept the current findings as the baseline
+  --baseline PATH              Baseline file (default ".tf-mut-baseline.json")
   --operator ID[,ID]           Restrict generation to these operators
   --exclude-operator ID[,ID]   Remove operators from the population
   --exclude-path GLOB[,GLOB]   Remove sites in matching files
@@ -112,6 +115,8 @@ type flagValues struct {
 	seed                                     *int64
 	allowIncomplete, allowReal, allowEffects *bool
 	allowSampledGate, noCache                *bool
+	failOnNew, writeBaseline                 *bool
+	baselinePath                             *string
 }
 
 func declareFlags(set *flag.FlagSet) flagValues {
@@ -141,6 +146,11 @@ func declareFlags(set *flag.FlagSet) flagValues {
 		allowSampledGate: set.Bool("allow-sampled-gate", false,
 			"let a sampled run satisfy a gate (unsafe)"),
 		noCache: set.Bool("no-cache", false, "disable the project-local verdict cache"),
+		failOnNew: set.Bool("fail-on-new", false,
+			"fail on findings the baseline does not accept"),
+		writeBaseline: set.Bool("write-baseline", false,
+			"accept the current findings as the baseline"),
+		baselinePath: set.String("baseline", "", "baseline file location"),
 	}
 }
 
@@ -213,11 +223,15 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 			SampleSeed:              *values.seed,
 			AllowSampledGate:        *values.allowSampledGate,
 			NoCache:                 *values.noCache,
+			FailOnNew:               *values.failOnNew,
+			WriteBaseline:           *values.writeBaseline,
+			BaselinePath:            *values.baselinePath,
 		},
 		gate: report.Gate{
 			MinScore:             *values.minScore,
 			HasMinScore:          requested,
 			AllowIncompleteScore: *values.allowIncomplete,
+			FailOnNew:            *values.failOnNew,
 		},
 		reporter:  *values.reporter,
 		sarifPath: *values.sarifPath,

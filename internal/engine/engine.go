@@ -116,6 +116,14 @@ type Config struct {
 	// NoCache disables cache reads and writes: the documented mitigation for
 	// the plan-values-on-disk risk, and the escape hatch for a shared cache.
 	NoCache bool
+	// FailOnNew fails the run on any finding the baseline does not accept.
+	FailOnNew bool
+	// WriteBaseline accepts the current findings as the baseline; permitted
+	// only on a full unsampled population.
+	WriteBaseline bool
+	// BaselinePath overrides the baseline file location, relative to the
+	// module directory unless absolute.
+	BaselinePath string
 	// DisableStaticShortcuts turns the static pre-classifications off — the
 	// static Unobservable shortcut and the conditional-instantiation
 	// NoCoverage evaluator — so a control run can prove each shortcut equal
@@ -237,7 +245,25 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		graph:         graph,
 	})
 
-	return complete(configuration, settings, result, executed, failures), nil
+	return finish(configuration, settings, moduleDir, result, executed, failures)
+}
+
+// finish completes the report and applies the baseline gate.
+func finish(
+	configuration discovery.Configuration,
+	settings Config,
+	moduleDir string,
+	result report.Report,
+	executed []report.Mutant,
+	failures []report.ExecutionError,
+) (report.Report, error) {
+	result = complete(configuration, settings, result, executed, failures)
+
+	if err := applyBaselineGate(settings, moduleDir, &result); err != nil {
+		return report.Report{}, err
+	}
+
+	return result, nil
 }
 
 // executeWithCache replays cached verdicts under the coarse correct key
@@ -272,8 +298,13 @@ func finalise(settings Config, configured config.File) (Config, error) {
 	settings.ExcludePaths = append(slices.Clone(settings.ExcludePaths), configured.Exclude.Paths...)
 	settings.ExcludeResources = append(slices.Clone(settings.ExcludeResources), configured.Exclude.Resources...)
 
-	// The gate truth table's sampled row: refused before any work is done.
+	// The gate truth table's sampled and write rows: refused before any work
+	// is done.
 	if err := checkSampledGate(settings); err != nil {
+		return Config{}, err
+	}
+
+	if err := checkBaselineWrite(settings); err != nil {
 		return Config{}, err
 	}
 

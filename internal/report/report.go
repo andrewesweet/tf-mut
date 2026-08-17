@@ -341,6 +341,9 @@ type BaselineGate struct {
 	Write string `json:"write,omitempty"`
 }
 
+// BaselineWritten records a permitted, completed baseline write.
+const BaselineWritten = "written"
+
 // Gates is the gate table's outcomes for this run.
 type Gates struct {
 	MinScore  GateOutcome   `json:"min_score"`
