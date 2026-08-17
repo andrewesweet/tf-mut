@@ -133,6 +133,10 @@ type Config struct {
 	// NoCoverage evaluator — so a control run can prove each shortcut equal
 	// to the executed verdict. It is a seam control, not a command-line flag.
 	DisableStaticShortcuts bool
+	// DisableJSONReading leaves every JSON-syntax file in the closure unread,
+	// so a control run can prove the safety floor holds for content the tool
+	// has not read. It is a seam control, not a command-line flag.
+	DisableJSONReading bool
 }
 
 // Operational failures. Every one of them aborts the run: none of them can be
@@ -174,7 +178,8 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		return report.Report{}, err
 	}
 
-	configuration, err := discovery.Discover(moduleDir, settings.TestDirectory)
+	configuration, err := discovery.DiscoverWith(moduleDir, settings.TestDirectory,
+		discovery.Options{SkipJSON: settings.DisableJSONReading})
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -189,6 +194,15 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		if err != nil {
 			return report.Report{}, err
 		}
+	}
+
+	// The floor's static half holds whether or not the gates were authorised,
+	// and in a preview too: a shortcut is a claim about the whole
+	// configuration, and part of the configuration was not read.
+	floor := floorOf(configuration)
+	if floor.active() {
+		settings.DisableStaticShortcuts = true
+		warnings = append(warnings, floor.degradation())
 	}
 
 	if len(configuration.Tests.Runs) == 0 {
@@ -211,6 +225,12 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 	warnings = append(append(warnings, prepared.warnings...), generated.Warnings...)
 
 	graph := configuration.BuildGraph()
+	if floor.active() {
+		// The whole-payload floor: the graph is built from `.tf` syntax alone,
+		// so unread JSON means missing edges. Every mapping fails.
+		graph = discovery.UnmappedGraph()
+	}
+
 	result := shell(configuration, settings, version.Terraform, moduleDir, prepared, warnings)
 	mutants := describe(configuration, graph, settings, generated.Mutants)
 

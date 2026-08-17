@@ -154,6 +154,18 @@ func cacheKey(
 		write("test", filepath.Base(path), hashBytes(content))
 	}
 
+	// Every JSON-syntax file in the closure, whether or not this run read it.
+	// Terraform reads them regardless, so they reach verdicts; the key hashes
+	// all JSON classes and no finer key is built (M4c).
+	for _, file := range configuration.JSONFiles() {
+		content, err := os.ReadFile(file.Path) //nolint:gosec // discovery-owned path.
+		if err != nil {
+			return "", err
+		}
+
+		write("json", file.Rel, hashBytes(content))
+	}
+
 	// The dependency lock, where one exists.
 	if prepared.lockFile != "" {
 		content, err := os.ReadFile(prepared.lockFile)

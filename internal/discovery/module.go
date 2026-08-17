@@ -37,17 +37,19 @@ const (
 	countKeyword   = "count"
 )
 
-func parseModule(parser *hclparse.Parser, current queued) (Module, error) {
+func parseModule(parser *hclparse.Parser, current queued, options Options) (Module, []JSONFile, error) {
 	files, err := listFiles(current.dir, ".tf")
 	if err != nil {
-		return Module{}, err
+		return Module{}, nil, err
 	}
 
 	module := Module{
-		Dir:        current.dir,
-		Files:      files,
-		Bodies:     map[string]*hclsyntax.Body{},
-		References: map[string][]Reference{},
+		Dir:            current.dir,
+		Files:          files,
+		Bodies:         map[string]*hclsyntax.Body{},
+		References:     map[string][]Reference{},
+		JSONExpansions: map[string][]Ref{},
+		JSONBodies:     map[string]hcl.Body{},
 	}
 
 	providers := map[string]bool{}
@@ -55,19 +57,93 @@ func parseModule(parser *hclparse.Parser, current queued) (Module, error) {
 	for _, path := range files {
 		body, err := parseFile(parser, path)
 		if err != nil {
-			return Module{}, err
+			return Module{}, nil, err
 		}
 
 		module.Bodies[path] = body
 
 		if err := collectFile(&module, providers, path, body); err != nil {
-			return Module{}, err
+			return Module{}, nil, err
 		}
+	}
+
+	jsonFiles, err := readJSONConfigurations(&module, providers, current.dir, options)
+	if err != nil {
+		return Module{}, nil, err
 	}
 
 	module.Providers = sortedKeys(providers)
 
-	return module, nil
+	return module, jsonFiles, nil
+}
+
+// readJSONConfigurations decodes every `.tf.json` file in a module directory,
+// recording each file's read status. A file that cannot be read contributes
+// nothing to the inventories and keeps the safety floor down for itself alone:
+// its readable neighbours still lift theirs.
+func readJSONConfigurations(
+	module *Module,
+	providers map[string]bool,
+	dir string,
+	options Options,
+) ([]JSONFile, error) {
+	paths, err := listJSON(dir, jsonConfigurationSuffix)
+	if err != nil {
+		return nil, err
+	}
+
+	records := make([]JSONFile, 0, len(paths))
+
+	for _, path := range paths {
+		// Each file is decoded into a scratch module and merged only once it
+		// has decoded completely: a file that fails half-way must contribute
+		// nothing at all, or the inventories would carry a partial reading of
+		// content the floor is meant to stay down for.
+		scratch := Module{ //nolint:exhaustruct // a decode sink: only the collected fields matter.
+			Dir:            module.Dir,
+			References:     map[string][]Reference{},
+			JSONExpansions: map[string][]Ref{},
+			JSONBodies:     map[string]hcl.Body{},
+		}
+		found := map[string]bool{}
+
+		if readErr := skippedOr(options, func() error {
+			return readJSONConfiguration(&scratch, found, path)
+		}); readErr != nil {
+			records = append(records, unreadFile(path, JSONConfiguration, readErr))
+
+			continue
+		}
+
+		mergeJSONModule(module, providers, scratch, found)
+		records = append(records, readFileRecord(path, JSONConfiguration))
+	}
+
+	return records, nil
+}
+
+// mergeJSONModule folds one completely decoded JSON file into the module.
+func mergeJSONModule(module *Module, providers map[string]bool, scratch Module, found map[string]bool) {
+	module.Effects = append(module.Effects, scratch.Effects...)
+	module.ProviderAliases = append(module.ProviderAliases, scratch.ProviderAliases...)
+	module.JSONResources = append(module.JSONResources, scratch.JSONResources...)
+	module.JSONDataSources = append(module.JSONDataSources, scratch.JSONDataSources...)
+
+	for address, references := range scratch.References {
+		module.References[address] = append(module.References[address], references...)
+	}
+
+	for address, refs := range scratch.JSONExpansions {
+		module.JSONExpansions[address] = append(module.JSONExpansions[address], refs...)
+	}
+
+	for path, body := range scratch.JSONBodies {
+		module.JSONBodies[path] = body
+	}
+
+	for name := range found {
+		providers[name] = true
+	}
 }
 
 func collectFile(module *Module, providers map[string]bool, path string, body *hclsyntax.Body) error {

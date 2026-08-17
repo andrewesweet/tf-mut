@@ -77,9 +77,15 @@ func (c Configuration) BuildClosure() Closure {
 		for _, local := range module.Locals {
 			closure.record("local."+local.Name, local.Attributes, local.Name)
 		}
+
+		// JSON-declared outputs and locals expand imprecisely (M4c): a JSON
+		// expression reports which addresses it observes and nothing about how.
+		for address, refs := range module.JSONExpansions {
+			closure.expansions[address] = append(closure.expansions[address], refs...)
+		}
 	}
 
-	closure.assertions = c.assertionReads()
+	closure.assertions = append(c.assertionReads(), c.Tests.JSONAssertions...)
 
 	return closure
 }

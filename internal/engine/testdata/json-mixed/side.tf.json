@@ -1,0 +1,14 @@
+{
+  "resource": {
+    "terraform_data": {
+      "side": {
+        "input": "${local.json_only}"
+      }
+    }
+  },
+  "output": {
+    "side": {
+      "value": "${terraform_data.side.input}"
+    }
+  }
+}

@@ -112,6 +112,19 @@ type Module struct {
 	Effects []Effect
 	// References records how each resource address is consumed.
 	References map[string][]Reference
+	// JSONResources and JSONDataSources are the blocks `.tf.json` files
+	// declare. They are kept apart from the HCL inventories because those are
+	// the mutation surface and these are not: Tier 0 rewrites through
+	// `hclwrite` and Tiers 1–3 rewrite native-syntax byte ranges, so a JSON
+	// file is graphed and safety-scanned and never mutated.
+	JSONResources   []Block
+	JSONDataSources []Block
+	// JSONExpansions records what each JSON-declared output or local observes,
+	// so the assertion closure can follow a delta through it.
+	JSONExpansions map[string][]Ref
+	// JSONBodies holds each successfully read JSON configuration file's body,
+	// keyed by absolute path, so the reference graph can walk it.
+	JSONBodies map[string]hcl.Body
 }
 
 // Effect is a construct that is not severed by provider mocking.
@@ -173,6 +186,11 @@ type RunBlock struct {
 	// HasPlanTarget reports a plan_options block with a target, which changes
 	// what the run instantiates and fails the evaluator closed.
 	HasPlanTarget bool
+	// JSONDeclared marks a run block declared in a `.tftest.json` file. Its
+	// variables are not decoded into the evaluator's context — an `Attribute`
+	// carries a native-syntax expression and a JSON one has none — so the
+	// evaluator fails closed on it, and no suggestion may target it.
+	JSONDeclared bool
 }
 
 // TestSuite is the discovered test inventory.
@@ -192,6 +210,10 @@ type TestSuite struct {
 	// FileVariables are each test file's file-level variable assignments,
 	// keyed by absolute file path (M3a.3 evaluator context).
 	FileVariables map[string][]Attribute
+	// JSONAssertions lists the addresses JSON-declared assert conditions read.
+	// They join the closure imprecisely: a JSON expression reports which
+	// addresses it observes and nothing about how.
+	JSONAssertions []Assertion
 }
 
 // Configuration is everything discovery learned about the module under test.
@@ -205,6 +227,10 @@ type Configuration struct {
 	// RemoteCalls lists module calls whose source is not a local path.
 	RemoteCalls []ModuleCall
 	Tests       TestSuite
+	// jsonFiles is the closure's JSON-syntax inventory, which the safety floor
+	// is decided from. It is unexported so that no caller can construct a
+	// Configuration whose floor was never scanned for.
+	jsonFiles []JSONFile
 }
 
 // ModuleByRel returns the module with the given closure-relative directory.
@@ -218,9 +244,25 @@ func (c Configuration) ModuleByRel(rel string) (Module, bool) {
 	return Module{}, false
 }
 
+// Options tune what a discovery reads.
+type Options struct {
+	// SkipJSON leaves every JSON-syntax file unread, whatever its content.
+	//
+	// It is a seam control and not a command-line flag, the way the static
+	// shortcut control is: it exists so a test can prove the safety floor
+	// holds for content the tool has not read, over the same fixtures whose
+	// content the reader normally lifts the floor with.
+	SkipJSON bool
+}
+
 // Discover parses the module at moduleDir together with the test files in
 // testDir, which is interpreted relative to the module directory.
 func Discover(moduleDir, testDir string) (Configuration, error) {
+	return DiscoverWith(moduleDir, testDir, Options{SkipJSON: false})
+}
+
+// DiscoverWith is Discover under explicit options.
+func DiscoverWith(moduleDir, testDir string, options Options) (Configuration, error) {
 	absoluteModuleDir, err := filepath.Abs(moduleDir)
 	if err != nil {
 		return Configuration{}, fmt.Errorf("resolving module directory: %w", err)
@@ -233,7 +275,7 @@ func Discover(moduleDir, testDir string) (Configuration, error) {
 
 	parser := hclparse.NewParser()
 
-	suite, err := parseTests(parser, absoluteModuleDir, testDir)
+	suite, jsonFiles, err := parseTests(parser, absoluteModuleDir, testDir, options)
 	if err != nil {
 		return Configuration{}, err
 	}
@@ -266,11 +308,12 @@ func Discover(moduleDir, testDir string) (Configuration, error) {
 
 		seen[current.dir] = true
 
-		module, parseErr := parseModule(parser, current)
+		module, moduleJSON, parseErr := parseModule(parser, current, options)
 		if parseErr != nil {
 			return Configuration{}, parseErr
 		}
 
+		jsonFiles = append(jsonFiles, moduleJSON...)
 		modules = append(modules, module)
 
 		for _, call := range module.Calls {
@@ -298,12 +341,18 @@ func Discover(moduleDir, testDir string) (Configuration, error) {
 		modules[index].Rel = filepath.ToSlash(rel)
 	}
 
+	variableFiles, err := readJSONVariables(absoluteModuleDir, options)
+	if err != nil {
+		return Configuration{}, err
+	}
+
 	return Configuration{
 		ModuleDir:   absoluteModuleDir,
 		ClosureRoot: closureRoot,
 		Modules:     modules,
 		RemoteCalls: remote,
 		Tests:       suite,
+		jsonFiles:   finaliseJSON(closureRoot, append(jsonFiles, variableFiles...)),
 	}, nil
 }
 
