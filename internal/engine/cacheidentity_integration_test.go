@@ -92,6 +92,45 @@ func verifiedArchive(t *testing.T, path string) ([]byte, bool) {
 	return content, true
 }
 
+// downloadedArchive fetches the pinned release archive, verifies it against
+// the pinned checksum, and caches it for the next run.
+func downloadedArchive(t *testing.T, directory, archivePath string) []byte {
+	t.Helper()
+
+	if err := os.MkdirAll(directory, 0o750); err != nil {
+		t.Fatalf("creating %s: %v", directory, err)
+	}
+
+	url := "https://releases.hashicorp.com/terraform/" + secondTerraformVersion +
+		"/terraform_" + secondTerraformVersion + "_linux_amd64.zip"
+
+	response, err := http.Get(url) //nolint:noctx // a fixed release URL in a gated test.
+	if err != nil {
+		t.Fatalf("downloading %s: %v", url, err)
+	}
+
+	defer func() { _ = response.Body.Close() }()
+
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("downloading %s: %s", url, response.Status)
+	}
+
+	archive, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatalf("reading release archive: %v", err)
+	}
+
+	if digest := sha256.Sum256(archive); hex.EncodeToString(digest[:]) != secondTerraformArchiveSHA256 {
+		t.Fatalf("the downloaded archive does not match the pinned checksum: %x", digest)
+	}
+
+	if err := os.WriteFile(archivePath, archive, 0o600); err != nil {
+		t.Fatalf("caching archive: %v", err)
+	}
+
+	return archive
+}
+
 func secondTerraform(t *testing.T) string {
 	t.Helper()
 
@@ -110,36 +149,7 @@ func secondTerraform(t *testing.T) string {
 	// rather than trusted for having a name.
 	archive, cached := verifiedArchive(t, archivePath)
 	if !cached {
-		if err := os.MkdirAll(directory, 0o750); err != nil {
-			t.Fatalf("creating %s: %v", directory, err)
-		}
-
-		url := "https://releases.hashicorp.com/terraform/" + secondTerraformVersion +
-			"/terraform_" + secondTerraformVersion + "_linux_amd64.zip"
-
-		response, err := http.Get(url) //nolint:noctx // a fixed release URL in a gated test.
-		if err != nil {
-			t.Fatalf("downloading %s: %v", url, err)
-		}
-
-		defer func() { _ = response.Body.Close() }()
-
-		if response.StatusCode != http.StatusOK {
-			t.Fatalf("downloading %s: %s", url, response.Status)
-		}
-
-		archive, err = io.ReadAll(response.Body)
-		if err != nil {
-			t.Fatalf("reading release archive: %v", err)
-		}
-
-		if digest := sha256.Sum256(archive); hex.EncodeToString(digest[:]) != secondTerraformArchiveSHA256 {
-			t.Fatalf("the downloaded archive does not match the pinned checksum: %x", digest)
-		}
-
-		if err := os.WriteFile(archivePath, archive, 0o600); err != nil {
-			t.Fatalf("caching archive: %v", err)
-		}
+		archive = downloadedArchive(t, directory, archivePath)
 	}
 
 	reader, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))

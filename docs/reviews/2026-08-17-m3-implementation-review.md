@@ -74,6 +74,11 @@ the withdrawn value as deprecated so the revision stays additive.
 4. **Is the Action's comment worth its write permission?** The SARIF annotations carry the
    same findings into the PR view with `security-events` alone. If real adoption shows the
    comment redundant, dropping it halves the requested permissions.
-5. **The workflow-level Action test has not yet run on GitHub's runners** — it ships in this
-   milestone and executes on the next push. If it needs adjustment, that is CI-shape
-   debugging, not a contract change; the contract's bash is proven locally.
+5. **The workflow-level Action test ran on GitHub's runners and caught a real defect on its
+   first execution**: the emitted SARIF carried an invocation-level `message`, which the
+   2.1.0 schema does not declare and GitHub's upload validator rejects — an annotation loss
+   no local gate saw until the publication-effect assertion existed. The summary moved into
+   `toolExecutionNotifications` and the document's property vocabulary is now pinned by a
+   local test. The open question resolves into a lesson: a reporter targeting a validating
+   consumer needs the consumer's validation asserted, locally or in CI, before the first
+   real upload.

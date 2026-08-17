@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -348,6 +349,19 @@ type junitElement struct {
 	required   map[string]bool
 }
 
+// The validator's refusals, one static error per rule (err113).
+var (
+	errUndeclaredElement   = errors.New("element is not declared")
+	errUnclosedElement     = errors.New("document ended inside an open element")
+	errUndeclaredAttribute = errors.New("attribute is not declared")
+	errAttributePattern    = errors.New("attribute value violates its type restriction")
+	errMissingAttribute    = errors.New("required attribute is missing")
+	errChildNotPermitted   = errors.New("element is not permitted here")
+	errOccursTooOften      = errors.New("element occurs above its bound")
+	errOccursTooSeldom     = errors.New("element occurs below its bound")
+	errOutOfSequence       = errors.New("element is out of sequence")
+)
+
 // validateJUnit validates a document against the parsed dialect. Every
 // decoder error is a validation failure: a truncated document must never
 // pass by ending early.
@@ -376,7 +390,7 @@ func validateJUnit(schema map[string]junitElement, document string) error {
 			name := typed.Name.Local
 
 			if _, found := schema[name]; !found {
-				return fmt.Errorf("element %q is not declared", name)
+				return fmt.Errorf("%w: %q", errUndeclaredElement, name)
 			}
 
 			if len(stack) > 0 {
@@ -400,7 +414,7 @@ func validateJUnit(schema map[string]junitElement, document string) error {
 	}
 
 	if len(stack) != 0 {
-		return fmt.Errorf("document ended inside %q", stack[len(stack)-1].name)
+		return fmt.Errorf("%w: %q", errUnclosedElement, stack[len(stack)-1].name)
 	}
 
 	return nil
@@ -414,11 +428,11 @@ func validateJUnitAttributes(declared junitElement, element xml.StartElement) er
 	for _, attribute := range element.Attr {
 		pattern, allowed := declared.attributes[attribute.Name.Local]
 		if !allowed {
-			return fmt.Errorf("attribute %q is not declared", attribute.Name.Local)
+			return fmt.Errorf("%w: %q", errUndeclaredAttribute, attribute.Name.Local)
 		}
 
 		if pattern != nil && !pattern.MatchString(attribute.Value) {
-			return fmt.Errorf("attribute %q value %q violates its type restriction",
+			return fmt.Errorf("%w: %q=%q", errAttributePattern,
 				attribute.Name.Local, attribute.Value)
 		}
 
@@ -427,7 +441,7 @@ func validateJUnitAttributes(declared junitElement, element xml.StartElement) er
 
 	for required := range declared.required {
 		if !seen[required] {
-			return fmt.Errorf("required attribute %q is missing", required)
+			return fmt.Errorf("%w: %q", errMissingAttribute, required)
 		}
 	}
 
@@ -441,7 +455,7 @@ func validateJUnitChildren(declared junitElement, name string, children []string
 	if declared.choice != nil {
 		for _, child := range children {
 			if !declared.choice[child] {
-				return fmt.Errorf("element %q is not permitted inside %q", child, name)
+				return fmt.Errorf("%w: %q inside %q", errChildNotPermitted, child, name)
 			}
 		}
 
@@ -458,19 +472,19 @@ func validateJUnitChildren(declared junitElement, name string, children []string
 			count++
 
 			if particle.max >= 0 && count > particle.max {
-				return fmt.Errorf("element %q occurs more than %d time(s) inside %q",
-					particle.name, particle.max, name)
+				return fmt.Errorf("%w: %q occurs more than %d time(s) inside %q",
+					errOccursTooOften, particle.name, particle.max, name)
 			}
 		}
 
 		if count < particle.min {
-			return fmt.Errorf("element %q occurs %d time(s) inside %q; the sequence requires %d",
-				particle.name, count, name, particle.min)
+			return fmt.Errorf("%w: %q occurs %d time(s) inside %q; the sequence requires %d",
+				errOccursTooSeldom, particle.name, count, name, particle.min)
 		}
 	}
 
 	if index != len(children) {
-		return fmt.Errorf("element %q is out of sequence inside %q", children[index], name)
+		return fmt.Errorf("%w: %q inside %q", errOutOfSequence, children[index], name)
 	}
 
 	return nil
@@ -504,11 +518,13 @@ type xsElement struct {
 	Complex *xsComplexType `xml:"complexType"`
 }
 
+type xsPattern struct {
+	Value string `xml:"value,attr"`
+}
+
 type xsSimpleType struct {
-	Name    string `xml:"name,attr"`
-	Pattern struct {
-		Value string `xml:"value,attr"`
-	} `xml:"restriction>pattern"`
+	Name    string    `xml:"name,attr"`
+	Pattern xsPattern `xml:"restriction>pattern"`
 }
 
 type xsSchema struct {
@@ -684,5 +700,117 @@ func TestMarkdownCarriesGateOutcomeAndNewVersusAccepted(t *testing.T) {
 		if !strings.Contains(page, needle) {
 			t.Fatalf("the markdown summary is missing %q:\n%s", needle, page)
 		}
+	}
+}
+
+// TestSARIFSpeaksOnlyTheSchemaVocabulary: GitHub's code-scanning upload
+// validates the document against the SARIF 2.1.0 schema and rejects any
+// undeclared property — an invocation-level `message` cost the Action its
+// annotations before this pin existed. Every emitted object is held to the
+// property set the schema declares for it.
+func TestSARIFSpeaksOnlyTheSchemaVocabulary(t *testing.T) {
+	t.Parallel()
+
+	rendered := strings.Builder{}
+	if err := report.WriteSARIF(&rendered, allStatesReport(), nil); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	document := map[string]any{}
+	if err := json.Unmarshal([]byte(rendered.String()), &document); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+
+	for _, violation := range sarifVocabularyViolations("$document", document) {
+		t.Error(violation)
+	}
+}
+
+// TestTheSARIFVocabularyWalkRejectsTheEscapedWitness keeps the walk honest
+// with the exact shape that escaped to GitHub once.
+func TestTheSARIFVocabularyWalkRejectsTheEscapedWitness(t *testing.T) {
+	t.Parallel()
+
+	witness := map[string]any{
+		sarifRunsKey: []any{map[string]any{
+			sarifInvocationsKey: []any{map[string]any{
+				sarifMessageKey: map[string]any{sarifTextKey: "x"},
+			}},
+		}},
+	}
+
+	if len(sarifVocabularyViolations("$document", witness)) == 0 {
+		t.Fatal("the walk accepted an invocation-level message")
+	}
+}
+
+// The property names the vocabulary and its witness both spell out.
+const (
+	sarifRunsKey        = "runs"
+	sarifInvocationsKey = "invocations"
+	sarifMessageKey     = "message"
+	sarifTextKey        = "text"
+)
+
+// sarifVocabulary maps each object the reporter emits — keyed by the property
+// naming it — to the properties the SARIF 2.1.0 schema declares for that
+// object. The schema's free-form property bags are exempted in the walk.
+func sarifVocabulary() map[string][]string {
+	return map[string][]string{
+		"$document":                  {"$schema", "version", sarifRunsKey},
+		sarifRunsKey:                 {"tool", "results", sarifInvocationsKey},
+		"tool":                       {"driver"},
+		"driver":                     {"name", "informationUri", "rules"},
+		"rules":                      {"id", "name", "shortDescription", "fullDescription", "help", "properties"},
+		"results":                    {"ruleId", "level", sarifMessageKey, "locations", "partialFingerprints"},
+		"locations":                  {"physicalLocation"},
+		"physicalLocation":           {"artifactLocation", "region"},
+		"artifactLocation":           {"uri"},
+		"region":                     {"startLine", "startColumn", "endLine", "endColumn"},
+		sarifInvocationsKey:          {"executionSuccessful", "toolExecutionNotifications"},
+		"toolExecutionNotifications": {"level", sarifMessageKey},
+		sarifMessageKey:              {sarifTextKey},
+		"shortDescription":           {sarifTextKey},
+		"fullDescription":            {sarifTextKey},
+		"help":                       {sarifTextKey},
+	}
+}
+
+func sarifVocabularyViolations(field string, value any) []string {
+	switch typed := value.(type) {
+	case map[string]any:
+		if field == "properties" || field == "partialFingerprints" {
+			return nil
+		}
+
+		allowed, pinned := sarifVocabulary()[field]
+		if !pinned {
+			return []string{fmt.Sprintf("object %q has no pinned vocabulary", field)}
+		}
+
+		violations := []string{}
+
+		for key, child := range typed {
+			if !slices.Contains(allowed, key) {
+				violations = append(violations,
+					fmt.Sprintf("property %q is not declared on the SARIF %q object", key, field))
+
+				continue
+			}
+
+			violations = append(violations, sarifVocabularyViolations(key, child)...)
+		}
+
+		return violations
+	case []any:
+		violations := []string{}
+
+		for _, entry := range typed {
+			violations = append(violations, sarifVocabularyViolations(field, entry)...)
+		}
+
+		return violations
+	default:
+		return nil
 	}
 }

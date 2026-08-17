@@ -254,14 +254,14 @@ func (b *graphBuilder) wireCall(name string, callNode nodeID) {
 		// graph cannot model: a changed input can alter every resource and
 		// output in the called module, so the call and its inputs make any
 		// cone that touches them unbounded (re-review of #44).
-		b.markCallUnbounded(name, callNode)
+		b.markCallUnbounded(callNode)
 
 		return
 	}
 
 	childRel, ok := b.relByDir[call.Dir]
 	if !ok {
-		b.markCallUnbounded(name, callNode)
+		b.markCallUnbounded(callNode)
 
 		return
 	}
@@ -286,7 +286,7 @@ func (b *graphBuilder) wireCall(name string, callNode nodeID) {
 
 // markCallUnbounded marks a module call node and every declared input node
 // under it as unbounded.
-func (b *graphBuilder) markCallUnbounded(name string, callNode nodeID) {
+func (b *graphBuilder) markCallUnbounded(callNode nodeID) {
 	b.graph.unbounded[callNode] = true
 
 	prefix := callNode.address + "."

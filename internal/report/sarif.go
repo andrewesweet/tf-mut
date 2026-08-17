@@ -95,9 +95,18 @@ type sarifRegion struct {
 	EndColumn   int `json:"endColumn"`
 }
 
+// sarifInvocation carries only properties the SARIF 2.1.0 invocation object
+// declares: GitHub's upload validator rejects a document whose invocation
+// carries an undeclared `message`, so the run summary travels as a
+// tool-execution notification instead.
 type sarifInvocation struct {
-	ExecutionSuccessful bool      `json:"executionSuccessful"`
-	Message             sarifText `json:"message"`
+	ExecutionSuccessful        bool                `json:"executionSuccessful"`
+	ToolExecutionNotifications []sarifNotification `json:"toolExecutionNotifications"`
+}
+
+type sarifNotification struct {
+	Level   string    `json:"level"`
+	Message sarifText `json:"message"`
 }
 
 // RuleDescription is one operator's published documentation.
@@ -293,6 +302,9 @@ func summary(value Report) sarifInvocation {
 	// document reporting none.
 	return sarifInvocation{
 		ExecutionSuccessful: len(value.Errors) == 0,
-		Message:             sarifText{Text: text + "."},
+		ToolExecutionNotifications: []sarifNotification{{
+			Level:   levelNote,
+			Message: sarifText{Text: text + "."},
+		}},
 	}
 }
