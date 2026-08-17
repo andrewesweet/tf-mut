@@ -421,6 +421,7 @@ func shell(
 		SchemaVersion:    report.SchemaVersion,
 		Command:          commandName(settings),
 		Module:           moduleDir,
+		ClosureRoot:      configuration.ClosureRoot,
 		TerraformVersion: terraformVersion,
 		TestDirectory:    configuration.TestDirRelative(),
 		Baseline: report.Baseline{

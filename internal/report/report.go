@@ -73,6 +73,13 @@ const (
 type Diagnosis string
 
 // The survivor diagnoses, in precedence order — first match wins.
+//
+// `mock-masked` was withdrawn in M3 (issue #50, prove-or-withdraw): its
+// positive case cannot fire. A stable apply-mode delta in an
+// optional-computed attribute is attributable to the module, and a
+// computed-only attribute's mock value is either deterministic and identical
+// on both sides or random and masked by the volatility re-run — measured
+// against hashicorp/aws, recorded in docs/research/09-m3-real-provider-gate.md.
 const (
 	// IndeterminateUnknownValues marks a fingerprint-identical survivor whose
 	// payload carries an unknown value, so equality cannot be proven.
@@ -80,9 +87,6 @@ const (
 	// IndeterminateVolatility marks a survivor whose delta remained undecidable
 	// after the mutant was re-run.
 	IndeterminateVolatility Diagnosis = "indeterminate-volatility"
-	// MockMasked marks an apply-mode survivor whose delta is confined to
-	// schema-computed attributes the mock invented.
-	MockMasked Diagnosis = "mock-masked"
 	// WeakAssertion marks a survivor an assertion reads yet does not catch.
 	WeakAssertion Diagnosis = "weak-assertion"
 	// NoAssertion marks a survivor the output and local closure proves no
@@ -163,8 +167,6 @@ type Evidence struct {
 	ClosureVerdict string `json:"closure_verdict,omitempty"`
 	// DefeatedBy names the construct that defeated the closure computation.
 	DefeatedBy string `json:"defeated_by,omitempty"`
-	// MockResource names the mock default that would pin a mock-masked value.
-	MockResource string `json:"mock_resource,omitempty"`
 }
 
 // Verdict is the classification of one mutant: the diagnosis where it has one,
@@ -425,6 +427,9 @@ type Report struct {
 	Command Command `json:"command"`
 	// Module is the absolute directory of the module under test.
 	Module string `json:"module"`
+	// ClosureRoot is the absolute directory containing every local module;
+	// mutant file paths are relative to it (2.1.0).
+	ClosureRoot string `json:"closure_root,omitempty"`
 	// TerraformVersion is the version of the Terraform binary used.
 	TerraformVersion string `json:"terraform_version"`
 	// TestDirectory is the test directory relative to the module.

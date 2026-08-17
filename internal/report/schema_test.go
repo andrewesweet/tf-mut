@@ -190,7 +190,7 @@ func sampleMutants() []report.Mutant {
 		{
 			ID:       sampleMutantID,
 			Operator: "EXT-OUTPUT-NULL",
-			Tier:     "smoke",
+			Tier:     smokeTier,
 			Module:   ".",
 			Site:     sampleOutput,
 			Resource: "",
@@ -219,7 +219,6 @@ func sampleMutants() []report.Mutant {
 					Assertion:          sampleTestFile + ":" + sampleRun,
 					ClosureVerdict:     "read through the output and local closure",
 					DefeatedBy:         "",
-					MockResource:       "",
 				},
 			},
 			Runs: []report.RunOutcome{
@@ -241,7 +240,7 @@ func sampleMutants() []report.Mutant {
 		{
 			ID:       "ba9876543210",
 			Operator: "EXT-BODY-BLANK",
-			Tier:     "smoke",
+			Tier:     smokeTier,
 			Module:   ".",
 			Site:     sampleResource,
 			Resource: sampleResource,
@@ -290,14 +289,20 @@ func sampleMutants() []report.Mutant {
 func loadSchema(t *testing.T) map[string]any {
 	t.Helper()
 
-	content, err := os.ReadFile(schemaPath)
+	return loadSchemaFile(t, schemaPath)
+}
+
+func loadSchemaFile(t *testing.T, path string) map[string]any {
+	t.Helper()
+
+	content, err := os.ReadFile(path) //nolint:gosec // repository-owned schema path.
 	if err != nil {
-		t.Fatalf("reading %s: %v", schemaPath, err)
+		t.Fatalf("reading %s: %v", path, err)
 	}
 
 	schema := map[string]any{}
 	if err := json.Unmarshal(content, &schema); err != nil {
-		t.Fatalf("decoding %s: %v", schemaPath, err)
+		t.Fatalf("decoding %s: %v", path, err)
 	}
 
 	return schema
@@ -350,18 +355,24 @@ func validateObject(root, schema, document map[string]any, path string) []string
 		}
 	}
 
-	properties, ok := schema["properties"].(map[string]any)
-	if !ok {
-		return problems
+	properties, hasProperties := schema["properties"].(map[string]any)
+	if !hasProperties {
+		properties = map[string]any{}
 	}
+
+	additional, hasAdditional := schema["additionalProperties"].(map[string]any)
 
 	for key, value := range document {
 		property, described := properties[key].(map[string]any)
-		if !described {
+		if described {
+			problems = append(problems, validate(root, property, value, path+"."+key)...)
+
 			continue
 		}
 
-		problems = append(problems, validate(root, property, value, path+"."+key)...)
+		if hasAdditional {
+			problems = append(problems, validate(root, additional, value, path+"."+key)...)
+		}
 	}
 
 	return problems

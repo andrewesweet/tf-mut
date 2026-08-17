@@ -1,6 +1,13 @@
 internal/engine/testdata/all-killed/main.tf
 internal/engine/testdata/all-killed/tests/unit.tftest.hcl
+internal/engine/testdata/aws-applied/main.tf
+internal/engine/testdata/aws-applied/tests/unit.tftest.hcl
+internal/engine/testdata/aws-mocked/iam.tf
 internal/engine/testdata/aws-mocked/main.tf
+internal/engine/testdata/aws-mocked/messaging.tf
+internal/engine/testdata/aws-mocked/observability.tf
+internal/engine/testdata/aws-mocked/state.tf
+internal/engine/testdata/aws-mocked/storage.tf
 internal/engine/testdata/aws-mocked/tests/unit.tftest.hcl
 internal/engine/testdata/closure/main.tf
 internal/engine/testdata/closure/tests/unit.tftest.hcl

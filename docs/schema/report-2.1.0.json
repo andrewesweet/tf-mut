@@ -37,6 +37,10 @@
       "type": "string",
       "description": "Absolute directory of the module under test."
     },
+    "closure_root": {
+      "type": "string",
+      "description": "Absolute directory containing every local module; mutant file paths are relative to it."
+    },
     "terraform_version": {
       "type": "string"
     },
@@ -325,11 +329,10 @@
     },
     "diagnosis": {
       "type": "string",
-      "description": "Set only for Survived. Exactly one, assigned by the normative precedence: indeterminate-unknown-values, indeterminate-volatility, mock-masked, weak-assertion, no-assertion, unasserted.",
+      "description": "Set only for Survived. Exactly one, assigned by the normative precedence: indeterminate-unknown-values, indeterminate-volatility, weak-assertion, no-assertion, unasserted.",
       "enum": [
         "indeterminate-unknown-values",
         "indeterminate-volatility",
-        "mock-masked",
         "weak-assertion",
         "no-assertion",
         "unasserted"
@@ -415,9 +418,6 @@
               "type": "string"
             },
             "defeated_by": {
-              "type": "string"
-            },
-            "mock_resource": {
               "type": "string"
             }
           }

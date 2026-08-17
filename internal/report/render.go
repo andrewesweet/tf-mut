@@ -222,8 +222,10 @@ func writeVerdict(builder *strings.Builder, verdict *Verdict) {
 	fmt.Fprintf(builder, "    Fix: %s.\n\n", verdict.Fix)
 }
 
-// shownChanges bounds the delta the terminal prints. The whole delta is in the
-// JSON report; a screen of it helps nobody.
+// shownChanges bounds the delta the terminal prints. Set from measured
+// survivor data (M3c, docs/research/09-m3-real-provider-gate.md): the median
+// real survivor delta is exactly three changes; the whole delta is in the
+// JSON report.
 const shownChanges = 3
 
 // changeLabel names a change the way a reader would look for it: the Terraform
