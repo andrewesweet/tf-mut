@@ -205,6 +205,7 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		described:     mutants,
 		workRoot:      workRoot,
 		closure:       configuration.BuildClosure(),
+		graph:         configuration.BuildGraph(),
 	})
 
 	return complete(configuration, result, executed, failures), nil

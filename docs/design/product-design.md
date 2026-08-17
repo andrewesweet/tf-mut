@@ -201,6 +201,30 @@ an *indexed* dependent validates but errors at evaluation — see the operator c
 R2-5) needs only a local scan and ships with the operator in M1; (d) survivor explanations
 as paths: "`local.tags` → `aws_instance.app.tags` → nothing asserts on it" (post-MVP).
 
+**The canonical address model (M3a; M3 spec review C3).** One grammar is shared by graph
+nodes, mutation sites and payload paths — the join point between static HCL and the dynamic
+`test_plan`/`test_state` JSON:
+
+```
+address   = { "module." name [ key ] "." } node
+node      = resource | data | named
+resource  = type "." name [ key ] [ "." attr-path ]
+data      = "data." type "." name [ key ] [ "." attr-path ]
+named     = ( "local" | "var" | "output" ) "." name [ "." attr-path ]
+attr-path = segment { "." segment }        segment = name | "*"
+key       = "[" anything "]"
+```
+
+Instance keys are conservatively wildcarded and splats and wildcards match all — both in the
+direction that over-reports a match. The adapters at both ends **fail closed**: a mutation
+site that does not map to a graph node falls back to the whole-payload unknown rule for that
+mutant, and a payload unknown that does not map into the graph is treated as in-cone. The
+**forward cone** of a site is the dependents closure from the mutated node together with
+every attribute of any resource the closure touches, so a computed attribute of a touched
+resource is always in-cone. Three recorded conservatisms, each over-reporting reach: a module
+called twice is one node set; reader propagation is at block granularity; a reference to an
+attribute the configuration never assigns resolves to the whole block.
+
 `terraform graph` itself is deliberately **not** the data source: its nodes are
 resource/local/output-granular where operators fire on sub-expressions, its DOT output is
 human-oriented and outside compatibility promises, and since v1.7 the default output is

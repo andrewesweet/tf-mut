@@ -26,6 +26,9 @@ type executionPlan struct {
 	described     []report.Mutant
 	workRoot      string
 	closure       discovery.Closure
+	// graph is the attribute-level reference graph, built once per run from
+	// the already-parsed ASTs (M3a.1).
+	graph *discovery.Graph
 }
 
 // execute runs every executable mutant, bounded by the configured job count.

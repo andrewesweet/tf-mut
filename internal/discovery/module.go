@@ -30,6 +30,11 @@ const (
 
 	resourceLabelCount = 2
 	addressParts       = 2
+
+	// terraformBlock and countKeyword name HCL constructs several inventories
+	// switch over.
+	terraformBlock = "terraform"
+	countKeyword   = "count"
 )
 
 func parseModule(parser *hclparse.Parser, current queued) (Module, error) {
@@ -114,7 +119,7 @@ func collectFile(module *Module, providers map[string]bool, path string, body *h
 			module.Variables = append(module.Variables, newBlock(variableBlock, path, relative, block))
 		case "provider":
 			collectProviderBlock(module, block)
-		case "terraform":
+		case terraformBlock:
 			collectRequiredProviders(providers, block)
 		default:
 		}
@@ -150,7 +155,7 @@ func newBlock(kind, path, relative string, block *hclsyntax.Block) Block {
 
 	for _, attribute := range discovered.Attributes {
 		switch attribute.Name {
-		case "count":
+		case countKeyword:
 			discovered.HasCount = true
 		case "for_each":
 			discovered.HasForEach = true
@@ -385,7 +390,7 @@ func traversalAddress(traversal hcl.Traversal) (string, bool) {
 
 func isReservedRoot(name string) bool {
 	switch name {
-	case "var", "local", "each", "count", "path", "terraform", "self", "output", "run", moduleBlock, dataBlock:
+	case "var", "local", "each", countKeyword, "path", terraformBlock, "self", "output", "run", moduleBlock, dataBlock:
 		return true
 	default:
 		return false
