@@ -139,13 +139,20 @@ factor), `TestTheMockMaskedRefutationHolds` (the withdrawal's evidence), publish
   under a read-only token with isolated outputs, and the release recipe packages both
   documented architectures; and the implementation review, the `.gitignore` semantics and
   the last normative `mock-masked` sentence were brought into agreement.
-- **What the workflow test caught on its first real run**: the round-two publication-effect
-  assertion turned red on GitHub's runners because the emitted SARIF carried an
-  invocation-level `message` — a property the 2.1.0 schema does not declare on the
-  invocation object, which GitHub's upload validator rejects, exactly the silent-annotation
-  loss the degradation review predicted. The run summary moved into
-  `toolExecutionNotifications`, and a vocabulary test now holds every emitted object to the
-  schema's declared property set, with the escaped shape as its negative witness.
+- **What the workflow test caught on its first real runs**: the round-two publication-effect
+  assertion turned red on GitHub's runners three times, each on a fact no local gate could
+  see. First, the emitted SARIF carried an invocation-level `message` — a property the
+  2.1.0 schema does not declare on the invocation object, which GitHub's upload validator
+  rejects, exactly the silent-annotation loss the degradation review predicted; the run
+  summary moved into `toolExecutionNotifications`, and a vocabulary test now holds every
+  emitted object to the schema's declared property set, with the escaped shape as its
+  negative witness. Second, the platform permits one SARIF upload per job per
+  tool/category, so the Action gained a `sarif-category` input and the workflow's red run
+  claims its own. Third, the degradation job measured what a read-only token really
+  refuses: GitHub accepts the SARIF upload on pull-request events — the platform scopes
+  that write itself — while the comment write is refused; the assertion now matches the
+  measured shape per event, and the earlier blanket SARIF-refusal assertion had only ever
+  passed while the document was invalid.
 
 ## What remains for M4
 

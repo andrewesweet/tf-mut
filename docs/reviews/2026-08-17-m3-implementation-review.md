@@ -72,8 +72,11 @@ the withdrawn value as deprecated so the revision stays additive.
    locals a bounded change; whether real modules gate instantiation through locals often
    enough to matter is unmeasured.
 4. **Is the Action's comment worth its write permission?** The SARIF annotations carry the
-   same findings into the PR view with `security-events` alone. If real adoption shows the
-   comment redundant, dropping it halves the requested permissions.
+   same findings into the PR view with `security-events` alone — and the degradation job's
+   first valid-document run measured something stronger: on pull-request events GitHub
+   accepts the SARIF upload from a read-only token, so annotations survive even fork PRs,
+   and the comment is the only publication that actually spends a write permission. If real
+   adoption shows the comment redundant, dropping it removes the write surface entirely.
 5. **The workflow-level Action test ran on GitHub's runners and caught a real defect on its
    first execution**: the emitted SARIF carried an invocation-level `message`, which the
    2.1.0 schema does not declare and GitHub's upload validator rejects — an annotation loss
