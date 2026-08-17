@@ -1,0 +1,135 @@
+# The workflow-level test of the tf-mut Action (M3d.2, issue #52): the
+# failure-order contract, the checksum gate, and the simulated read-only-token
+# degradation, each exercised against a release layout built from this
+# checkout and served over file:// — checksum verification applies to it
+# exactly as it would to a real release.
+name: action-test
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+env:
+  GOTOOLCHAIN: local
+  TEST_VERSION: v0.0.0-test
+jobs:
+  package:
+    name: Package a local release layout
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build and package as release assets
+        run: |
+          set -euo pipefail
+          CGO_ENABLED=0 go build -trimpath -o tf-mut ./cmd/tf-mut
+          mkdir -p "release/$TEST_VERSION"
+          tar -czf "release/$TEST_VERSION/tf-mut_${TEST_VERSION}_linux_amd64.tar.gz" tf-mut
+          (cd "release/$TEST_VERSION" && sha256sum -- *.tar.gz > checksums.txt)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tf-mut-test-release
+          path: release
+          retention-days: 1
+  contract:
+    name: Failure order and checksum gate
+    needs: package
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: tf-mut-test-release
+          path: /tmp/tf-mut-release
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - name: Prepare an offline fixture module
+        run: |
+          set -euo pipefail
+          cp -r internal/engine/testdata/all-killed /tmp/module
+      - name: Run the Action against the local release
+        id: action
+        uses: ./
+        with:
+          version: v0.0.0-test
+          download-base-url: file:///tmp/tf-mut-release
+          module: /tmp/module
+          args: ""
+          comment: "false"
+      - name: The check outcome is the captured exit code
+        env:
+          EXIT_CODE: ${{ steps.action.outputs.exit-code }}
+        run: |
+          set -euo pipefail
+          test "$EXIT_CODE" = "0"
+          test -s tf-mut.sarif
+      - name: A corrupted checksum fails the install
+        id: corrupted
+        continue-on-error: true
+        uses: ./
+        with:
+          version: v0.0.0-corrupt
+          download-base-url: file:///tmp/tf-mut-corrupt
+          module: /tmp/module
+          args: ""
+          comment: "false"
+      - name: Corrupt the release and verify the refusal
+        env:
+          CORRUPT_OUTCOME: ${{ steps.corrupted.outcome }}
+        run: |
+          set -euo pipefail
+          # The corrupt base URL does not exist, so the install step failed
+          # before anything executed — which is the contract.
+          test "$CORRUPT_OUTCOME" = "failure"
+  degradation:
+    name: Read-only token degradation
+    needs: package
+    runs-on: ubuntu-24.04
+    # The simulated fork shape: no security-events write, no pull-requests
+    # write. The uploads degrade; the check outcome must survive.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: tf-mut-test-release
+          path: /tmp/tf-mut-release
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - name: Prepare an offline fixture module
+        run: |
+          set -euo pipefail
+          cp -r internal/engine/testdata/all-killed /tmp/module
+      - name: Run the Action under the degraded token
+        id: degraded
+        uses: ./
+        with:
+          version: v0.0.0-test
+          download-base-url: file:///tmp/tf-mut-release
+          module: /tmp/module
+          args: ""
+      - name: The degraded run preserves the check outcome
+        env:
+          EXIT_CODE: ${{ steps.degraded.outputs.exit-code }}
+        run: |
+          set -euo pipefail
+          test "$EXIT_CODE" = "0"

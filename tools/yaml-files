@@ -1,4 +1,6 @@
 .github/dependabot.yml
+.github/workflows/action-test.yml
 .github/workflows/ci.yml
 .github/workflows/codeql.yml
 .golangci.yml
+action.yml

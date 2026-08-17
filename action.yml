@@ -1,0 +1,137 @@
+# The tf-mut GitHub Action (M3d.2, issue #52), under the M4-disposition trust
+# and failure-order contract: capture the run's exit code with the documented
+# non-blocking pattern, then upload SARIF, then create-or-update the comment,
+# then exit with the captured code. See ACTION.md for the permission,
+# fork-degradation and distribution contract.
+name: tf-mut
+description: >-
+  Mutation testing for terraform test. Runs tf-mut over the pull request, uploads SARIF annotations, and maintains a PR comment — and the check outcome is the run's own exit code, whatever the uploads manage.
+author: andrewesweet
+inputs:
+  version:
+    description: >-
+      The tf-mut release version to install (for example v0.3.0). Required: the Action never resolves "latest" — an unpinned tool in CI is an unverified tool.
+    required: true
+  args:
+    description: Arguments passed to `tf-mut run` after the module path.
+    required: false
+    default: "--since origin/${{ github.base_ref || 'master' }}"
+  module:
+    description: The module directory to mutate.
+    required: false
+    default: "."
+  download-base-url:
+    description: >-
+      Base URL for release assets. The default is this repository's releases; overriding it is for mirrors and for this repository's own workflow test. Checksum verification applies wherever the assets come from.
+    required: false
+    default: "https://github.com/andrewesweet/tf-mut/releases/download"
+  comment:
+    description: Maintain a PR comment with the markdown summary.
+    required: false
+    default: "true"
+outputs:
+  exit-code:
+    description: The tf-mut run's own exit code, before any upload ran.
+    value: ${{ steps.run.outputs.exit_code }}
+runs:
+  using: composite
+  steps:
+    - name: Install tf-mut from the checksummed release asset
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        BASE_URL: ${{ inputs.download-base-url }}
+      run: |
+        set -euo pipefail
+
+        if [ -z "$VERSION" ] || [ "$VERSION" = "latest" ]; then
+          echo "::error::a pinned release version is required; 'latest' is never accepted" >&2
+          exit 1
+        fi
+
+        arch="$(uname -m)"
+        case "$arch" in
+          x86_64) asset="tf-mut_${VERSION}_linux_amd64.tar.gz" ;;
+          aarch64) asset="tf-mut_${VERSION}_linux_arm64.tar.gz" ;;
+          *) echo "::error::unsupported architecture $arch" >&2; exit 1 ;;
+        esac
+
+        directory="$(mktemp -d)"
+        curl -sSfL "$BASE_URL/$VERSION/$asset" -o "$directory/$asset"
+        curl -sSfL "$BASE_URL/$VERSION/checksums.txt" -o "$directory/checksums.txt"
+
+        # Verification failure fails the Action: nothing unverified executes.
+        (cd "$directory" && grep " $asset\$" checksums.txt | sha256sum --check --strict -)
+
+        tar -xzf "$directory/$asset" -C "$directory" tf-mut
+        install -m 0755 "$directory/tf-mut" /usr/local/bin/tf-mut
+        tf-mut version
+    - name: Run tf-mut and capture the exit code
+      id: run
+      shell: bash
+      env:
+        MODULE: ${{ inputs.module }}
+        RUN_ARGS: ${{ inputs.args }}
+      run: |
+        set -euo pipefail
+
+        # The documented non-blocking pattern: the run's exit code is
+        # captured, the uploads happen either way, and the final step exits
+        # with this code.
+        set +e
+        # shellcheck disable=SC2086 # the caller's args are a word list.
+        tf-mut run --reporter sarif $RUN_ARGS "$MODULE" > tf-mut.sarif
+        code=$?
+        set -e
+
+        echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+
+        set +e
+        # shellcheck disable=SC2086
+        tf-mut run --reporter markdown $RUN_ARGS "$MODULE" > tf-mut-summary.md
+        set -e
+
+        {
+          echo "## tf-mut exit code: $code"
+          cat tf-mut-summary.md 2>/dev/null || true
+        } >> "$GITHUB_STEP_SUMMARY"
+    - name: Upload SARIF
+      # Degrades gracefully: a fork or Dependabot PR carries a read-only
+      # token, the upload is skipped or fails without consequence, and the
+      # check outcome is preserved by the final step.
+      uses: github/codeql-action/upload-sarif@b8d3b6e8af63cde30bdc382c0bc28114f4346c88 # v2.28.1
+      continue-on-error: true
+      with:
+        sarif_file: tf-mut.sarif
+    - name: Create or update the PR comment
+      if: inputs.comment == 'true' && github.event_name == 'pull_request'
+      # Same degradation contract as the SARIF upload.
+      continue-on-error: true
+      uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+      with:
+        script: |
+          const fs = require('fs');
+          const marker = '<!-- tf-mut-report -->';
+          let body = marker + '\n';
+          try {
+            body += fs.readFileSync('tf-mut-summary.md', 'utf8');
+          } catch (error) {
+            body += 'tf-mut produced no summary: ' + error.message;
+          }
+          const {owner, repo} = context.repo;
+          const issue_number = context.issue.number;
+          const comments = await github.rest.issues.listComments({owner, repo, issue_number});
+          const existing = comments.data.find(c => c.body && c.body.startsWith(marker));
+          if (existing) {
+            await github.rest.issues.updateComment({owner, repo, comment_id: existing.id, body});
+          } else {
+            await github.rest.issues.createComment({owner, repo, issue_number, body});
+          }
+    - name: Exit with the captured code
+      shell: bash
+      env:
+        EXIT_CODE: ${{ steps.run.outputs.exit_code }}
+      run: |
+        set -euo pipefail
+        echo "tf-mut exited $EXIT_CODE; uploads ran with their own outcomes"
+        exit "$EXIT_CODE"
