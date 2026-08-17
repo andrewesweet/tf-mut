@@ -53,6 +53,7 @@ Flags for run and preview:
   --sample N                   Run a deterministic N% sample (non-authoritative)
   --seed N                     Seed for --sample (default 0)
   --allow-sampled-gate         Let a sampled run satisfy --min-score (unsafe)
+  --no-cache                   Disable the project-local verdict cache
   --operator ID[,ID]           Restrict generation to these operators
   --exclude-operator ID[,ID]   Remove operators from the population
   --exclude-path GLOB[,GLOB]   Remove sites in matching files
@@ -110,7 +111,7 @@ type flagValues struct {
 	timeoutFactor, minScore, sample          *float64
 	seed                                     *int64
 	allowIncomplete, allowReal, allowEffects *bool
-	allowSampledGate                         *bool
+	allowSampledGate, noCache                *bool
 }
 
 func declareFlags(set *flag.FlagSet) flagValues {
@@ -139,6 +140,7 @@ func declareFlags(set *flag.FlagSet) flagValues {
 		seed:             set.Int64("seed", 0, "seed for --sample"),
 		allowSampledGate: set.Bool("allow-sampled-gate", false,
 			"let a sampled run satisfy a gate (unsafe)"),
+		noCache: set.Bool("no-cache", false, "disable the project-local verdict cache"),
 	}
 }
 
@@ -210,6 +212,7 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 			HasSample:               sampled,
 			SampleSeed:              *values.seed,
 			AllowSampledGate:        *values.allowSampledGate,
+			NoCache:                 *values.noCache,
 		},
 		gate: report.Gate{
 			MinScore:             *values.minScore,

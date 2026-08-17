@@ -113,6 +113,9 @@ type Config struct {
 	// AllowSampledGate is the separately named unsafe opt-in without which a
 	// sampled run can satisfy no gate.
 	AllowSampledGate bool
+	// NoCache disables cache reads and writes: the documented mitigation for
+	// the plan-values-on-disk risk, and the escape hatch for a shared cache.
+	NoCache bool
 	// DisableStaticShortcuts turns the static pre-classifications off — the
 	// static Unobservable shortcut and the conditional-instantiation
 	// NoCoverage evaluator — so a control run can prove each shortcut equal
@@ -222,7 +225,7 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		return result, nil
 	}
 
-	executed, failures := execute(ctx, executionPlan{
+	executed, failures := executeWithCache(ctx, &result, version.Terraform, executionPlan{
 		runner:        runner,
 		configuration: configuration,
 		config:        settings,
@@ -235,6 +238,31 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 	})
 
 	return complete(configuration, settings, result, executed, failures), nil
+}
+
+// executeWithCache replays cached verdicts under the coarse correct key
+// (M3b.2), executes what remains fresh, and stores the new verdicts. The
+// cache is nil — no reads, no writes — under either unsafe opt-in and under
+// --no-cache.
+func executeWithCache(
+	ctx context.Context,
+	result *report.Report,
+	terraformVersion string,
+	plan executionPlan,
+) ([]report.Mutant, []report.ExecutionError) {
+	cache := openCache(plan.configuration, plan.config, plan.prepared, terraformVersion)
+	if cache != nil {
+		result.Population.Cached = cache.load(plan.described)
+		result.Population.Fresh = result.Population.Selected - result.Population.Cached
+	}
+
+	executed, failures := execute(ctx, plan)
+
+	if cache != nil {
+		cache.store(executed)
+	}
+
+	return executed, failures
 }
 
 // finalise applies the configured exclusions and defaults, and refuses the

@@ -144,7 +144,10 @@ spec requires is still named.
   helper must remain in `tools/shell-files` and pass the shared parse, format and lint gates.
 - Keep CI thin: bootstrap locked tools, then invoke the same Just recipes used locally.
 - Preserve `GOTOOLCHAIN=local`; toolchain drift must fail rather than download another Go.
-- The source tree of a module under test is never written to. Sandboxes only.
+- The source tree of a module under test is never written to. Sandboxes only. One recorded
+  exception (M3 spec review M6): the verdict cache lives in the project-local
+  `.tf-mut-cache/` directory, which the tool owns; module sources themselves are still never
+  written, and `--no-cache` removes even that.
 - New milestone specs: run `/to-spec` against the design docs; one milestone per spec;
   absorb the previous milestone's implementation learnings first — they live in
   `docs/reviews/<date>-<milestone>-implementation-review.md` and the milestone's exit-gate

@@ -124,7 +124,7 @@ func TestTheForwardConeUnionsSameResourceAttributes(t *testing.T) {
 // comparison. Its diversity is the point (review M1): locals chains, module
 // wiring, splats, conditional references, count indexing.
 func graphCorpus() []string {
-	return []string{"closure", "discriminate", "foreach", "count-indexed", "count-tolerant"}
+	return []string{"closure", discriminateFixture, "foreach", "count-indexed", "count-tolerant"}
 }
 
 // TestGraphAgreesWithTerraformGraphOverTheCorpus is the supplemental check:
@@ -158,14 +158,14 @@ func TestGraphAgreesWithTerraformGraphOverTheCorpus(t *testing.T) {
 func TestASeededMissingEdgeFailsTheSupplementalCheck(t *testing.T) {
 	t.Parallel()
 
-	intact := copyFixture(t, "discriminate")
+	intact := copyFixture(t, discriminateFixture)
 	edges := terraformGraphEdges(t, intact)
 
 	if len(edges) == 0 {
 		t.Fatal("the discriminate fixture produced no terraform graph edges to compare against")
 	}
 
-	doctored := copyFixture(t, "discriminate")
+	doctored := copyFixture(t, discriminateFixture)
 	seedMissingEdge(t, doctored)
 
 	graph := discover(t, doctored).BuildGraph()

@@ -13,6 +13,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/sandbox"
 )
 
 // The fixtures are Terraform modules, so every test here drives the real
@@ -185,6 +186,14 @@ func assertTreeUnchanged(t *testing.T, root string, before map[string]string) {
 	}
 
 	for path := range after {
+		// The verdict cache is the one tool-owned location in the project
+		// (M3 spec review M6: "project-local default location"). Module
+		// sources are still never written; anything else appearing here is a
+		// contract violation.
+		if strings.Contains("/"+path, "/"+sandbox.CacheDirName+"/") {
+			continue
+		}
+
 		if _, found := before[path]; !found {
 			t.Fatalf("run created %s inside the source tree", path)
 		}

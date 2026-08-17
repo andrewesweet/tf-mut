@@ -66,8 +66,9 @@ func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []report
 	}
 
 	for index, mutant := range plan.described {
-		if mutant.State == report.NoCoverage || mutant.State == report.Ignored ||
-			mutant.State == report.Unobservable {
+		if mutant.State != report.Pending {
+			// Statically classified, suppressed, or replayed from the cache:
+			// nothing left to execute.
 			continue
 		}
 

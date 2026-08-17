@@ -107,7 +107,7 @@ const sinceHead = "HEAD"
 func TestAnUncommittedNewResourceIsSelected(t *testing.T) {
 	t.Parallel()
 
-	module := gitFixture(t, "discriminate")
+	module := gitFixture(t, discriminateFixture)
 	writeFile(t, filepath.Join(module, "extra.tf"), extraResource)
 
 	result := sincePreview(t, module, sinceHead)
@@ -133,7 +133,7 @@ func TestAnUncommittedNewResourceIsSelected(t *testing.T) {
 func TestStagedAndUnstagedChangesAreSelected(t *testing.T) {
 	t.Parallel()
 
-	module := gitFixture(t, "discriminate")
+	module := gitFixture(t, discriminateFixture)
 
 	// Staged: a new file added to the index.
 	writeFile(t, filepath.Join(module, "staged.tf"), extraResource)
@@ -155,7 +155,7 @@ func TestStagedAndUnstagedChangesAreSelected(t *testing.T) {
 func TestACommittedRangeIsSelected(t *testing.T) {
 	t.Parallel()
 
-	module := gitFixture(t, "discriminate")
+	module := gitFixture(t, discriminateFixture)
 	git(t, module, "tag", "before")
 
 	writeFile(t, filepath.Join(module, "extra.tf"), extraResource)
@@ -173,7 +173,7 @@ func TestACommittedRangeIsSelected(t *testing.T) {
 func TestARenameFollowsBothNames(t *testing.T) {
 	t.Parallel()
 
-	module := gitFixture(t, "discriminate")
+	module := gitFixture(t, discriminateFixture)
 	git(t, module, "tag", "before")
 	git(t, module, "mv", "main.tf", "renamed.tf")
 	commit(t, module, "rename")
@@ -189,7 +189,7 @@ func TestARenameFollowsBothNames(t *testing.T) {
 func TestADeletionSelectsTheWholeModule(t *testing.T) {
 	t.Parallel()
 
-	module := gitFixture(t, "discriminate")
+	module := gitFixture(t, discriminateFixture)
 
 	// Give the root module a second file, then delete it.
 	writeFile(t, filepath.Join(module, "extra.tf"), extraResource)
@@ -215,7 +215,7 @@ func TestADeletionSelectsTheWholeModule(t *testing.T) {
 func TestAMissingRefIsAnError(t *testing.T) {
 	t.Parallel()
 
-	module := gitFixture(t, "discriminate")
+	module := gitFixture(t, discriminateFixture)
 
 	config := baseConfig(t, module)
 	config.Preview = true
@@ -230,7 +230,7 @@ func TestAMissingRefIsAnError(t *testing.T) {
 func TestOutsideARepositoryIsAnError(t *testing.T) {
 	t.Parallel()
 
-	module := copyFixture(t, "discriminate")
+	module := copyFixture(t, discriminateFixture)
 
 	config := baseConfig(t, module)
 	config.Preview = true
@@ -246,7 +246,7 @@ func TestOutsideARepositoryIsAnError(t *testing.T) {
 func TestAMergeConflictIsAnError(t *testing.T) {
 	t.Parallel()
 
-	module := gitFixture(t, "discriminate")
+	module := gitFixture(t, discriminateFixture)
 
 	// Stage a conflicted index entry directly: three stages for one path.
 	blob := strings.TrimSpace(gitStdout(t, module, "hash-object", "-w", "main.tf"))
@@ -272,7 +272,7 @@ func TestAMergeConflictIsAnError(t *testing.T) {
 func TestAShallowCloneLackingTheRefIsAnError(t *testing.T) {
 	t.Parallel()
 
-	module := gitFixture(t, "discriminate")
+	module := gitFixture(t, discriminateFixture)
 	git(t, module, "tag", "before")
 	writeFile(t, filepath.Join(module, "extra.tf"), extraResource)
 	git(t, module, "add", "--all")
@@ -307,7 +307,7 @@ func TestNonTerraformClassChangesForceTheFullPopulation(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 
-			module := gitFixture(t, "discriminate")
+			module := gitFixture(t, discriminateFixture)
 			full := preview(t, module, nil)
 
 			writeFile(t, filepath.Join(module, path), content)
@@ -326,7 +326,7 @@ func TestNonTerraformClassChangesForceTheFullPopulation(t *testing.T) {
 func TestSinceSelectionIsDeterministic(t *testing.T) {
 	t.Parallel()
 
-	module := gitFixture(t, "discriminate")
+	module := gitFixture(t, discriminateFixture)
 	writeFile(t, filepath.Join(module, "extra.tf"), extraResource)
 
 	first := sincePreview(t, module, sinceHead)

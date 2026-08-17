@@ -632,6 +632,18 @@ is not tested, here is the assertion that would test it" without leaving the PR.
 Adoption on an existing codebase is via `tf-mut baseline`: accept today's survivors, fail only
 on regressions. No flag day.
 
+**The verdict cache and what it stores (M3b.2; M3 spec review M6).** Repeat runs replay
+verdicts from a project-local cache (`.tf-mut-cache/`, `0700`, atomic writes,
+corruption-as-miss, advisory locking, deterministic size-capped eviction) under a coarse key:
+the entire materialised source closure, all tests, the resolved configuration, the lock and
+module inventory with remote payloads, the relevant environment, the Terraform identity, the
+cache format version and the masked baseline fingerprint — any doubt is a miss, and cache
+reads and writes are disabled under `--allow-real-infrastructure` and
+`--allow-unsandboxed-effects`, whose external state cannot be keyed soundly. **Cached evidence
+may embed plan values and source text.** Sharing a cache across repositories, or restoring it
+through a broad CI cache key, is a documented risk; `--no-cache` is the mitigation. Finer
+graph-derived invalidation waits for a measurement proving the coarse key insufficient.
+
 ---
 
 ## 11. What makes this defensible
