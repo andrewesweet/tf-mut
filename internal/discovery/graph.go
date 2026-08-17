@@ -56,6 +56,10 @@ type Cone struct {
 	members  map[nodeID]bool
 	touched  map[nodeID]bool
 	moduleID string
+	// unbounded marks a cone that reached provider configuration, whose
+	// influence the graph does not model edge by edge: an unbounded cone
+	// contains everything and licenses nothing.
+	unbounded bool
 }
 
 // BuildGraph builds the reference graph once, from the already-parsed ASTs the
@@ -163,6 +167,17 @@ func (b *graphBuilder) buildBlock(block *hclsyntax.Block) {
 				b.link(attribute.Expr, node)
 			}
 		}
+	case providerBlock:
+		if len(block.Labels) != 1 {
+			return
+		}
+
+		// Provider configuration reaches every resource the provider serves,
+		// a reach the graph does not model edge by edge: the provider node
+		// makes any cone that touches it unbounded, so no shortcut can turn
+		// this into a proof (review of #44).
+		owner := b.declare(providerBlock + "." + block.Labels[0])
+		b.walkBody(block.Body, providerBlock+"."+block.Labels[0], owner, nodeID{})
 	default:
 	}
 }
@@ -395,6 +410,123 @@ func addressesOverlap(left, right string) bool {
 		strings.HasPrefix(right, left+".")
 }
 
+// isResourceBlock reports whether a node is a resource or data block node,
+// decided by address shape: two segments under a non-reserved root, or three
+// under data.
+func isResourceBlock(node nodeID) bool {
+	parts := strings.Split(node.address, ".")
+
+	if parts[0] == dataBlock {
+		return len(parts) == dataAddressLength
+	}
+
+	return len(parts) == addressParts && !isReservedRoot(parts[0]) && parts[0] != checkBlock
+}
+
+// dataAddressLength is the segment count of a data block address.
+const dataAddressLength = 3
+
+// ContainsPayloadAddress reports whether a payload address lies in the cone.
+// An address that does not map into the graph is treated as in-cone: the
+// adapter fails closed, so an unmappable unknown blocks an equality claim
+// rather than licensing one.
+func (c Cone) ContainsPayloadAddress(address string) bool {
+	if c.graph == nil || c.unbounded {
+		return true
+	}
+
+	parsed := ParseAddr(address)
+
+	module, ok := c.graph.moduleByPath[strings.Join(parsed.ModulePath, ".")]
+	if !ok {
+		return true
+	}
+
+	node, ok := c.graph.resolveNode(module, parsed.Parts)
+	if !ok {
+		return true
+	}
+
+	return c.contains(node)
+}
+
+// ContainsObservable reports whether the cone reaches anything an execution
+// could observe or a test could kill: a resource or data node, an output, a
+// check, or a contract construct (validation, precondition, postcondition —
+// killable via expect_failures, per the C2 structural guard). A cone with no
+// observable node supports the static Unobservable shortcut; anything else
+// must execute.
+func (c Cone) ContainsObservable() bool {
+	if c.unbounded {
+		return true
+	}
+
+	for node := range c.members {
+		if isResourceBlock(node) {
+			return true
+		}
+
+		if _, owned := c.graph.owners[node]; owned {
+			return true
+		}
+
+		if observableAddress(node.address) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// observableAddress reports an output, check or contract-construct address.
+func observableAddress(address string) bool {
+	segments := strings.Split(address, ".")
+	if segments[0] == outputBlock || segments[0] == checkBlock {
+		return true
+	}
+
+	for _, segment := range segments {
+		switch segment {
+		case "validation", "precondition", "postcondition":
+			return true
+		default:
+		}
+	}
+
+	return false
+}
+
+// ContainsResource reports whether the cone reaches a resource: directly, or
+// through the same-resource attribute union.
+func (c Cone) ContainsResource(moduleRel, address string) bool {
+	if c.unbounded {
+		return true
+	}
+
+	node := nodeID{module: moduleRel, address: address}
+
+	return c.contains(node)
+}
+
+// ConeOfPayloadAddress resolves a payload-form address — module path
+// included — and returns its forward cone, for the supplemental comparator's
+// module-wiring cases.
+func (g *Graph) ConeOfPayloadAddress(address string) (Cone, bool) {
+	parsed := ParseAddr(address)
+
+	module, ok := g.moduleByPath[strings.Join(parsed.ModulePath, ".")]
+	if !ok {
+		return Cone{}, false
+	}
+
+	node, ok := g.resolveNode(module, parsed.Parts)
+	if !ok {
+		return Cone{}, false
+	}
+
+	return g.forwardCone(node), true
+}
+
 // mapModulePaths records every module-call path from the root, so payload
 // addresses like module.child.terraform_data.x can find their module.
 func (g *Graph) mapModulePaths(c Configuration, relByDir map[string]string) {
@@ -465,6 +597,7 @@ func (g *Graph) forwardCone(start nodeID) Cone {
 	members := map[nodeID]bool{}
 	touched := map[nodeID]bool{}
 	queue := []nodeID{start}
+	unbounded := false
 
 	for len(queue) > 0 {
 		current := queue[0]
@@ -484,100 +617,17 @@ func (g *Graph) forwardCone(start nodeID) Cone {
 			touched[current] = true
 		}
 
+		if strings.HasPrefix(current.address, providerBlock+".") {
+			unbounded = true
+		}
+
 		queue = append(queue, g.dependents[current]...)
 	}
 
-	return Cone{graph: g, members: members, touched: touched, moduleID: start.module}
-}
-
-// isResourceBlock reports whether a node is a resource or data block node,
-// decided by address shape: two segments under a non-reserved root, or three
-// under data.
-func isResourceBlock(node nodeID) bool {
-	parts := strings.Split(node.address, ".")
-
-	if parts[0] == dataBlock {
-		return len(parts) == dataAddressLength
+	return Cone{
+		graph: g, members: members, touched: touched,
+		moduleID: start.module, unbounded: unbounded,
 	}
-
-	return len(parts) == addressParts && !isReservedRoot(parts[0]) && parts[0] != checkBlock
-}
-
-// dataAddressLength is the segment count of a data block address.
-const dataAddressLength = 3
-
-// ContainsPayloadAddress reports whether a payload address lies in the cone.
-// An address that does not map into the graph is treated as in-cone: the
-// adapter fails closed, so an unmappable unknown blocks an equality claim
-// rather than licensing one.
-func (c Cone) ContainsPayloadAddress(address string) bool {
-	if c.graph == nil {
-		return true
-	}
-
-	parsed := ParseAddr(address)
-
-	module, ok := c.graph.moduleByPath[strings.Join(parsed.ModulePath, ".")]
-	if !ok {
-		return true
-	}
-
-	node, ok := c.graph.resolveNode(module, parsed.Parts)
-	if !ok {
-		return true
-	}
-
-	return c.contains(node)
-}
-
-// ContainsObservable reports whether the cone reaches anything an execution
-// could observe or a test could kill: a resource or data node, an output, a
-// check, or a contract construct (validation, precondition, postcondition —
-// killable via expect_failures, per the C2 structural guard). A cone with no
-// observable node supports the static Unobservable shortcut; anything else
-// must execute.
-func (c Cone) ContainsObservable() bool {
-	for node := range c.members {
-		if isResourceBlock(node) {
-			return true
-		}
-
-		if _, owned := c.graph.owners[node]; owned {
-			return true
-		}
-
-		if observableAddress(node.address) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// observableAddress reports an output, check or contract-construct address.
-func observableAddress(address string) bool {
-	segments := strings.Split(address, ".")
-	if segments[0] == outputBlock || segments[0] == checkBlock {
-		return true
-	}
-
-	for _, segment := range segments {
-		switch segment {
-		case "validation", "precondition", "postcondition":
-			return true
-		default:
-		}
-	}
-
-	return false
-}
-
-// ContainsResource reports whether the cone reaches a resource: directly, or
-// through the same-resource attribute union.
-func (c Cone) ContainsResource(moduleRel, address string) bool {
-	node := nodeID{module: moduleRel, address: address}
-
-	return c.contains(node)
 }
 
 func (c Cone) contains(node nodeID) bool {

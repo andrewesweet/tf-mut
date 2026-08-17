@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# The tf-mut Action's run step (M3d.2, issue #52): the documented non-blocking
-# pattern — the run's exit code is captured, not obeyed, so the reporting
-# steps always execute and the final step exits with this code.
+# The tf-mut Action's run step (M3d.2, issue #52): one mutation run, every
+# output derived from its single report value — SARIF on stdout, the markdown
+# summary via --output — under the documented non-blocking pattern: the exit
+# code is captured, not obeyed, so the reporting steps always execute and the
+# final step exits with this code.
 set -euo pipefail
 
 : "${MODULE:?the module directory is required}"
@@ -9,16 +11,12 @@ RUN_ARGS=${RUN_ARGS:-}
 
 set +e
 # shellcheck disable=SC2086 # the caller's args are a word list.
-tf-mut run --reporter sarif $RUN_ARGS "$MODULE" >tf-mut.sarif
+tf-mut run --reporter sarif --output "markdown=$PWD/tf-mut-summary.md" \
+  $RUN_ARGS "$MODULE" >tf-mut.sarif
 code=$?
 set -e
 
 echo "exit_code=$code" >>"$GITHUB_OUTPUT"
-
-set +e
-# shellcheck disable=SC2086 # the caller's args are a word list.
-tf-mut run --reporter markdown $RUN_ARGS "$MODULE" >tf-mut-summary.md
-set -e
 
 {
   echo "## tf-mut exit code: $code"

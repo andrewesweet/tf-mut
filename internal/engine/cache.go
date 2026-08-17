@@ -14,6 +14,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
+	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
 // M3b.2 (#48): the incremental cache — coarse before clever, per the C4
@@ -73,13 +74,13 @@ func openCache(
 	configuration discovery.Configuration,
 	settings Config,
 	prepared warm,
-	terraformVersion string,
+	terraform tfexec.Version,
 ) *verdictCache {
 	if settings.NoCache || settings.AllowRealInfrastructure || settings.AllowUnsandboxedEffects {
 		return nil
 	}
 
-	key, err := cacheKey(configuration, settings, prepared, terraformVersion)
+	key, err := cacheKey(configuration, settings, prepared, terraform)
 	if err != nil {
 		return nil
 	}
@@ -87,15 +88,32 @@ func openCache(
 	dir := filepath.Join(configuration.ModuleDir, sandbox.CacheDirName)
 
 	// No symlink traversal: the location must be a real directory or absent.
-	if info, statErr := os.Lstat(dir); statErr == nil {
-		if !info.Mode().IsDir() {
-			return nil
-		}
-	} else if mkErr := os.MkdirAll(dir, cacheDirMode); mkErr != nil {
+	// A pre-existing directory with looser permissions is corrected to the
+	// mandatory 0700 — evidence may embed plan values and source text — and
+	// where it cannot be corrected the cache is not used at all.
+	if !ensureCacheDir(dir) {
 		return nil
 	}
 
 	return &verdictCache{dir: dir, key: key}
+}
+
+// ensureCacheDir makes the cache location a private real directory.
+func ensureCacheDir(dir string) bool {
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return os.MkdirAll(dir, cacheDirMode) == nil
+	}
+
+	if !info.Mode().IsDir() {
+		return false
+	}
+
+	if info.Mode().Perm() == cacheDirMode {
+		return true
+	}
+
+	return os.Chmod(dir, cacheDirMode) == nil
 }
 
 // cacheKey hashes every input that can reach a verdict.
@@ -103,7 +121,7 @@ func cacheKey(
 	configuration discovery.Configuration,
 	settings Config,
 	prepared warm,
-	terraformVersion string,
+	terraform tfexec.Version,
 ) (string, error) {
 	digest := sha256.New()
 	write := func(kind, name, value string) {
@@ -111,7 +129,8 @@ func cacheKey(
 	}
 
 	write("format", "", cacheFormatVersion)
-	write("terraform", settings.TerraformBinary, terraformVersion)
+	write("terraform", settings.TerraformBinary, terraform.Terraform)
+	write("platform", "", terraform.Platform)
 	write("baseline", "", baselineFingerprint(prepared))
 	write("config", "", resolvedConfiguration(settings))
 
@@ -145,6 +164,13 @@ func cacheKey(
 		write("lock", "", hashBytes(content))
 	}
 
+	// The automatically loaded variable files: Terraform reads them without
+	// being asked, so they reach verdicts without appearing in the source
+	// closure (review of #48).
+	if err := hashAutoVarFiles(write, configuration.ModuleDir); err != nil {
+		return "", err
+	}
+
 	// The module inventory with remote payloads: everything Terraform
 	// materialised under the warm workspace's modules directory.
 	if err := hashTree(write, filepath.Join(prepared.dataDir, "modules")); err != nil {
@@ -171,14 +197,16 @@ func resolvedConfiguration(settings Config) string {
 		settings.ExcludePaths, settings.ExcludeResources, settings.TestSelection)
 }
 
-// relevantEnvironment lists the sorted TF_-prefixed entries from the process
-// environment and the run's additions — TF_VAR_, TF_CLI_ and the rest of the
-// Terraform surface. Over-inclusion costs a miss; exclusion could cost a lie.
+// relevantEnvironment lists the sorted Terraform- and provider-shaped entries
+// from the process environment and the run's additions: the TF_ surface
+// (TF_VAR_, TF_CLI_ and the rest) plus the major providers' configuration
+// prefixes, which the C4 disposition names as key inputs. Over-inclusion
+// costs a miss; exclusion could cost a lie.
 func relevantEnvironment(settings Config) []string {
 	entries := []string{}
 
 	for _, entry := range append(os.Environ(), settings.Env...) {
-		if strings.HasPrefix(entry, "TF_") {
+		if relevantEnvironmentEntry(entry) {
 			entries = append(entries, entry)
 		}
 	}
@@ -186,6 +214,51 @@ func relevantEnvironment(settings Config) []string {
 	slices.Sort(entries)
 
 	return slices.Compact(entries)
+}
+
+// relevantEnvironmentEntry admits the environment prefixes that can reach a
+// verdict.
+func relevantEnvironmentEntry(entry string) bool {
+	for _, prefix := range []string{
+		"TF_", "AWS_", "AMAZON_", "GOOGLE_", "GCLOUD_", "CLOUDSDK_",
+		"ARM_", "AZURE_", "OCI_", "ALICLOUD_", "DIGITALOCEAN_", "VAULT_", "CONSUL_",
+	} {
+		if strings.HasPrefix(entry, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// hashAutoVarFiles hashes terraform.tfvars and every *.auto.tfvars — HCL and
+// JSON variants both — in name order.
+func hashAutoVarFiles(write func(kind, name, value string), moduleDir string) error {
+	paths := []string{}
+
+	for _, pattern := range []string{
+		"terraform.tfvars", "terraform.tfvars.json", "*.auto.tfvars", "*.auto.tfvars.json",
+	} {
+		matches, err := filepath.Glob(filepath.Join(moduleDir, pattern))
+		if err != nil {
+			return err
+		}
+
+		paths = append(paths, matches...)
+	}
+
+	slices.Sort(paths)
+
+	for _, path := range paths {
+		content, err := os.ReadFile(path) //nolint:gosec // module-owned variable file.
+		if err != nil {
+			return err
+		}
+
+		write("auto-var", filepath.Base(path), hashBytes(content))
+	}
+
+	return nil
 }
 
 func hashBytes(content []byte) string {

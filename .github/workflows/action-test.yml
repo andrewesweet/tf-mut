@@ -53,10 +53,27 @@ jobs:
         with:
           terraform_version: 1.15.8
           terraform_wrapper: false
-      - name: Prepare an offline fixture module
+      - name: Prepare the fixture modules
         run: |
           set -euo pipefail
           cp -r internal/engine/testdata/all-killed /tmp/module
+          # The failing-path fixture: the same module with its assertion
+          # weakened so mutants survive and the run exits nonzero.
+          cp -r internal/engine/testdata/all-killed /tmp/failing
+          cat > /tmp/failing/tests/unit.tftest.hcl <<'WEAK'
+          run "weak" {
+            command = plan
+
+            assert {
+              condition     = output.tier != "impossible"
+              error_message = "cannot fail"
+            }
+          }
+          WEAK
+          # The corruption fixture: a real release layout whose archive bytes
+          # are flipped after the checksums were taken.
+          cp -r /tmp/tf-mut-release /tmp/tf-mut-corrupt
+          printf 'corrupted' >> "/tmp/tf-mut-corrupt/$TEST_VERSION/tf-mut_${TEST_VERSION}_linux_amd64.tar.gz"
       - name: Run the Action against the local release
         id: action
         uses: ./
@@ -73,23 +90,46 @@ jobs:
           set -euo pipefail
           test "$EXIT_CODE" = "0"
           test -s tf-mut.sarif
-      - name: A corrupted checksum fails the install
+      - name: A failing run still publishes before the check goes red
+        id: failing
+        continue-on-error: true
+        uses: ./
+        with:
+          version: v0.0.0-test
+          download-base-url: file:///tmp/tf-mut-release
+          module: /tmp/failing
+          args: ""
+          comment: "false"
+      - name: The failure order held for the red run
+        env:
+          FAILING_OUTCOME: ${{ steps.failing.outcome }}
+          FAILING_EXIT: ${{ steps.failing.outputs.exit-code }}
+        run: |
+          set -euo pipefail
+          # The composite failed — with the run's own findings exit code,
+          # captured before the uploads — and the SARIF and summary were
+          # still produced: the publication path survived the red run.
+          test "$FAILING_OUTCOME" = "failure"
+          test "$FAILING_EXIT" = "1"
+          test -s tf-mut.sarif
+          test -s tf-mut-summary.md
+      - name: A corrupted release asset fails the install
         id: corrupted
         continue-on-error: true
         uses: ./
         with:
-          version: v0.0.0-corrupt
+          version: v0.0.0-test
           download-base-url: file:///tmp/tf-mut-corrupt
           module: /tmp/module
           args: ""
           comment: "false"
-      - name: Corrupt the release and verify the refusal
+      - name: The checksum gate refused the corrupted asset
         env:
           CORRUPT_OUTCOME: ${{ steps.corrupted.outcome }}
         run: |
           set -euo pipefail
-          # The corrupt base URL does not exist, so the install step failed
-          # before anything executed — which is the contract.
+          # The archive exists and downloads; its bytes no longer match the
+          # published checksums, and nothing unverified executed.
           test "$CORRUPT_OUTCOME" = "failure"
   degradation:
     name: Read-only token degradation

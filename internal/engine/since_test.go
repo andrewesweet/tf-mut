@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -489,4 +490,93 @@ func TestVerdictInvarianceUnderSampling(t *testing.T) {
 	}
 
 	assertVerdictInvariance(t, full, sampled)
+}
+
+// TestAnIgnoredUntrackedVariableFileForcesTheFullPopulation is the #45
+// review's reproduction: Terraform does not read git ignore rules, so a
+// repository-ignored *.auto.tfvars still changes execution and must force
+// the full population like any other variables-file change.
+func TestAnIgnoredUntrackedVariableFileForcesTheFullPopulation(t *testing.T) {
+	t.Parallel()
+
+	module := gitFixture(t, discriminateFixture)
+	full := preview(t, module, nil)
+
+	writeFile(t, filepath.Join(module, ".gitignore"), "*.auto.tfvars\n")
+	git(t, module, "add", ".gitignore")
+	commit(t, module, "ignore auto vars")
+
+	writeFile(t, filepath.Join(module, "secret.auto.tfvars"), "x = 1\n")
+
+	result := sincePreview(t, module, sinceHead)
+	if len(result.Mutants) != len(full.Mutants) {
+		t.Fatalf("an ignored variables file selected %d of %d mutants; it must force the "+
+			"full population", len(result.Mutants), len(full.Mutants))
+	}
+}
+
+// TestAWhitespaceFilenameSurvivesSelection: NUL-separated git plumbing keeps
+// every legal filename shape intact.
+func TestAWhitespaceFilenameSurvivesSelection(t *testing.T) {
+	t.Parallel()
+
+	module := gitFixture(t, discriminateFixture)
+	writeFile(t, filepath.Join(module, "with space.tf"), extraResource)
+
+	files := mutantFiles(sincePreview(t, module, sinceHead))
+	if !slices.Contains(files, "with space.tf") {
+		t.Fatalf("a filename containing whitespace was lost by selection: %v", files)
+	}
+}
+
+// TestAJSONConfigurationChangeForcesTheFullPopulation: discovery reads only
+// .tf, so a .tf.json change has no mutant sites to scope to — the honest
+// outcome is the full population, never a silent empty selection.
+func TestAJSONConfigurationChangeForcesTheFullPopulation(t *testing.T) {
+	t.Parallel()
+
+	module := gitFixture(t, discriminateFixture)
+	full := preview(t, module, nil)
+
+	writeFile(t, filepath.Join(module, "extra.tf.json"), "{}\n")
+
+	result := sincePreview(t, module, sinceHead)
+	if len(result.Mutants) != len(full.Mutants) {
+		t.Fatalf("a .tf.json change selected %d of %d mutants; it must force the full "+
+			"population", len(result.Mutants), len(full.Mutants))
+	}
+}
+
+// TestAFractionalSampleNeverKeepsNothing: the ceiling applies to the real
+// percentage — 0.5% of a small population keeps at least one mutant — and an
+// out-of-range percentage is refused outright.
+func TestAFractionalSampleNeverKeepsNothing(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "operators")
+
+	config := baseConfig(t, module)
+	config.Preview = true
+	config.HasSample = true
+	config.SamplePercent = 0.5
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("fractional sample: %v", err)
+	}
+
+	if len(result.Mutants) == 0 {
+		t.Fatal("a 0.5% sample of a non-empty population kept nothing")
+	}
+
+	for _, percent := range []float64{0, -5, 101} {
+		bad := baseConfig(t, module)
+		bad.Preview = true
+		bad.HasSample = true
+		bad.SamplePercent = percent
+
+		if _, err := engine.Run(t.Context(), bad); !errors.Is(err, engine.ErrSampleRange) {
+			t.Fatalf("--sample %g returned %v, want ErrSampleRange", percent, err)
+		}
+	}
 }

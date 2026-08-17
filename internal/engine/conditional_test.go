@@ -205,3 +205,56 @@ func TestDecidableToNonzeroControlsClassifyByExecution(t *testing.T) {
 		}
 	}
 }
+
+// TestAnAutoLoadedVariableFileDefeatsTheDefault is the #47 review's
+// reproduction: the module default proves zero, x.auto.tfvars sets the gate
+// true, and Terraform instantiates the block — so every body mutant executes,
+// never NoCoverage.
+func TestAnAutoLoadedVariableFileDefeatsTheDefault(t *testing.T) {
+	t.Parallel()
+
+	result := runConditional(t, "conditional-autovar")
+
+	mutants := bodyMutants(result, "terraform_data.gated", "count")
+	if len(mutants) == 0 {
+		t.Fatal("no body mutants generated; the fixture lost its point")
+	}
+
+	for _, mutant := range mutants {
+		if mutant.State == report.NoCoverage {
+			t.Errorf("mutant %s (%s at %s) was pre-classified NoCoverage from the module "+
+				"default while an auto-loaded variable file instantiates the block",
+				mutant.ID, mutant.Operator, mutant.Site)
+		}
+	}
+}
+
+// TestTerraformTfvarsDecidesOverTheDefault is the sound direction:
+// terraform.tfvars pins the gate false over a true default, the evaluator
+// proves zero from the file Terraform reads, and body mutants stay
+// NoCoverage.
+func TestTerraformTfvarsDecidesOverTheDefault(t *testing.T) {
+	t.Parallel()
+
+	result := runConditional(t, "conditional-tfvars")
+
+	found := false
+
+	for _, mutant := range bodyMutants(result, "terraform_data.gated", "count") {
+		if mutant.Site == "terraform_data.gated" {
+			continue
+		}
+
+		found = true
+
+		if mutant.State != report.NoCoverage {
+			t.Errorf("body mutant %s (%s at %s): state %s, want %s — terraform.tfvars "+
+				"proves the multiplicity zero",
+				mutant.ID, mutant.Operator, mutant.Site, mutant.State, report.NoCoverage)
+		}
+	}
+
+	if !found {
+		t.Fatal("no body mutants generated; the fixture lost its point")
+	}
+}

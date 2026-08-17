@@ -140,9 +140,10 @@ statically **before** any Terraform runs — a provisioner must not execute in o
 refused, and no configured exclusion may reach them. `terraform validate` runs **only** after a
 run-level error, where it is the sole discriminator between `Invalid` and `KilledByError`.
 Phase two runs **only** for phase-one survivors, because `-verbose` costs 20,288× the output
-volume. And the oracle never claims an equality it cannot prove: an unknown value anywhere in
-the payload, or volatility it could not decompose, makes the comparison indeterminate rather
-than identical.
+volume. And the oracle never claims an equality it cannot prove: an unknown value in the
+mutation's forward cone — judged under the fail-closed address adapters, with the M2
+whole-payload rule as the floor wherever a mapping fails — or volatility it could not
+decompose, makes the comparison indeterminate rather than identical.
 
 `just gate` runs the M2a honesty gate — the reproductions the oracle has to survive — and
 `just gate-m3` runs the M3 offline gates: graph soundness, the count levers and the gate

@@ -218,3 +218,62 @@ func TestNoUserInvocationExecutesTerraformGraph(t *testing.T) {
 		}
 	}
 }
+
+// TestProviderConfigurationMakesTheConeUnbounded is the #44 review's
+// reproduction: var.region is consumed only by provider configuration, whose
+// influence the graph does not model edge by edge. The variable's cone must
+// be unbounded — observable, with every payload address in-cone — so neither
+// the static shortcut nor the path-scoped unknown rule can turn the missing
+// provider edges into a proof.
+func TestProviderConfigurationMakesTheConeUnbounded(t *testing.T) {
+	t.Parallel()
+
+	configuration := discover(t, copyFixture(t, "provider-config"))
+	graph := configuration.BuildGraph()
+
+	cone, ok := graph.SiteCone(".", "var.region.default")
+	if !ok {
+		t.Fatal("var.region.default did not map into the graph")
+	}
+
+	if !cone.ContainsObservable() {
+		t.Fatal("a cone reaching provider configuration reported nothing observable; " +
+			"the static shortcut would claim a false Unobservable")
+	}
+
+	if !cone.ContainsPayloadAddress("aws_sqs_queue.work.arn") {
+		t.Fatal("a cone reaching provider configuration excluded a payload unknown; " +
+			"the path-scoped rule would claim a false equality")
+	}
+}
+
+// TestModuleWiringAgreesWithTerraformGraph extends the supplemental check to
+// the module-wiring edges the resource-level comparison used to reject: a
+// DOT edge into or out of a child-module resource must be reachable in the
+// reference graph through the call wiring.
+func TestModuleWiringAgreesWithTerraformGraph(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, discriminateFixture)
+	configuration := discover(t, module)
+	graph := configuration.BuildGraph()
+
+	edges := terraformGraphModuleEdges(t, module)
+	if len(edges) == 0 {
+		t.Skip("the fixture's terraform graph reports no module-wiring edges to compare")
+	}
+
+	for _, edge := range edges {
+		cone, ok := graph.ConeOfPayloadAddress(edge.to)
+		if !ok {
+			t.Errorf("terraform graph names %s, which the reference graph cannot resolve", edge.to)
+
+			continue
+		}
+
+		if !cone.ContainsPayloadAddress(edge.from) {
+			t.Errorf("terraform graph sees %s -> %s across the module boundary and the "+
+				"reference graph does not", edge.from, edge.to)
+		}
+	}
+}

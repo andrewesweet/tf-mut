@@ -73,13 +73,6 @@ const (
 type Diagnosis string
 
 // The survivor diagnoses, in precedence order — first match wins.
-//
-// `mock-masked` was withdrawn in M3 (issue #50, prove-or-withdraw): its
-// positive case cannot fire. A stable apply-mode delta in an
-// optional-computed attribute is attributable to the module, and a
-// computed-only attribute's mock value is either deterministic and identical
-// on both sides or random and masked by the volatility re-run — measured
-// against hashicorp/aws, recorded in docs/research/09-m3-real-provider-gate.md.
 const (
 	// IndeterminateUnknownValues marks a fingerprint-identical survivor whose
 	// payload carries an unknown value, so equality cannot be proven.
@@ -87,6 +80,17 @@ const (
 	// IndeterminateVolatility marks a survivor whose delta remained undecidable
 	// after the mutant was re-run.
 	IndeterminateVolatility Diagnosis = "indeterminate-volatility"
+	// MockMasked is withdrawn (M3, issue #50, prove-or-withdraw): its positive
+	// case cannot fire — a stable apply-mode delta in an optional-computed
+	// attribute is attributable to the module, and a computed-only attribute's
+	// mock value is either deterministic and identical on both sides or random
+	// and masked by the volatility re-run, measured against hashicorp/aws
+	// (docs/research/09-m3-real-provider-gate.md). The value stays declared so
+	// the 2.1.0 schema remains additive over 2.0 documents; the oracle never
+	// emits it again.
+	//
+	// Deprecated: never emitted since M3.
+	MockMasked Diagnosis = "mock-masked"
 	// WeakAssertion marks a survivor an assertion reads yet does not catch.
 	WeakAssertion Diagnosis = "weak-assertion"
 	// NoAssertion marks a survivor the output and local closure proves no
@@ -167,6 +171,11 @@ type Evidence struct {
 	ClosureVerdict string `json:"closure_verdict,omitempty"`
 	// DefeatedBy names the construct that defeated the closure computation.
 	DefeatedBy string `json:"defeated_by,omitempty"`
+	// MockResource was carried only by the withdrawn mock-masked diagnosis;
+	// the field stays declared so 2.0 documents remain readable.
+	//
+	// Deprecated: never emitted since M3.
+	MockResource string `json:"mock_resource,omitempty"`
 }
 
 // Verdict is the classification of one mutant: the diagnosis where it has one,

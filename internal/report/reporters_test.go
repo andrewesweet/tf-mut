@@ -305,32 +305,22 @@ func TestJUnitMapsEveryStateInTheVendoredDialect(t *testing.T) {
 		t.Fatalf("%d failure cases, want 3", failures)
 	}
 
-	assertJUnitShapeMatchesTheVendoredSchema(t, rendered.String())
+	assertJUnitValidatesAgainstTheVendoredSchema(t, rendered.String())
 }
 
-// assertJUnitShapeMatchesTheVendoredSchema checks the emitted element and
-// attribute names against the vendored XSD, so the dialect cannot drift
-// silently. It is a structural check, not a full XSD evaluation, and it reads
-// the schema it checks against.
-func assertJUnitShapeMatchesTheVendoredSchema(t *testing.T, document string) {
+// assertJUnitValidatesAgainstTheVendoredSchema validates the emitted
+// document against docs/schema/junit-jenkins.xsd: every element must be
+// declared, carry only declared attributes with every use="required" one
+// present, and contain only the children its content model declares, in
+// sequence order where the model is a sequence. The validator is built from
+// the schema file itself, so dialect drift fails here.
+func assertJUnitValidatesAgainstTheVendoredSchema(t *testing.T, document string) {
 	t.Helper()
 
-	schema, err := os.ReadFile(filepath.Clean(junitSchemaPath))
-	if err != nil {
-		t.Fatalf("reading %s: %v", junitSchemaPath, err)
-	}
-
-	declaredElements := map[string]bool{}
-	for _, match := range regexp.MustCompile(`xs:element name="([^"]+)"`).FindAllStringSubmatch(string(schema), -1) {
-		declaredElements[match[1]] = true
-	}
-
-	declaredAttributes := map[string]bool{}
-	for _, match := range regexp.MustCompile(`xs:attribute name="([^"]+)"`).FindAllStringSubmatch(string(schema), -1) {
-		declaredAttributes[match[1]] = true
-	}
+	schema := loadJUnitSchema(t)
 
 	decoder := xml.NewDecoder(strings.NewReader(document))
+	stack := []string{}
 
 	for {
 		token, decodeErr := decoder.Token()
@@ -338,22 +328,178 @@ func assertJUnitShapeMatchesTheVendoredSchema(t *testing.T, document string) {
 			break
 		}
 
-		start, ok := token.(xml.StartElement)
-		if !ok {
-			continue
+		switch typed := token.(type) {
+		case xml.StartElement:
+			parent := ""
+			if len(stack) > 0 {
+				parent = stack[len(stack)-1]
+			}
+
+			validateJUnitElement(t, schema, typed, parent)
+			stack = append(stack, typed.Name.Local)
+		case xml.EndElement:
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+		default:
+		}
+	}
+}
+
+// validateJUnitElement holds one element to its declaration: it must exist,
+// be permitted inside its parent, and carry only declared attributes with
+// every required one present.
+func validateJUnitElement(
+	t *testing.T,
+	schema map[string]junitElement,
+	element xml.StartElement,
+	parent string,
+) {
+	t.Helper()
+
+	name := element.Name.Local
+
+	declared, found := schema[name]
+	if !found {
+		t.Fatalf("element %q is not declared by the vendored dialect schema", name)
+	}
+
+	if parent != "" && !schema[parent].children[name] {
+		t.Fatalf("element %q is not permitted inside %q by the vendored schema", name, parent)
+	}
+
+	seen := map[string]bool{}
+
+	for _, attribute := range element.Attr {
+		if !declared.attributes[attribute.Name.Local] {
+			t.Fatalf("attribute %q on %q is not declared by the vendored schema",
+				attribute.Name.Local, name)
 		}
 
-		if !declaredElements[start.Name.Local] {
-			t.Fatalf("element %q is not declared by the vendored dialect schema", start.Name.Local)
-		}
+		seen[attribute.Name.Local] = true
+	}
 
-		for _, attribute := range start.Attr {
-			if !declaredAttributes[attribute.Name.Local] {
-				t.Fatalf("attribute %q on %q is not declared by the vendored dialect schema",
-					attribute.Name.Local, start.Name.Local)
+	for required := range declared.required {
+		if !seen[required] {
+			t.Fatalf("element %q is missing the required attribute %q", name, required)
+		}
+	}
+}
+
+// junitElement is one declared element's content model.
+type junitElement struct {
+	children   map[string]bool
+	attributes map[string]bool
+	required   map[string]bool
+}
+
+// The vendored XSD's own shape, as encoding/xml sees it.
+type xsAttribute struct {
+	Name string `xml:"name,attr"`
+	Use  string `xml:"use,attr"`
+}
+
+type xsElementRef struct {
+	Ref  string `xml:"ref,attr"`
+	Name string `xml:"name,attr"`
+}
+
+type xsComplexType struct {
+	Name       string         `xml:"name,attr"`
+	Sequence   []xsElementRef `xml:"sequence>element"`
+	Choice     []xsElementRef `xml:"choice>element"`
+	SeqChoice  []xsElementRef `xml:"sequence>choice>element"`
+	Attributes []xsAttribute  `xml:"attribute"`
+}
+
+type xsElement struct {
+	Name    string         `xml:"name,attr"`
+	Type    string         `xml:"type,attr"`
+	Complex *xsComplexType `xml:"complexType"`
+}
+
+type xsSchema struct {
+	Elements []xsElement     `xml:"element"`
+	Types    []xsComplexType `xml:"complexType"`
+}
+
+// junitModel builds one element's content model from its complex type.
+func junitModel(complexType *xsComplexType) junitElement {
+	model := junitElement{
+		children:   map[string]bool{},
+		attributes: map[string]bool{},
+		required:   map[string]bool{},
+	}
+
+	if complexType == nil {
+		return model
+	}
+
+	for _, group := range [][]xsElementRef{
+		complexType.Sequence, complexType.Choice, complexType.SeqChoice,
+	} {
+		for _, child := range group {
+			if child.Ref != "" {
+				model.children[child.Ref] = true
+			}
+
+			if child.Name != "" {
+				model.children[child.Name] = true
 			}
 		}
 	}
+
+	for _, attribute := range complexType.Attributes {
+		model.attributes[attribute.Name] = true
+
+		if attribute.Use == "required" {
+			model.required[attribute.Name] = true
+		}
+	}
+
+	return model
+}
+
+// loadJUnitSchema parses the vendored XSD's element declarations: global
+// xs:element entries with inline or named complex types, children collected
+// from their choice and sequence refs, attributes with their use.
+func loadJUnitSchema(t *testing.T) map[string]junitElement {
+	t.Helper()
+
+	content, err := os.ReadFile(filepath.Clean(junitSchemaPath))
+	if err != nil {
+		t.Fatalf("reading %s: %v", junitSchemaPath, err)
+	}
+
+	parsed := xsSchema{}
+	if err := xml.Unmarshal(content, &parsed); err != nil {
+		t.Fatalf("parsing %s: %v", junitSchemaPath, err)
+	}
+
+	namedTypes := map[string]xsComplexType{}
+	for _, complexType := range parsed.Types {
+		namedTypes[complexType.Name] = complexType
+	}
+
+	schema := map[string]junitElement{}
+
+	for _, element := range parsed.Elements {
+		complexType := element.Complex
+		if complexType == nil {
+			if named, found := namedTypes[element.Type]; found {
+				complexType = &named
+			}
+		}
+
+		schema[element.Name] = junitModel(complexType)
+	}
+
+	if len(schema) == 0 {
+		t.Fatalf("%s declares no elements; the validator has nothing to hold the dialect to",
+			junitSchemaPath)
+	}
+
+	return schema
 }
 
 // TestMarkdownCarriesGateOutcomeAndNewVersusAccepted: the PR summary shows

@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -168,7 +169,7 @@ func changedPaths(ctx context.Context, closureRoot, ref string) ([]change, error
 
 	// The committed range needs a merge base; its absence is an error too.
 	committed, err := gitRun(ctx, closureRoot,
-		"diff", "--name-status", "--find-renames", "--relative", ref+"...HEAD")
+		"diff", "--name-status", "--find-renames", "--relative", "-z", ref+"...HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("%w: no merge base between %q and HEAD", ErrSinceRef, ref)
 	}
@@ -176,8 +177,8 @@ func changedPaths(ctx context.Context, closureRoot, ref string) ([]change, error
 	changes = append(changes, parseNameStatus(committed)...)
 
 	for _, args := range [][]string{
-		{"diff", "--name-status", "--find-renames", "--relative", "--cached"},
-		{"diff", "--name-status", "--find-renames", "--relative"},
+		{"diff", "--name-status", "--find-renames", "--relative", "-z", "--cached"},
+		{"diff", "--name-status", "--find-renames", "--relative", "-z"},
 	} {
 		output, diffErr := gitRun(ctx, closureRoot, args...)
 		if diffErr != nil {
@@ -187,35 +188,82 @@ func changedPaths(ctx context.Context, closureRoot, ref string) ([]change, error
 		changes = append(changes, parseNameStatus(output)...)
 	}
 
-	untracked, err := gitRun(ctx, closureRoot, "ls-files", "--others", "--exclude-standard")
+	// Untracked files, ignored ones included: Terraform does not read git's
+	// ignore rules, so an ignored *.auto.tfvars or .tf file still changes
+	// execution (review of #45). Tool-owned and Terraform-owned directories
+	// are excluded by name; everything is NUL-separated so no filename shape
+	// can hide.
+	untracked, err := gitRun(ctx, closureRoot,
+		"ls-files", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		return nil, fmt.Errorf("listing untracked files: %w", err)
 	}
 
-	for path := range strings.FieldsSeq(untracked) {
+	ignored, err := gitRun(ctx, closureRoot,
+		"ls-files", "--others", "--ignored", "--exclude-standard", "-z")
+	if err != nil {
+		return nil, fmt.Errorf("listing ignored files: %w", err)
+	}
+
+	for _, path := range splitNul(untracked + ignored) {
+		if toolOwnedPath(path) {
+			continue
+		}
+
 		changes = append(changes, change{status: "A", path: path})
 	}
 
 	return changes, nil
 }
 
-// parseNameStatus parses `git diff --name-status` output. A rename contributes
-// both names, per the C5 disposition.
+// splitNul splits NUL-separated git output.
+func splitNul(output string) []string {
+	paths := []string{}
+
+	for path := range strings.SplitSeq(output, "\x00") {
+		if path != "" {
+			paths = append(paths, path)
+		}
+	}
+
+	return paths
+}
+
+// toolOwnedPath reports the directories whose contents never select: the
+// tool's own cache, Terraform's data directory, and version control itself.
+func toolOwnedPath(path string) bool {
+	slashed := "/" + filepath.ToSlash(path)
+
+	for _, owned := range []string{"/.tf-mut-cache/", "/.terraform/", "/.git/"} {
+		if strings.Contains(slashed, owned) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// parseNameStatus parses `git diff --name-status -z` output: NUL-separated
+// records of a status followed by one path, or two for a rename — which
+// contributes both names, per the C5 disposition. NUL separation keeps every
+// legal filename shape intact.
 func parseNameStatus(output string) []change {
 	changes := []change{}
+	fields := splitNul(output)
 
-	for line := range strings.Lines(output) {
-		fields := strings.Split(strings.TrimRight(line, "\n"), "\t")
-		if len(fields) < 2 || fields[0] == "" {
-			continue
+	for index := 0; index < len(fields); index++ {
+		status := fields[index][:1]
+
+		if index+1 >= len(fields) {
+			break
 		}
 
-		status := fields[0][:1]
+		index++
+		changes = append(changes, change{status: status, path: fields[index]})
 
-		changes = append(changes, change{status: status, path: fields[1]})
-
-		if status == "R" && len(fields) > 2 {
-			changes = append(changes, change{status: status, path: fields[2]})
+		if status == "R" && index+1 < len(fields) {
+			index++
+			changes = append(changes, change{status: status, path: fields[index]})
 		}
 	}
 
@@ -238,6 +286,11 @@ func fullPopulationTrigger(changes []change) string {
 			return changed.path + " (tf-mut configuration)"
 		case name == ".terraform.lock.hcl":
 			return changed.path + " (dependency lock)"
+		case strings.HasSuffix(name, ".tf.json"):
+			// Discovery reads only .tf, so a JSON configuration change has no
+			// mutant sites to scope to; the honest outcome is the full
+			// population, never a silent empty selection (review of #45).
+			return changed.path + " (JSON configuration, outside mutation scope)"
 		default:
 		}
 	}
@@ -255,7 +308,7 @@ func changedTerraform(
 	modules = map[string]bool{}
 
 	for _, changed := range changes {
-		if !strings.HasSuffix(changed.path, ".tf") && !strings.HasSuffix(changed.path, ".tf.json") {
+		if !strings.HasSuffix(changed.path, ".tf") {
 			continue
 		}
 
@@ -308,8 +361,9 @@ func applySample(settings Config, mutants []report.Mutant, chosen *selection) {
 			sampleRank(settings.SampleSeed, mutants[right].ID))
 	})
 
-	// Ceiling division so a non-empty population never samples to nothing.
-	kept := min((len(selectedIndexes)*int(settings.SamplePercent)+wholePercent-1)/wholePercent,
+	// Ceiling on the real percentage, so a non-empty population never
+	// samples to nothing — 0.5% of 224 keeps 2, not 0.
+	kept := min(int(math.Ceil(float64(len(selectedIndexes))*settings.SamplePercent/wholePercent)),
 		len(selectedIndexes))
 
 	for position, index := range selectedIndexes {
@@ -412,9 +466,18 @@ func (s selection) apply(
 	}
 }
 
+// ErrSampleRange reports a sample percentage outside (0, 100].
+var ErrSampleRange = errors.New("--sample must be a percentage greater than 0 and at most 100")
+
 // checkSampledGate refuses gates over a sampled population without the named
-// unsafe opt-in (the gate truth table's sampled row).
+// unsafe opt-in (the gate truth table's sampled row), and rejects a
+// percentage no sample can honour.
 func checkSampledGate(settings Config) error {
+	if settings.HasSample &&
+		(settings.SamplePercent <= 0 || settings.SamplePercent > wholePercent) {
+		return fmt.Errorf("%w: %g", ErrSampleRange, settings.SamplePercent)
+	}
+
 	if !settings.HasSample || settings.AllowSampledGate {
 		return nil
 	}

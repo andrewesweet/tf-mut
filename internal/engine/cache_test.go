@@ -459,3 +459,69 @@ func TestRemoteModulePayloadsAreAKeyDimension(t *testing.T) {
 			invalidated.Population.Cached)
 	}
 }
+
+// TestAutoVarFilesAreAKeyDimension: terraform.tfvars and *.auto.tfvars reach
+// verdicts without appearing in the source closure, so the key must hash
+// them (review of #48).
+func TestAutoVarFilesAreAKeyDimension(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+	config := baseConfig(t, module)
+	cachedRun(t, config)
+
+	writeFile(t, filepath.Join(module, "probe.auto.tfvars"), "# appeared\n")
+
+	result := cachedRun(t, config)
+	if result.Population.Cached != 0 {
+		t.Fatalf("%d cached verdicts survived an auto-var file appearing", result.Population.Cached)
+	}
+}
+
+// TestProviderEnvironmentIsAKeyDimension: AWS_-shaped configuration can reach
+// a verdict, so it is keyed alongside the TF_ surface.
+func TestProviderEnvironmentIsAKeyDimension(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+	config := baseConfig(t, module)
+	cachedRun(t, config)
+
+	config.Env = append(config.Env, "AWS_REGION=eu-central-1")
+
+	result := cachedRun(t, config)
+	if result.Population.Cached != 0 {
+		t.Fatalf("%d cached verdicts survived a provider environment change",
+			result.Population.Cached)
+	}
+}
+
+// TestAnExistingLooseCacheDirectoryIsCorrected: 0700 is the contract for the
+// directory's whole life, not only its creation — evidence may embed plan
+// values and source text.
+func TestAnExistingLooseCacheDirectoryIsCorrected(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+
+	dir := cacheDir(module)
+	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // the loose mode is the case under test.
+		t.Fatalf("creating loose cache dir: %v", err)
+	}
+
+	if err := os.Chmod(dir, 0o755); err != nil { //nolint:gosec // the loose mode is the case under test.
+		t.Fatalf("loosening cache dir: %v", err)
+	}
+
+	cachedRun(t, baseConfig(t, module))
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat cache dir: %v", err)
+	}
+
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("a pre-existing %v cache directory was used without correction to 0700",
+			info.Mode().Perm())
+	}
+}

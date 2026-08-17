@@ -67,6 +67,8 @@ Flags for run and preview:
   --exclude-path GLOB[,GLOB]   Remove sites in matching files
   --exclude-resource ADDR[,..] Remove sites in matching resources
   --reporter FORMAT            terminal|json|sarif|mte|html|junit|markdown (default terminal)
+  --output FORMAT=PATH         Write an additional reporter from the same run;
+                               repeatable — every output derives from one report value
   --sarif-path PATH            Where to write the SARIF document
 
 Settings also readable from .tf-mut.hcl at the module root. A flag given on the
@@ -111,6 +113,26 @@ type options struct {
 
 // flagValues collects the parsed flag pointers, so declaring the surface and
 // reading it can be two short functions instead of one long one.
+// outputFlag collects repeatable FORMAT=PATH reporter outputs.
+type outputFlag []config.Reporter
+
+func (*outputFlag) String() string { return "" }
+
+func (o *outputFlag) Set(value string) error {
+	name, path, found := strings.Cut(value, "=")
+	if !found || name == "" || path == "" {
+		return fmt.Errorf("%w: --output wants FORMAT=PATH, got %q", errUnknownReporter, value)
+	}
+
+	if !knownReporter(name) {
+		return fmt.Errorf("%w: %s", errUnknownReporter, name)
+	}
+
+	*o = append(*o, config.Reporter{Name: name, Path: path})
+
+	return nil
+}
+
 type flagValues struct {
 	testDirectory, reporter, sarifPath, tier *string
 	operators, excludeOperators              *string
@@ -123,6 +145,7 @@ type flagValues struct {
 	failOnNew, writeBaseline                 *bool
 	generatedFunctions                       *bool
 	baselinePath                             *string
+	outputs                                  *outputFlag
 }
 
 func declareFlags(set *flag.FlagSet) flagValues {
@@ -160,7 +183,16 @@ func declareFlags(set *flag.FlagSet) flagValues {
 		baselinePath: set.String("baseline", "", "baseline file location"),
 		generatedFunctions: set.Bool("generated-functions", false,
 			"opt in to the generated function-family operators"),
+		outputs: declareOutputFlag(set),
 	}
+}
+
+func declareOutputFlag(set *flag.FlagSet) *outputFlag {
+	outputs := &outputFlag{}
+	set.Var(outputs, "output",
+		"write an additional FORMAT=PATH reporter from the same run; repeatable")
+
+	return outputs
 }
 
 func parse(command string, args []string, stderr io.Writer) (options, error) {
@@ -245,7 +277,7 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 		},
 		reporter:  *values.reporter,
 		sarifPath: *values.sarifPath,
-		reporters: configured,
+		reporters: append(configured, *values.outputs...),
 	}, nil
 }
 

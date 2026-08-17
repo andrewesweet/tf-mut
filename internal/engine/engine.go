@@ -237,7 +237,7 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		return result, nil
 	}
 
-	executed, failures := executeWithCache(ctx, &result, version.Terraform, executionPlan{
+	executed, failures := executeWithCache(ctx, &result, version, executionPlan{
 		runner:        runner,
 		configuration: configuration,
 		config:        settings,
@@ -277,10 +277,10 @@ func finish(
 func executeWithCache(
 	ctx context.Context,
 	result *report.Report,
-	terraformVersion string,
+	terraform tfexec.Version,
 	plan executionPlan,
 ) ([]report.Mutant, []report.ExecutionError) {
-	cache := openCache(plan.configuration, plan.config, plan.prepared, terraformVersion)
+	cache := openCache(plan.configuration, plan.config, plan.prepared, terraform)
 	if cache != nil {
 		result.Population.Cached = cache.load(plan.described)
 		result.Population.Fresh = result.Population.Selected - result.Population.Cached

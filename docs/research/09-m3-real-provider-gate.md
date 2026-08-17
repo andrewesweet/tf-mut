@@ -14,7 +14,10 @@ not a portable assertion."
   plan-mode runs. The fixture is pinned by the repository commit this document ships in.
 - **Diff**: exactly one appended comment line in `observability.tf`, so every mutant
   identifier in the touched file survives unchanged. The expected selection is enumerated in
-  `innerloop_integration_test.go`: the four `aws_cloudwatch_log_group.application` sites.
+  `innerloop_integration_test.go`: the four `aws_cloudwatch_log_group.application` sites and
+  the twelve mutant identifiers, literally. The fixture itself is pinned by content digest
+  (`f60655a523306a94`), asserted before the measurement runs, and the portable factor floor
+  is 4x against the published 14.6x.
 - **Protocol**: cache off (`--no-cache`), standard tier, eight jobs, warm plugin cache
   (`.artifacts/cache/terraform-plugins` persists between runs); the full run precedes the
   scoped run. Shared-verdict identity is asserted through the M3b invariance harness.
@@ -26,18 +29,22 @@ not a portable assertion."
 
 | Quantity | Value |
 | --- | --- |
-| Full population | 219 mutants in 757.6 s (0.29 mutants/s) |
-| Pinned-diff selection | 12 mutants (four sites), **51.9 s** |
-| Factor, full versus scoped | **14.6×** |
+| Full population | 219 mutants in 539.2 s (0.41 mutants/s) |
+| Pinned-diff selection | 12 mutants (four sites), **40.1 s** |
+| Factor, full versus scoped | **13.5×** (portable floor: 4×) |
 | M1 full-run baseline (same fixture family, Tier 0) | 40 mutants, 128.4 s, 0.31 mutants/s |
 | `DYNAMIC-ZERO` end-to-end | `Killed` |
 
-The full-run throughput (0.29 mutants/s at standard tier) confirms the settled fact: the
+The numbers above are the re-run after the delivery review's graph repair —
+provider-referenced variables now execute rather than classify statically — on the same
+hardware with warmer OS caches than the first publication (757.6 s / 51.9 s / 14.6×), which
+is why both runs improved while the factor barely moved. The full-run throughput confirms
+the settled fact: the
 ~1.6 s per-mutant provider-startup floor is unreachable from inside the tool, and every
 remaining lever reduces how many mutants run. The pinned one-file diff runs **inside 60
 seconds on this hardware** — a published measurement, not a portable assertion; the portable
-assertions are the enumerated four-site selection, the non-zero minimum, and the 14.6×
-factor. **The product claim, narrowed per the M5 disposition**: the sub-minute figure holds
+assertions are the enumerated four-site and twelve-identifier selection, the non-zero
+minimum, the fixture content digest, and the 4× factor floor. **The product claim, narrowed per the M5 disposition**: the sub-minute figure holds
 for a configuration-only diff; a code-plus-test PR changes a test-file class, forces the full
 population, and is not sub-minute.
 
@@ -78,13 +85,13 @@ offline `dynamic` fixture remains the operator's generation-site witness.
 
 ## The terminal display bound (M2 review open question 5)
 
-Survivor delta sizes measured on the real survivor population (141 survivors, full standard
-run): median **3**, 75th percentile 3, 90th percentile 18, maximum 20 — where 20 is the JSON
-evidence cap, which 6 of 141 survivors (4.3%) saturate; the large deltas are the
+Survivor delta sizes measured on the real survivor population (143 survivors, full standard
+run after the graph repair): median **3**, 75th percentile 3, 90th percentile 18, maximum 20
+— where 20 is the JSON evidence cap, which 6 of 143 survivors (4.2%) saturate; the large deltas are the
 whole-resource mutants (`EXT-RESOURCE-DELETE`, `EXT-BODY-BLANK`), whose remaining changes no
 reader scrolls a terminal for. **Decision, set from this data**: the terminal keeps three
 changes per survivor — the measured median — and the JSON keeps twenty, which loses nothing
-for 95.7% of real survivors. Both bounds now rest on a measurement rather than a guess; the
+for 95.8% of real survivors. Both bounds now rest on a measurement rather than a guess; the
 full distribution is in `.artifacts/performance/m3-inner-loop.json`.
 
 ## The M3e admission measurement (#53)

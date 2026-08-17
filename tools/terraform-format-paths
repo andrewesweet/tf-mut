@@ -11,6 +11,8 @@ internal/engine/testdata/aws-mocked/storage.tf
 internal/engine/testdata/aws-mocked/tests/unit.tftest.hcl
 internal/engine/testdata/closure/main.tf
 internal/engine/testdata/closure/tests/unit.tftest.hcl
+internal/engine/testdata/conditional-autovar/main.tf
+internal/engine/testdata/conditional-autovar/tests/main.tftest.hcl
 internal/engine/testdata/conditional-function/main.tf
 internal/engine/testdata/conditional-function/tests/main.tftest.hcl
 internal/engine/testdata/conditional-nocoverage/main.tf
@@ -21,6 +23,8 @@ internal/engine/testdata/conditional-runref/main.tf
 internal/engine/testdata/conditional-runref/tests/main.tftest.hcl
 internal/engine/testdata/conditional-target/main.tf
 internal/engine/testdata/conditional-target/tests/main.tftest.hcl
+internal/engine/testdata/conditional-tfvars/main.tf
+internal/engine/testdata/conditional-tfvars/tests/main.tftest.hcl
 internal/engine/testdata/contract/main.tf
 internal/engine/testdata/contract/tests/unit.tftest.hcl
 internal/engine/testdata/count-indexed/main.tf
@@ -63,6 +67,8 @@ internal/engine/testdata/policy/main.tf
 internal/engine/testdata/policy/tests/unit.tftest.hcl
 internal/engine/testdata/precedence-unknown/main.tf
 internal/engine/testdata/precedence-unknown/tests/unit.tftest.hcl
+internal/engine/testdata/provider-config/main.tf
+internal/engine/testdata/provider-config/tests/main.tftest.hcl
 internal/engine/testdata/provisioner/main.tf
 internal/engine/testdata/provisioner/tests/unit.tftest.hcl
 internal/engine/testdata/red-baseline/main.tf

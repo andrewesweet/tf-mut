@@ -69,6 +69,13 @@ func TestTheM3GateCoversEveryNamedRequirement(t *testing.T) {
 		"scoped min-score labelled partial":       "TestScopedMinScoreIsLabelledPartial",
 		"the lock key dimension":                  "TestTheLockFileIsAKeyDimension",
 		"the remote-payload key dimension":        "TestRemoteModulePayloadsAreAKeyDimension",
+		"the auto-var key dimension":              "TestAutoVarFilesAreAKeyDimension",
+		"the provider-environment key dimension":  "TestProviderEnvironmentIsAKeyDimension",
+		"an existing loose cache dir corrected":   "TestAnExistingLooseCacheDirectoryIsCorrected",
+		"auto-loaded variable files fail closed":  "TestAnAutoLoadedVariableFileDefeatsTheDefault",
+		"ignored untracked files still select":    "TestAnIgnoredUntrackedVariableFileForcesTheFullPopulation",
+		"provider configuration unbounds cones":   "TestProviderConfigurationMakesTheConeUnbounded",
+		"module wiring against terraform graph":   "TestModuleWiringAgreesWithTerraformGraph",
 	}
 
 	named := map[string]bool{}

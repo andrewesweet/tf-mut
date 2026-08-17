@@ -4,13 +4,14 @@ Milestone M3 ([issue #33](https://github.com/andrewesweet/tf-mut/issues/33), rev
 its sub-scope tickets #44–#54), closed against the spec's own definition of done. The three
 exit gates:
 
-1. **The M3a/M3b offline gates are green** — `just gate-m3`, 72 named cases, audited by
+1. **The M3a/M3b offline gates are green** — `just gate-m3`, 83 named cases, audited by
    `TestTheM3GateNamesOnlyTestsThatExist` and `TestTheM3GateCoversEveryNamedRequirement` so
    the recipe can neither name a ghost nor quietly drop a requirement.
 2. **The M3c real-provider gate is published with both debts settled** —
    `09-m3-real-provider-gate.md`: the pinned inner loop (219 mutants full, 12 selected,
-   51.9 s, 14.6×), `mock-masked` withdrawn on measured evidence, `DYNAMIC-ZERO` classified
-   `Killed` end to end.
+   40.1 s, 13.5× against a 4× portable floor, re-measured after the delivery review's graph
+   repair), `mock-masked` withdrawn on measured evidence, `DYNAMIC-ZERO` classified `Killed`
+   end to end.
 3. **Verdict invariance holds across every lever** — `TestVerdictInvarianceUnderSince`,
    `TestASecondUnchangedRunIsAllCacheHits` (which asserts invariance over the replayed
    population), `TestVerdictInvarianceUnderSampling`, all through the one shared harness.
@@ -48,7 +49,7 @@ predates the M3a/M3b gates; no M3e work predates M3c.
 | Unresolvable situations error | `TestAMissingRefIsAnError`, `TestOutsideARepositoryIsAnError`, `TestAMergeConflictIsAnError`, `TestAShallowCloneLackingTheRefIsAnError` |
 | Non-`.tf` classes force the full population | `TestNonTerraformClassChangesForceTheFullPopulation` (one case per class) |
 | Deterministic, labelled sampling | `TestSamplingIsDeterministicAndNonAuthoritative`, `TestSinceSelectionIsDeterministic` |
-| Cache: coarse correct key, one fixture per dimension | `TestCacheInvalidationPerKeyDimension` (source closure, child module, tests, resolved configuration, environment), `TestMaskedBaselineFingerprintIsAKeyDimension`, `TestTheLockFileIsAKeyDimension`, `TestRemoteModulePayloadsAreAKeyDimension`. The Terraform-identity dimension is hashed into the key but has no invalidation fixture: exercising it needs a second Terraform binary, and a shimmed version string is a fake runner the seam forbids — recorded here as the one untested dimension |
+| Cache: coarse correct key, one fixture per dimension | `TestCacheInvalidationPerKeyDimension` (source closure, child module, tests, resolved configuration, environment), `TestMaskedBaselineFingerprintIsAKeyDimension`, `TestTheLockFileIsAKeyDimension`, `TestRemoteModulePayloadsAreAKeyDimension`, `TestAutoVarFilesAreAKeyDimension`, `TestProviderEnvironmentIsAKeyDimension`, and — with a second real adjacent Terraform release, network-gated — `TestTerraformIdentityIsAKeyDimension`. Every named key dimension now has its invalidation fixture |
 | Cache refused under the unsafe opt-ins and `--no-cache` | `TestCacheIsRefusedUnderTheUnsafeOptIns`, `TestNoCacheDisablesReadsAndWrites` |
 | Disk-format safety, each behaviour | `TestCorruptionIsAMiss`, `TestCacheEntriesAreOwnerOnly`, `TestASymlinkedCacheDirectoryIsRefused`, `TestEvictionIsDeterministicAndSizeCapped`, `TestConcurrentInvocationsShareTheCacheSafely` |
 | The gate truth table, row by row | `TestAdoptionThenRegression`, `TestAcceptedSurvivorsPassAndStayInScores`, `TestScopedFailOnNewJudgesTheSelectedPopulationOnly`, `TestScopedMinScoreIsLabelledPartial`, `TestTheCachedRowOfTheGateTable` (staleness not reported, gates partial, write refused with `--no-cache` the remedy), `TestASampledGateIsRefusedWithoutTheOptIn`, `TestASampledFailOnNewIsRefusedWithoutTheOptIn`, `TestBaselineWriteIsRefusedOffTheFullPopulation` |
@@ -110,6 +111,21 @@ factor), `TestTheMockMaskedRefutationHolds` (the withdrawal's evidence), publish
   staleness, and labels its gates partial, as the normative table always said;
   `--allow-sampled-gate` use is now reported (`sampling.gate_opt_in`); and the Action's
   install and run logic moved under the repository's shell gates.
+- **Corrections from the adversarial delivery review** (the reject-and-repair round recorded
+  on issues #44–#54): provider configuration now makes any cone that touches it unbounded —
+  observable, everything in-cone — closing the false-`Unobservable` shape; the conditional
+  evaluator reads `terraform.tfvars` and `*.auto.tfvars` in Terraform's own precedence,
+  closing the false-`NoCoverage` shape; `--since` includes ignored untracked configuration,
+  is NUL-safe for every filename, treats `.tf.json` changes as full-population triggers, and
+  fractional samples ceil rather than truncate; the cache key gains auto-var files, the
+  provider environment surface, the decoded platform identity, and an enforced-0700
+  directory for its whole life; report 2.1.0 retains the withdrawn `mock-masked` vocabulary
+  as deprecated so the revision stays additive; JUnit is validated by a validator built from
+  the vendored XSD (hierarchy, permitted children, attribute presence and requirements); the
+  Action derives SARIF and markdown from one run via `--output`, pins upload-sarif v3, and
+  its workflow exercises the failing-run publication path and a genuinely corrupted asset;
+  the inner-loop gate pins a 4x factor floor against the published 14.6x and the fixture's
+  content digest.
 
 ## What remains for M4
 

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -311,9 +312,12 @@ func supportedOperation(operation *hclsyntax.Operation) bool {
 }
 
 // resolveVariable resolves var.<name> from the enumerated context: run-level
-// variables, then file-level variables, then the root module's default. A
-// TF_VAR_ environment override — from the run's environment or the caller's —
-// is outside that context and fails the resolution closed.
+// variables, then file-level variables, then the automatically loaded
+// variable files Terraform reads without being asked — terraform.tfvars and
+// *.auto.tfvars — then the root module's default. A TF_VAR_ environment
+// override, or an assignment the evaluator cannot read as a literal, fails
+// the resolution closed: falling through to a weaker level it overrides
+// would prove zero where Terraform instantiates the block (review of #47).
 func resolveVariable(
 	configuration discovery.Configuration,
 	settings Config,
@@ -324,10 +328,6 @@ func resolveVariable(
 		return cty.NilVal, false
 	}
 
-	// The first level that assigns the name decides. An assignment that is
-	// not a context-free literal — a run.* reference, a function — must fail
-	// the resolution closed rather than fall through to a weaker level it
-	// overrides.
 	for _, attributes := range [][]discovery.Attribute{
 		run.Variables,
 		configuration.Tests.FileVariables[run.File],
@@ -335,6 +335,14 @@ func resolveVariable(
 		if expr, assigned := namedAttribute(attributes, name); assigned {
 			return literalValue(expr)
 		}
+	}
+
+	if value, decided, assigned := autoVarAssignment(configuration.ModuleDir, name); assigned {
+		if !decided {
+			return cty.NilVal, false
+		}
+
+		return value, true
 	}
 
 	module, found := configuration.ModuleByRel(configuration.RootRelative())
@@ -347,6 +355,59 @@ func resolveVariable(
 	}
 
 	return cty.NilVal, false
+}
+
+// autoVarAssignment reads the automatically loaded variable files in
+// Terraform's own precedence: terraform.tfvars first, then *.auto.tfvars in
+// lexical order, later files overriding earlier ones. A JSON variant or an
+// unparseable file makes every lookup fail closed — the evaluator cannot see
+// what Terraform will.
+func autoVarAssignment(moduleDir, name string) (value cty.Value, decided, assigned bool) {
+	// A JSON auto-var file is outside the evaluator's HCL-literal reach:
+	// its mere presence fails the resolution closed.
+	for _, pattern := range []string{"terraform.tfvars.json", "*.auto.tfvars.json"} {
+		matches, _ := filepath.Glob(filepath.Join(moduleDir, pattern))
+		if len(matches) > 0 {
+			return cty.NilVal, false, true
+		}
+	}
+
+	paths := []string{}
+	if _, err := os.Stat(filepath.Join(moduleDir, "terraform.tfvars")); err == nil {
+		paths = append(paths, filepath.Join(moduleDir, "terraform.tfvars"))
+	}
+
+	autoLoaded, _ := filepath.Glob(filepath.Join(moduleDir, "*.auto.tfvars"))
+	slices.Sort(autoLoaded)
+	paths = append(paths, autoLoaded...)
+
+	for _, path := range slices.Backward(paths) {
+		content, err := os.ReadFile(path) //nolint:gosec // module-owned variable file.
+		if err != nil {
+			return cty.NilVal, false, true
+		}
+
+		file, diagnostics := hclparse.NewParser().ParseHCL(content, path)
+		if diagnostics.HasErrors() {
+			return cty.NilVal, false, true
+		}
+
+		body, ok := file.Body.(*hclsyntax.Body)
+		if !ok {
+			return cty.NilVal, false, true
+		}
+
+		if attribute, found := body.Attributes[name]; found {
+			resolved, literal := literalValue(attribute.Expr)
+			if !literal {
+				return cty.NilVal, false, true
+			}
+
+			return resolved, true, true
+		}
+	}
+
+	return cty.NilVal, false, false
 }
 
 func environmentOverrides(settings Config, name string) bool {

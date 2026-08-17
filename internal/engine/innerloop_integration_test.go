@@ -3,7 +3,10 @@
 package engine_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -28,6 +31,19 @@ import (
 // innerLoopDiff is the pinned diff: a comment, so every mutant identifier in
 // the touched file survives unchanged.
 const innerLoopDiff = "\n# inner-loop probe: the pinned one-file diff (M3c, issue #50)\n"
+
+// innerLoopFactorFloor is the portable regression bound against the
+// published 14.6x measurement. The floor is 4: the selection is 12 of 219
+// mutants (5.5%), so even with the fixed per-run overheads — two baseline
+// runs, init, generation — a healthy lever clears 4x with headroom, and a
+// regression that erodes two thirds of the published factor fails the gate
+// rather than hiding behind "faster than 1x".
+const innerLoopFactorFloor = 4.0
+
+// pinnedFixtureDigest is the exact fixture content the published measurement
+// ran against: a sha256 over every fixture file, path-ordered. A drifted
+// fixture fails here explicitly instead of silently re-baselining.
+const pinnedFixtureDigest = "f60655a523306a94"
 
 // expectedSelectedSites enumerates the pinned diff's selection: every mutant
 // in observability.tf — the log group resource — and nothing else.
@@ -61,6 +77,7 @@ type innerLoopMeasurement struct {
 	Jobs              int      `json:"jobs"`
 	Tier              string   `json:"tier"`
 	CacheState        string   `json:"cache_state"`
+	FixtureDigest     string   `json:"fixture_digest"`
 	WarmCold          string   `json:"warm_cold"`
 	FullMutants       int      `json:"full_mutants"`
 	FullSeconds       float64  `json:"full_seconds"`
@@ -81,6 +98,12 @@ func TestInnerLoopGateAgainstTheRealProvider(t *testing.T) {
 	requireRealInfrastructureOptIn(t)
 
 	module := copyFixture(t, awsMockedFixture)
+
+	if digest := fixtureDigest(t, module); digest != pinnedFixtureDigest {
+		t.Fatalf("the fixture drifted from the pinned measurement content: digest %s, pinned %s — "+
+			"re-run the measurement and update the pin deliberately", digest, pinnedFixtureDigest)
+	}
+
 	git(t, module, "init", "--quiet", "--initial-branch=main")
 	git(t, module, "add", "--all")
 	commit(t, module, "pinned fixture")
@@ -122,9 +145,9 @@ func TestInnerLoopGateAgainstTheRealProvider(t *testing.T) {
 	assertVerdictInvariance(t, full, scoped)
 
 	factor := fullSeconds / scopedSeconds
-	if factor <= 1 {
-		t.Fatalf("the scoped run (%.1fs) was not faster than the full run (%.1fs)",
-			scopedSeconds, fullSeconds)
+	if factor < innerLoopFactorFloor {
+		t.Fatalf("the scoped run's factor %.1fx is below the %.1fx regression floor "+
+			"(published baseline 14.6x)", factor, innerLoopFactorFloor)
 	}
 
 	// DYNAMIC-ZERO's first end-to-end classification: the dynamic block's
@@ -144,6 +167,7 @@ func TestInnerLoopGateAgainstTheRealProvider(t *testing.T) {
 		Jobs:              measurementJobs,
 		Tier:              "standard",
 		CacheState:        "off (--no-cache)",
+		FixtureDigest:     pinnedFixtureDigest,
 		WarmCold:          "warm plugin cache; full run precedes scoped run",
 		FullMutants:       len(full.Mutants),
 		FullSeconds:       fullSeconds,
@@ -230,6 +254,28 @@ func assertPinnedSelection(t *testing.T, scoped report.Report) []string {
 	}
 
 	return sites
+}
+
+// fixtureDigest hashes the fixture's content, path-ordered, so the pin is
+// the content itself rather than a moving checkout.
+func fixtureDigest(t *testing.T, module string) string {
+	t.Helper()
+
+	digests := treeDigest(t, module)
+
+	paths := make([]string, 0, len(digests))
+	for path := range digests {
+		paths = append(paths, path)
+	}
+
+	slices.Sort(paths)
+
+	combined := sha256.New()
+	for _, path := range paths {
+		_, _ = fmt.Fprintf(combined, "%s\x00%s\x00", path, digests[path])
+	}
+
+	return hex.EncodeToString(combined.Sum(nil))[:16]
 }
 
 func selectedIDs(result report.Report) []string {

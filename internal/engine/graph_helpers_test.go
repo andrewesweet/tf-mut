@@ -56,14 +56,10 @@ func terraformGraphEdges(t *testing.T, moduleDir string) []graphEdge {
 // dotResource extracts a root-module resource or data address from a DOT node
 // label, rejecting the graph's bookkeeping nodes (provider, root, locals,
 // outputs and variables are compared through the reference graph itself).
+// Module-prefixed resources are compared separately by the module-wiring
+// check.
 func dotResource(label string) (string, bool) {
-	label = strings.TrimSpace(label)
-	label = strings.TrimPrefix(label, "[root] ")
-
-	// Strip terraform graph's annotations, e.g. "(expand)".
-	if index := strings.Index(label, " "); index >= 0 {
-		label = label[:index]
-	}
+	label = dotLabel(label)
 
 	if strings.HasPrefix(label, "provider[") || strings.Contains(label, "module.") {
 		return "", false
@@ -89,6 +85,74 @@ func isReservedGraphRoot(name string) bool {
 	default:
 		return false
 	}
+}
+
+// dotLabel normalises a DOT node label.
+func dotLabel(label string) string {
+	label = strings.TrimSpace(label)
+	label = strings.TrimPrefix(label, "[root] ")
+
+	// Strip terraform graph's annotations, e.g. "(expand)".
+	if index := strings.Index(label, " "); index >= 0 {
+		label = label[:index]
+	}
+
+	return label
+}
+
+// dotModuleResource extracts an addressable node from the plan-type DOT
+// graph: resources, variables, locals and outputs, module-prefixed or not.
+// Bookkeeping nodes — root, providers, and bare module close/expand markers —
+// are rejected.
+func dotModuleResource(label string) (string, bool) {
+	label = dotLabel(label)
+
+	if strings.HasPrefix(label, "provider[") || label == "root" || !strings.Contains(label, ".") {
+		return "", false
+	}
+
+	// A bare module marker names no value the reference graph addresses.
+	parts := strings.Split(label, ".")
+	if parts[len(parts)-1] == "" || (parts[0] == "module" && len(parts) == 2) {
+		return "", false
+	}
+
+	return label, true
+}
+
+// terraformGraphModuleEdges lists the DOT edges with at least one
+// module-prefixed endpoint.
+func terraformGraphModuleEdges(t *testing.T, moduleDir string) []graphEdge {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
+	defer cancel()
+
+	runTerraform(ctx, t, moduleDir, "init", "-backend=false", "-input=false")
+
+	// The plan-type graph carries the full evaluation wiring — module inputs
+	// and outputs included — where the simplified default does not.
+	output := runTerraform(ctx, t, moduleDir, "graph", "-type=plan")
+
+	edgePattern := regexp.MustCompile(`"([^"]+)"\s*->\s*"([^"]+)"`)
+	edges := []graphEdge{}
+
+	for _, match := range edgePattern.FindAllStringSubmatch(output, -1) {
+		from, fromOK := dotModuleResource(match[1])
+		to, toOK := dotModuleResource(match[2])
+
+		if !fromOK || !toOK || from == to {
+			continue
+		}
+
+		if !strings.Contains(from, "module.") && !strings.Contains(to, "module.") {
+			continue
+		}
+
+		edges = append(edges, graphEdge{from: from, to: to})
+	}
+
+	return edges
 }
 
 // resourceLevelReach reports whether the reference graph agrees that `from`
