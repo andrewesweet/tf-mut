@@ -233,3 +233,17 @@ named.
   extension must be in `tools/json-files`.
 - `.golangci.yml` disables a handful of linters with a stated reason each. Adding a disable is
   allowed; adding one without the reason is not.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live in this repo's GitHub Issues via `gh`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Uses the default canonical triage labels. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
