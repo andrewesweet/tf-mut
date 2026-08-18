@@ -5,6 +5,15 @@ repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
 mapfile -t json_paths <tools/json-files
+# Intentionally malformed fixtures are named in tools/json-files-skip with
+# their reason; each must still exist, and must indeed fail to parse.
+while IFS= read -r skipped_json; do
+  test -f "$skipped_json"
+  if jq -e type "$skipped_json" >/dev/null 2>&1; then
+    echo "$skipped_json is in tools/json-files-skip but parses cleanly" >&2
+    exit 1
+  fi
+done < <(grep -Ev '^[[:space:]]*(#|$)' tools/json-files-skip)
 mapfile -t yaml_paths <tools/yaml-files
 mapfile -t toml_paths <tools/toml-files
 

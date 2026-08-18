@@ -13,7 +13,7 @@ import (
 )
 
 // schemaPath is the published contract the JSON reporter promises to keep.
-const schemaPath = "../../docs/schema/report-2.1.0.json"
+const schemaPath = "../../docs/schema/report-2.2.0.json"
 
 func TestPublishedSchemaMatchesTheReportersVersion(t *testing.T) {
 	t.Parallel()
@@ -148,9 +148,17 @@ func sampleReport() report.Report {
 			Site:     sampleOutput,
 			Message:  "no run block executed, so no verdict is possible",
 		}},
-		Population: report.Population{Selected: 2, Omitted: 3, Cached: 0, Fresh: 2},
-		Selection:  report.Selection{Mode: report.SelectionSince, Ref: "main", ForcedFull: ""},
-		Sampling:   &report.Sampling{RatePercent: 25, Seed: 42, Authoritative: false},
+		Population:  report.Population{Selected: 2, Omitted: 3, Cached: 0, Fresh: 2},
+		Selection:   report.Selection{Mode: report.SelectionSince, Ref: "main", ForcedFull: ""},
+		Sampling:    &report.Sampling{RatePercent: 25, Seed: 42, Authoritative: false},
+		Suggestions: sampleSuggestions(),
+		Apply: &report.AppliedSuggestions{
+			Requested: []string{"aaaabbbbcccc"},
+			Written:   []string{sampleTestFile},
+			Pending:   nil,
+			Aborted:   "",
+			Partial:   false,
+		},
 		Gates: &report.Gates{
 			MinScore: report.GateOutcome{
 				Evaluated: true, Scope: "selected", Partial: true, Passed: true, Refused: "",
@@ -166,6 +174,66 @@ func sampleReport() report.Report {
 			},
 		},
 	}
+}
+
+// sampleSuggestions covers every row of the outcome table: the three decided
+// statuses and all four skips, with the presence rules each row promises.
+func sampleSuggestions() []report.Suggestion {
+	legs := &report.Verification{
+		Baseline: report.VerificationLeg{
+			Passed: true,
+			Runs: []report.RunOutcome{{
+				File: sampleTestFile, Run: sampleRun, Phase: 1, Status: "pass",
+			}},
+			Detail: "the full suite ran 1 run block(s) with 1 suggested assertion(s) applied",
+		},
+		Mutant: report.VerificationLeg{
+			Passed: true,
+			Runs: []report.RunOutcome{{
+				File: sampleTestFile, Run: sampleRun, Phase: 1, Status: "fail",
+			}},
+			Detail: "the mutant failed the suggested assertion applied on its own",
+		},
+	}
+
+	decided := []report.Suggestion{
+		{
+			ID: "aaaabbbbcccc", MutantID: sampleMutantID,
+			TargetFile: sampleTestFile, TargetRun: sampleRun,
+			Status: report.SuggestionVerified, Expression: sampleOutput + ` == "critical"`,
+			Patch:          "--- a/tests/unit.tftest.hcl\n+++ b/tests/unit.tftest.hcl\n",
+			VerifiedDigest: "8f1c0e6a8f1c0e6a", Verification: legs, StatusReason: "",
+		},
+		{
+			ID: "bbbbccccdddd", MutantID: "ba9876543210",
+			TargetFile: sampleTestFile, TargetRun: sampleRun,
+			Status: report.SuggestionCandidate, Expression: sampleOutput + ` == "critical"`,
+			Patch:          "--- a/tests/unit.tftest.hcl\n+++ b/tests/unit.tftest.hcl\n",
+			VerifiedDigest: "", Verification: nil, StatusReason: "",
+		},
+		{
+			ID: "ccccddddeeee", MutantID: "fedcba987654",
+			TargetFile: sampleTestFile, TargetRun: sampleRun,
+			Status: report.SuggestionRefuted, Expression: sampleOutput + ` == "critical"`,
+			Patch:          "--- a/tests/unit.tftest.hcl\n+++ b/tests/unit.tftest.hcl\n",
+			VerifiedDigest: "", Verification: legs,
+			StatusReason: "the mutant survived the suggested assertion applied on its own",
+		},
+	}
+
+	for index, status := range []report.SuggestionStatus{
+		report.SuggestionSkippedSensitive, report.SuggestionSkippedUnaddressable,
+		report.SuggestionSkippedUnrenderable, report.SuggestionSkippedUnsupportedTarget,
+	} {
+		decided = append(decided, report.Suggestion{
+			ID: fmt.Sprintf("dddd0000%04d", index), MutantID: sampleMutantID,
+			TargetFile: sampleTestFile, TargetRun: sampleRun,
+			Status: status, Expression: "", Patch: "", VerifiedDigest: "",
+			Verification: nil, StatusReason: "the adapter refused, and said why",
+		})
+	}
+
+	return decided
 }
 
 func sampleFindings() []report.Finding {

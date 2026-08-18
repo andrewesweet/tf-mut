@@ -36,12 +36,45 @@ func WriteMarkdown(writer io.Writer, value Report) error {
 	writePopulation(&page, value)
 	writeGates(&page, value)
 	writeFindingList(&page, value)
+	writeSuggestionSummary(&page, value)
 
 	if _, err := io.WriteString(writer, page.String()); err != nil {
 		return fmt.Errorf("writing markdown report: %w", err)
 	}
 
 	return nil
+}
+
+// writeSuggestionSummary lists the outcome table in the job step summary. It
+// carries no value a skipped-sensitive suggestion refused to render, because
+// the step summary is one of the artefacts that rule names.
+func writeSuggestionSummary(page *strings.Builder, value Report) {
+	if len(value.Suggestions) == 0 {
+		return
+	}
+
+	fmt.Fprintf(page, "\n### Suggested assertions (%d)\n\n", len(value.Suggestions))
+	page.WriteString("| Suggestion | Status | Target | Condition |\n")
+	page.WriteString("| --- | --- | --- | --- |\n")
+
+	for index, suggestion := range value.Suggestions {
+		if index >= markdownFindingCap {
+			fmt.Fprintf(page, "\n… and %d more.\n", len(value.Suggestions)-markdownFindingCap)
+
+			break
+		}
+
+		condition := "—"
+		if suggestion.Expression != "" {
+			condition = "`" + suggestion.Expression + "`"
+		}
+
+		fmt.Fprintf(page, "| `%s` | %s | `%s:%s` | %s |\n",
+			suggestion.ID, suggestion.Status,
+			suggestion.TargetFile, suggestion.TargetRun, condition)
+	}
+
+	page.WriteString("\n")
 }
 
 func writePopulation(page *strings.Builder, value Report) {

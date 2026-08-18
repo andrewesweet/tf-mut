@@ -1,0 +1,1032 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/andrewesweet/tf-mut/docs/schema/report-2.2.0.json",
+  "title": "tf-mut report",
+  "description": "The machine-readable result of a tf-mut run or preview. The version in schema_version changes whenever a consumer could break: removed fields, renamed fields, or changed semantics of an existing field. Version 2 adds the fingerprint oracle's states and diagnoses, per-run phases, suppressions and per-operator error counts. Version 2.1.0 adds, additively: per-mutant provenance (selection, execution, cache key, baseline status), the selected/omitted/cached/fresh population split, the selection record, sampling metadata, and the gate table outcomes. Version 2.2.0 adds, additively: the suggestion outcome table with its closed status vocabulary and two-leg verification evidence, the record of what an --apply invocation wrote, and the sensitivity flag each delta change carries.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "command",
+    "module",
+    "terraform_version",
+    "test_directory",
+    "baseline",
+    "mutants",
+    "findings",
+    "metrics",
+    "operator_errors",
+    "suppressions",
+    "warnings",
+    "errors",
+    "population",
+    "selection"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.2.0"
+    },
+    "command": {
+      "type": "string",
+      "enum": [
+        "run",
+        "preview",
+        "suggest"
+      ]
+    },
+    "module": {
+      "type": "string",
+      "description": "Absolute directory of the module under test."
+    },
+    "closure_root": {
+      "type": "string",
+      "description": "Absolute directory containing every local module; mutant file paths are relative to it."
+    },
+    "terraform_version": {
+      "type": "string"
+    },
+    "test_directory": {
+      "type": "string",
+      "description": "Test directory, relative to the module."
+    },
+    "baseline": {
+      "type": "object",
+      "required": [
+        "runs",
+        "assertions",
+        "duration_ms",
+        "fingerprint",
+        "volatile_components"
+      ],
+      "properties": {
+        "runs": {
+          "type": "integer"
+        },
+        "assertions": {
+          "type": "integer"
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "fingerprint": {
+          "type": "string",
+          "description": "Composed masked fingerprint of the unmutated suite."
+        },
+        "volatile_components": {
+          "type": "array",
+          "description": "Canonical payload paths the volatile mask removes.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "mutants": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/mutant"
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "mutation_score",
+        "assertion_score",
+        "reachability",
+        "incomplete",
+        "counts",
+        "diagnoses",
+        "scored"
+      ],
+      "properties": {
+        "mutation_score": {
+          "type": "number"
+        },
+        "assertion_score": {
+          "type": "number"
+        },
+        "reachability": {
+          "type": "number"
+        },
+        "incomplete": {
+          "type": "boolean",
+          "description": "True when a timeout made the score untrustworthy."
+        },
+        "counts": {
+          "type": "object",
+          "description": "Number of mutants in each state.",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "diagnoses": {
+          "type": "object",
+          "description": "Number of survivors carrying each diagnosis.",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "scored": {
+          "type": "integer",
+          "description": "Killed + KilledByError + Survived + StructurallyUnassertable + NoCoverage + Timeout."
+        }
+      }
+    },
+    "operator_errors": {
+      "type": "array",
+      "description": "Per-operator generation quality, so that the selective-validation question can be answered from data.",
+      "items": {
+        "type": "object",
+        "required": [
+          "operator",
+          "generated",
+          "invalid",
+          "killed_by_error",
+          "error_rate"
+        ],
+        "properties": {
+          "operator": {
+            "$ref": "#/$defs/operator"
+          },
+          "generated": {
+            "type": "integer"
+          },
+          "invalid": {
+            "type": "integer"
+          },
+          "killed_by_error": {
+            "type": "integer"
+          },
+          "error_rate": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "suppressions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/suppression"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "description": "Mutants that produced no trustworthy verdict. Never a survivor.",
+      "items": {
+        "type": "object",
+        "required": [
+          "mutant_id",
+          "site",
+          "message"
+        ],
+        "properties": {
+          "mutant_id": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "population": {
+      "$ref": "#/$defs/population"
+    },
+    "selection": {
+      "$ref": "#/$defs/selection"
+    },
+    "sampling": {
+      "$ref": "#/$defs/sampling"
+    },
+    "gates": {
+      "$ref": "#/$defs/gates"
+    },
+    "suggestions": {
+      "type": "array",
+      "description": "The generated assertion outcome table (2.2.0). Present only for the suggest command.",
+      "items": {
+        "$ref": "#/$defs/suggestion"
+      }
+    },
+    "apply": {
+      "$ref": "#/$defs/applied_suggestions"
+    }
+  },
+  "$defs": {
+    "position": {
+      "type": "object",
+      "required": [
+        "line",
+        "column"
+      ],
+      "properties": {
+        "line": {
+          "type": "integer"
+        },
+        "column": {
+          "type": "integer"
+        }
+      }
+    },
+    "range": {
+      "type": "object",
+      "required": [
+        "file",
+        "start",
+        "end"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Path relative to the local-module closure root."
+        },
+        "start": {
+          "$ref": "#/$defs/position"
+        },
+        "end": {
+          "$ref": "#/$defs/position"
+        }
+      }
+    },
+    "operator": {
+      "type": "string",
+      "enum": [
+        "ARITH-SWAP",
+        "BOOL-AND-OR",
+        "BOOL-LITERAL-FLIP",
+        "BOOL-NEGATE-INSERT",
+        "BOOL-NEGATE-REMOVE",
+        "BOOL-OR-AND",
+        "CHECK-NEGATE",
+        "CHECK-REMOVE",
+        "CMP-BOUNDARY",
+        "CMP-EQ-NE",
+        "CMP-INVERT",
+        "COLL-DROP-ENTRY",
+        "COLL-DROP-FIRST",
+        "COLL-DROP-LAST",
+        "COLL-EMPTY",
+        "COLL-REVERSE",
+        "COND-FALSE",
+        "COND-NEGATE",
+        "COND-SWAP",
+        "COND-TRUE",
+        "COUNT-OFF-BY-ONE",
+        "COUNT-ONE",
+        "COUNT-ZERO",
+        "DEPENDS-DROP",
+        "DYNAMIC-ZERO",
+        "EXT-ATTR-DELETE",
+        "EXT-BODY-BLANK",
+        "EXT-LOCAL-NULL",
+        "EXT-MODULE-INPUT-DELETE",
+        "EXT-OUTPUT-NULL",
+        "EXT-RESOURCE-DELETE",
+        "FN-ARG-REORDER",
+        "FN-CAN-TRUE",
+        "FN-DROP-DEFAULT",
+        "FN-DROP-EXPANSION",
+        "FN-DROP-WRAPPER",
+        "FN-JOIN-SEP",
+        "FN-SWAP",
+        "FN-TRY-FIRST",
+        "FOR-DROP-GROUPING",
+        "FOR-DROP-IF",
+        "FOR-NEGATE-IF",
+        "FOR-SWAP-KV",
+        "FOREACH-EMPTY",
+        "FOREACH-TO-COUNT",
+        "HEREDOC-INDENT-FLIP",
+        "IDX-SHIFT",
+        "NULL-INJECT",
+        "NUM-NEGATE",
+        "NUM-OFF-BY-ONE",
+        "NUM-ZERO",
+        "OUT-SENSITIVE-FLIP",
+        "PRE-POST-NEGATE",
+        "PRE-POST-REMOVE",
+        "PROVIDER-ALIAS-SWAP",
+        "SPLAT-FIRST",
+        "STR-CASE",
+        "STR-EMPTY",
+        "TPL-DROP-INTERP",
+        "TPL-IF-COLLAPSE",
+        "TPL-STRIP-FLIP",
+        "VAR-DEFAULT-CHANGE",
+        "VAR-DEFAULT-NULL",
+        "VAR-DEFAULT-REMOVE",
+        "VAR-NULLABLE-FLIP",
+        "VAR-OPTIONAL-DEFAULT-DROP",
+        "VAR-SENSITIVE-FLIP",
+        "VAR-VALIDATION-NEGATE",
+        "VAR-VALIDATION-REMOVE",
+        "VAR-VALIDATION-WEAKEN"
+      ]
+    },
+    "diagnosis": {
+      "type": "string",
+      "description": "Set only for Survived. Exactly one, assigned by the normative precedence: indeterminate-unknown-values, indeterminate-volatility, weak-assertion, no-assertion, unasserted. The mock-masked value is deprecated: withdrawn in M3 (#50), retained so 2.0 documents stay valid, never emitted again.",
+      "enum": [
+        "indeterminate-unknown-values",
+        "indeterminate-volatility",
+        "mock-masked",
+        "weak-assertion",
+        "no-assertion",
+        "unasserted"
+      ]
+    },
+    "change": {
+      "type": "object",
+      "required": [
+        "run",
+        "path",
+        "baseline",
+        "mutant"
+      ],
+      "properties": {
+        "run": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string",
+          "description": "Canonical payload path."
+        },
+        "address": {
+          "type": "string",
+          "description": "Terraform address the path names, when it names one."
+        },
+        "baseline": {
+          "type": "string",
+          "description": "Canonical rendering; empty means the path was absent."
+        },
+        "mutant": {
+          "type": "string"
+        },
+        "sensitive": {
+          "type": "boolean",
+          "description": "Terraform marks this value, or a container of it, sensitive (2.2.0). Retention is not permission to render: it is what the suggestion engine refuses to inline the value from."
+        }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "required": [
+        "message",
+        "fix",
+        "evidence"
+      ],
+      "properties": {
+        "diagnosis": {
+          "$ref": "#/$defs/diagnosis"
+        },
+        "message": {
+          "type": "string"
+        },
+        "fix": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "delta": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/change"
+              }
+            },
+            "unknown_paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "volatile_components": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "unstable_attributes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "assertion": {
+              "type": "string"
+            },
+            "closure_verdict": {
+              "type": "string"
+            },
+            "defeated_by": {
+              "type": "string"
+            },
+            "mock_resource": {
+              "type": "string",
+              "description": "Deprecated: carried only by the withdrawn mock-masked diagnosis (M3, #50); retained so 2.0 documents stay valid, never emitted again."
+            }
+          }
+        }
+      }
+    },
+    "suppression": {
+      "type": "object",
+      "required": [
+        "kind",
+        "accepted"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "comment",
+            "config-operator",
+            "config-path",
+            "config-resource"
+          ]
+        },
+        "operators": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        },
+        "accepted": {
+          "type": "boolean",
+          "description": "A directive without a reason does not suppress: the finding stands and the directive is reported here as rejected."
+        },
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "mutants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rejection": {
+          "type": "string"
+        }
+      }
+    },
+    "mutant": {
+      "type": "object",
+      "required": [
+        "id",
+        "operator",
+        "tier",
+        "module",
+        "site",
+        "range",
+        "diff",
+        "state",
+        "runs",
+        "executed_runs",
+        "validated"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Hash of operator, closure-relative path, site address, replaced content and replacement. Stable under line moves and unrelated edits; broken by renaming the file."
+        },
+        "operator": {
+          "$ref": "#/$defs/operator"
+        },
+        "tier": {
+          "type": "string",
+          "enum": [
+            "smoke",
+            "standard",
+            "deep"
+          ]
+        },
+        "module": {
+          "type": "string",
+          "description": "Module directory relative to the closure root."
+        },
+        "site": {
+          "type": "string",
+          "description": "Semantic address of the mutation site."
+        },
+        "resource": {
+          "type": "string",
+          "description": "Managed resource address the site belongs to, when it has one."
+        },
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "diff": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "Invalid",
+            "Killed",
+            "KilledByError",
+            "Timeout",
+            "Survived",
+            "StructurallyUnassertable",
+            "Unobservable",
+            "NoCoverage",
+            "Ignored",
+            "Pending"
+          ]
+        },
+        "verdict": {
+          "$ref": "#/$defs/verdict"
+        },
+        "runs": {
+          "type": "array",
+          "description": "Per-run outcomes, recorded orthogonally to the aggregate state. Phase two appears only for phase-one survivors.",
+          "items": {
+            "$ref": "#/$defs/run_outcome"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "severity",
+              "summary",
+              "detail"
+            ],
+            "properties": {
+              "severity": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              },
+              "range": {
+                "$ref": "#/$defs/range"
+              },
+              "test_file": {
+                "type": "string"
+              },
+              "test_run": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "executed_runs": {
+          "type": "integer"
+        },
+        "validated": {
+          "type": "boolean",
+          "description": "Whether lazy validation ran, which happens only after a run-level error."
+        },
+        "suppression": {
+          "$ref": "#/$defs/suppression"
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "address",
+        "module",
+        "range",
+        "message",
+        "mutants"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "pseudo-tested"
+          ]
+        },
+        "address": {
+          "type": "string"
+        },
+        "module": {
+          "type": "string"
+        },
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "message": {
+          "type": "string"
+        },
+        "mutants": {
+          "type": "array",
+          "description": "Identifiers of the mutants supporting the finding.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Why the mutant is in this run and how its verdict was obtained.",
+      "required": [
+        "selection",
+        "execution"
+      ],
+      "properties": {
+        "selection": {
+          "enum": [
+            "full",
+            "since",
+            "sample"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "execution": {
+          "enum": [
+            "fresh",
+            "cached"
+          ]
+        },
+        "cache_key": {
+          "type": "string"
+        },
+        "baseline_status": {
+          "enum": [
+            "new",
+            "accepted",
+            "unobserved"
+          ]
+        }
+      }
+    },
+    "population": {
+      "type": "object",
+      "description": "The population split: what this run selected, left out, replayed and executed.",
+      "required": [
+        "selected",
+        "omitted",
+        "cached",
+        "fresh"
+      ],
+      "properties": {
+        "selected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "omitted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cached": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fresh": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "selection": {
+      "type": "object",
+      "description": "How the population was chosen.",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "full",
+            "since"
+          ]
+        },
+        "ref": {
+          "type": "string"
+        },
+        "forced_full": {
+          "type": "string",
+          "description": "Why a --since run fell back to the full population."
+        }
+      }
+    },
+    "sampling": {
+      "type": "object",
+      "description": "Sampling metadata. A sampled run is never authoritative.",
+      "required": [
+        "rate_percent",
+        "seed",
+        "authoritative"
+      ],
+      "properties": {
+        "rate_percent": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "authoritative": {
+          "const": false
+        },
+        "gate_opt_in": {
+          "type": "boolean",
+          "description": "True where --allow-sampled-gate let this sample satisfy a gate."
+        }
+      }
+    },
+    "gate_outcome": {
+      "type": "object",
+      "description": "One row outcome of the normative gate table.",
+      "required": [
+        "evaluated"
+      ],
+      "properties": {
+        "evaluated": {
+          "type": "boolean"
+        },
+        "scope": {
+          "enum": [
+            "full",
+            "selected"
+          ]
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "refused": {
+          "type": "string"
+        }
+      }
+    },
+    "baseline_gate": {
+      "type": "object",
+      "description": "What the baseline file contributed to the run.",
+      "required": [
+        "path",
+        "accepted",
+        "matched",
+        "new",
+        "staleness_reported"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "accepted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "matched": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "new": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stale": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unobserved": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "staleness_reported": {
+          "type": "boolean"
+        },
+        "write": {
+          "enum": [
+            "permitted",
+            "refused",
+            "written"
+          ]
+        }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "description": "The gate table's outcomes for this run.",
+      "required": [
+        "min_score",
+        "fail_on_new"
+      ],
+      "properties": {
+        "min_score": {
+          "$ref": "#/$defs/gate_outcome"
+        },
+        "fail_on_new": {
+          "$ref": "#/$defs/gate_outcome"
+        },
+        "baseline": {
+          "$ref": "#/$defs/baseline_gate"
+        }
+      }
+    },
+    "suggestion_status": {
+      "type": "string",
+      "description": "The complete suggestion status vocabulary (2.2.0).",
+      "enum": [
+        "candidate",
+        "verified",
+        "refuted",
+        "skipped-sensitive",
+        "skipped-unaddressable",
+        "skipped-unrenderable",
+        "skipped-unsupported-target"
+      ]
+    },
+    "verification_leg": {
+      "type": "object",
+      "required": [
+        "passed",
+        "runs",
+        "detail"
+      ],
+      "properties": {
+        "passed": {
+          "type": "boolean",
+          "description": "Whether the leg met its requirement: green for the baseline leg, failing for the isolated mutant leg."
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/run_outcome"
+          }
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "required": [
+        "baseline",
+        "mutant"
+      ],
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/verification_leg",
+          "description": "The full suite, run once with the target file\u2019s candidate batch applied. Green required."
+        },
+        "mutant": {
+          "$ref": "#/$defs/verification_leg",
+          "description": "This suggestion alone against its re-materialised mutant. Failure required."
+        }
+      }
+    },
+    "suggestion": {
+      "type": "object",
+      "required": [
+        "id",
+        "mutant_id",
+        "target_file",
+        "target_run",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Content hash over the mutant identifier, the target run and the expression. Stable across runs."
+        },
+        "mutant_id": {
+          "type": "string"
+        },
+        "target_file": {
+          "type": "string",
+          "description": "Test file, relative to the module directory."
+        },
+        "target_run": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/suggestion_status"
+        },
+        "expression": {
+          "type": "string",
+          "description": "The generated assert condition. Absent for every status whose reason forbids one."
+        },
+        "patch": {
+          "type": "string",
+          "description": "Unified diff adding the assertion. Present only for candidate, verified and refuted: every skipped status carries no patch."
+        },
+        "verified_digest": {
+          "type": "string",
+          "description": "SHA-256 of the target file as verified, which binds an apply to what was proven."
+        },
+        "verification": {
+          "$ref": "#/$defs/verification"
+        },
+        "status_reason": {
+          "type": "string",
+          "description": "Required for every refuted and every skipped status."
+        }
+      }
+    },
+    "applied_suggestions": {
+      "type": "object",
+      "required": [
+        "requested",
+        "written"
+      ],
+      "properties": {
+        "requested": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "written": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Target files written, in write order."
+        },
+        "pending": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Target files a failure left unwritten."
+        },
+        "aborted": {
+          "type": "string",
+          "description": "Why the protocol refused or stopped. A preflight refusal writes nothing at all."
+        },
+        "partial": {
+          "type": "boolean",
+          "description": "Some files were written and others were not."
+        }
+      }
+    },
+    "run_outcome": {
+      "type": "object",
+      "required": [
+        "file",
+        "run",
+        "phase",
+        "status"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "run": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "integer",
+          "enum": [
+            1,
+            2
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "fail",
+            "error",
+            "skip"
+          ]
+        }
+      }
+    }
+  }
+}

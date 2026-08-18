@@ -99,6 +99,15 @@ internal/engine/testdata/skeleton/main.tf
 internal/engine/testdata/skeleton/tests/unit.tftest.hcl
 internal/engine/testdata/static-unobservable/main.tf
 internal/engine/testdata/static-unobservable/tests/main.tftest.hcl
+internal/engine/testdata/suggest-basic/main.tf
+internal/engine/testdata/suggest-basic/tests/unit.tftest.hcl
+internal/engine/testdata/suggest-json-target/main.tf
+internal/engine/testdata/suggest-multifile/child/main.tf
+internal/engine/testdata/suggest-multifile/main.tf
+internal/engine/testdata/suggest-multifile/root.tftest.hcl
+internal/engine/testdata/suggest-multifile/tests/unit.tftest.hcl
+internal/engine/testdata/suggest-sensitive/main.tf
+internal/engine/testdata/suggest-sensitive/tests/unit.tftest.hcl
 internal/engine/testdata/unformatted/tests/unit.tftest.hcl
 internal/engine/testdata/unknown-refinement/main.tf
 internal/engine/testdata/unknown-refinement/tests/unit.tftest.hcl

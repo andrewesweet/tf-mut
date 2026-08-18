@@ -25,6 +25,7 @@ var version = "dev"
 const (
 	runCommand     = "run"
 	previewCommand = "preview"
+	suggestCommand = "suggest"
 	versionCommand = "version"
 	versionFlag    = "--version"
 
@@ -41,9 +42,10 @@ const (
 Commands:
   run       Mutate the module at PATH and report which resources are pseudo-tested
   preview   List the mutants that would be generated, as diffs, executing nothing
+  suggest   Generate, verify and optionally apply the assertions that kill the survivors
   version   Print the build version
 
-Flags for run and preview:
+Flags for run, preview and suggest:
   --test-directory PATH        Test directory relative to the module (default "tests")
   --jobs N                     Mutants to execute concurrently (default: CPU count)
   --timeout-factor F           Multiple of the baseline run time (default 10)
@@ -71,6 +73,12 @@ Flags for run and preview:
                                repeatable — every output derives from one report value
   --sarif-path PATH            Where to write the SARIF document
 
+Flags for suggest:
+  --dry-run                    Print the candidate patches and verify nothing
+  --survivor ID[,ID]           Suggest only for these survivor identifiers
+  --apply ID[,ID]              Apply these verified suggestions to the test files
+  --all-verified               Apply every verified suggestion
+
 Settings also readable from .tf-mut.hcl at the module root. A flag given on the
 command line overrides the configured value of that scalar and nothing else.`
 
@@ -94,7 +102,7 @@ func run(args []string, buildVersion string, stdout, stderr io.Writer) int {
 		}
 
 		return exitSuccess
-	case runCommand, previewCommand:
+	case runCommand, previewCommand, suggestCommand:
 		return execute(args[0], args[1:], stdout, stderr)
 	default:
 		return fail(stderr, usage)
@@ -146,6 +154,8 @@ type flagValues struct {
 	generatedFunctions                       *bool
 	baselinePath                             *string
 	outputs                                  *outputFlag
+	dryRun, allVerified                      *bool
+	survivors, apply                         *string
 }
 
 func declareFlags(set *flag.FlagSet) flagValues {
@@ -184,6 +194,11 @@ func declareFlags(set *flag.FlagSet) flagValues {
 		generatedFunctions: set.Bool("generated-functions", false,
 			"opt in to the generated function-family operators"),
 		outputs: declareOutputFlag(set),
+		dryRun: set.Bool("dry-run", false,
+			"print the candidate patches and verify nothing"),
+		allVerified: set.Bool("all-verified", false, "apply every verified suggestion"),
+		survivors:   set.String("survivor", "", "suggest only for these survivor identifiers"),
+		apply:       set.String("apply", "", "apply these verified suggestions"),
 	}
 }
 

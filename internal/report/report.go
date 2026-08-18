@@ -17,7 +17,9 @@ import (
 // M3 additive revision (review M3): cache provenance per mutant, sampling
 // metadata, baseline acceptance and staleness, the population split, and the
 // gate table's outcomes.
-const SchemaVersion = "2.1.0"
+// 2.2.0 is the M4 additive revision: the suggestion outcome table, and the
+// sensitivity flag each delta change now carries.
+const SchemaVersion = "2.2.0"
 
 // Command names what produced a report.
 type Command string
@@ -28,6 +30,9 @@ const (
 	CommandRun Command = "run"
 	// CommandPreview generated the population without executing it.
 	CommandPreview Command = "preview"
+	// CommandSuggest executed the population and generated assertions for its
+	// survivors.
+	CommandSuggest Command = "suggest"
 )
 
 // State is the aggregate verdict for one mutant.
@@ -151,6 +156,10 @@ type Change struct {
 	// absent from that side.
 	Baseline string `json:"baseline"`
 	Mutant   string `json:"mutant"`
+	// Sensitive reports that Terraform marks this value — or an ancestor of it
+	// — sensitive (2.2.0). Retention is not permission to render: it is what
+	// the suggestion engine's sensitivity predicate is decided from.
+	Sensitive bool `json:"sensitive,omitempty"`
 }
 
 // Evidence is what a diagnosis carries, per the normative table. Every field is
@@ -465,6 +474,11 @@ type Report struct {
 	Sampling *Sampling `json:"sampling,omitempty"`
 	// Gates is the gate table's outcomes (2.1.0). Absent in a preview.
 	Gates *Gates `json:"gates,omitempty"`
+	// Suggestions is the generated assertion outcome table (2.2.0). Present
+	// only for the suggest command.
+	Suggestions []Suggestion `json:"suggestions,omitempty"`
+	// Apply records what an --apply invocation wrote (2.2.0).
+	Apply *AppliedSuggestions `json:"apply,omitempty"`
 }
 
 // Count returns the number of mutants in the given state.

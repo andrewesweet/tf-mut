@@ -17,6 +17,12 @@ type Change struct {
 	// Baseline and Mutant are the canonical renderings, with "" for absent.
 	Baseline string
 	Mutant   string
+	// Sensitive reports that the baseline payload marks the value at this path
+	// — or an ancestor of it — sensitive, or that the value is one the payload
+	// marks sensitive somewhere else. It is decided over the unmasked
+	// baseline, because the mask is about volatility and says nothing about
+	// what may be rendered.
+	Sensitive bool
 }
 
 // Delta is the masked observable difference a mutant produced.
@@ -64,6 +70,11 @@ func Compare(mask Mask, baseline, mutant []Payload) Delta {
 	delta := Delta{Changes: []Change{}, Indeterminate: false, MissingRuns: []string{}}
 
 	byKey := map[string]Payload{}
+	unmasked := map[string]Payload{}
+
+	for _, payload := range baseline {
+		unmasked[payload.Key()] = payload
+	}
 
 	for _, payload := range mutant {
 		masked, indeterminate := mask.Apply(payload)
@@ -87,7 +98,10 @@ func Compare(mask Mask, baseline, mutant []Payload) Delta {
 			continue
 		}
 
-		delta.Changes = append(delta.Changes, comparePayload(payload.Key(), maskedBaseline, maskedMutant)...)
+		reference := unmasked[payload.Key()]
+		delta.Changes = append(delta.Changes,
+			comparePayload(payload.Key(), maskedBaseline, maskedMutant,
+				reference, reference.SensitiveRenderings())...)
 
 		delete(byKey, payload.Key())
 	}
@@ -108,7 +122,11 @@ func Compare(mask Mask, baseline, mutant []Payload) Delta {
 	return delta
 }
 
-func comparePayload(key string, baseline, mutant Payload) []Change {
+func comparePayload(
+	key string,
+	baseline, mutant, unmasked Payload,
+	secrets map[string]bool,
+) []Change {
 	changes := []Change{}
 
 	for path, value := range baseline.Values {
@@ -118,11 +136,12 @@ func comparePayload(key string, baseline, mutant Payload) []Change {
 		}
 
 		changes = append(changes, Change{
-			Run:      key,
-			Path:     path,
-			Address:  Address(path),
-			Baseline: value,
-			Mutant:   other,
+			Run:       key,
+			Path:      path,
+			Address:   Address(path),
+			Baseline:  value,
+			Mutant:    other,
+			Sensitive: unmasked.Sensitive(path) || secrets[value],
 		})
 	}
 
@@ -132,11 +151,12 @@ func comparePayload(key string, baseline, mutant Payload) []Change {
 		}
 
 		changes = append(changes, Change{
-			Run:      key,
-			Path:     path,
-			Address:  Address(path),
-			Baseline: "",
-			Mutant:   value,
+			Run:       key,
+			Path:      path,
+			Address:   Address(path),
+			Baseline:  "",
+			Mutant:    value,
+			Sensitive: unmasked.Sensitive(path) || secrets[value],
 		})
 	}
 

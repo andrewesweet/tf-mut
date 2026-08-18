@@ -1,0 +1,8 @@
+run "applied" {
+  command = apply
+
+  assert {
+    condition     = output.asserted == "asserted"
+    error_message = "the asserted output must carry its input"
+  }
+}

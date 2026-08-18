@@ -1,0 +1,109 @@
+package suggest
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+
+	"github.com/andrewesweet/tf-mut/internal/discovery"
+	"github.com/andrewesweet/tf-mut/internal/fingerprint"
+)
+
+// ErrUnaddressable reports a delta the address adapter cannot express as a
+// legal traversal in the selected run's target module.
+//
+// It is deliberately its own error and its own outcome status. A generated
+// traversal that does not compile is a limitation of this generator, and
+// reporting it as an ordinary refutation would dress a generator limit as
+// verification evidence — the failure shape the M4 spec review's C2 names.
+var ErrUnaddressable = errors.New("no legal assertion expression addresses this delta")
+
+// address is the assertion-expression adapter.
+//
+// It joins two address spaces — the canonical payload path and the HCL an
+// assertion may write — and it fails closed at every join it cannot make. The
+// target module matters: a run with a `module {}` block evaluates names against
+// a different root, and a root run can see a child module only through the
+// child's outputs, never through its internals.
+type address struct {
+	// run is the run block the assertion will be placed in.
+	run discovery.RunBlock
+}
+
+// traversal maps a canonical payload path onto the traversal an assertion in
+// the target run can legally name, together with the resource address and
+// attribute path the rendering contract needs.
+func (a address) traversal(path string) (expression, resource, attribute string, err error) {
+	resource, attribute, ok := fingerprint.Split(path)
+	if !ok {
+		return "", "", "", fmt.Errorf(
+			"%w: %s names no value a `terraform test` assertion could read", ErrUnaddressable, path)
+	}
+
+	if strings.Contains(resource, discovery.Wildcard) || strings.Contains(attribute, discovery.Wildcard) {
+		return "", "", "", fmt.Errorf(
+			"%w: %s was canonicalised through a splat or wildcard, so the concrete "+
+				"instance it names is not recoverable", ErrUnaddressable, path)
+	}
+
+	if parsed := discovery.ParseAddr(resource); len(parsed.ModulePath) > 0 {
+		return "", "", "", fmt.Errorf(
+			"%w: %s is inside %s, and a run rooted at this module can observe a child "+
+				"module only through its outputs, never through its internals",
+			ErrUnaddressable, resource, "module."+strings.Join(parsed.ModulePath, ".module."))
+	}
+
+	expression = resource
+	if attribute != "" {
+		expression += "." + attribute
+	}
+
+	if err := parseTraversal(expression); err != nil {
+		return "", "", "", err
+	}
+
+	return expression, resource, attribute, nil
+}
+
+// parseTraversal proves the generated text is a traversal HCL accepts.
+//
+// The check is the adapter's floor: instance keys arrive as Terraform wrote
+// them, string keys carry Terraform's own escaping, and rather than trusting
+// either the text is handed to the same parser Terraform's own test files go
+// through. Anything that is not a pure traversal fails closed.
+func parseTraversal(expression string) error {
+	parsed, diagnostics := hclsyntax.ParseExpression(
+		[]byte(expression), "suggestion", hcl.InitialPos)
+	if diagnostics.HasErrors() {
+		return fmt.Errorf("%w: %s does not parse as an expression: %s",
+			ErrUnaddressable, expression, diagnostics.Error())
+	}
+
+	if !isTraversal(parsed) {
+		return fmt.Errorf("%w: %s is not a plain traversal, so it cannot be trusted "+
+			"to name the value the delta is about", ErrUnaddressable, expression)
+	}
+
+	return nil
+}
+
+// isTraversal reports whether an expression is nothing but a name lookup.
+func isTraversal(expr hclsyntax.Expression) bool {
+	switch typed := expr.(type) {
+	case *hclsyntax.ScopeTraversalExpr:
+		return true
+	case *hclsyntax.RelativeTraversalExpr:
+		return isTraversal(typed.Source)
+	case *hclsyntax.IndexExpr:
+		if _, literal := typed.Key.(*hclsyntax.LiteralValueExpr); !literal {
+			return false
+		}
+
+		return isTraversal(typed.Collection)
+	default:
+		return false
+	}
+}

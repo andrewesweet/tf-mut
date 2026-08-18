@@ -19,6 +19,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/suggest"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
@@ -137,6 +138,23 @@ type Config struct {
 	// so a control run can prove the safety floor holds for content the tool
 	// has not read. It is a seam control, not a command-line flag.
 	DisableJSONReading bool
+	// Suggest generates, and unless SuggestDryRun is set verifies, the
+	// assertion that would have killed each provable survivor.
+	Suggest bool
+	// SuggestDryRun prints the candidate patches and verifies nothing.
+	SuggestDryRun bool
+	// SurvivorIDs restricts suggestion to the named survivors. A missing or
+	// stale identifier is an operational failure that names it.
+	SurvivorIDs []string
+	// Apply writes the named verified suggestions into the module's test
+	// files, under the snapshot-bound protocol. Empty unless ApplyAll is set.
+	Apply []string
+	// ApplyAll writes every verified suggestion.
+	ApplyAll bool
+	// SeedSuggestionDefect makes the generator emit one deliberately wrong
+	// assertion, so the suggestion-soundness gate can prove that verification
+	// rejects it. It is a seam control, not a command-line flag.
+	SeedSuggestionDefect suggest.Defect
 }
 
 // Operational failures. Every one of them aborts the run: none of them can be
@@ -257,7 +275,7 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		return result, nil
 	}
 
-	executed, failures := executeWithCache(ctx, &result, version, executionPlan{
+	plan := executionPlan{
 		runner:        runner,
 		configuration: configuration,
 		config:        settings,
@@ -267,23 +285,41 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		workRoot:      workRoot,
 		closure:       configuration.BuildClosure(),
 		graph:         graph,
-	})
+	}
 
-	return finish(configuration, settings, moduleDir, result, executed, failures)
+	executed, failures := executeWithCache(ctx, &result, version, plan)
+
+	return finish(ctx, plan, moduleDir, result, executed, failures)
 }
 
-// finish completes the report and applies the baseline gate.
+// finish completes the report, generates and verifies any suggestions, and
+// applies the baseline gate.
 func finish(
-	configuration discovery.Configuration,
-	settings Config,
+	ctx context.Context,
+	plan executionPlan,
 	moduleDir string,
 	result report.Report,
 	executed []report.Mutant,
 	failures []report.ExecutionError,
 ) (report.Report, error) {
-	result = complete(configuration, settings, result, executed, failures)
+	result = complete(plan.configuration, plan.config, result, executed, failures)
 
-	if err := applyBaselineGate(settings, moduleDir, &result); err != nil {
+	if plan.config.Suggest {
+		suggestions, err := suggestAssertions(ctx, plan, result)
+		if err != nil {
+			return report.Report{}, err
+		}
+
+		result.Suggestions = suggestions
+
+		applySuggestions(plan.config, &result, applyContext{
+			moduleDir:   plan.configuration.ModuleDir,
+			closureRoot: plan.configuration.ClosureRoot,
+			testDirs:    []string{plan.configuration.Tests.Dir, plan.configuration.ModuleDir},
+		})
+	}
+
+	if err := applyBaselineGate(plan.config, moduleDir, &result); err != nil {
 		return report.Report{}, err
 	}
 
@@ -475,11 +511,14 @@ func shell(
 }
 
 func commandName(settings Config) report.Command {
-	if settings.Preview {
+	switch {
+	case settings.Preview:
 		return report.CommandPreview
+	case settings.Suggest:
+		return report.CommandSuggest
+	default:
+		return report.CommandRun
 	}
-
-	return report.CommandRun
 }
 
 func checkVersion(ctx context.Context, runner tfexec.Runner, dir string) (tfexec.Version, error) {

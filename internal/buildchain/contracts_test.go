@@ -201,7 +201,8 @@ func TestLanguageManifestsAreComplete(t *testing.T) {
 	wantShell := discoverFiles(t, repository, repositoryPaths, func(path string) bool {
 		return hasBashShebang(t, repository, path)
 	})
-	wantJSON := discoverExtension(t, repository, repositoryPaths, ".json")
+	wantJSON := withoutSkipped(t, "tools/json-files-skip",
+		discoverExtension(t, repository, repositoryPaths, ".json"))
 	wantYAML := append(
 		discoverExtension(t, repository, repositoryPaths, ".yaml"),
 		discoverExtension(t, repository, repositoryPaths, ".yml")...,
@@ -212,6 +213,31 @@ func TestLanguageManifestsAreComplete(t *testing.T) {
 	assertManifest(t, "tools/json-files", wantJSON)
 	assertManifest(t, "tools/yaml-files", wantYAML)
 	assertManifest(t, "tools/toml-files", wantTOML)
+}
+
+// withoutSkipped removes the intentionally malformed fixtures a skip manifest
+// names, mirroring the Terraform format skip file: a fixture that must not
+// parse cannot be asked to.
+func withoutSkipped(t *testing.T, skipManifest string, discovered []string) []string {
+	t.Helper()
+
+	skipped := map[string]bool{}
+
+	for _, line := range strings.Fields(readRepositoryFile(t, skipManifest)) {
+		if !strings.HasPrefix(line, "#") {
+			skipped[line] = true
+		}
+	}
+
+	kept := make([]string, 0, len(discovered))
+
+	for _, path := range discovered {
+		if !skipped[path] {
+			kept = append(kept, path)
+		}
+	}
+
+	return kept
 }
 
 func assertManifest(t *testing.T, path string, want []string) {
