@@ -10,3 +10,12 @@ paths = [
   '''^\.tools/''',
   '''^research/spikes/.*/\.terraform/''',
 ]
+
+[[allowlists]]
+description = "The sensitive-answer fixture's value, which exists to prove a supplied secret reaches Terraform and no report field"
+paths = [
+  '''^internal/engine/todos_test\.go$''',
+]
+regexes = [
+  '''tok-0123abcd''',
+]

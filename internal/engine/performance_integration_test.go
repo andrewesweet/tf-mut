@@ -227,7 +227,7 @@ func benchmarkFixture(b *testing.B) string {
 		b.Fatalf("creating fixture: %v", err)
 	}
 
-	for _, name := range []string{"main.tf", filepath.Join("tests", "unit.tftest.hcl")} {
+	for _, name := range []string{mainFile, filepath.Join("tests", "unit.tftest.hcl")} {
 		//nolint:gosec // a repository-owned fixture path.
 		content, err := os.ReadFile(filepath.Join(source, name))
 		if err != nil {

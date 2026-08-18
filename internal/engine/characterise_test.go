@@ -589,7 +589,7 @@ func TestAClosureChangeAtTheProbeYieldsZeroWrites(t *testing.T) {
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
-	config.SeedClosureChange = "main.tf"
+	config.SeedClosureChange = mainFile
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrWriteRefused) {

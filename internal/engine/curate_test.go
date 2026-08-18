@@ -108,7 +108,7 @@ func TestCurateRefusesAPartialPopulationAtConfigurationTime(t *testing.T) {
 			return config
 		},
 		"an exclusion": func(config engine.Config) engine.Config {
-			config.ExcludePaths = []string{"main.tf"}
+			config.ExcludePaths = []string{mainFile}
 
 			return config
 		},
