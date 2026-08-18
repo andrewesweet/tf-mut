@@ -12,6 +12,8 @@ internal/engine/testdata/aws-mocked/tests/unit.tftest.hcl
 internal/engine/testdata/cache-measure/a.tf
 internal/engine/testdata/cache-measure/b.tf
 internal/engine/testdata/cache-measure/tests/unit.tftest.hcl
+internal/engine/testdata/check-scoped/main.tf
+internal/engine/testdata/check-scoped/tests/unit.tftest.hcl
 internal/engine/testdata/closure/main.tf
 internal/engine/testdata/closure/tests/unit.tftest.hcl
 internal/engine/testdata/conditional-autovar/main.tf
@@ -105,6 +107,8 @@ internal/engine/testdata/red-baseline/main.tf
 internal/engine/testdata/red-baseline/tests/unit.tftest.hcl
 internal/engine/testdata/redundant-in-resource/main.tf
 internal/engine/testdata/redundant-in-resource/tests/main.tftest.hcl
+internal/engine/testdata/removed-scoped/main.tf
+internal/engine/testdata/removed-scoped/tests/unit.tftest.hcl
 internal/engine/testdata/sensitive-shift/main.tf
 internal/engine/testdata/sensitive-shift/tests/unit.tftest.hcl
 internal/engine/testdata/skeleton/main.tf

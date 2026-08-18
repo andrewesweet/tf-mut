@@ -83,7 +83,7 @@ func TestTheM4GateCoversEveryNamedRequirement(t *testing.T) {
 		"the patch is the applied bytes":          "TestTheReportedPatchIsTheBytesApplyWrites",
 		"the commit re-check closes the race":     "TestAnEditBetweenPreflightAndCommitAbortsTheReplacement",
 		"mutant-surfaced secrets reach no report": "TestAMutantSurfacedSecretReachesNoReport",
-		"a JSON check block keeps the floor":      "TestACheckBlockInJSONRetainsTheFloor",
+		"a JSON moved block keeps the floor":      "TestAMovedBlockInJSONRetainsTheFloor",
 		"an unread mock body keeps the floor":     "TestAJSONMockProviderBodyBeyondAliasRetainsTheFloor",
 		"trailing CLI arguments are refused":      "TestArgumentsAfterTheModulePathAreRefused",
 		"shared assertions collapse":              "TestSurvivorsSharingOneAssertionCollapseIntoOneSuggestion",

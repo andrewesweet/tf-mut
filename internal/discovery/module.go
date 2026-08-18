@@ -204,6 +204,12 @@ func collectFile(module *Module, providers map[string]bool, path string, body *h
 			collectProviderBlock(module, block)
 		case terraformBlock:
 			collectRequiredProviders(providers, block)
+		case checkBlock:
+			collectCheckBlock(module, providers, path, relative, block)
+		case removedBlock:
+			collectRemovedBlock(module, providers, path, block)
+		case movedBlock, importBlock:
+			return unmodelledConstruct(block.Type, relative, block.DefRange().Start)
 		default:
 		}
 	}
@@ -325,7 +331,7 @@ func collectEffects(module *Module, discovered Block, block *hclsyntax.Block) {
 	for _, nested := range block.Body.Blocks {
 		if nested.Type == provisionerBlock || nested.Type == connectionBlock {
 			module.Effects = append(module.Effects, Effect{
-				Kind:    "provisioner",
+				Kind:    provisionerBlock,
 				Address: discovered.Address,
 				File:    discovered.File,
 				Range:   nested.DefRange(),
