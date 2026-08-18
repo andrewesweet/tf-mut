@@ -265,10 +265,11 @@ func batched(
 	return content, suggest.Digest(original), nil
 }
 
-// verificationMessage is the `error_message` the verified assertion carries.
-// It names the suggestion and the mutant and never the compared value.
+// verificationMessage names the suggestion and the mutant and never the
+// compared value. It is the same renderer apply uses, deliberately: the bytes
+// verified and the bytes written must be identical.
 func verificationMessage(candidate report.Suggestion) string {
-	return "tf-mut suggestion " + candidate.ID + " catches mutant " + candidate.MutantID
+	return suggest.VerifiedMessage(candidate.ID, candidate.MutantID)
 }
 
 // mutantsByID indexes the generated population so a suggestion can

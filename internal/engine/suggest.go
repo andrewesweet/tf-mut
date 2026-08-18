@@ -20,15 +20,18 @@ import (
 var ErrSurvivorSelection = errors.New("no survivor with that identifier")
 
 // suggestAssertions generates — and, unless this is a dry run, verifies — the
-// assertion that would have killed each selected survivor.
+// assertion that would have killed each selected survivor. The second result
+// is the verification cost statement: verification is bounded and chosen, so
+// what it will execute is stated in the report rather than discovered on the
+// bill.
 func suggestAssertions(
 	ctx context.Context,
 	plan executionPlan,
 	result report.Report,
-) ([]report.Suggestion, error) {
+) ([]report.Suggestion, string, error) {
 	selected, err := selectSurvivors(plan.config, result)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	generated := suggest.Generator{
@@ -38,10 +41,38 @@ func suggestAssertions(
 	}.Generate(selected)
 
 	if plan.config.SuggestDryRun {
-		return generated, nil
+		return generated, "", nil
 	}
 
-	return verifySuggestions(ctx, plan, generated)
+	verified, err := verifySuggestions(ctx, plan, generated)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return verified, verificationCost(generated), nil
+}
+
+// verificationCost states what the verification contract executes for a
+// candidate set: one full-suite run per target test file, plus one isolated
+// mutant run per candidate.
+func verificationCost(generated []report.Suggestion) string {
+	candidates := 0
+	files := map[string]bool{}
+
+	for _, suggestion := range generated {
+		if suggestion.Status == report.SuggestionCandidate {
+			candidates++
+			files[suggestion.TargetFile] = true
+		}
+	}
+
+	if candidates == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf("verification executed %d full-suite run(s) — one per target test "+
+		"file — plus %d isolated mutant run(s), one per candidate suggestion",
+		len(files), candidates)
 }
 
 // selectSurvivors narrows the population to the survivors the caller asked

@@ -26,11 +26,11 @@ func runConditional(t *testing.T, fixture string) report.Report {
 	return result
 }
 
-// bodyMutants returns the mutants inside a resource's body, excluding its
-// multiplicity site.
 // gatedResource is the fixture resource the multiplicity cases pin.
 const gatedResource = "terraform_data.gated"
 
+// bodyMutants returns the mutants inside a resource's body, excluding its
+// multiplicity site.
 func bodyMutants(result report.Report, resource, meta string) []report.Mutant {
 	mutants := []report.Mutant{}
 

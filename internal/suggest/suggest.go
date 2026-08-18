@@ -183,7 +183,6 @@ func (g Generator) suggestFor(
 	target discovery.RunBlock,
 	changes []report.Change,
 ) report.Suggestion {
-	adapter := address{run: target}
 	renderer := render{schemas: g.Schemas}
 
 	var first, sensitive error
@@ -193,7 +192,7 @@ func (g Generator) suggestFor(
 			continue
 		}
 
-		expression, err := expressChange(adapter, renderer, change)
+		expression, err := expressChange(renderer, change)
 		if err != nil {
 			if first == nil {
 				first = err
@@ -238,18 +237,20 @@ func Express(
 	schemas tfexec.Schemas,
 	change report.Change,
 ) (string, error) {
-	return expressChange(address{run: run}, render{schemas: schemas}, change)
+	_ = run // the adapter reads the module path from the address itself; see traversal.
+
+	return expressChange(render{schemas: schemas}, change)
 }
 
 // expressChange runs one change through the three adapters in order.
 // Sensitivity comes first: a sensitive value must not reach a renderer at all.
-func expressChange(adapter address, renderer render, change report.Change) (string, error) {
+func expressChange(renderer render, change report.Change) (string, error) {
 	if change.Sensitive {
 		return "", fmt.Errorf("%w: Terraform marks the value at this path, or a container "+
 			"of it, sensitive", ErrSensitive)
 	}
 
-	parts, err := adapter.traversal(change.Path)
+	parts, err := traversal(change.Path)
 	if err != nil {
 		return "", err
 	}
@@ -373,6 +374,14 @@ func ReadTarget(moduleDir, relative string) ([]byte, error) {
 	}
 
 	return content, nil
+}
+
+// VerifiedMessage is the `error_message` a verified-and-applied assertion
+// carries. Verification and apply must write byte-identical assertions — the
+// digest protocol proves the file, and this shared renderer is what keeps the
+// assertion itself from drifting between the two.
+func VerifiedMessage(suggestionID, mutantID string) string {
+	return "tf-mut suggestion " + suggestionID + " catches mutant " + mutantID
 }
 
 // Statuses renders a suggestion set as its status counts, in vocabulary order,

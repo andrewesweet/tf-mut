@@ -96,6 +96,13 @@ widened without amending this section.
    exception 1's own reason: they are contracts about documents and types, and the real
    binary cannot be driven into each of the fifteen shapes on demand. Every adapter outcome
    is still asserted through the engine seam (`internal/engine/suggest_test.go`).
+5. The apply protocol's preflight refusals that no engine-seam test can stage — a digest
+   that went stale between verification and write (a concurrent-editor race), a target
+   outside the closure, a file whose bytes stopped parsing — are exercised directly over
+   `preflight` (`internal/engine/apply_internal_test.go`). Within one invocation
+   verification always precedes apply, so the engine seam cannot produce these states
+   deterministically; every refusal the seam *can* stage (symlink, non-verified selection,
+   JSON target, partial failure) is still asserted through it (`apply_test.go`).
 
 ## Build and verification
 

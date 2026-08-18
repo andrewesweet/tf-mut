@@ -21,18 +21,6 @@ import (
 // verification evidence — the failure shape the M4 spec review's C2 names.
 var ErrUnaddressable = errors.New("no legal assertion expression addresses this delta")
 
-// address is the assertion-expression adapter.
-//
-// It joins two address spaces — the canonical payload path and the HCL an
-// assertion may write — and it fails closed at every join it cannot make. The
-// target module matters: a run with a `module {}` block evaluates names against
-// a different root, and a root run can see a child module only through the
-// child's outputs, never through its internals.
-type address struct {
-	// run is the run block the assertion will be placed in.
-	run discovery.RunBlock
-}
-
 // traversalParts is what the address adapter hands the rendering contract:
 // the legal expression, and the resource address and attribute path the type
 // lookup is keyed by.
@@ -42,15 +30,16 @@ type traversalParts struct {
 	attribute  string
 }
 
-// traversal maps a canonical payload path onto the traversal an assertion in
-// the target run can legally name.
+// traversal is the assertion-expression adapter: it joins two address spaces
+// — the canonical payload path and the HCL an assertion may write — and fails
+// closed at every join it cannot make.
 //
-// The receiver's run is context rather than input today: a retargeted run's
-// payload is already expressed relative to its own root, so the child-module
-// refusal reads the module path out of the address itself. The run stays on
-// the adapter because it is the contract's unit of evaluation, and the first
-// feature that needs run-relative name resolution will need it in hand.
-func (address) traversal(path string) (traversalParts, error) {
+// The adapter is evaluated per selected run, but takes no run argument today:
+// a retargeted run's payload is already expressed relative to its own root,
+// so the child-module refusal reads the module path out of the address
+// itself. The first feature that needs run-relative name resolution adds the
+// parameter back with the need in hand.
+func traversal(path string) (traversalParts, error) {
 	empty := traversalParts{expression: "", resource: "", attribute: ""}
 
 	resource, attribute, ok := fingerprint.Split(path)

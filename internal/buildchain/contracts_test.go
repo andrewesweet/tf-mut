@@ -2,6 +2,7 @@ package buildchain_test
 
 import (
 	"context"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -217,15 +218,32 @@ func TestLanguageManifestsAreComplete(t *testing.T) {
 
 // withoutSkipped removes the intentionally malformed fixtures a skip manifest
 // names, mirroring the Terraform format skip file: a fixture that must not
-// parse cannot be asked to.
+// parse cannot be asked to. Each named fixture must exist and must indeed fail
+// to decode — a skip entry that parses cleanly is hiding a file from the lint
+// gate for no reason.
 func withoutSkipped(t *testing.T, skipManifest string, discovered []string) []string {
 	t.Helper()
 
+	root := repositoryRoot(t)
 	skipped := map[string]bool{}
 
-	for line := range strings.FieldsSeq(readRepositoryFile(t, skipManifest)) {
-		if !strings.HasPrefix(line, "#") {
-			skipped[line] = true
+	for rawLine := range strings.SplitSeq(readRepositoryFile(t, skipManifest), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		skipped[line] = true
+
+		content, err := os.ReadFile(filepath.Join(root, line)) //nolint:gosec // a repository-owned path.
+		if err != nil {
+			t.Fatalf("%s names %s, which does not exist: %v", skipManifest, line, err)
+		}
+
+		decoded := any(nil)
+		if json.Unmarshal(content, &decoded) == nil {
+			t.Fatalf("%s names %s, but it parses cleanly and belongs in tools/json-files",
+				skipManifest, line)
 		}
 	}
 

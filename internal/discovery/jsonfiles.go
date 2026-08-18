@@ -28,10 +28,15 @@ const (
 	JSONVariables JSONClass = "variables"
 )
 
-// The file suffixes of each class.
+// JSONTestSuffix is the test class's file suffix — exported because the apply
+// protocol's never-write-JSON rule keys on it, and two spellings of one
+// suffix is how a rule gets a side door.
+const JSONTestSuffix = ".tftest.json"
+
+// The file suffixes of the other classes.
 const (
 	jsonConfigurationSuffix = ".tf.json"
-	jsonTestSuffix          = ".tftest.json"
+	jsonTestSuffix          = JSONTestSuffix
 	jsonVariablesSuffix     = ".auto.tfvars.json"
 	jsonVariablesFile       = "terraform.tfvars.json"
 )

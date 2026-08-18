@@ -277,3 +277,47 @@ func assertNoFloorWarning(t *testing.T, result report.Report) {
 		}
 	}
 }
+
+// TestExclusionsCannotHideJSONDeclaredContentUnderTheSlice re-proves the
+// exclusions case with the content read: the safety inventories are computed
+// before exclusion, so no configured exclusion reaches a JSON-declared effect.
+func TestExclusionsCannotHideJSONDeclaredContentUnderTheSlice(t *testing.T) {
+	t.Parallel()
+
+	for _, exclusion := range []string{"*.json", "*", "effects.tf.json"} {
+		t.Run(exclusion, func(t *testing.T) {
+			t.Parallel()
+
+			config := baseConfig(t, copyFixture(t, jsonProvisionerFixture))
+			config.AllowRealInfrastructure = true
+			config.ExcludePaths = []string{exclusion}
+
+			_, err := engine.Run(t.Context(), config)
+			if !errors.Is(err, engine.ErrUnsandboxedEffects) {
+				t.Fatalf("exclusion %q hid the JSON-declared provisioner: error = %v", exclusion, err)
+			}
+		})
+	}
+}
+
+// TestNoTerraformRunPrecedesAContentDrivenRefusal re-proves the zero-runs case
+// with the content read: a refusal decided from the JSON-declared inventory is
+// as free as one decided from unreadness.
+func TestNoTerraformRunPrecedesAContentDrivenRefusal(t *testing.T) {
+	t.Parallel()
+
+	log := filepath.Join(t.TempDir(), "terraform-calls")
+
+	config := baseConfig(t, copyFixture(t, jsonProviderFixture))
+	config.TerraformBinary = recordingTerraform(t, log)
+
+	if _, err := engine.Run(t.Context(), config); !errors.Is(err, engine.ErrRealInfrastructure) {
+		t.Fatalf("error = %v, want a refusal", err)
+	}
+
+	for _, invocation := range terraformInvocations(t, log) {
+		if invocation != "version" {
+			t.Fatalf("terraform %s ran before the content-driven refusal", invocation)
+		}
+	}
+}

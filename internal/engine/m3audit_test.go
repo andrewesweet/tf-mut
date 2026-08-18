@@ -78,16 +78,7 @@ func TestTheM3GateCoversEveryNamedRequirement(t *testing.T) {
 		"module wiring against terraform graph":   "TestModuleWiringAgreesWithTerraformGraph",
 	}
 
-	named := map[string]bool{}
-	for _, name := range m3GatedTests(t) {
-		named[name] = true
-	}
-
-	for behaviour, test := range required {
-		if !named[test] {
-			t.Fatalf("the M3 gate does not run %s, which proves %s", test, behaviour)
-		}
-	}
+	assertGateCovers(t, "M3", m3GatedTests(t), required)
 }
 
 func m3GatedTests(t *testing.T) []string {

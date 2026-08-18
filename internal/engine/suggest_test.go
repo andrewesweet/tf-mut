@@ -1,7 +1,6 @@
 package engine_test
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -123,7 +122,7 @@ func TestSuggestionIdentifiersAreStableAcrossRunsAndUnrelatedEdits(t *testing.T)
 
 	third := identifiersOf(runSuggest(t, dryRunConfig(t, module)))
 	for _, id := range first {
-		if !containsString(third, id) {
+		if !slices.Contains(third, id) {
 			t.Fatalf("identifier %s did not survive an unrelated edit: %v", id, third)
 		}
 	}
@@ -275,10 +274,6 @@ func identifiersOf(result report.Report) []string {
 	return ids
 }
 
-func containsString(values []string, wanted string) bool {
-	return slices.Contains(values, wanted)
-}
-
 // renderAll renders the report through every reporter a suggestion can reach,
 // which is what "no artefact" has to mean to be worth anything.
 func renderAll(t *testing.T, result report.Report) map[string]string {
@@ -326,5 +321,3 @@ func requireNonRoot(t *testing.T) {
 		t.Skip("running as root: a read-only directory would not refuse a write")
 	}
 }
-
-var _ = errors.Is

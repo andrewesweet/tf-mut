@@ -663,7 +663,7 @@ func ancestorPaths(base, attribute string) []string {
 	builder := strings.Builder{}
 	builder.WriteString(base)
 
-	for _, segment := range attributeSegments(attribute) {
+	for _, segment := range AttributeSegments(attribute) {
 		builder.WriteString("." + segment)
 		paths = append(paths, builder.String())
 	}
@@ -671,9 +671,15 @@ func ancestorPaths(base, attribute string) []string {
 	return paths
 }
 
-// attributeSegments splits an attribute path on its top-level dots, keeping
-// instance and element keys attached to the segment they index.
-func attributeSegments(attribute string) []string {
+// AttributeSegments splits an attribute path on its top-level dots, keeping
+// instance and element keys attached to the segment they index. It is exported
+// because the path grammar is this package's: the suggestion engine must not
+// rebuild it, or the two would drift.
+func AttributeSegments(attribute string) []string {
+	if attribute == "" {
+		return nil
+	}
+
 	segments := []string{}
 	builder := strings.Builder{}
 	depth := 0
@@ -692,7 +698,7 @@ func attributeSegments(attribute string) []string {
 		default:
 		}
 
-		builder.WriteRune(letter)
+		_, _ = builder.WriteRune(letter)
 	}
 
 	return append(segments, builder.String())

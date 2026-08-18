@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 
+	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
 )
@@ -148,7 +149,7 @@ func preflightFile(
 	empty := plannedWrite{path: "", rel: file, mode: 0, content: nil}
 	path := suggest.TargetPath(configuration.moduleDir, file)
 
-	if strings.HasSuffix(file, ".tftest.json") {
+	if strings.HasSuffix(file, discovery.JSONTestSuffix) {
 		return empty, fmt.Errorf("%w: %s is a JSON test file, which this tool never writes", ErrApply, file)
 	}
 
@@ -259,9 +260,10 @@ func atomicWrite(target plannedWrite) error {
 	return nil
 }
 
-// appliedMessage is the `error_message` the written assertion carries.
+// appliedMessage is the verification renderer, deliberately: the bytes
+// written must be the bytes verified.
 func appliedMessage(suggestion report.Suggestion) string {
-	return "tf-mut suggestion " + suggestion.ID + " catches mutant " + suggestion.MutantID
+	return suggest.VerifiedMessage(suggestion.ID, suggestion.MutantID)
 }
 
 func identifiers(suggestions []report.Suggestion) []string {

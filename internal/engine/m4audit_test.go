@@ -71,16 +71,29 @@ func TestTheM4GateCoversEveryNamedRequirement(t *testing.T) {
 		"skill: edits preserved unless forced":   "TestAUserEditSurvivesAReinstallUnlessForced",
 		"skill: self-consistent with the binary": "TestTheInstalledSkillReferencesOnlyCommandsAndFlagsTheBinaryHas",
 		"the outcome-table row sweep":            "TestEveryOutcomeTableRowIsReachableThroughTheSeam",
+		"the verification cost statement":        "TestAScopedSuggestRunStatesItsVerificationCost",
+		"apply: out-of-closure target aborts":    "TestAnOutOfClosureTargetAbortsThePreflight",
+		"apply: unparseable target aborts":       "TestAnUnparseableTargetAbortsThePreflight",
+		"slice: exclusions still hide nothing":   "TestExclusionsCannotHideJSONDeclaredContentUnderTheSlice",
+		"slice: refusal still free":              "TestNoTerraformRunPrecedesAContentDrivenRefusal",
 	}
 
+	assertGateCovers(t, "M4", m4GatedTests(t), required)
+}
+
+// assertGateCovers fails when a gate's -run pattern stopped naming a test a
+// required behaviour depends on. Shared by every milestone audit.
+func assertGateCovers(t *testing.T, gate string, gated []string, required map[string]string) {
+	t.Helper()
+
 	named := map[string]bool{}
-	for _, name := range m4GatedTests(t) {
+	for _, name := range gated {
 		named[name] = true
 	}
 
 	for behaviour, test := range required {
 		if !named[test] {
-			t.Fatalf("the M4 gate does not run %s, which proves %s", test, behaviour)
+			t.Fatalf("the %s gate does not run %s, which proves %s", gate, test, behaviour)
 		}
 	}
 }

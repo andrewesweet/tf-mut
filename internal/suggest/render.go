@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
@@ -55,7 +56,7 @@ func (r render) equality(parts traversalParts, baseline string) (string, error) 
 		return "length(" + expression + ") == 0", nil
 	}
 
-	segments := attributeSegments(attribute)
+	segments := fingerprint.AttributeSegments(attribute)
 
 	switch {
 	case attribute == "":
@@ -203,35 +204,4 @@ func stripKeys(address string) string {
 	}
 
 	return builder.String()
-}
-
-// attributeSegments splits an attribute path on its top-level dots, keeping
-// element keys attached to the segment they index.
-func attributeSegments(attribute string) []string {
-	if attribute == "" {
-		return nil
-	}
-
-	segments := []string{}
-	builder := strings.Builder{}
-	depth := 0
-
-	for _, letter := range attribute {
-		switch {
-		case letter == '[':
-			depth++
-		case letter == ']':
-			depth--
-		case letter == '.' && depth == 0:
-			segments = append(segments, builder.String())
-			builder.Reset()
-
-			continue
-		default:
-		}
-
-		_, _ = builder.WriteRune(letter)
-	}
-
-	return append(segments, builder.String())
 }

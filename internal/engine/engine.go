@@ -331,12 +331,15 @@ func finish(
 	result = complete(plan.configuration, plan.config, result, executed, failures)
 
 	if plan.config.Suggest {
-		suggestions, err := suggestAssertions(ctx, plan, result)
+		suggestions, cost, err := suggestAssertions(ctx, plan, result)
 		if err != nil {
 			return report.Report{}, err
 		}
 
 		result.Suggestions = suggestions
+		if cost != "" {
+			result.Warnings = append(result.Warnings, cost)
+		}
 
 		applySuggestions(plan.config, &result, applyContext{
 			moduleDir:   plan.configuration.ModuleDir,

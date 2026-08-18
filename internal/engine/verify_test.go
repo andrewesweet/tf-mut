@@ -209,3 +209,31 @@ func TestVerificationIsNeverCached(t *testing.T) {
 		}
 	}
 }
+
+// TestAScopedSuggestRunStatesItsVerificationCost is US14's bounded-and-chosen
+// half: the report states what the verification contract executed — one
+// full-suite run per target file, one isolated run per candidate.
+func TestAScopedSuggestRunStatesItsVerificationCost(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, suggestBasicFixture)
+
+	dry := runSuggest(t, dryRunConfig(t, module))
+	if len(dry.Suggestions) == 0 {
+		t.Fatal("no suggestions to scope to")
+	}
+
+	config := suggestConfig(t, module)
+	config.SurvivorIDs = []string{dry.Suggestions[0].MutantID}
+
+	result := runSuggest(t, config)
+
+	for _, warning := range result.Warnings {
+		if strings.Contains(warning, "verification executed 1 full-suite run(s)") &&
+			strings.Contains(warning, "1 isolated mutant run(s)") {
+			return
+		}
+	}
+
+	t.Fatalf("the scoped run does not state its verification cost: %v", result.Warnings)
+}
