@@ -24,6 +24,9 @@ const (
 	fixtureRoot = "testdata"
 	testJobs    = 2
 
+	// mainFile is the file every fixture's configuration lives in.
+	mainFile = "main.tf"
+
 	// checkpointDisabled and inAutomation keep Terraform from phoning home and
 	// from expecting a human at the terminal.
 	checkpointDisabled = "CHECKPOINT_DISABLE=1"

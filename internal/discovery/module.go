@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"path/filepath"
@@ -43,6 +44,9 @@ const (
 	// switch over.
 	terraformBlock = "terraform"
 	countKeyword   = "count"
+
+	// validationBlock is the variable-level constraint block.
+	validationBlock = "validation"
 )
 
 func parseModule(parser *hclparse.Parser, current queued, options Options) (Module, []JSONFile, error) {
@@ -118,6 +122,14 @@ func readJSONConfigurations(
 		if readErr := skippedOr(options, func() error {
 			return readJSONConfiguration(&scratch, found, path)
 		}); readErr != nil {
+			// A construct this version refuses by name is not the same as one
+			// it merely could not read. The floor stands in for a reading and
+			// two opt-ins can lift it; a refusal must survive them both, so it
+			// stops discovery rather than lowering a gate.
+			if errors.Is(readErr, ErrUnmodelledConstruct) {
+				return nil, readErr
+			}
+
 			records = append(records, unreadFile(path, JSONConfiguration, readErr))
 
 			continue
@@ -204,6 +216,12 @@ func collectFile(module *Module, providers map[string]bool, path string, body *h
 			collectProviderBlock(module, block)
 		case terraformBlock:
 			collectRequiredProviders(providers, block)
+		case checkBlock:
+			collectCheckBlock(module, providers, path, relative, block)
+		case removedBlock:
+			collectRemovedBlock(module, providers, path, block)
+		case movedBlock, importBlock:
+			return unmodelledConstruct(block.Type, relative, block.DefRange().Start)
 		default:
 		}
 	}
@@ -246,7 +264,33 @@ func newBlock(kind, path, relative string, block *hclsyntax.Block) Block {
 		}
 	}
 
+	if kind == variableBlock {
+		discovered.Validations = validationsOf(path, block)
+	}
+
 	return discovered
+}
+
+// validationsOf collects a variable's validation blocks in declaration order.
+func validationsOf(path string, block *hclsyntax.Block) []Validation {
+	validations := []Validation{}
+
+	for _, nested := range block.Body.Blocks {
+		if nested.Type != validationBlock {
+			continue
+		}
+
+		condition, found := nested.Body.Attributes["condition"]
+		if !found {
+			continue
+		}
+
+		validations = append(validations, Validation{
+			Condition: condition.Expr, File: path, Range: condition.Expr.Range(),
+		})
+	}
+
+	return validations
 }
 
 func localsFrom(path, relative string, block *hclsyntax.Block, index int) []Block {
@@ -325,7 +369,7 @@ func collectEffects(module *Module, discovered Block, block *hclsyntax.Block) {
 	for _, nested := range block.Body.Blocks {
 		if nested.Type == provisionerBlock || nested.Type == connectionBlock {
 			module.Effects = append(module.Effects, Effect{
-				Kind:    "provisioner",
+				Kind:    provisionerBlock,
 				Address: discovered.Address,
 				File:    discovered.File,
 				Range:   nested.DefRange(),
@@ -400,7 +444,7 @@ func sortedKeys(set map[string]bool) []string {
 
 // collectReferences records every consumption of a resource address in the file.
 func collectReferences(module *Module, path string, body *hclsyntax.Body) {
-	walkExpressions(body, func(expr hclsyntax.Expression) {
+	WalkExpressions(body, func(expr hclsyntax.Expression) {
 		recordReference(module, path, expr)
 	})
 }
@@ -503,14 +547,14 @@ func classifyTraversal(traversal hcl.Traversal) (string, ReferenceForm, bool) {
 	}
 }
 
-// walkExpressions visits every expression in a body, including nested blocks.
-func walkExpressions(body *hclsyntax.Body, visit func(hclsyntax.Expression)) {
+// WalkExpressions visits every expression in a body, including nested blocks.
+func WalkExpressions(body *hclsyntax.Body, visit func(hclsyntax.Expression)) {
 	for _, attribute := range body.Attributes {
 		walkExpression(attribute.Expr, visit)
 	}
 
 	for _, block := range body.Blocks {
-		walkExpressions(block.Body, visit)
+		WalkExpressions(block.Body, visit)
 	}
 }
 

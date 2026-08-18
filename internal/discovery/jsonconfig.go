@@ -46,15 +46,52 @@ var jsonConfigurationSchema = &hcl.BodySchema{
 		{Type: outputBlock, LabelNames: []string{nameLabel}},
 		{Type: localsBlock, LabelNames: nil},
 		{Type: variableBlock, LabelNames: []string{nameLabel}},
-		// check, moved, import and removed are deliberately absent (round-3
-		// review, PR #69): a check block can scope a data source and a removed
-		// block can carry a destroy-time provisioner, and this version has no
-		// collector that walks either into the effect or provider inventories.
-		// Listing them here decoded them "completely" while seeing neither —
-		// the partially-decoded shape the floor must never lift on — so their
-		// presence now leaves the file unread instead.
+		{Type: checkBlock, LabelNames: []string{nameLabel}},
+		{Type: removedBlock, LabelNames: nil},
+		// moved and import are listed so that they can be *refused by name*
+		// (M4.5 spec review C4). Leaving them out would only leave the file
+		// unread, and the floor that stands in for a reading is an opt-in away
+		// from being lifted: grant --allow-real-infrastructure and
+		// --allow-unsandboxed-effects and processing continues with neither
+		// construct represented anywhere. A collector that refuses is not
+		// overridable by an opt-in, which is what a construct this version
+		// cannot model requires.
+		{Type: movedBlock, LabelNames: nil},
+		{Type: importBlock, LabelNames: nil},
 	},
 }
+
+// jsonCheckSchema is the nested block set of a check block. Terraform permits
+// at most one scoped data source per check; the schema accepts what the reader
+// can walk and refuses the rest through the leftover body.
+//
+//nolint:gochecknoglobals // an immutable schema.
+var jsonCheckSchema = &hcl.BodySchema{
+	Attributes: nil,
+	Blocks: []hcl.BlockHeaderSchema{
+		{Type: dataBlock, LabelNames: []string{typeLabel, nameLabel}},
+		{Type: assertBlock, LabelNames: nil},
+	},
+}
+
+// jsonRemovedSchema is the nested block set of a removed block.
+//
+//nolint:gochecknoglobals // an immutable schema.
+var jsonRemovedSchema = &hcl.BodySchema{
+	Attributes: nil,
+	Blocks: []hcl.BlockHeaderSchema{
+		{Type: provisionerBlock, LabelNames: []string{kindLabel}},
+		{Type: connectionBlock, LabelNames: nil},
+		{Type: lifecycleName, LabelNames: nil},
+	},
+}
+
+// removedBlockAttributes are the removed block arguments this version reads.
+// `from` names the resource whose provider a destroy would run, and is the
+// only argument the block takes.
+//
+//nolint:gochecknoglobals // an immutable allow-list.
+var removedBlockAttributes = map[string]bool{fromAttribute: true}
 
 // jsonResourceSchema is the nested block set of a resource or data block.
 //
@@ -180,6 +217,12 @@ func collectJSONBlock(
 		return collectJSONExpansion(module, path, block)
 	case moduleBlock:
 		return collectJSONModuleCall(module, path, block)
+	case checkBlock:
+		return collectJSONCheck(module, providers, path, block)
+	case removedBlock:
+		return collectJSONRemoved(module, providers, path, block)
+	case movedBlock, importBlock:
+		return unmodelledConstruct(block.Type, path, block.DefRange.Start)
 	default:
 		// Every remaining block type contributes references and graph nodes
 		// through the body walk, and nothing to an inventory.
@@ -214,7 +257,7 @@ func collectJSONResource(
 	for _, inner := range nested.Blocks {
 		if inner.Type == provisionerBlock || inner.Type == connectionBlock {
 			module.Effects = append(module.Effects, Effect{
-				Kind: "provisioner", Address: address, File: path, Range: inner.DefRange,
+				Kind: provisionerBlock, Address: address, File: path, Range: inner.DefRange,
 			})
 		}
 

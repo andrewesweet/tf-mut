@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
@@ -66,7 +67,7 @@ func parseTests(
 			return TestSuite{}, nil, fmt.Errorf("resolving test file path: %w", relErr)
 		}
 
-		collectTestFile(&suite, mocked, path, filepath.ToSlash(relative), body)
+		collectTestFile(&suite, mocked, path, filepath.ToSlash(relative), body, parser.Sources()[path])
 		collectTestReferences(&suite, path, body)
 	}
 
@@ -154,7 +155,13 @@ func mergeJSONTests(suite *TestSuite, mocked map[string]bool, scratch TestSuite,
 	}
 }
 
-func collectTestFile(suite *TestSuite, mocked map[string]bool, path, relative string, body *hclsyntax.Body) {
+func collectTestFile(
+	suite *TestSuite,
+	mocked map[string]bool,
+	path, relative string,
+	body *hclsyntax.Body,
+	source []byte,
+) {
 	for _, block := range body.Blocks {
 		switch block.Type {
 		case mockProvider:
@@ -164,7 +171,7 @@ func collectTestFile(suite *TestSuite, mocked map[string]bool, path, relative st
 			}
 		case runBlock:
 			if len(block.Labels) == 1 {
-				suite.Runs = append(suite.Runs, newRun(path, relative, block))
+				suite.Runs = append(suite.Runs, newRun(path, relative, block, source))
 			}
 		case variablesBlock:
 			suite.FileVariables[path] = append(suite.FileVariables[path], attributesOf(block.Body)...)
@@ -184,7 +191,7 @@ func mockedConfiguration(block *hclsyntax.Block) ProviderAlias {
 	return covered
 }
 
-func newRun(path, relative string, block *hclsyntax.Block) RunBlock {
+func newRun(path, relative string, block *hclsyntax.Block, source []byte) RunBlock {
 	run := RunBlock{
 		Name:     block.Labels[0],
 		File:     path,
@@ -203,6 +210,7 @@ func newRun(path, relative string, block *hclsyntax.Block) RunBlock {
 		switch nested.Type {
 		case assertBlock:
 			run.Assertions++
+			run.Asserts = append(run.Asserts, assertBlockOf(nested, source))
 		case moduleBlock:
 			if source, found := nested.Body.Attributes["source"]; found {
 				run.ModuleSource = literalString(source.Expr)
@@ -220,11 +228,28 @@ func newRun(path, relative string, block *hclsyntax.Block) RunBlock {
 	return run
 }
 
+// assertBlockOf records one assertion's condition range and verbatim source.
+func assertBlockOf(block *hclsyntax.Block, source []byte) AssertBlock {
+	condition, found := block.Body.Attributes["condition"]
+	if !found {
+		return AssertBlock{Range: block.DefRange(), Source: ""}
+	}
+
+	span := condition.Expr.Range()
+	text := ""
+
+	if span.Start.Byte >= 0 && span.End.Byte <= len(source) && span.Start.Byte < span.End.Byte {
+		text = strings.TrimSpace(string(source[span.Start.Byte:span.End.Byte]))
+	}
+
+	return AssertBlock{Range: span, Source: text}
+}
+
 // collectTestReferences records resource consumption inside test files, which
 // counts towards the multiplicity gate exactly as module references do.
 func collectTestReferences(suite *TestSuite, path string, body *hclsyntax.Body) {
 	holder := Module{References: suite.References}
-	walkExpressions(body, func(expr hclsyntax.Expression) {
+	WalkExpressions(body, func(expr hclsyntax.Expression) {
 		recordReference(&holder, path, expr)
 	})
 }
@@ -387,4 +412,36 @@ func (c Configuration) LockFilePath() (string, bool) {
 	}
 
 	return path, true
+}
+
+// MocksIn reads the provider configurations a generated test file's
+// `mock_provider` blocks actually cover.
+//
+// It parses rendered bytes rather than trusting a plan that produced them,
+// which is what the staged provider gate needs: comparing the configurations
+// discovery found against the configurations something *intended* to mock is
+// comparing a set with itself, and can never separate them. Comparing them
+// against what the renderer emitted can.
+func MocksIn(source []byte) ([]ProviderAlias, error) {
+	file, diagnostics := hclsyntax.ParseConfig(source, "generated", hcl.InitialPos)
+	if diagnostics.HasErrors() {
+		return nil, fmt.Errorf("%w: generated: %s", ErrParse, diagnostics.Error())
+	}
+
+	body, ok := file.Body.(*hclsyntax.Body)
+	if !ok {
+		return nil, fmt.Errorf("%w: generated: unexpected body type", ErrParse)
+	}
+
+	mocks := []ProviderAlias{}
+
+	for _, block := range body.Blocks {
+		if block.Type != mockProvider || len(block.Labels) != 1 {
+			continue
+		}
+
+		mocks = append(mocks, mockedConfiguration(block))
+	}
+
+	return mocks, nil
 }

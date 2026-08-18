@@ -12,6 +12,8 @@ internal/engine/testdata/aws-mocked/tests/unit.tftest.hcl
 internal/engine/testdata/cache-measure/a.tf
 internal/engine/testdata/cache-measure/b.tf
 internal/engine/testdata/cache-measure/tests/unit.tftest.hcl
+internal/engine/testdata/check-scoped/main.tf
+internal/engine/testdata/check-scoped/tests/unit.tftest.hcl
 internal/engine/testdata/closure/main.tf
 internal/engine/testdata/closure/tests/unit.tftest.hcl
 internal/engine/testdata/conditional-autovar/main.tf
@@ -36,6 +38,8 @@ internal/engine/testdata/count-indexed/main.tf
 internal/engine/testdata/count-indexed/tests/unit.tftest.hcl
 internal/engine/testdata/count-tolerant/main.tf
 internal/engine/testdata/count-tolerant/tests/unit.tftest.hcl
+internal/engine/testdata/curate/main.tf
+internal/engine/testdata/curate/tests/unit.tftest.hcl
 internal/engine/testdata/discriminate/child/main.tf
 internal/engine/testdata/discriminate/main.tf
 internal/engine/testdata/discriminate/tests/unit.tftest.hcl
@@ -71,6 +75,10 @@ internal/engine/testdata/json-terraform-unmodelled/tests/unit.tftest.hcl
 internal/engine/testdata/json-test-mock/main.tf
 internal/engine/testdata/json-unmodelled/main.tf
 internal/engine/testdata/json-unmodelled/tests/unit.tftest.hcl
+internal/engine/testdata/killset-reversed/main.tf
+internal/engine/testdata/killset-reversed/tests/unit.tftest.hcl
+internal/engine/testdata/killset/main.tf
+internal/engine/testdata/killset/tests/unit.tftest.hcl
 internal/engine/testdata/mocked-aliases/main.tf
 internal/engine/testdata/mocked-aliases/tests/unit.tftest.hcl
 internal/engine/testdata/mocked-null/main.tf
@@ -105,6 +113,8 @@ internal/engine/testdata/red-baseline/main.tf
 internal/engine/testdata/red-baseline/tests/unit.tftest.hcl
 internal/engine/testdata/redundant-in-resource/main.tf
 internal/engine/testdata/redundant-in-resource/tests/main.tftest.hcl
+internal/engine/testdata/removed-scoped/main.tf
+internal/engine/testdata/removed-scoped/tests/unit.tftest.hcl
 internal/engine/testdata/sensitive-shift/main.tf
 internal/engine/testdata/sensitive-shift/tests/unit.tftest.hcl
 internal/engine/testdata/skeleton/main.tf
@@ -125,6 +135,14 @@ internal/engine/testdata/unknown-refinement/main.tf
 internal/engine/testdata/unknown-refinement/tests/unit.tftest.hcl
 internal/engine/testdata/unmocked/main.tf
 internal/engine/testdata/unmocked/tests/unit.tftest.hcl
+internal/engine/testdata/untested-aliases/main.tf
+internal/engine/testdata/untested-branches/main.tf
+internal/engine/testdata/untested-mined/main.tf
+internal/engine/testdata/untested-secret-diagnostic/main.tf
+internal/engine/testdata/untested-sensitive-answer/main.tf
+internal/engine/testdata/untested-sensitive/main.tf
+internal/engine/testdata/untested-todo/main.tf
+internal/engine/testdata/untested-zero-output/main.tf
 internal/engine/testdata/upward/root/main.tf
 internal/engine/testdata/upward/root/tests/unit.tftest.hcl
 internal/engine/testdata/upward/shared/main.tf

@@ -134,21 +134,93 @@ func cacheKey(
 	write("baseline", "", baselineFingerprint(prepared))
 	write("config", "", resolvedConfiguration(settings))
 
+	if err := writeClosure(write, configuration, settings, prepared, prepared.sources, nil); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+// InputClosureDigest is the digest of everything a run reads: the sources, the
+// tests, the JSON syntax, the lock, the automatically loaded variable files,
+// the mock data, the materialised module inventory and the relevant
+// environment.
+//
+// It is the cache key's composition minus the parts that describe *this* run,
+// and it is what the characterisation write protocol commits against: a
+// scaffold is only green for the closure that produced it, so the commit step
+// re-checks this digest immediately before each rename.
+// The digest deliberately excludes the paths the commit itself is placing.
+// Without that, writing the first generated file would change the closure and
+// the probe would refuse the second — the commit tripping over its own
+// footprints. What the probe is for is a change somebody *else* made.
+func InputClosureDigest(
+	configuration discovery.Configuration,
+	settings Config,
+	prepared warm,
+	excluded map[string]bool,
+) (string, error) {
+	digest := sha256.New()
+	write := func(kind, name, value string) {
+		_, _ = fmt.Fprintf(digest, "%s\x00%s\x00%s\x00", kind, name, value)
+	}
+
+	// The closure is re-*discovered*, not just re-read. The finding this
+	// digest answers is "sources can change after harvest while the output
+	// stays identical", and a leg fed from the path list discovery captured
+	// would miss the whole class of change that matters most: a `.tf`,
+	// `.tftest.hcl`, `.tf.json` or `.tftest.json` file added since. Membership
+	// has to be recomputed, not replayed.
+	live, err := discovery.DiscoverWith(configuration.ModuleDir, settings.TestDirectory,
+		discovery.Options{SkipJSON: settings.DisableJSONReading})
+	if err != nil {
+		return "", err
+	}
+
+	sources, err := moduleSources(live)
+	if err != nil {
+		return "", err
+	}
+
+	for path := range excluded {
+		delete(sources, path)
+	}
+
+	if err := writeClosure(write, live, settings, prepared, sources, excluded); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+// writeClosure hashes the whole input closure into a digest.
+func writeClosure(
+	write func(kind, name, value string),
+	configuration discovery.Configuration,
+	settings Config,
+	prepared warm,
+	sources map[string][]byte,
+	excluded map[string]bool,
+) error {
 	// The entire materialised source closure, in path order.
-	for _, path := range sortedKeys(prepared.sources) {
+	for _, path := range sortedKeys(sources) {
 		rel, err := filepath.Rel(configuration.ClosureRoot, path)
 		if err != nil {
-			return "", err
+			return err
 		}
 
-		write("source", filepath.ToSlash(rel), hashBytes(prepared.sources[path]))
+		write("source", filepath.ToSlash(rel), hashBytes(sources[path]))
 	}
 
 	// Every test file.
 	for _, path := range configuration.Tests.Files {
+		if excluded[path] {
+			continue
+		}
+
 		content, err := os.ReadFile(path) //nolint:gosec // discovery-owned path.
 		if err != nil {
-			return "", err
+			return err
 		}
 
 		write("test", filepath.Base(path), hashBytes(content))
@@ -158,9 +230,13 @@ func cacheKey(
 	// Terraform reads them regardless, so they reach verdicts; the key hashes
 	// all JSON classes and no finer key is built (M4c).
 	for _, file := range configuration.JSONFiles() {
+		if excluded[file.Path] {
+			continue
+		}
+
 		content, err := os.ReadFile(file.Path)
 		if err != nil {
-			return "", err
+			return err
 		}
 
 		write("json", file.Rel, hashBytes(content))
@@ -170,7 +246,7 @@ func cacheKey(
 	if prepared.lockFile != "" {
 		content, err := os.ReadFile(prepared.lockFile)
 		if err != nil {
-			return "", err
+			return err
 		}
 
 		write("lock", "", hashBytes(content))
@@ -180,7 +256,7 @@ func cacheKey(
 	// being asked, so they reach verdicts without appearing in the source
 	// closure (review of #48).
 	if err := hashAutoVarFiles(write, configuration.ModuleDir); err != nil {
-		return "", err
+		return err
 	}
 
 	// Mock-data files (round-3 review, PR #69): a mock_provider's source
@@ -188,13 +264,13 @@ func cacheKey(
 	// run sees, so an edit there changes verdicts — and nothing else hashes
 	// them, because they are in no inventory and no test-file list.
 	if err := hashMockDataFiles(write, configuration.ClosureRoot); err != nil {
-		return "", err
+		return err
 	}
 
 	// The module inventory with remote payloads: everything Terraform
 	// materialised under the warm workspace's modules directory.
 	if err := hashTree(write, filepath.Join(prepared.dataDir, "modules")); err != nil {
-		return "", err
+		return err
 	}
 
 	// The relevant environment: everything Terraform-shaped, from the
@@ -203,7 +279,7 @@ func cacheKey(
 		write("env", "", entry)
 	}
 
-	return hex.EncodeToString(digest.Sum(nil)), nil
+	return nil
 }
 
 // resolvedConfiguration serialises the settings that can change a verdict.

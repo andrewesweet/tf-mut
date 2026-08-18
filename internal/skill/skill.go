@@ -20,6 +20,41 @@ import (
 //go:embed content/mutation-loop.md
 var mutationLoop string
 
+//go:embed content/characterisation-loop.md
+var characterisationLoop string
+
+// Name identifies one shipped skill.
+type Name string
+
+// The two skills the binary ships. The mutation loop teaches grading; the
+// characterisation loop teaches generation. MVP is not done until an agent can
+// drive both end to end from the installed files alone.
+const (
+	NameMutation     Name = "tf-mut-mutation"
+	NameCharacterise Name = "tf-mut-characterise"
+)
+
+// Names lists the shipped skills in install order.
+func Names() []Name {
+	return []Name{NameMutation, NameCharacterise}
+}
+
+// bodyOf returns a skill's shipped body.
+//
+// Every name is listed. A default arm would install the mutation loop under
+// any future skill's name and no test would notice, which is the quiet kind
+// of wrong.
+func bodyOf(name Name) (string, bool) {
+	switch name {
+	case NameMutation:
+		return mutationLoop, true
+	case NameCharacterise:
+		return characterisationLoop, true
+	default:
+		return "", false
+	}
+}
+
 // The supported agent adapters. `generic` serves Cursor and every other
 // framework; a dedicated cursor adapter ships only if the generic form proves
 // insufficient (M4 spec review, M4 — agent-integration.md carries the same
@@ -39,12 +74,12 @@ var ErrUnknownAgent = errors.New("unknown agent")
 //     project-skill convention.
 //   - generic: .agents/skills/tf-mut-mutation.md — a plain markdown document
 //     any framework can be pointed at.
-func TargetPath(agent string) (string, error) {
+func TargetPath(agent string, name Name) (string, error) {
 	switch agent {
 	case AgentClaude:
-		return filepath.Join(".claude", "skills", "tf-mut-mutation", "SKILL.md"), nil
+		return filepath.Join(".claude", "skills", string(name), "SKILL.md"), nil
 	case AgentGeneric:
-		return filepath.Join(".agents", "skills", "tf-mut-mutation.md"), nil
+		return filepath.Join(".agents", "skills", string(name)+".md"), nil
 	default:
 		return "", fmt.Errorf("%w: %q (want %s or %s)", ErrUnknownAgent,
 			agent, AgentClaude, AgentGeneric)
@@ -86,14 +121,39 @@ type Result struct {
 // to what this binary ships is a no-op; a digest stamp that matches the file's
 // own content is an unmodified install of some other version and is replaced;
 // anything else is a user edit and is preserved unless forced.
-func Install(root, agent, version string, force bool) (Result, error) {
-	relative, err := TargetPath(agent)
+func Install(root, agent, version string, force bool) ([]Result, error) {
+	results := make([]Result, 0, len(Names()))
+
+	for _, name := range Names() {
+		result, err := installOne(root, agent, version, force, name)
+		if err != nil {
+			// The results so far travel with the failure: the files they name
+			// are already on disk, and an error alone would tell the caller
+			// the install failed without telling them half of it succeeded.
+			return results, err
+		}
+
+		results = append(results, result)
+	}
+
+	return results, nil
+}
+
+// installOne places a single skill.
+func installOne(root, agent, version string, force bool, name Name) (Result, error) {
+	relative, err := TargetPath(agent, name)
 	if err != nil {
 		return Result{}, err //nolint:exhaustruct // nothing was installed.
 	}
 
+	body, known := bodyOf(name)
+	if !known {
+		//nolint:exhaustruct // nothing was installed.
+		return Result{}, fmt.Errorf("%w: %q ships no content", ErrUnknownAgent, name)
+	}
+
 	target := filepath.Join(root, relative)
-	shipped := stamped(mutationLoop, version)
+	shipped := stamped(body, version)
 
 	existing, err := os.ReadFile(target) //nolint:gosec // the caller-chosen install root.
 	outcome := OutcomeInstalled
@@ -209,8 +269,11 @@ func atomicInstall(target, content string) error {
 	return nil
 }
 
-// Content returns the shipped skill body, for the suite test that asserts it
-// references only commands and flags the binary has.
-func Content() string {
-	return mutationLoop
+// Content returns a shipped skill body, for the suite tests that assert the
+// skills reference only commands and flags the binary has, and that extract
+// the machine-executable transcript from the installed file.
+func Content(name Name) string {
+	body, _ := bodyOf(name)
+
+	return body
 }

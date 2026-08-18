@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -68,6 +69,10 @@ var linkableSuffixes = []string{
 	".tfvars.json",
 }
 
+// ErrTargetExists reports a sandbox directory that is already there. The
+// target must be fresh: see Materialise.
+var ErrTargetExists = errors.New("sandbox target already exists")
+
 // Share describes the warm workspace a sandbox borrows from.
 type Share struct {
 	// DataDir is the warm module's .terraform directory.
@@ -86,6 +91,11 @@ type Spec struct {
 	Target string
 	// Mutations maps closure-relative paths to their mutated content.
 	Mutations map[string][]byte
+	// Staged maps closure-relative paths to content the sandbox materialises
+	// whether or not the source tree declares the file. It is the staged-suite
+	// overlay: a generated test exists in the sandbox and in no source tree,
+	// which is what lets a characterisation converge without writing a byte.
+	Staged map[string][]byte
 	// Share borrows the provider tree and remote module payloads when set.
 	Share *Share
 	// Hardlink shares unmutated files by link rather than by copy.
@@ -102,11 +112,27 @@ type Sandbox struct {
 
 // Materialise builds the sandbox described by the specification.
 func Materialise(spec Spec) (Sandbox, error) {
+	// The precondition is enforced rather than described. Materialising twice
+	// into one directory leaves the second sandbox holding the first one's
+	// staged files on top of a tree the copy could only partly refresh, and
+	// the result is a working directory that resembles neither run. It cost a
+	// day of "the module has no output named tier" before it cost anything
+	// else, because the failure looks like a generator defect.
+	if _, err := os.Stat(spec.Target); err == nil {
+		return Sandbox{}, fmt.Errorf("%w: %s", ErrTargetExists, spec.Target)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return Sandbox{}, fmt.Errorf("inspecting %s: %w", spec.Target, err)
+	}
+
 	if err := os.MkdirAll(spec.Target, directoryMode); err != nil {
 		return Sandbox{}, fmt.Errorf("creating sandbox: %w", err)
 	}
 
 	if err := copyTree(spec); err != nil {
+		return Sandbox{}, err
+	}
+
+	if err := stage(spec); err != nil {
 		return Sandbox{}, err
 	}
 
@@ -162,8 +188,38 @@ func copyTree(spec Spec) error {
 			return WriteFresh(target, path, content)
 		}
 
+		// A staged path is written by stage() as a fresh inode. Sharing it here
+		// first would leave the overlay writing through a hardlink to the source
+		// tree, which is the one thing the fresh-inode guard exists to refuse.
+		if _, staged := spec.Staged[slashed]; staged {
+			return nil
+		}
+
 		return share(path, target, spec.Hardlink)
 	})
+}
+
+// stage materialises the overlay: every staged path, whether or not the
+// source tree has a file there. Staged content is written last so it wins over
+// a copied file of the same name.
+func stage(spec Spec) error {
+	paths := make([]string, 0, len(spec.Staged))
+	for relative := range spec.Staged {
+		paths = append(paths, relative)
+	}
+
+	slices.Sort(paths)
+
+	for _, relative := range paths {
+		target := filepath.Join(spec.Target, filepath.FromSlash(relative))
+		source := filepath.Join(spec.SourceRoot, filepath.FromSlash(relative))
+
+		if err := WriteFresh(target, source, spec.Staged[relative]); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // share links or copies a file the sandbox will not mutate.

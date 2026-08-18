@@ -238,7 +238,7 @@ func writeFile(t *testing.T, path, content string) {
 func TestTheInstalledSkillReferencesOnlyCommandsAndFlagsTheBinaryHas(t *testing.T) {
 	t.Parallel()
 
-	content := skill.Content()
+	content := skill.Content(skill.NameMutation) + skill.Content(skill.NameCharacterise)
 
 	for _, flagName := range regexp.MustCompile(`--[a-z][a-z-]*`).FindAllString(content, -1) {
 		if !strings.Contains(usage, flagName) {
@@ -398,7 +398,471 @@ func TestArgumentsAfterTheModulePathAreRefused(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
 	}
 
-	for _, expected := range []string{dryRunFlag, "before the module path"} {
+	for _, expected := range []string{dryRunFlag, beforeThePath} {
+		if !strings.Contains(stderr.String(), expected) {
+			t.Fatalf("the refusal does not carry %q: %s", expected, stderr.String())
+		}
+	}
+}
+
+// TestCharacteriseIsWiredThroughTheCommandLine proves the whole surface
+// reaches the engine: the command, the granularity flag and the JSON reporter
+// that owns standard output and therefore carries the generated content.
+func TestCharacteriseIsWiredThroughTheCommandLine(t *testing.T) {
+	t.Parallel()
+
+	module := t.TempDir()
+	writeFile(t, filepath.Join(module, "main.tf"),
+		"resource \"terraform_data\" \"app\" {\n  input = \"kept\"\n}\n\n"+
+			"output \"app\" {\n  value = terraform_data.app.output\n}\n")
+
+	stdout := bytes.Buffer{}
+	stderr := bytes.Buffer{}
+
+	code := run([]string{characteriseCommand, reporterFlag, reporterJSON, module},
+		"test", &stdout, &stderr)
+	if code != report.ExitClean {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+
+	decoded := decodeReport(t, stdout.Bytes())
+	if decoded.Command != report.CommandCharacterise {
+		t.Fatalf("command = %s, want characterise", decoded.Command)
+	}
+
+	if decoded.Characterisation == nil || len(decoded.Characterisation.Files) == 0 {
+		t.Fatal("the JSON report carries no generated content")
+	}
+
+	if !strings.Contains(decoded.Characterisation.Files[0].Content, "run \"characterise_defaults\"") {
+		t.Fatalf("the generated content is not a run block:\n%s",
+			decoded.Characterisation.Files[0].Content)
+	}
+}
+
+// TestTheGranularityFlagReachesTheEngine is the other half of the wiring: a
+// flag the shell parsed and dropped would be invisible without a case that
+// asserts a value only the engine can produce.
+func TestTheGranularityFlagReachesTheEngine(t *testing.T) {
+	t.Parallel()
+
+	module := t.TempDir()
+	writeFile(t, filepath.Join(module, "main.tf"),
+		"resource \"terraform_data\" \"app\" {\n  input = \"kept\"\n}\n\n"+
+			"output \"app\" {\n  value = terraform_data.app.output\n}\n")
+
+	stdout := bytes.Buffer{}
+	stderr := bytes.Buffer{}
+
+	code := run([]string{characteriseCommand, "--pin", "configured", reporterFlag, reporterJSON, module},
+		"test", &stdout, &stderr)
+	if code != report.ExitClean {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+
+	decoded := decodeReport(t, stdout.Bytes())
+	if decoded.Characterisation.Rung != "configured" {
+		t.Fatalf("rung = %s, want configured", decoded.Characterisation.Rung)
+	}
+}
+
+// TestCharacteriseRefusesArgumentsAfterTheModulePath extends the round-3
+// ordering repair to the new commands by name, rather than by assuming the
+// shared parser still covers them.
+func TestCharacteriseRefusesArgumentsAfterTheModulePath(t *testing.T) {
+	t.Parallel()
+
+	stderr := bytes.Buffer{}
+
+	code := run([]string{characteriseCommand, ".", "--write"}, "test", &bytes.Buffer{}, &stderr)
+	if code != report.ExitOperational {
+		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
+	}
+
+	for _, expected := range []string{"--write", beforeThePath} {
+		if !strings.Contains(stderr.String(), expected) {
+			t.Fatalf("the refusal does not carry %q: %s", expected, stderr.String())
+		}
+	}
+}
+
+// TestTheTodoSurfacesAreWiredInBothArgumentOrders is the M4.5 spec's ninth
+// story made falsifiable: a wiring gap in a drain-todos loop is invisible
+// until an agent hits it, so each surface is asserted from the command line
+// with the module path both before and after the flags.
+// beforeThePath is the refusal every command gives for a flag after the path.
+const beforeThePath = "before the module path"
+
+func TestTheTodoSurfacesAreWiredInBothArgumentOrders(t *testing.T) {
+	t.Parallel()
+
+	for name, order := range map[string]bool{"flags first": false, "path first": true} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			module := todoFixture(t)
+
+			listed := decodeReport(t, mustRun(t, arguments(order, module,
+				todosCommand, reporterFlag, reporterJSON)))
+			if listed.Command != report.CommandTodos {
+				t.Fatalf("command = %s, want todos", listed.Command)
+			}
+
+			if listed.Characterisation.OpenTodos() != 1 {
+				t.Fatalf("listed %d open judgement points, want one",
+					listed.Characterisation.OpenTodos())
+			}
+
+			identifier := listed.Characterisation.Todos[0].ID
+
+			answered := decodeReport(t, mustRun(t, arguments(order, module,
+				characteriseCommand, "--answer", identifier+`="10.0.0.0/16"`,
+				reporterFlag, reporterJSON)))
+			if answered.Characterisation.OpenTodos() != 0 {
+				t.Fatalf("--answer left the judgement point open: %+v",
+					answered.Characterisation.Todos)
+			}
+
+			if !answered.Characterisation.Complete {
+				t.Fatal("the answered characterisation is incomplete")
+			}
+
+			resumed := decodeReport(t, mustRun(t, arguments(order, module,
+				characteriseCommand, "--resume", reporterFlag, reporterJSON)))
+			if resumed.Characterisation.OpenTodos() != 1 {
+				t.Fatal("--resume answered a judgement point nobody answered")
+			}
+		})
+	}
+}
+
+// arguments places the module path before or after the flags. Only one order
+// is legal — Go's flag parsing stops at the first non-flag argument — so the
+// path-first order asserts the refusal rather than the result.
+func arguments(pathFirst bool, module, command string, flags ...string) []string {
+	if pathFirst {
+		return append([]string{command, module}, flags...)
+	}
+
+	return append(append([]string{command}, flags...), module)
+}
+
+// mustRun executes the command line and fails on anything but a clean or
+// findings exit, returning standard output.
+func mustRun(t *testing.T, args []string) []byte {
+	t.Helper()
+
+	stdout := bytes.Buffer{}
+	stderr := bytes.Buffer{}
+
+	code := run(args, "test", &stdout, &stderr)
+
+	// The path-first order is refused by name, which is the shipped contract:
+	// the assertion is that the refusal happens, not that the run succeeds.
+	if len(args) > 1 && !strings.HasPrefix(args[1], "-") {
+		if code != report.ExitOperational ||
+			!strings.Contains(stderr.String(), beforeThePath) {
+			t.Fatalf("arguments after the module path were not refused: %d %s",
+				code, stderr.String())
+		}
+
+		t.SkipNow()
+	}
+
+	if code != report.ExitClean && code != report.ExitFindings {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+
+	return stdout.Bytes()
+}
+
+// todoFixture is a module whose one input carries a constraint no deterministic
+// pipeline can satisfy.
+func todoFixture(t *testing.T) string {
+	t.Helper()
+
+	module := t.TempDir()
+	writeFile(t, filepath.Join(module, "main.tf"),
+		"variable \"vpc_cidr\" {\n  type = string\n\n  validation {\n"+
+			"    condition     = can(cidrnetmask(var.vpc_cidr))\n"+
+			"    error_message = \"vpc_cidr must be a CIDR block\"\n  }\n}\n\n"+
+			"resource \"terraform_data\" \"network\" {\n  input = var.vpc_cidr\n}\n\n"+
+			"output \"network\" {\n  value = terraform_data.network.output\n}\n")
+
+	return module
+}
+
+// TestTodosRefusesArgumentsAfterTheModulePath keeps the round-3 ordering
+// repair asserted by name for the third new command.
+func TestTodosRefusesArgumentsAfterTheModulePath(t *testing.T) {
+	t.Parallel()
+
+	stderr := bytes.Buffer{}
+
+	code := run([]string{todosCommand, ".", "--resume"}, "test", &bytes.Buffer{}, &stderr)
+	if code != report.ExitOperational {
+		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
+	}
+
+	for _, expected := range []string{"--resume", beforeThePath} {
+		if !strings.Contains(stderr.String(), expected) {
+			t.Fatalf("the refusal does not carry %q: %s", expected, stderr.String())
+		}
+	}
+}
+
+// transcriptFence marks the fenced blocks the end-of-MVP gate executes.
+const transcriptFence = "```tf-mut-transcript"
+
+// TestTheInstalledSkillsWalkthroughExecutes is the end-of-MVP gate, made
+// falsifiable (M4.5 spec review, M9).
+//
+// The commands are extracted from the *installed* file rather than from a
+// script kept beside it, and executed in order against a fixture module. A
+// hidden duplicate would prove the binary; reading the installed instructions
+// is the only way to prove the instructions.
+func TestTheInstalledSkillsWalkthroughExecutes(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if _, err := skill.Install(root, skill.AgentGeneric, "test", false); err != nil {
+		t.Fatalf("skill install: %v", err)
+	}
+
+	module := walkthroughFixture(t)
+
+	// The two loops in the order the MVP claim makes: the characterisation
+	// loop produces the suite, and the mutation loop grades the suite it
+	// produced. Both are driven from the installed files alone.
+	for _, name := range skillOrder() {
+		commands := transcriptOf(t, installedSkill(t, root, name))
+		if len(commands) == 0 {
+			t.Fatalf("the installed %s skill embeds no executable transcript", name)
+		}
+
+		for _, command := range commands {
+			runTranscriptCommand(t, command, module)
+		}
+	}
+}
+
+// TestASeededWrongFlagInTheSkillTurnsTheGateRed proves the oracle reads the
+// instructions: a flag this binary does not have, seeded into the installed
+// text, must make the walkthrough fail — and fail *for that reason*.
+//
+// The test is built so that neutering the seed cannot leave it green. It runs
+// the transcript twice, over two modules: unseeded, where every command must
+// succeed, and seeded, where some command must be refused *by name*. A no-op
+// seed makes the second phase find no such refusal and fail; a refusal
+// arriving from any other operational path fails the name check.
+//
+// The first version of this test asserted only a non-zero exit code, and
+// appended the module path to a transcript line that already ended in `.` —
+// so the CLI refused two positional arguments and the test passed with the
+// seed removed entirely. The gate that made the walkthrough falsifiable was
+// itself unfalsifiable.
+func TestASeededWrongFlagInTheSkillTurnsTheGateRed(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if _, err := skill.Install(root, skill.AgentGeneric, "test", false); err != nil {
+		t.Fatalf("skill install: %v", err)
+	}
+
+	installed := installedSkill(t, root, skill.NameCharacterise)
+
+	// Unseeded first, over one module in order — a seed proves nothing about a
+	// walkthrough that was already failing, and the transcript is a sequence:
+	// `characterise --write` produces the suite `curate` then grades.
+	clean := walkthroughFixture(t)
+	for _, command := range transcriptOf(t, installed) {
+		runTranscriptCommand(t, command, clean)
+	}
+
+	seedWrongFlag(t, installed)
+
+	seeded := walkthroughFixture(t)
+	named := false
+
+	for _, command := range transcriptOf(t, installed) {
+		stderr := bytes.Buffer{}
+
+		code := run(substituteModule(command, seeded), "test", &bytes.Buffer{}, &stderr)
+		if code != report.ExitOperational {
+			continue
+		}
+
+		// Go's flag package prints the single-dash form, so the assertion is
+		// on the flag's name rather than on the spelling the skill used.
+		if strings.Contains(stderr.String(), strings.TrimPrefix(seededFlag, "-")) {
+			named = true
+		}
+	}
+
+	if !named {
+		t.Fatalf("no transcript command was refused for %s, so the gate is not reading "+
+			"the installed instructions", seededFlag)
+	}
+}
+
+// seededFlag is the flag this binary does not have, seeded into the installed
+// skill so the walkthrough has to notice it.
+const seededFlag = "--until-damp"
+
+// skillOrder is the order the walkthrough drives the two loops in: the
+// characterisation loop writes the suite, and the mutation loop grades it.
+func skillOrder() []skill.Name {
+	return []skill.Name{skill.NameCharacterise, skill.NameMutation}
+}
+
+// runTranscriptCommand executes one transcript line against the fixture.
+func runTranscriptCommand(t *testing.T, command []string, module string) {
+	t.Helper()
+
+	stdout := bytes.Buffer{}
+	stderr := bytes.Buffer{}
+
+	code := run(substituteModule(command, module), "test", &stdout, &stderr)
+	if code != report.ExitClean && code != report.ExitFindings {
+		t.Fatalf("the installed walkthrough's %q exited %d: %s",
+			strings.Join(command, " "), code, stderr.String())
+	}
+}
+
+// substituteModule points a transcript line at the fixture.
+//
+// The transcript writes the module path as `.`, and the fixture lives
+// elsewhere, so the last argument is *replaced* rather than appended — an
+// append produces two positional arguments, which the CLI refuses by name,
+// and a refusal that arrives whatever the command said is a refusal that
+// proves nothing.
+func substituteModule(command []string, module string) []string {
+	return append(append([]string{}, command[:len(command)-1]...), module)
+}
+
+// transcriptOf extracts the fenced transcript blocks from an installed skill,
+// in order.
+func transcriptOf(t *testing.T, path string) [][]string {
+	t.Helper()
+
+	commands := [][]string{}
+	content := readInstalled(t, path)
+	inside := false
+
+	for line := range strings.SplitSeq(content, "\n") {
+		switch {
+		case strings.HasPrefix(line, transcriptFence):
+			inside = true
+		case inside && strings.HasPrefix(line, "```"):
+			inside = false
+		case inside && strings.TrimSpace(line) != "":
+			commands = append(commands, strings.Fields(line))
+		default:
+		}
+	}
+
+	return commands
+}
+
+// readInstalled reads an installed skill file from the test's own root.
+func readInstalled(t *testing.T, path string) string {
+	t.Helper()
+
+	content, err := os.ReadFile(path) //nolint:gosec // a test-owned install root.
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+
+	return string(content)
+}
+
+func installedSkill(t *testing.T, root string, name skill.Name) string {
+	t.Helper()
+
+	relative, err := skill.TargetPath(skill.AgentGeneric, name)
+	if err != nil {
+		t.Fatalf("target path: %v", err)
+	}
+
+	return filepath.Join(root, relative)
+}
+
+// seedWrongFlag rewrites one flag of the installed *transcript* into one this
+// binary does not have.
+//
+// The transcript specifically, not the first match in the file: the skill's
+// prose names `--until-dry` several times before the fenced block does, so a
+// whole-file replace seeds a sentence the gate never executes and proves
+// nothing about the instructions it does.
+func seedWrongFlag(t *testing.T, path string) {
+	t.Helper()
+
+	content := readInstalled(t, path)
+
+	fence := strings.Index(content, transcriptFence)
+	if fence < 0 {
+		t.Fatal("the installed skill embeds no transcript to seed")
+	}
+
+	seeded := content[:fence] +
+		strings.Replace(content[fence:], "--until-dry", seededFlag, 1)
+	if seeded == content {
+		t.Fatal("the installed transcript carries no flag to seed")
+	}
+
+	if err := os.WriteFile(path, []byte(seeded), 0o600); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+}
+
+// walkthroughFixture is a module with no tests at all: the situation the
+// characterisation loop exists for.
+func walkthroughFixture(t *testing.T) string {
+	t.Helper()
+
+	module := t.TempDir()
+	writeFile(t, filepath.Join(module, "main.tf"),
+		"variable \"env\" {\n  type    = string\n  default = \"dev\"\n}\n\n"+
+			"resource \"terraform_data\" \"app\" {\n  input = \"app-${var.env}\"\n}\n\n"+
+			"output \"app\" {\n  value = terraform_data.app.output\n}\n\n"+
+			"output \"tier\" {\n  value = var.env == \"prod\" ? \"critical\" : \"standard\"\n}\n")
+
+	return module
+}
+
+// TestCurateIsWiredThroughTheCommandLine covers the third new command: the
+// refusal a partial population earns can only be asserted from the shell if
+// the shell actually reaches the engine with the command set.
+func TestCurateIsWiredThroughTheCommandLine(t *testing.T) {
+	t.Parallel()
+
+	module := fixture(t)
+	stderr := bytes.Buffer{}
+
+	code := run([]string{curateCommand, "--sample", "50", noCacheFlag, module},
+		"test", &bytes.Buffer{}, &stderr)
+	if code != report.ExitOperational {
+		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
+	}
+
+	if !strings.Contains(stderr.String(), "false finding") {
+		t.Fatalf("the refusal did not come from curate's population posture: %s", stderr.String())
+	}
+}
+
+// TestCurateRefusesArgumentsAfterTheModulePath keeps the round-3 ordering
+// repair asserted by name for every command the milestone added.
+func TestCurateRefusesArgumentsAfterTheModulePath(t *testing.T) {
+	t.Parallel()
+
+	stderr := bytes.Buffer{}
+
+	code := run([]string{curateCommand, ".", noCacheFlag}, "test", &bytes.Buffer{}, &stderr)
+	if code != report.ExitOperational {
+		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
+	}
+
+	for _, expected := range []string{noCacheFlag, beforeThePath} {
 		if !strings.Contains(stderr.String(), expected) {
 			t.Fatalf("the refusal does not carry %q: %s", expected, stderr.String())
 		}

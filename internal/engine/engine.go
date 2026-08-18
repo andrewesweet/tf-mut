@@ -14,6 +14,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/andrewesweet/tf-mut/internal/buildinfo"
 	"github.com/andrewesweet/tf-mut/internal/config"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
@@ -155,6 +156,71 @@ type Config struct {
 	// assertion, so the suggestion-soundness gate can prove that verification
 	// rejects it. It is a seam control, not a command-line flag.
 	SeedSuggestionDefect suggest.Defect
+	// ToolVersion is this binary's own version, recorded in the header of every
+	// generated file. Empty in a seam test, where the development marker
+	// stands in for it.
+	ToolVersion string
+	// Characterise scaffolds, harvests and pins a suite for a module that has
+	// none, instead of grading the suite it has.
+	Characterise bool
+	// PinRung is the granularity ladder level: outputs, counts or configured.
+	PinRung string
+	// CharacteriseWrite places the verified suite in the module's test
+	// directory. Without it the generated content is printed and nothing on
+	// disk changes.
+	CharacteriseWrite bool
+	// CharacteriseForce replaces target files, and only those the provenance
+	// registry marks generated-and-unmodified.
+	CharacteriseForce bool
+	// SeedMissingMock removes one planned provider-configuration mock from the
+	// staged suite, so the staged provider gate can be proven to refuse before
+	// execution. It is a seam control, not a command-line flag.
+	SeedMissingMock string
+	// Todos lists the open judgement points and runs no Terraform.
+	Todos bool
+	// Curate reports redundancy over an authoritative population.
+	Curate bool
+	// UntilDry iterates scaffold, mutate and pin until the survivors stop
+	// yielding new assertions at the chosen granularity.
+	UntilDry bool
+	// Answers supplies TODO answers as todo-<id>=<value>.
+	Answers []string
+	// Resume reads answered TODOs from the edited non-executable artefact as
+	// well as from Answers, re-synthesises, verifies and promotes.
+	Resume bool
+	// SeedSharedFileOrder stages every generated scenario into one file, in
+	// the named order (forward or reverse), so the scaffold-soundness gate can
+	// prove the pins are identical whatever the file order. It is a seam
+	// control, not a command-line flag.
+	SeedSharedFileOrder string
+	// SeedClosureChange appends to a module-relative file immediately before the
+	// first atomic rename of a characterisation write, so the input-closure
+	// race the commit step exists to close can be staged at the probe. It is a
+	// seam control, not a command-line flag.
+	SeedClosureChange string
+	// SeedClosureFile adds a module-relative Terraform file immediately before
+	// the first atomic rename, so the half of the input-closure race that
+	// *grows* the closure can be staged at the probe. It is a seam control,
+	// not a command-line flag.
+	SeedClosureFile string
+	// SeedClosureAfter delays the seeded closure change until this many files
+	// have already been renamed, so a *partial* commit can be staged rather
+	// than a refused one. It is a seam control, not a command-line flag.
+	SeedClosureAfter int
+	// SeedUntilDryRounds bounds the until-dry loop, so the `bounded` exit —
+	// the loop stopping because it ran out of rounds rather than because it
+	// went dry — can be staged. It is a seam control, not a command-line flag.
+	SeedUntilDryRounds int
+	// SeedFinalPinDefect adds a knowingly false pin to the set the loop ends
+	// with, so the verification that stands between the loop and the write can
+	// be proven load-bearing rather than assumed. It is a seam control, not a
+	// command-line flag.
+	SeedFinalPinDefect bool
+	// SeedNoEscalation suppresses the zero-output auto-escalation, so the other
+	// half of the contract — a rung that pinned nothing may never report
+	// complete — can be proven on its own. It is a seam control, not a
+	// command-line flag.
+	SeedNoEscalation bool
 }
 
 // Operational failures. Every one of them aborts the run: none of them can be
@@ -189,6 +255,20 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		return report.Report{}, err
 	}
 
+	// `todos` is dispatched before the version gate, because it runs no
+	// Terraform at all: the shipped skill promises a cheap local inspection an
+	// agent calls every iteration, and making it unavailable when Terraform is
+	// absent or broken would break the loop over a check it never needed.
+	if settings.Todos {
+		listed, listErr := discovery.DiscoverWith(moduleDir, settings.TestDirectory,
+			discovery.Options{SkipJSON: settings.DisableJSONReading})
+		if listErr != nil {
+			return report.Report{}, listErr
+		}
+
+		return listTodos(listed, settings, "")
+	}
+
 	runner := tfexec.Runner{Binary: settings.TerraformBinary, Env: settings.Env}
 
 	version, err := checkVersion(ctx, runner, moduleDir)
@@ -202,16 +282,43 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		return report.Report{}, err
 	}
 
+	// Characterisation is the same machinery pointed the other way: it has no
+	// suite to baseline, no population to grade, and its safety gates are
+	// judged against the suite it plans rather than the one on disk.
+
+	if settings.Curate {
+		return curateSuite(ctx, runner, configuration, settings, version, moduleDir)
+	}
+
+	if settings.Characterise {
+		return characteriseModule(ctx, runner, configuration, settings, version)
+	}
+
+	return mutate(ctx, runner, configuration, settings, version, moduleDir)
+}
+
+// mutate is the grading pipeline: gates, generation, selection, execution and
+// the completed report.
+func mutate(
+	ctx context.Context,
+	runner tfexec.Runner,
+	configuration discovery.Configuration,
+	settings Config,
+	version tfexec.Version,
+	moduleDir string,
+) (report.Report, error) {
 	// The gates guard execution, and a preview executes nothing. Refusing a
 	// preview would only hide the population from the person deciding whether
 	// to accept the risk.
 	warnings := make([]string, 0, 1)
 
 	if !settings.Preview {
-		warnings, err = checkSafety(configuration, settings)
+		checked, err := checkSafety(configuration, settings)
 		if err != nil {
 			return report.Report{}, err
 		}
+
+		warnings = checked
 	}
 
 	settings, warnings = applyFloor(configuration, settings, warnings)
@@ -397,6 +504,10 @@ func finalise(settings Config, configured config.File) (Config, error) {
 		return Config{}, err
 	}
 
+	if err := checkCuratePopulation(settings); err != nil {
+		return Config{}, err
+	}
+
 	if err := checkBaselineWrite(settings); err != nil {
 		return Config{}, err
 	}
@@ -545,6 +656,12 @@ func shell(
 
 func commandName(settings Config) report.Command {
 	switch {
+	case settings.Todos:
+		return report.CommandTodos
+	case settings.Curate:
+		return report.CommandCurate
+	case settings.Characterise:
+		return report.CommandCharacterise
 	case settings.Preview:
 		return report.CommandPreview
 	case settings.Suggest:
@@ -678,6 +795,13 @@ func staticUnobservableVerdict() *report.Verdict {
 // Exclude is the site exclusion policy the run was given.
 func (c Config) Exclude() config.Exclude {
 	return config.Exclude{Paths: c.ExcludePaths, Resources: c.ExcludeResources}
+}
+
+// toolVersion is what a generated file's header records: this binary's own
+// version, never Terraform's. The two were confused once, which put a
+// Terraform version in a line reading "Generated by tf-mut characterise".
+func (c Config) toolVersion() string {
+	return buildinfo.Resolve(c.ToolVersion)
 }
 
 func (c Config) withDefaults() Config {

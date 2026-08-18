@@ -83,7 +83,7 @@ func TestTheM4GateCoversEveryNamedRequirement(t *testing.T) {
 		"the patch is the applied bytes":          "TestTheReportedPatchIsTheBytesApplyWrites",
 		"the commit re-check closes the race":     "TestAnEditBetweenPreflightAndCommitAbortsTheReplacement",
 		"mutant-surfaced secrets reach no report": "TestAMutantSurfacedSecretReachesNoReport",
-		"a JSON check block keeps the floor":      "TestACheckBlockInJSONRetainsTheFloor",
+		"a JSON moved block is refused by name":   "TestAMovedBlockInJSONIsRefusedByName",
 		"an unread mock body keeps the floor":     "TestAJSONMockProviderBodyBeyondAliasRetainsTheFloor",
 		"trailing CLI arguments are refused":      "TestArgumentsAfterTheModulePathAreRefused",
 		"shared assertions collapse":              "TestSurvivorsSharingOneAssertionCollapseIntoOneSuggestion",
@@ -171,7 +171,7 @@ func m4TestDeclarations(t *testing.T) map[string]bool {
 		return nil
 	}
 
-	for _, tree := range []string{"internal", "cmd"} {
+	for _, tree := range []string{internalTree, commandTree} {
 		if err := filepath.WalkDir(filepath.Join(root, tree), walk); err != nil {
 			t.Fatalf("walking %s: %v", tree, err)
 		}
