@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -161,7 +162,9 @@ func TestAStaleSurvivorIdentifierIsAnOperationalFailureNamingIt(t *testing.T) {
 func TestSurvivorSelectionScopesTheSuggestions(t *testing.T) {
 	t.Parallel()
 
-	module := copyFixture(t, suggestBasicFixture)
+	// Two target files, so the unscoped run carries more than one collapsed
+	// suggestion and scoping has something to remove.
+	module := copyFixture(t, suggestMultiFixture)
 
 	all := runSuggest(t, dryRunConfig(t, module))
 	if len(all.Suggestions) < 2 {
@@ -236,4 +239,65 @@ func TestAScopedSuggestRunStatesItsVerificationCost(t *testing.T) {
 	}
 
 	t.Fatalf("the scoped run does not state its verification cost: %v", result.Warnings)
+}
+
+// TestSurvivorsSharingOneAssertionCollapseIntoOneSuggestion is the round-3
+// review's duplication finding: five survivors one expression kills are one
+// suggestion carrying the rest in also_kills, one applied assert block, and
+// still one isolated verification per mutant.
+func TestSurvivorsSharingOneAssertionCollapseIntoOneSuggestion(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, suggestBasicFixture)
+
+	config := suggestConfig(t, module)
+	config.ApplyAll = true
+
+	result := runSuggest(t, config)
+
+	verified := withStatus(result, report.SuggestionVerified)
+	if len(verified) != 1 {
+		t.Fatalf("want one collapsed suggestion, got %d (%s)",
+			len(verified), suggest.Statuses(result.Suggestions))
+	}
+
+	claimed := 1 + len(verified[0].AlsoKills)
+	if claimed < 2 {
+		t.Fatalf("the fixture's shared assertion claims only %d mutant(s); the collapse is untested", claimed)
+	}
+
+	// One isolated run per claimed mutant, visible in the evidence and the
+	// cost statement both.
+	if got := len(verified[0].Verification.Mutant.Runs); got != claimed {
+		t.Fatalf("isolated evidence covers %d run(s), want one per claimed mutant (%d)", got, claimed)
+	}
+
+	written := readFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"))
+	if got := strings.Count(written, verified[0].Expression); got != 1 {
+		t.Fatalf("the applied file carries the shared assertion %d times, want once", got)
+	}
+}
+
+func TestADryRunRefusesAnApplySelection(t *testing.T) {
+	t.Parallel()
+
+	config := dryRunConfig(t, copyFixture(t, suggestBasicFixture))
+	config.ApplyAll = true
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrSuggestCombination) {
+		t.Fatalf("error = %v, want a contradictory-flags refusal", err)
+	}
+}
+
+func TestSuggestRefusesATestSelection(t *testing.T) {
+	t.Parallel()
+
+	config := suggestConfig(t, copyFixture(t, suggestBasicFixture))
+	config.TestSelection = []string{"tests/unit.tftest.hcl"}
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrSuggestCombination) {
+		t.Fatalf("error = %v, want a refusal: verification runs the full suite by contract", err)
+	}
 }

@@ -82,6 +82,14 @@ func TestTheM4GateCoversEveryNamedRequirement(t *testing.T) {
 		"suggest reachable through the CLI":       "TestSuggestIsWiredThroughTheCommandLine",
 		"the patch is the applied bytes":          "TestTheReportedPatchIsTheBytesApplyWrites",
 		"the commit re-check closes the race":     "TestAnEditBetweenPreflightAndCommitAbortsTheReplacement",
+		"mutant-surfaced secrets reach no report": "TestAMutantSurfacedSecretReachesNoReport",
+		"a JSON check block keeps the floor":      "TestACheckBlockInJSONRetainsTheFloor",
+		"an unread mock body keeps the floor":     "TestAJSONMockProviderBodyBeyondAliasRetainsTheFloor",
+		"trailing CLI arguments are refused":      "TestArgumentsAfterTheModulePathAreRefused",
+		"shared assertions collapse":              "TestSurvivorsSharingOneAssertionCollapseIntoOneSuggestion",
+		"contradictory suggest flags refused":     "TestADryRunRefusesAnApplySelection",
+		"real reports validate against 2.2.0":     "TestARealSuggestReportValidatesAgainstThePublishedSchema",
+		"mock-data files are a key dimension":     "TestMockDataFilesAreAKeyDimension",
 	}
 
 	assertGateCovers(t, "M4", m4GatedTests(t), required)

@@ -247,7 +247,14 @@ func TestTheRenderingContractMatrix(t *testing.T) {
 			baseline: `"deep"`, schemas: untyped(), want: "", refused: suggest.ErrUnrenderable,
 		},
 		{
-			name: "non-identifier map key", path: statePrefix + "example_thing.app].values.tags.my.key",
+			// A genuinely non-identifier key: HCL identifiers permit hyphens,
+			// so only something like a space proves the row (round-3 review).
+			name: "non-identifier map key", path: statePrefix + `example_thing.app].values.tags.Name Tag`,
+			baseline: `"value"`, schemas: untyped(), want: "", refused: suggest.ErrUnrenderable,
+		},
+		{
+			name:     "dotted map key is indistinguishable from a nested value",
+			path:     statePrefix + "example_thing.app].values.tags.my.key",
 			baseline: `"value"`, schemas: untyped(), want: "", refused: suggest.ErrUnrenderable,
 		},
 	} {

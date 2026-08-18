@@ -124,3 +124,63 @@ the same change, each now a named gate case:
    window is the instants between the final read and the rename — the
    narrowest a content-conditional replacement can be without a filesystem
    compare-and-swap, and recorded here as such.
+
+## Addendum: the round-3 adversarial review (2026-08-18)
+
+Twelve findings; ten repaired, one repaired at its root (the cache), one
+declined with reasoning. Each repair is a named gate-m4 case.
+
+1. **(Critical) A mutant-surfaced secret was published.** Sensitivity was
+   decided over the baseline payload alone, so a collection mutant that moved
+   a secret into a path whose baseline value was public printed it in the
+   terminal and JSON reports. The predicate now reads both payloads' mirrors
+   and unions the secret renderings across every run and both sides; the
+   `sensitive-shift` fixture reproduces the leak (proven red before the fix)
+   and every reporter is asserted value-free.
+2. **(Critical) `check`/`moved`/`import`/`removed` in the JSON schema lifted
+   the floor while nothing collected them.** A check-scoped data source
+   reached neither inventory. The four left the schema, so their presence now
+   leaves the file unread. The HCL reader has the same blind spot — a
+   pre-existing gap outside this milestone's diff — filed as its own issue.
+3. **(Critical) A JSON `mock_provider` body was decoded for `alias` alone.**
+   `override_during`, `source`, `mock_resource`, `mock_data` decide what a
+   mock covers; anything beyond `alias` now leaves the file unread.
+4. **(Major) Flags after the module path were silently discarded** — Go's
+   flag parsing stops at the first non-flag argument, so `suggest . --dry-run`
+   verified anyway. Trailing arguments are refused by name.
+5. **(Major) One expression killing N mutants produced N identical assert
+   blocks.** Candidates sharing (file, run, expression) now collapse into one
+   suggestion carrying the rest in `also_kills` (2.2.0, additive); the
+   isolated leg still runs once per claimed mutant, so attribution stays
+   per-mutant, and apply writes the assertion once.
+6. **(Major) The published schema carried none of the outcome table's
+   presence rules.** `report-2.2.0.json` now encodes them (`allOf`/`if`/
+   `then`/`not`), both suite validators grew the vocabulary, and a real
+   engine-produced suggest report — one with verified rows, one all skips —
+   is validated against the published document.
+7. **(Minor) `--dry-run --all-verified` reported applying nothing** — the
+   combination is refused before any work, as is a test selection with
+   suggest (verification runs the full suite by contract, and a filtered
+   population could launder an excluded run's kill).
+8. **(Minor, declined) File-level `variables` in `.tftest.json` decode and
+   are not merged.** Declined with reasoning, recorded at the schema: they
+   scope to this file's runs only, every such run is `JSONDeclared`, and the
+   evaluator fails closed on those before any variable is read — nothing that
+   could act on the dropped content exists, and the class informs neither
+   gate.
+9. **(Minor) The non-identifier-map-key gate row proved nothing** — its
+   fixture used two ordinary identifiers. The row now uses a key with a
+   space, and the adapter routes an attribute-path parse failure to
+   `skipped-unrenderable` (C3's status) when the resource address alone is
+   legal.
+10. **(Minor) One exit-gate sentence misattributed a measured number** — the
+    coarse key discards all 11 verdicts on a comment edit, not 8. Corrected.
+11. **(Minor, latent) Verification ignored `TestSelection`** — unreachable
+    from the CLI, now refused at the seam (see 7).
+12. **(Minor) `.tfmock.hcl`/`.tfmock.json` were outside the cache key** — a
+    verdict-affecting file class nothing hashed, pre-existing since M3. The
+    key now hashes every mock-data file under the closure
+    (`TestMockDataFilesAreAKeyDimension`). Their absence from the floor is a
+    recorded non-issue: mock data can declare no provider, effect or run, so
+    it informs neither gate — the same disposition as the variables class —
+    and the class is noted in the M4.5 handover.

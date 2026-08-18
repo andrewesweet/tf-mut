@@ -96,7 +96,8 @@ per-file key would have replayed a stale verdict for 3 of its 8 claimed reuses.
 **Recommendation for M5, with the rejection rule applied**: the per-file simulated key is
 **rejected** — a non-zero false-reuse count rejects the key regardless of hit rate, and this
 one lies on the first cross-file dependency it meets. The coarse key over-invalidates
-(8 of 11 verdicts discarded on a comment edit), but over-invalidation costs seconds and
+(all 11 verdicts discarded on a comment edit, where even the rejected per-file key would
+have kept 3), but over-invalidation costs seconds and
 false reuse costs the invariance law. Any M5 candidate key must be at least
 graph-dependency-aware, and must rerun this protocol with its own algorithm pinned before
 anything is built. **No finer key was built in M4, and none may be built under any result of

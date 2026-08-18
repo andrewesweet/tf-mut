@@ -403,6 +403,14 @@ func validate(root, schema map[string]any, document any, path string) []string {
 		problems = append(problems, fmt.Sprintf("%s: %v is not one of %v", path, document, allowed))
 	}
 
+	if clauses, ok := schema["allOf"].([]any); ok {
+		for _, clause := range clauses {
+			if conditional, isMap := clause.(map[string]any); isMap {
+				problems = append(problems, validateConditional(root, conditional, document, path)...)
+			}
+		}
+	}
+
 	if fixed, ok := schema["const"]; ok && document != fixed {
 		problems = append(problems, fmt.Sprintf("%s: want %v, got %v", path, fixed, document))
 	}
@@ -497,5 +505,66 @@ func matchesType(expected string, document any) bool {
 		return ok && number == float64(int64(number))
 	default:
 		return true
+	}
+}
+
+// validateConditional evaluates one if/then clause plus the `not: required` form the
+// outcome table's presence rules use — the same deliberately small vocabulary
+// stance as the rest of this checker.
+func validateConditional(root, clause map[string]any, document any, path string) []string {
+	condition, hasIf := clause["if"].(map[string]any)
+	consequence, hasThen := clause["then"].(map[string]any)
+
+	if !hasIf || !hasThen {
+		return nil
+	}
+
+	if len(validate(root, condition, document, path)) > 0 {
+		return nil // the condition does not hold, so the clause is vacuous.
+	}
+
+	problems := validate(root, consequence, document, path)
+
+	if forbidden, ok := consequence["not"].(map[string]any); ok {
+		if required, isList := forbidden["required"].([]any); isList {
+			object, isObject := document.(map[string]any)
+
+			for _, entry := range required {
+				name, isString := entry.(string)
+				if _, present := object[name]; isObject && isString && present {
+					problems = append(problems, fmt.Sprintf("%s: property %q must be absent", path, name))
+				}
+			}
+		}
+	}
+
+	return problems
+}
+
+func TestSchemaRejectsAPatchOnASkippedSuggestion(t *testing.T) {
+	t.Parallel()
+
+	sample := sampleReport()
+
+	for index := range sample.Suggestions {
+		if sample.Suggestions[index].Status.Skipped() {
+			sample.Suggestions[index].Patch = samplePatch
+
+			break
+		}
+	}
+
+	encoded, err := json.Marshal(sample)
+	if err != nil {
+		t.Fatalf("encoding report: %v", err)
+	}
+
+	document := any(nil)
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatalf("decoding report: %v", err)
+	}
+
+	if problems := validate(loadSchema(t), loadSchema(t), document, "$"); len(problems) == 0 {
+		t.Fatal("the schema accepted a patch on a skipped suggestion")
 	}
 }

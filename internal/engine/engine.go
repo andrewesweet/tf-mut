@@ -393,6 +393,10 @@ func finalise(settings Config, configured config.File) (Config, error) {
 		return Config{}, err
 	}
 
+	if err := checkSuggestCombinations(settings); err != nil {
+		return Config{}, err
+	}
+
 	if err := checkBaselineWrite(settings); err != nil {
 		return Config{}, err
 	}

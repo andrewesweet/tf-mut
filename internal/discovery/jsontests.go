@@ -16,6 +16,13 @@ var jsonTestSchema = &hcl.BodySchema{
 		{Type: runBlock, LabelNames: []string{nameLabel}},
 		{Type: mockProvider, LabelNames: []string{nameLabel}},
 		{Type: providerBlock, LabelNames: []string{nameLabel}},
+		// File-level variables decode and are deliberately not merged into
+		// FileVariables (round-3 review, PR #69, declined): they scope to this
+		// file's runs only, every run here is JSONDeclared, and the evaluator
+		// fails closed on a JSONDeclared run before any variable would be
+		// read — so nothing that could act on the dropped content exists. The
+		// variables class informs neither safety gate, exactly as the
+		// `.tfvars.json` class does not.
 		{Type: variablesBlock, LabelNames: nil},
 	},
 }
@@ -69,8 +76,13 @@ func readJSONTest(suite *TestSuite, mocked map[string]bool, moduleDir, path stri
 	for _, block := range content.Blocks {
 		switch block.Type {
 		case mockProvider:
+			covered, err := jsonMockedConfiguration(path, block)
+			if err != nil {
+				return err
+			}
+
 			mocked[block.Labels[0]] = true
-			suite.Mocks = append(suite.Mocks, jsonMockedConfiguration(block))
+			suite.Mocks = append(suite.Mocks, covered)
 		case runBlock:
 			run, err := jsonRun(path, relative, block)
 			if err != nil {
@@ -91,19 +103,32 @@ func readJSONTest(suite *TestSuite, mocked map[string]bool, moduleDir, path stri
 	return nil
 }
 
-func jsonMockedConfiguration(block *hcl.Block) ProviderAlias {
+// jsonMockedConfiguration decodes a mock_provider block, refusing anything
+// beyond `alias` (round-3 review, PR #69): what a mock's body declares —
+// override_during, source, mock_resource, mock_data — decides what the mock
+// actually covers, and entering the provider into the mock inventory on the
+// strength of a body that was never read is the fail-open the floor exists
+// to close.
+func jsonMockedConfiguration(path string, block *hcl.Block) (ProviderAlias, error) {
 	covered := ProviderAlias{Name: block.Labels[0], Alias: ""}
 
 	attributes, diagnostics := block.Body.JustAttributes()
 	if diagnostics.HasErrors() {
-		return covered
+		return covered, fmt.Errorf("%w: %s: %s", ErrParse, path, diagnostics.Error())
+	}
+
+	for name := range attributes {
+		if name != "alias" {
+			return covered, fmt.Errorf("%w: %s mock_provider %q declares %s, which this "+
+				"version does not model", ErrUnmodelledJSON, path, block.Labels[0], name)
+		}
 	}
 
 	if attribute, found := attributes["alias"]; found {
 		covered.Alias = jsonLiteralString(attribute.Expr)
 	}
 
-	return covered
+	return covered, nil
 }
 
 func jsonRun(path, relative string, block *hcl.Block) (RunBlock, error) {

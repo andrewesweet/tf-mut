@@ -61,7 +61,7 @@ func verificationCost(generated []report.Suggestion) string {
 
 	for _, suggestion := range generated {
 		if suggestion.Status == report.SuggestionCandidate {
-			candidates++
+			candidates += 1 + len(suggestion.AlsoKills)
 			files[suggestion.TargetFile] = true
 		}
 	}
@@ -71,7 +71,7 @@ func verificationCost(generated []report.Suggestion) string {
 	}
 
 	return fmt.Sprintf("verification executed %d full-suite run(s) — one per target test "+
-		"file — plus %d isolated mutant run(s), one per candidate suggestion",
+		"file — plus %d isolated mutant run(s), one per mutant a suggestion claims",
 		len(files), candidates)
 }
 
@@ -114,4 +114,36 @@ func selectSurvivors(settings Config, result report.Report) ([]report.Mutant, er
 	}
 
 	return selected, nil
+}
+
+// ErrSuggestCombination reports a suggest flag combination whose halves
+// contradict each other.
+var ErrSuggestCombination = errors.New("contradictory suggest flags")
+
+// checkSuggestCombinations refuses, before any work is done, the combinations
+// the outcome model has no honest answer for (round-3 review, PR #69):
+//
+//   - --dry-run with --apply/--all-verified: a dry run verifies nothing, so no
+//     suggestion can be verified, and "applied 0 suggestion(s)" would report a
+//     successful apply of nothing the caller plainly asked for.
+//   - --since/test selection with suggest: verification runs the full suite by
+//     contract, so a filtered population would let an excluded run's kill be
+//     attributed to a suggestion — the exact laundering the isolated leg
+//     exists to prevent.
+func checkSuggestCombinations(settings Config) error {
+	if !settings.Suggest {
+		return nil
+	}
+
+	if settings.SuggestDryRun && (settings.ApplyAll || len(settings.Apply) > 0) {
+		return fmt.Errorf("%w: --dry-run verifies nothing, so nothing could be verified "+
+			"for --apply to write; drop one of the two", ErrSuggestCombination)
+	}
+
+	if len(settings.TestSelection) > 0 {
+		return fmt.Errorf("%w: verification runs the full suite by contract, and a test "+
+			"selection would let an excluded run's kill be misattributed", ErrSuggestCombination)
+	}
+
+	return nil
 }

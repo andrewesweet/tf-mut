@@ -390,6 +390,18 @@ func validateAgainst(root, schema map[string]any, document any, path string) []s
 		problems = append(problems, fmt.Sprintf("%s: %v is not one of %v", path, document, allowed))
 	}
 
+	if fixed, ok := schema["const"]; ok && document != fixed {
+		problems = append(problems, fmt.Sprintf("%s: %v is not the constant %v", path, document, fixed))
+	}
+
+	if clauses, ok := schema["allOf"].([]any); ok {
+		for _, clause := range clauses {
+			if conditional, isMap := clause.(map[string]any); isMap {
+				problems = append(problems, validateConditionalAgainst(root, conditional, document, path)...)
+			}
+		}
+	}
+
 	switch typed := document.(type) {
 	case map[string]any:
 		problems = append(problems, validateMembers(root, schema, typed, path)...)
@@ -475,4 +487,37 @@ func hasType(expected string, document any) bool {
 	default:
 		return true
 	}
+}
+
+// validateConditionalAgainst evaluates one if/then clause plus the `not: required` form the
+// outcome table's presence rules use — the same deliberately small vocabulary
+// stance as the rest of this checker.
+func validateConditionalAgainst(root, clause map[string]any, document any, path string) []string {
+	condition, hasIf := clause["if"].(map[string]any)
+	consequence, hasThen := clause["then"].(map[string]any)
+
+	if !hasIf || !hasThen {
+		return nil
+	}
+
+	if len(validateAgainst(root, condition, document, path)) > 0 {
+		return nil // the condition does not hold, so the clause is vacuous.
+	}
+
+	problems := validateAgainst(root, consequence, document, path)
+
+	if forbidden, ok := consequence["not"].(map[string]any); ok {
+		if required, isList := forbidden["required"].([]any); isList {
+			object, isObject := document.(map[string]any)
+
+			for _, entry := range required {
+				name, isString := entry.(string)
+				if _, present := object[name]; isObject && isString && present {
+					problems = append(problems, fmt.Sprintf("%s: property %q must be absent", path, name))
+				}
+			}
+		}
+	}
+
+	return problems
 }

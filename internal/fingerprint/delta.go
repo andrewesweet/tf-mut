@@ -17,11 +17,13 @@ type Change struct {
 	// Baseline and Mutant are the canonical renderings, with "" for absent.
 	Baseline string
 	Mutant   string
-	// Sensitive reports that the baseline payload marks the value at this path
-	// — or an ancestor of it — sensitive, or that the value is one the payload
-	// marks sensitive somewhere else. It is decided over the unmasked
-	// baseline, because the mask is about volatility and says nothing about
-	// what may be rendered.
+	// Sensitive reports that either payload — baseline or mutant — marks the
+	// value at this path, or an ancestor of it, sensitive; or that either
+	// rendering is a value some payload marks sensitive anywhere in the run
+	// set. Both sides matter: a mutation can move a secret into a path whose
+	// baseline value was public, and the mutant payload is where Terraform
+	// marks that. Decided over the unmasked payloads, because the mask is
+	// about volatility and says nothing about what may be rendered.
 	Sensitive bool
 }
 
@@ -71,18 +73,32 @@ func Compare(mask Mask, baseline, mutant []Payload) Delta {
 
 	byKey := map[string]Payload{}
 	unmasked := map[string]Payload{}
+	unmaskedMutant := map[string]Payload{}
 
 	for _, payload := range baseline {
 		unmasked[payload.Key()] = payload
 	}
 
 	for _, payload := range mutant {
+		unmaskedMutant[payload.Key()] = payload
+
 		masked, indeterminate := mask.Apply(payload)
 		if indeterminate {
 			delta.Indeterminate = true
 		}
 
 		byKey[payload.Key()] = masked
+	}
+
+	// One secret set for the whole run set, both sides: a secret laundered
+	// into another run, or surfaced only by the mutant, is still a secret.
+	secrets := map[string]bool{}
+	for _, payloads := range [][]Payload{baseline, mutant} {
+		for _, payload := range payloads {
+			for rendering := range payload.SensitiveRenderings() {
+				secrets[rendering] = true
+			}
+		}
 	}
 
 	for _, payload := range baseline {
@@ -98,10 +114,9 @@ func Compare(mask Mask, baseline, mutant []Payload) Delta {
 			continue
 		}
 
-		reference := unmasked[payload.Key()]
 		delta.Changes = append(delta.Changes,
 			comparePayload(payload.Key(), maskedBaseline, maskedMutant,
-				reference, reference.SensitiveRenderings())...)
+				unmasked[payload.Key()], unmaskedMutant[payload.Key()], secrets)...)
 
 		delete(byKey, payload.Key())
 	}
@@ -124,7 +139,7 @@ func Compare(mask Mask, baseline, mutant []Payload) Delta {
 
 func comparePayload(
 	key string,
-	baseline, mutant, unmasked Payload,
+	baseline, mutant, unmaskedBaseline, unmaskedMutant Payload,
 	secrets map[string]bool,
 ) []Change {
 	changes := []Change{}
@@ -136,12 +151,13 @@ func comparePayload(
 		}
 
 		changes = append(changes, Change{
-			Run:       key,
-			Path:      path,
-			Address:   Address(path),
-			Baseline:  value,
-			Mutant:    other,
-			Sensitive: unmasked.Sensitive(path) || secrets[value],
+			Run:      key,
+			Path:     path,
+			Address:  Address(path),
+			Baseline: value,
+			Mutant:   other,
+			Sensitive: unmaskedBaseline.Sensitive(path) || unmaskedMutant.Sensitive(path) ||
+				secrets[value] || secrets[other],
 		})
 	}
 
@@ -151,12 +167,13 @@ func comparePayload(
 		}
 
 		changes = append(changes, Change{
-			Run:       key,
-			Path:      path,
-			Address:   Address(path),
-			Baseline:  "",
-			Mutant:    value,
-			Sensitive: unmasked.Sensitive(path) || secrets[value],
+			Run:      key,
+			Path:     path,
+			Address:  Address(path),
+			Baseline: "",
+			Mutant:   value,
+			Sensitive: unmaskedBaseline.Sensitive(path) || unmaskedMutant.Sensitive(path) ||
+				secrets[value],
 		})
 	}
 

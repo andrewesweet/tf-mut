@@ -95,7 +95,39 @@ func (g Generator) Generate(mutants []report.Mutant) []report.Suggestion {
 		suggestions = append(suggestions, suggestion)
 	}
 
-	return suggestions
+	return collapse(suggestions)
+}
+
+// collapse folds candidates that share a target run and an expression into one
+// suggestion (round-3 review, PR #69): five survivors one assertion kills are
+// one review item and one write, not five byte-identical assert blocks. The
+// first candidate keeps the identity; the rest become its AlsoKills, and the
+// isolated verification leg still runs once per listed mutant, so attribution
+// stays per-mutant.
+func collapse(suggestions []report.Suggestion) []report.Suggestion {
+	collapsed := []report.Suggestion{}
+	carrier := map[string]int{}
+
+	for _, suggestion := range suggestions {
+		if suggestion.Status != report.SuggestionCandidate {
+			collapsed = append(collapsed, suggestion)
+
+			continue
+		}
+
+		key := suggestion.TargetFile + "\x00" + suggestion.TargetRun + "\x00" + suggestion.Expression
+
+		if index, found := carrier[key]; found {
+			collapsed[index].AlsoKills = append(collapsed[index].AlsoKills, suggestion.MutantID)
+
+			continue
+		}
+
+		carrier[key] = len(collapsed)
+		collapsed = append(collapsed, suggestion)
+	}
+
+	return collapsed
 }
 
 // seed rewrites a candidate into the named deliberately wrong assertion.

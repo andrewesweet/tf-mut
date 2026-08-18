@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/andrewesweet/tf-mut/docs/schema/report-2.2.0.json",
   "title": "tf-mut report",
-  "description": "The machine-readable result of a tf-mut run or preview. The version in schema_version changes whenever a consumer could break: removed fields, renamed fields, or changed semantics of an existing field. Version 2 adds the fingerprint oracle's states and diagnoses, per-run phases, suppressions and per-operator error counts. Version 2.1.0 adds, additively: per-mutant provenance (selection, execution, cache key, baseline status), the selected/omitted/cached/fresh population split, the selection record, sampling metadata, and the gate table outcomes. Version 2.2.0 adds, additively: the suggestion outcome table with its closed status vocabulary and two-leg verification evidence, the record of what an --apply invocation wrote, and the sensitivity flag each delta change carries.",
+  "description": "The machine-readable result of a tf-mut run or preview. The version in schema_version changes whenever a consumer could break: removed fields, renamed fields, or changed semantics of an existing field. Version 2 adds the fingerprint oracle's states and diagnoses, per-run phases, suppressions and per-operator error counts. Version 2.1.0 adds, additively: per-mutant provenance (selection, execution, cache key, baseline status), the selected/omitted/cached/fresh population split, the selection record, sampling metadata, and the gate table outcomes. Version 2.2.0 adds, additively: the suggestion outcome table with its closed status vocabulary and two-leg verification evidence, the record of what an --apply invocation wrote, and the sensitivity flag each delta change carries. The suggestion outcome table\u2019s presence rules are normative and encoded: every skipped status carries no patch and a status_reason; refuted requires status_reason and verification; verified requires verified_digest and verification.",
   "type": "object",
   "required": [
     "schema_version",
@@ -927,6 +927,13 @@
         "mutant_id": {
           "type": "string"
         },
+        "also_kills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Further survivors the same assertion kills: one expression that kills five mutants is one suggestion, one write, and one isolated verification per listed mutant."
+        },
         "target_file": {
           "type": "string",
           "description": "Test file, relative to the module directory."
@@ -956,7 +963,72 @@
           "type": "string",
           "description": "Required for every refuted and every skipped status."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "skipped-sensitive",
+                  "skipped-unaddressable",
+                  "skipped-unrenderable",
+                  "skipped-unsupported-target"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "patch"
+              ]
+            },
+            "required": [
+              "status_reason"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "refuted"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "status_reason",
+              "verification"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "verified"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "verified_digest",
+              "verification"
+            ]
+          }
+        }
+      ]
     },
     "applied_suggestions": {
       "type": "object",

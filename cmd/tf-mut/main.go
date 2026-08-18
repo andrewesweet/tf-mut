@@ -225,9 +225,9 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 		return options{}, fmt.Errorf("parsing flags: %w", err)
 	}
 
-	moduleDir := "."
-	if set.NArg() > 0 {
-		moduleDir = set.Arg(0)
+	moduleDir, err := modulePathArgument(set)
+	if err != nil {
+		return options{}, err
 	}
 
 	if !knownReporter(*values.reporter) {
@@ -356,6 +356,29 @@ func commaSeparated(value string) []string {
 }
 
 var errUnknownReporter = errors.New("unknown reporter")
+
+// errTrailingArguments reports arguments after the module path, which Go's
+// flag package would otherwise silently discard.
+var errTrailingArguments = errors.New("arguments after the module path are not parsed")
+
+// modulePathArgument resolves the one positional argument and refuses any
+// others: Go's flag parsing stops at the first non-flag argument, so anything
+// after the module path would be a flag the caller believes is in force and
+// the run silently ignores — including the two whose whole point is bounding
+// cost (round-3 review, PR #69).
+func modulePathArgument(set *flag.FlagSet) (string, error) {
+	moduleDir := "."
+	if set.NArg() > 0 {
+		moduleDir = set.Arg(0)
+	}
+
+	if set.NArg() > 1 {
+		return "", fmt.Errorf("%w: %s — flags must come before the module path",
+			errTrailingArguments, strings.Join(set.Args()[1:], " "))
+	}
+
+	return moduleDir, nil
+}
 
 // skillInstall handles `tf-mut skill install`: the never-write contract's
 // fourth recorded exception, performed by internal/skill under its

@@ -105,6 +105,8 @@ internal/engine/testdata/red-baseline/main.tf
 internal/engine/testdata/red-baseline/tests/unit.tftest.hcl
 internal/engine/testdata/redundant-in-resource/main.tf
 internal/engine/testdata/redundant-in-resource/tests/main.tftest.hcl
+internal/engine/testdata/sensitive-shift/main.tf
+internal/engine/testdata/sensitive-shift/tests/unit.tftest.hcl
 internal/engine/testdata/skeleton/main.tf
 internal/engine/testdata/skeleton/tests/unit.tftest.hcl
 internal/engine/testdata/static-unobservable/main.tf

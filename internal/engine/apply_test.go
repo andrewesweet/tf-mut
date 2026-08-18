@@ -119,22 +119,31 @@ func TestAnEditBetweenVerificationAndApplyAbortsWithZeroWrites(t *testing.T) {
 func TestApplyRefusesANonVerifiedSelection(t *testing.T) {
 	t.Parallel()
 
+	// A dry run with --apply is now refused outright, so the non-verified
+	// selection under test is a refuted suggestion: the seeded vacuous defect
+	// guarantees one.
 	module := copyFixture(t, suggestBasicFixture)
 
-	dry := runSuggest(t, dryRunConfig(t, module))
-	if len(dry.Suggestions) == 0 {
-		t.Fatal("no suggestions")
+	config := suggestConfig(t, module)
+	config.SeedSuggestionDefect = suggest.DefectVacuous
+	config.ApplyAll = false
+
+	seeded := runSuggest(t, config)
+
+	refuted := withStatus(seeded, report.SuggestionRefuted)
+	if len(refuted) == 0 {
+		t.Fatal("the seeded defect produced no refuted suggestion")
 	}
 
-	config := suggestConfig(t, module)
-	config.SuggestDryRun = true
-	config.Apply = []string{dry.Suggestions[0].ID}
+	applying := suggestConfig(t, module)
+	applying.SeedSuggestionDefect = suggest.DefectVacuous
+	applying.Apply = []string{refuted[0].ID}
 
 	before := treeDigest(t, module)
 
-	result := runSuggest(t, config)
+	result := runSuggest(t, applying)
 	if result.Apply == nil || result.Apply.Aborted == "" {
-		t.Fatalf("applying a candidate was not refused: %+v", result.Apply)
+		t.Fatalf("applying a refuted suggestion was not refused: %+v", result.Apply)
 	}
 
 	if !strings.Contains(result.Apply.Aborted, "only a verified suggestion") {

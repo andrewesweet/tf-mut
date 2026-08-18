@@ -85,18 +85,34 @@ func decide(
 		}, "the full suite is not green with the suggested assertions applied")
 	}
 
-	mutantLeg, err := verifyAgainstMutant(ctx, plan, mutated, candidate)
-	if err != nil {
-		return refute(candidate, baseline, report.VerificationLeg{
-			Passed: false, Runs: []report.RunOutcome{}, Detail: err.Error(),
-		}, "the isolated mutant leg could not be executed: "+err.Error())
+	// One isolated check per mutant the suggestion claims: a collapsed
+	// suggestion lists its extra kills in AlsoKills, and attribution stays
+	// per-mutant — every listed mutant must die against this assertion alone.
+	mutantLeg := report.VerificationLeg{Passed: true, Runs: []report.RunOutcome{}, Detail: ""}
+	details := []string{}
+
+	for _, mutantID := range append([]string{candidate.MutantID}, candidate.AlsoKills...) {
+		leg, err := verifyAgainstMutant(ctx, plan, mutated, candidate, mutantID)
+		if err != nil {
+			return refute(candidate, baseline, report.VerificationLeg{
+				Passed: false, Runs: []report.RunOutcome{}, Detail: err.Error(),
+			}, "the isolated mutant leg could not be executed: "+err.Error())
+		}
+
+		mutantLeg.Runs = append(mutantLeg.Runs, leg.Runs...)
+		details = append(details, leg.Detail)
+
+		if !leg.Passed {
+			mutantLeg.Passed = false
+			mutantLeg.Detail = strings.Join(details, "; ")
+
+			return refute(candidate, baseline, mutantLeg, fmt.Sprintf(
+				"mutant %s survived the suggested assertion applied on its own, so the "+
+					"assertion does not kill it", mutantID))
+		}
 	}
 
-	if !mutantLeg.Passed {
-		return refute(candidate, baseline, mutantLeg,
-			"the mutant survived the suggested assertion applied on its own, so the "+
-				"assertion does not kill it")
-	}
+	mutantLeg.Detail = strings.Join(details, "; ")
 
 	candidate.Status = report.SuggestionVerified
 	candidate.VerifiedDigest = digest
@@ -162,11 +178,12 @@ func verifyAgainstMutant(
 	plan executionPlan,
 	mutated map[string]mutation.Mutant,
 	candidate report.Suggestion,
+	mutantID string,
 ) (report.VerificationLeg, error) {
-	mutant, found := mutated[candidate.MutantID]
+	mutant, found := mutated[mutantID]
 	if !found {
 		return report.VerificationLeg{}, //nolint:exhaustruct // nothing ran.
-			fmt.Errorf("%w: mutant %s is not in this population", ErrSurvivorSelection, candidate.MutantID)
+			fmt.Errorf("%w: mutant %s is not in this population", ErrSurvivorSelection, mutantID)
 	}
 
 	original, err := suggest.ReadTarget(plan.configuration.ModuleDir, candidate.TargetFile)
@@ -180,7 +197,7 @@ func verifyAgainstMutant(
 		return report.VerificationLeg{}, err //nolint:exhaustruct // nothing ran.
 	}
 
-	result, err := runVerification(ctx, plan, "kill-"+candidate.ID, map[string][]byte{
+	result, err := runVerification(ctx, plan, "kill-"+candidate.ID+"-"+mutantID, map[string][]byte{
 		closureRelative(plan, candidate.TargetFile): alone,
 		mutant.File: mutant.Mutated,
 	})
@@ -190,11 +207,11 @@ func verifyAgainstMutant(
 
 	killed := result.HasStatus(tfexec.StatusFail)
 
-	detail := fmt.Sprintf("the mutant survived %d run block(s) with this suggestion applied alone",
-		result.ExecutedRuns())
+	detail := fmt.Sprintf("mutant %s survived %d run block(s) with this suggestion applied alone",
+		mutantID, result.ExecutedRuns())
 	if killed {
-		detail = "the mutant failed the suggested assertion applied on its own, " +
-			"so the kill is attributable to this suggestion"
+		detail = fmt.Sprintf("mutant %s failed the suggested assertion applied on its own, "+
+			"so the kill is attributable to this suggestion", mutantID)
 	}
 
 	return report.VerificationLeg{Passed: killed, Runs: runOutcomes(result), Detail: detail}, nil

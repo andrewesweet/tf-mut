@@ -46,10 +46,13 @@ var jsonConfigurationSchema = &hcl.BodySchema{
 		{Type: outputBlock, LabelNames: []string{nameLabel}},
 		{Type: localsBlock, LabelNames: nil},
 		{Type: variableBlock, LabelNames: []string{nameLabel}},
-		{Type: checkBlock, LabelNames: []string{nameLabel}},
-		{Type: "moved", LabelNames: nil},
-		{Type: "import", LabelNames: nil},
-		{Type: "removed", LabelNames: nil},
+		// check, moved, import and removed are deliberately absent (round-3
+		// review, PR #69): a check block can scope a data source and a removed
+		// block can carry a destroy-time provisioner, and this version has no
+		// collector that walks either into the effect or provider inventories.
+		// Listing them here decoded them "completely" while seeing neither —
+		// the partially-decoded shape the floor must never lift on — so their
+		// presence now leaves the file unread instead.
 	},
 }
 

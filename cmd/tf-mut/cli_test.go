@@ -24,6 +24,9 @@ const fixtureSource = "../../internal/engine/testdata/skeleton"
 // noCacheFlag keeps the suggest wiring cases hermetic.
 const noCacheFlag = "--no-cache"
 
+// dryRunFlag is the suggest flag the wiring cases exercise most.
+const dryRunFlag = "--dry-run"
+
 func TestRunReportsPseudoTestedResourcesAndExitsWithFindings(t *testing.T) {
 	t.Parallel()
 
@@ -282,7 +285,7 @@ func TestSuggestIsWiredThroughTheCommandLine(t *testing.T) {
 	stdout := bytes.Buffer{}
 	stderr := bytes.Buffer{}
 
-	code := run([]string{suggestCommand, "--dry-run", noCacheFlag, reporterFlag, reporterJSON, module},
+	code := run([]string{suggestCommand, dryRunFlag, noCacheFlag, reporterFlag, reporterJSON, module},
 		"test", &stdout, &stderr)
 	if code != report.ExitClean {
 		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
@@ -312,7 +315,7 @@ func TestSuggestSurvivorSelectionIsWiredThroughTheCommandLine(t *testing.T) {
 
 	// A stale identifier must be an operational failure naming it — which it
 	// can only be if --survivor actually reaches the engine.
-	code := run([]string{suggestCommand, "--dry-run", noCacheFlag, "--survivor", "000000000000", module},
+	code := run([]string{suggestCommand, dryRunFlag, noCacheFlag, "--survivor", "000000000000", module},
 		"test", &bytes.Buffer{}, &stderr)
 	if code != report.ExitOperational {
 		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
@@ -378,4 +381,26 @@ func decodeReport(t *testing.T, encoded []byte) report.Report {
 	}
 
 	return decoded
+}
+
+// TestArgumentsAfterTheModulePathAreRefused is the round-3 review's ordering
+// finding: Go's flag parsing stops at the first non-flag argument, so
+// `tf-mut suggest . --dry-run` silently verified anyway. Trailing arguments
+// are now an error naming them.
+func TestArgumentsAfterTheModulePathAreRefused(t *testing.T) {
+	t.Parallel()
+
+	stderr := bytes.Buffer{}
+
+	code := run([]string{suggestCommand, ".", dryRunFlag, "--survivor", "deadbeef"},
+		"test", &bytes.Buffer{}, &stderr)
+	if code != report.ExitOperational {
+		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
+	}
+
+	for _, expected := range []string{dryRunFlag, "before the module path"} {
+		if !strings.Contains(stderr.String(), expected) {
+			t.Fatalf("the refusal does not carry %q: %s", expected, stderr.String())
+		}
+	}
 }

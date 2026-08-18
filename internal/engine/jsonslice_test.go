@@ -401,3 +401,52 @@ func TestAnUnmodelledNestedTerraformConstructRetainsTheFloor(t *testing.T) {
 		t.Fatalf("the deliberately accepted attribute is named as unmodelled: %v", err)
 	}
 }
+
+// TestACheckBlockInJSONRetainsTheFloor is the round-3 review's second
+// critical: check, moved, import and removed were enumerated as modelled while
+// nothing walked a check's scoped data source into the effect or provider
+// inventories — the partially-decoded shape that must never lift the floor.
+func TestACheckBlockInJSONRetainsTheFloor(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, jsonProviderFixture)
+	writeFile(t, filepath.Join(module, "checks.tf.json"),
+		`{"check":{"health":{"data":{"terraform_remote_state":{"probe":{"backend":"local"}}},`+
+			`"assert":[{"condition":"${data.terraform_remote_state.probe.backend != \"\"}",`+
+			`"error_message":"probe"}]}}}`+"\n")
+
+	config := baseConfig(t, module)
+	config.AllowRealInfrastructure = true
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrUnsandboxedEffects) {
+		t.Fatalf("error = %v, want a floor refusal: a check-scoped data source is an "+
+			"effect nothing inventoried", err)
+	}
+
+	if !strings.Contains(err.Error(), "checks.tf.json") {
+		t.Fatalf("the refusal does not name the unread file: %v", err)
+	}
+}
+
+// TestAJSONMockProviderBodyBeyondAliasRetainsTheFloor is the round-3 review's
+// third critical: a mock's body decides what the mock actually covers, so a
+// body this version has not modelled must not enter the mock inventory.
+func TestAJSONMockProviderBodyBeyondAliasRetainsTheFloor(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, jsonTestMockFixture)
+	writeFile(t, filepath.Join(module, "tests", "unit.tftest.json"),
+		`{"mock_provider":{"null":{"override_during":"plan"}},`+
+			`"run":{"defaults":{"command":"plan","assert":[{"condition":"${output.env == \"dev\"}",`+
+			`"error_message":"env trigger must be dev"}]}}}`+"\n")
+
+	_, err := engine.Run(t.Context(), baseConfig(t, module))
+	if !errors.Is(err, engine.ErrRealInfrastructure) {
+		t.Fatalf("error = %v, want a floor refusal: the mock's covering semantics were never read", err)
+	}
+
+	if !strings.Contains(err.Error(), "override_during") {
+		t.Fatalf("the refusal does not name what it could not model: %v", err)
+	}
+}

@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -320,4 +321,78 @@ func requireNonRoot(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("running as root: a read-only directory would not refuse a write")
 	}
+}
+
+// TestAMutantSurfacedSecretReachesNoReport is the round-3 review's critical
+// finding: a collection mutant moves a sensitive value into a path whose
+// baseline value was public, so only the mutant payload carries the mark. The
+// sensitivity predicate is decided over both payloads and over a secret set
+// unioned across runs and sides, and every reporter must be value-free.
+func TestAMutantSurfacedSecretReachesNoReport(t *testing.T) {
+	t.Parallel()
+
+	result, err := engine.Run(t.Context(), baseConfig(t, copyFixture(t, "sensitive-shift")))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	for name, rendered := range renderAll(t, result) {
+		if strings.Contains(rendered, secretValue) {
+			t.Fatalf("the %s reporter leaks the mutant-surfaced secret", name)
+		}
+	}
+}
+
+// TestARealSuggestReportValidatesAgainstThePublishedSchema closes the round-3
+// review's contract gap: the published schema is validated against engine
+// output, not only against a hand-built sample — including the outcome
+// table's presence rules, which the schema now encodes.
+func TestARealSuggestReportValidatesAgainstThePublishedSchema(t *testing.T) {
+	t.Parallel()
+
+	schema := loadPublishedSchema(t)
+
+	for name, config := range map[string]engine.Config{
+		"verified": suggestConfig(t, copyFixture(t, suggestBasicFixture)),
+		"skips":    dryRunConfig(t, copyFixture(t, suggestSensitiveFixture)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			result := runSuggest(t, config)
+			if len(result.Suggestions) == 0 {
+				t.Fatal("the fixture produced no suggestions to validate")
+			}
+
+			builder := strings.Builder{}
+			if err := report.WriteJSON(&builder, result); err != nil {
+				t.Fatalf("rendering: %v", err)
+			}
+
+			document := any(nil)
+			if err := json.Unmarshal([]byte(builder.String()), &document); err != nil {
+				t.Fatalf("decoding: %v", err)
+			}
+
+			if problems := validateAgainst(schema, schema, document, "$"); len(problems) > 0 {
+				t.Fatalf("the real report does not validate:\n  %s", strings.Join(problems, "\n  "))
+			}
+		})
+	}
+}
+
+func loadPublishedSchema(t *testing.T) map[string]any {
+	t.Helper()
+
+	content, err := os.ReadFile("../../docs/schema/report-2.2.0.json")
+	if err != nil {
+		t.Fatalf("reading the published schema: %v", err)
+	}
+
+	schema := map[string]any{}
+	if err := json.Unmarshal(content, &schema); err != nil {
+		t.Fatalf("decoding the published schema: %v", err)
+	}
+
+	return schema
 }

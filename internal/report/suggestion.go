@@ -76,6 +76,10 @@ type Suggestion struct {
 	ID string `json:"id"`
 	// MutantID is the survivor the suggestion would kill.
 	MutantID string `json:"mutant_id"`
+	// AlsoKills lists further survivors the same assertion kills (2.2.0): one
+	// expression that kills five mutants is one suggestion, one write, and
+	// one isolated verification per mutant listed here.
+	AlsoKills []string `json:"also_kills,omitempty"`
 	// TargetFile is the test file the assertion belongs in, relative to the
 	// module directory.
 	TargetFile string `json:"target_file"`
