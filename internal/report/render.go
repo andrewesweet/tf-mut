@@ -41,6 +41,18 @@ func (r Report) ExitCode(gate Gate) int {
 		return ExitOperational
 	}
 
+	// Characterisation has its own contract, and it is about work outstanding
+	// rather than about a score: zero once the suite is complete, one while a
+	// judgement point is still open or a curate finding is still unread, and
+	// two only for an operational failure.
+	if r.Characterisation != nil {
+		if r.Characterisation.OpenTodos() > 0 || len(r.Characterisation.Findings) > 0 {
+			return ExitFindings
+		}
+
+		return ExitClean
+	}
+
 	// `suggest` has its own contract: zero once all the requested work has
 	// concluded, whatever mix of verified and skipped it concluded in, and one
 	// where any suggestion was refuted — a refutation is a generator defect and
@@ -114,9 +126,12 @@ func WriteJSON(writer io.Writer, value Report) error {
 func WriteTerminal(writer io.Writer, value Report) error {
 	builder := strings.Builder{}
 
-	if value.Command == CommandPreview {
+	switch {
+	case value.Command == CommandPreview:
 		writePreview(&builder, value)
-	} else {
+	case value.Characterisation != nil:
+		writeCharacterisation(&builder, value)
+	default:
 		writeRun(&builder, value)
 	}
 
@@ -471,4 +486,84 @@ func operatorCounts(mutants []Mutant) []operatorCount {
 	})
 
 	return ordered
+}
+
+// writeCharacterisation renders the scaffold, its pins and — where the caller
+// did not ask for a write — the generated content itself, with delimiters.
+//
+// Printing the files is the default because there is nothing else useful to
+// do with a suite the caller has not asked to have written: the alternative
+// is a report about bytes the reader cannot see. A JSON reporter owning
+// standard output takes the same content through the report instead.
+func writeCharacterisation(builder *strings.Builder, value Report) {
+	block := value.Characterisation
+
+	fmt.Fprintf(builder, "tf-mut %s  %s\n\n", value.Command, value.Module)
+	fmt.Fprintf(builder, "  granularity  %s\n", block.Rung)
+
+	if block.Escalated {
+		fmt.Fprintf(builder, "  escalated    %s\n", block.EscalationReason)
+	}
+
+	fmt.Fprintf(builder, "  scenarios    %d\n", len(block.Scenarios))
+	writePinCounts(builder, block)
+
+	if open := block.OpenTodos(); open > 0 {
+		fmt.Fprintf(builder, "  open todos   %d — answer them, then run "+
+			"tf-mut characterise --resume\n", open)
+	}
+
+	if !block.Complete {
+		builder.WriteString("  incomplete   the selected granularity produced no pins\n")
+	}
+
+	writeCurateFindings(builder, block)
+	writeGeneratedFiles(builder, block)
+	writeWarnings(builder, value.Warnings)
+}
+
+func writePinCounts(builder *strings.Builder, block *Characterisation) {
+	counts := block.PinsByStatus()
+
+	fmt.Fprintf(builder, "  pinned       %d\n", counts[Pinned])
+
+	for _, status := range []PinStatus{
+		PinSkippedVolatile, PinSkippedSensitive, PinSkippedUnrenderable, PinSkippedMockInvented,
+	} {
+		if counts[status] > 0 {
+			fmt.Fprintf(builder, "  %-12s %d\n", status, counts[status])
+		}
+	}
+}
+
+func writeCurateFindings(builder *strings.Builder, block *Characterisation) {
+	if len(block.Findings) == 0 {
+		return
+	}
+
+	builder.WriteString("\n")
+
+	for _, finding := range block.Findings {
+		fmt.Fprintf(builder, "  %s  %s  %s\n", finding.ID, finding.Kind, finding.Message)
+	}
+}
+
+func writeGeneratedFiles(builder *strings.Builder, block *Characterisation) {
+	if block.Write != nil && block.Write.Requested {
+		builder.WriteString("\n")
+
+		for _, path := range block.Write.Written {
+			fmt.Fprintf(builder, "  wrote %s\n", path)
+		}
+
+		if block.Write.Refused != "" {
+			fmt.Fprintf(builder, "  refused: %s\n", block.Write.Refused)
+		}
+
+		return
+	}
+
+	for _, file := range block.Files {
+		fmt.Fprintf(builder, "\n==> %s <==\n%s", file.Path, file.Content)
+	}
 }

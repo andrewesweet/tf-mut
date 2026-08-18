@@ -134,11 +134,51 @@ func cacheKey(
 	write("baseline", "", baselineFingerprint(prepared))
 	write("config", "", resolvedConfiguration(settings))
 
+	if err := writeClosure(write, configuration, settings, prepared); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+// InputClosureDigest is the digest of everything a run reads: the sources, the
+// tests, the JSON syntax, the lock, the automatically loaded variable files,
+// the mock data, the materialised module inventory and the relevant
+// environment.
+//
+// It is the cache key's composition minus the parts that describe *this* run,
+// and it is what the characterisation write protocol commits against: a
+// scaffold is only green for the closure that produced it, so the commit step
+// re-checks this digest immediately before each rename.
+func InputClosureDigest(
+	configuration discovery.Configuration,
+	settings Config,
+	prepared warm,
+) (string, error) {
+	digest := sha256.New()
+	write := func(kind, name, value string) {
+		_, _ = fmt.Fprintf(digest, "%s\x00%s\x00%s\x00", kind, name, value)
+	}
+
+	if err := writeClosure(write, configuration, settings, prepared); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(digest.Sum(nil)), nil
+}
+
+// writeClosure hashes the whole input closure into a digest.
+func writeClosure(
+	write func(kind, name, value string),
+	configuration discovery.Configuration,
+	settings Config,
+	prepared warm,
+) error {
 	// The entire materialised source closure, in path order.
 	for _, path := range sortedKeys(prepared.sources) {
 		rel, err := filepath.Rel(configuration.ClosureRoot, path)
 		if err != nil {
-			return "", err
+			return err
 		}
 
 		write("source", filepath.ToSlash(rel), hashBytes(prepared.sources[path]))
@@ -148,7 +188,7 @@ func cacheKey(
 	for _, path := range configuration.Tests.Files {
 		content, err := os.ReadFile(path) //nolint:gosec // discovery-owned path.
 		if err != nil {
-			return "", err
+			return err
 		}
 
 		write("test", filepath.Base(path), hashBytes(content))
@@ -160,7 +200,7 @@ func cacheKey(
 	for _, file := range configuration.JSONFiles() {
 		content, err := os.ReadFile(file.Path)
 		if err != nil {
-			return "", err
+			return err
 		}
 
 		write("json", file.Rel, hashBytes(content))
@@ -170,7 +210,7 @@ func cacheKey(
 	if prepared.lockFile != "" {
 		content, err := os.ReadFile(prepared.lockFile)
 		if err != nil {
-			return "", err
+			return err
 		}
 
 		write("lock", "", hashBytes(content))
@@ -180,7 +220,7 @@ func cacheKey(
 	// being asked, so they reach verdicts without appearing in the source
 	// closure (review of #48).
 	if err := hashAutoVarFiles(write, configuration.ModuleDir); err != nil {
-		return "", err
+		return err
 	}
 
 	// Mock-data files (round-3 review, PR #69): a mock_provider's source
@@ -188,13 +228,13 @@ func cacheKey(
 	// run sees, so an edit there changes verdicts — and nothing else hashes
 	// them, because they are in no inventory and no test-file list.
 	if err := hashMockDataFiles(write, configuration.ClosureRoot); err != nil {
-		return "", err
+		return err
 	}
 
 	// The module inventory with remote payloads: everything Terraform
 	// materialised under the warm workspace's modules directory.
 	if err := hashTree(write, filepath.Join(prepared.dataDir, "modules")); err != nil {
-		return "", err
+		return err
 	}
 
 	// The relevant environment: everything Terraform-shaped, from the
@@ -203,7 +243,7 @@ func cacheKey(
 		write("env", "", entry)
 	}
 
-	return hex.EncodeToString(digest.Sum(nil)), nil
+	return nil
 }
 
 // resolvedConfiguration serialises the settings that can change a verdict.

@@ -404,3 +404,84 @@ func TestArgumentsAfterTheModulePathAreRefused(t *testing.T) {
 		}
 	}
 }
+
+// TestCharacteriseIsWiredThroughTheCommandLine proves the whole surface
+// reaches the engine: the command, the granularity flag and the JSON reporter
+// that owns standard output and therefore carries the generated content.
+func TestCharacteriseIsWiredThroughTheCommandLine(t *testing.T) {
+	t.Parallel()
+
+	module := t.TempDir()
+	writeFile(t, filepath.Join(module, "main.tf"),
+		"resource \"terraform_data\" \"app\" {\n  input = \"kept\"\n}\n\n"+
+			"output \"app\" {\n  value = terraform_data.app.output\n}\n")
+
+	stdout := bytes.Buffer{}
+	stderr := bytes.Buffer{}
+
+	code := run([]string{characteriseCommand, reporterFlag, reporterJSON, module},
+		"test", &stdout, &stderr)
+	if code != report.ExitClean {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+
+	decoded := decodeReport(t, stdout.Bytes())
+	if decoded.Command != report.CommandCharacterise {
+		t.Fatalf("command = %s, want characterise", decoded.Command)
+	}
+
+	if decoded.Characterisation == nil || len(decoded.Characterisation.Files) == 0 {
+		t.Fatal("the JSON report carries no generated content")
+	}
+
+	if !strings.Contains(decoded.Characterisation.Files[0].Content, "run \"characterise_defaults\"") {
+		t.Fatalf("the generated content is not a run block:\n%s",
+			decoded.Characterisation.Files[0].Content)
+	}
+}
+
+// TestTheGranularityFlagReachesTheEngine is the other half of the wiring: a
+// flag the shell parsed and dropped would be invisible without a case that
+// asserts a value only the engine can produce.
+func TestTheGranularityFlagReachesTheEngine(t *testing.T) {
+	t.Parallel()
+
+	module := t.TempDir()
+	writeFile(t, filepath.Join(module, "main.tf"),
+		"resource \"terraform_data\" \"app\" {\n  input = \"kept\"\n}\n\n"+
+			"output \"app\" {\n  value = terraform_data.app.output\n}\n")
+
+	stdout := bytes.Buffer{}
+	stderr := bytes.Buffer{}
+
+	code := run([]string{characteriseCommand, "--pin", "configured", reporterFlag, reporterJSON, module},
+		"test", &stdout, &stderr)
+	if code != report.ExitClean {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+
+	decoded := decodeReport(t, stdout.Bytes())
+	if decoded.Characterisation.Rung != "configured" {
+		t.Fatalf("rung = %s, want configured", decoded.Characterisation.Rung)
+	}
+}
+
+// TestCharacteriseRefusesArgumentsAfterTheModulePath extends the round-3
+// ordering repair to the new commands by name, rather than by assuming the
+// shared parser still covers them.
+func TestCharacteriseRefusesArgumentsAfterTheModulePath(t *testing.T) {
+	t.Parallel()
+
+	stderr := bytes.Buffer{}
+
+	code := run([]string{characteriseCommand, ".", "--write"}, "test", &bytes.Buffer{}, &stderr)
+	if code != report.ExitOperational {
+		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
+	}
+
+	for _, expected := range []string{"--write", "before the module path"} {
+		if !strings.Contains(stderr.String(), expected) {
+			t.Fatalf("the refusal does not carry %q: %s", expected, stderr.String())
+		}
+	}
+}

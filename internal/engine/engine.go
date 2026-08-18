@@ -155,6 +155,27 @@ type Config struct {
 	// assertion, so the suggestion-soundness gate can prove that verification
 	// rejects it. It is a seam control, not a command-line flag.
 	SeedSuggestionDefect suggest.Defect
+	// Characterise scaffolds, harvests and pins a suite for a module that has
+	// none, instead of grading the suite it has.
+	Characterise bool
+	// PinRung is the granularity ladder level: outputs, counts or configured.
+	PinRung string
+	// CharacteriseWrite places the verified suite in the module's test
+	// directory. Without it the generated content is printed and nothing on
+	// disk changes.
+	CharacteriseWrite bool
+	// CharacteriseForce replaces target files, and only those the provenance
+	// registry marks generated-and-unmodified.
+	CharacteriseForce bool
+	// SeedMissingMock removes one planned provider-configuration mock from the
+	// staged suite, so the staged provider gate can be proven to refuse before
+	// execution. It is a seam control, not a command-line flag.
+	SeedMissingMock string
+	// SeedNoEscalation suppresses the zero-output auto-escalation, so the other
+	// half of the contract — a rung that pinned nothing may never report
+	// complete — can be proven on its own. It is a seam control, not a
+	// command-line flag.
+	SeedNoEscalation bool
 }
 
 // Operational failures. Every one of them aborts the run: none of them can be
@@ -202,16 +223,38 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		return report.Report{}, err
 	}
 
+	// Characterisation is the same machinery pointed the other way: it has no
+	// suite to baseline, no population to grade, and its safety gates are
+	// judged against the suite it plans rather than the one on disk.
+	if settings.Characterise {
+		return characteriseModule(ctx, runner, configuration, settings, version)
+	}
+
+	return mutate(ctx, runner, configuration, settings, version, moduleDir)
+}
+
+// mutate is the grading pipeline: gates, generation, selection, execution and
+// the completed report.
+func mutate(
+	ctx context.Context,
+	runner tfexec.Runner,
+	configuration discovery.Configuration,
+	settings Config,
+	version tfexec.Version,
+	moduleDir string,
+) (report.Report, error) {
 	// The gates guard execution, and a preview executes nothing. Refusing a
 	// preview would only hide the population from the person deciding whether
 	// to accept the risk.
 	warnings := make([]string, 0, 1)
 
 	if !settings.Preview {
-		warnings, err = checkSafety(configuration, settings)
+		checked, err := checkSafety(configuration, settings)
 		if err != nil {
 			return report.Report{}, err
 		}
+
+		warnings = checked
 	}
 
 	settings, warnings = applyFloor(configuration, settings, warnings)
@@ -545,6 +588,8 @@ func shell(
 
 func commandName(settings Config) report.Command {
 	switch {
+	case settings.Characterise:
+		return report.CommandCharacterise
 	case settings.Preview:
 		return report.CommandPreview
 	case settings.Suggest:

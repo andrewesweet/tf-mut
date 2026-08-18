@@ -129,6 +129,9 @@ internal/engine/testdata/unknown-refinement/main.tf
 internal/engine/testdata/unknown-refinement/tests/unit.tftest.hcl
 internal/engine/testdata/unmocked/main.tf
 internal/engine/testdata/unmocked/tests/unit.tftest.hcl
+internal/engine/testdata/untested-aliases/main.tf
+internal/engine/testdata/untested-sensitive/main.tf
+internal/engine/testdata/untested-zero-output/main.tf
 internal/engine/testdata/upward/root/main.tf
 internal/engine/testdata/upward/root/tests/unit.tftest.hcl
 internal/engine/testdata/upward/shared/main.tf

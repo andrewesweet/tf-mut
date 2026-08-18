@@ -123,6 +123,14 @@ linters:
       - path: internal/engine/harness_test\.go
         linters:
           - nolintlint
+      # "TODO" is a domain noun in the characterisation vocabulary: a TODO is
+      # the tool's name for a judgement point it refuses to guess at, with an
+      # identifier, a status vocabulary and a command surface of its own.
+      # godox cannot tell a named entity from a leftover marker, so it is
+      # excluded for the files that define and drive the entity.
+      - path: (internal/report/characterise|internal/characterise/.*|internal/engine/characterise)\.go
+        linters:
+          - godox
       # SARIF 2.1.0 names its members in camelCase. The repository's snake_case
       # convention governs documents this project designs; this one is a
       # published specification, and renaming its members would be a defect.

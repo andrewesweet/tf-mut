@@ -7,6 +7,7 @@ docs/schema/report-1.0.0.json
 docs/schema/report-2.0.0.json
 docs/schema/report-2.1.0.json
 docs/schema/report-2.2.0.json
+docs/schema/report-2.3.0.json
 docs/schema/sarif-2.1.0.json
 internal/engine/testdata/json-autovar/terraform.tfvars.json
 internal/engine/testdata/json-mixed/side.tf.json

@@ -24,12 +24,13 @@ import (
 var version = "dev"
 
 const (
-	runCommand     = "run"
-	previewCommand = "preview"
-	suggestCommand = "suggest"
-	skillCommand   = "skill"
-	versionCommand = "version"
-	versionFlag    = "--version"
+	runCommand          = "run"
+	previewCommand      = "preview"
+	suggestCommand      = "suggest"
+	characteriseCommand = "characterise"
+	skillCommand        = "skill"
+	versionCommand      = "version"
+	versionFlag         = "--version"
 
 	reporterTerminal = "terminal"
 	reporterJSON     = "json"
@@ -45,10 +46,12 @@ Commands:
   run       Mutate the module at PATH and report which resources are pseudo-tested
   preview   List the mutants that would be generated, as diffs, executing nothing
   suggest   Generate, verify and optionally apply the assertions that kill the survivors
+  characterise
+            Scaffold, harvest and pin a first test suite for a module that has none
   skill     Install the shipped agent skills (skill install [--agent claude|generic] [--path .])
   version   Print the build version
 
-Flags for run, preview and suggest:
+Flags for run, preview, suggest and characterise:
   --test-directory PATH        Test directory relative to the module (default "tests")
   --jobs N                     Mutants to execute concurrently (default: CPU count)
   --timeout-factor F           Multiple of the baseline run time (default 10)
@@ -75,6 +78,12 @@ Flags for run, preview and suggest:
   --output FORMAT=PATH         Write an additional reporter from the same run;
                                repeatable — every output derives from one report value
   --sarif-path PATH            Where to write the SARIF document
+
+Flags for characterise:
+  --pin LEVEL                  Pinning granularity: outputs, counts or configured
+                               (default outputs; a module with no outputs escalates)
+  --write                      Place the verified suite in the test directory
+  --force                      Replace generated files nobody has edited
 
 Flags for suggest:
   --dry-run                    Print the candidate patches and verify nothing
@@ -105,7 +114,7 @@ func run(args []string, buildVersion string, stdout, stderr io.Writer) int {
 		}
 
 		return exitSuccess
-	case runCommand, previewCommand, suggestCommand:
+	case runCommand, previewCommand, suggestCommand, characteriseCommand:
 		return execute(args[0], args[1:], stdout, stderr)
 	case skillCommand:
 		return skillInstall(args[1:], buildVersion, stdout, stderr)
@@ -161,6 +170,8 @@ type flagValues struct {
 	outputs                                  *outputFlag
 	dryRun, allVerified                      *bool
 	survivors, apply                         *string
+	pin                                      *string
+	write, force                             *bool
 }
 
 func declareFlags(set *flag.FlagSet) flagValues {
@@ -204,6 +215,9 @@ func declareFlags(set *flag.FlagSet) flagValues {
 		allVerified: set.Bool("all-verified", false, "apply every verified suggestion"),
 		survivors:   set.String("survivor", "", "suggest only for these survivor identifiers"),
 		apply:       set.String("apply", "", "apply these verified suggestions"),
+		pin:         set.String("pin", "", "pinning granularity: outputs, counts or configured"),
+		write:       set.Bool("write", false, "place the verified suite in the test directory"),
+		force:       set.Bool("force", false, "replace generated files nobody has edited"),
 	}
 }
 
@@ -256,44 +270,7 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 	})
 
 	return options{
-		config: engine.Config{
-			ModuleDir:               moduleDir,
-			TestDirectory:           *values.testDirectory,
-			Jobs:                    *values.jobs,
-			TimeoutFactor:           *values.timeoutFactor,
-			TimeoutFloor:            0,
-			MinScore:                *values.minScore,
-			HasMinScore:             requested,
-			AllowIncompleteScore:    *values.allowIncomplete,
-			AllowRealInfrastructure: *values.allowReal,
-			AllowUnsandboxedEffects: *values.allowEffects,
-			Preview:                 command == previewCommand,
-			TerraformBinary:         "",
-			Env:                     nil,
-			WorkDir:                 "",
-			TestSelection:           nil,
-			Tier:                    mutation.Tier(*values.tier),
-			IncludeOperators:        commaSeparated(*values.operators),
-			ExcludeOperators:        commaSeparated(*values.excludeOperators),
-			ExcludePaths:            commaSeparated(*values.excludePaths),
-			ExcludeResources:        commaSeparated(*values.excludeResources),
-			SetFlags:                given,
-			Since:                   *values.since,
-			SamplePercent:           *values.sample,
-			HasSample:               sampled,
-			SampleSeed:              *values.seed,
-			AllowSampledGate:        *values.allowSampledGate,
-			NoCache:                 *values.noCache,
-			FailOnNew:               *values.failOnNew,
-			WriteBaseline:           *values.writeBaseline,
-			BaselinePath:            *values.baselinePath,
-			GeneratedFunctions:      *values.generatedFunctions,
-			Suggest:                 command == suggestCommand,
-			SuggestDryRun:           *values.dryRun,
-			SurvivorIDs:             commaSeparated(*values.survivors),
-			Apply:                   commaSeparated(*values.apply),
-			ApplyAll:                *values.allVerified,
-		},
+		config: engineConfig(command, values, moduleDir, given, requested, sampled),
 		gate: report.Gate{
 			MinScore:             *values.minScore,
 			HasMinScore:          requested,
@@ -304,6 +281,58 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 		sarifPath: *values.sarifPath,
 		reporters: append(configured, *values.outputs...),
 	}, nil
+}
+
+// engineConfig maps the parsed flags onto the engine's one input value.
+func engineConfig(
+	command string,
+	values flagValues,
+	moduleDir string,
+	given []string,
+	requested, sampled bool,
+) engine.Config {
+	return engine.Config{
+		ModuleDir:               moduleDir,
+		TestDirectory:           *values.testDirectory,
+		Jobs:                    *values.jobs,
+		TimeoutFactor:           *values.timeoutFactor,
+		TimeoutFloor:            0,
+		MinScore:                *values.minScore,
+		HasMinScore:             requested,
+		AllowIncompleteScore:    *values.allowIncomplete,
+		AllowRealInfrastructure: *values.allowReal,
+		AllowUnsandboxedEffects: *values.allowEffects,
+		Preview:                 command == previewCommand,
+		TerraformBinary:         "",
+		Env:                     nil,
+		WorkDir:                 "",
+		TestSelection:           nil,
+		Tier:                    mutation.Tier(*values.tier),
+		IncludeOperators:        commaSeparated(*values.operators),
+		ExcludeOperators:        commaSeparated(*values.excludeOperators),
+		ExcludePaths:            commaSeparated(*values.excludePaths),
+		ExcludeResources:        commaSeparated(*values.excludeResources),
+		SetFlags:                given,
+		Since:                   *values.since,
+		SamplePercent:           *values.sample,
+		HasSample:               sampled,
+		SampleSeed:              *values.seed,
+		AllowSampledGate:        *values.allowSampledGate,
+		NoCache:                 *values.noCache,
+		FailOnNew:               *values.failOnNew,
+		WriteBaseline:           *values.writeBaseline,
+		BaselinePath:            *values.baselinePath,
+		GeneratedFunctions:      *values.generatedFunctions,
+		Suggest:                 command == suggestCommand,
+		SuggestDryRun:           *values.dryRun,
+		SurvivorIDs:             commaSeparated(*values.survivors),
+		Apply:                   commaSeparated(*values.apply),
+		ApplyAll:                *values.allVerified,
+		Characterise:            command == characteriseCommand,
+		PinRung:                 *values.pin,
+		CharacteriseWrite:       *values.write,
+		CharacteriseForce:       *values.force,
+	}
 }
 
 func knownReporter(name string) bool {

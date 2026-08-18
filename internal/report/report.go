@@ -19,7 +19,12 @@ import (
 // gate table's outcomes.
 // 2.2.0 is the M4 additive revision: the suggestion outcome table, and the
 // sensitivity flag each delta change now carries.
-const SchemaVersion = "2.2.0"
+// 2.3.0 is the M4.5 additive revision: the characterisation block — scenarios,
+// pins, TODOs, scaffolds, curate findings, generated files, the write record
+// and the until-dry convergence evidence. Its status vocabularies are closed:
+// extending one is a minor version with the consumer contract documented, not
+// a silently additive change.
+const SchemaVersion = "2.3.0"
 
 // Command names what produced a report.
 type Command string
@@ -33,6 +38,12 @@ const (
 	// CommandSuggest executed the population and generated assertions for its
 	// survivors.
 	CommandSuggest Command = "suggest"
+	// CommandCharacterise scaffolded, harvested and pinned a suite.
+	CommandCharacterise Command = "characterise"
+	// CommandCurate reported redundancy over an authoritative population.
+	CommandCurate Command = "curate"
+	// CommandTodos listed the open judgement points.
+	CommandTodos Command = "todos"
 )
 
 // State is the aggregate verdict for one mutant.
@@ -479,6 +490,9 @@ type Report struct {
 	Suggestions []Suggestion `json:"suggestions,omitempty"`
 	// Apply records what an --apply invocation wrote (2.2.0).
 	Apply *AppliedSuggestions `json:"apply,omitempty"`
+	// Characterisation is the scaffold, pin, TODO and curate block (2.3.0).
+	// Present only for the characterise, todos and curate commands.
+	Characterisation *Characterisation `json:"characterisation,omitempty"`
 }
 
 // Count returns the number of mutants in the given state.

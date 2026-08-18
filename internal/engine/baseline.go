@@ -48,6 +48,34 @@ func prepare(
 	config Config,
 	workRoot string,
 ) (warm, error) {
+	prepared, err := warmUp(ctx, runner, configuration, workRoot)
+	if err != nil {
+		return warm{}, err
+	}
+
+	// A preview executes nothing: it needs the schemas that gate the deletion
+	// operators, and no more. The workspace still exists because init cannot be
+	// allowed to write into the source tree.
+	if config.Preview {
+		return prepared, nil
+	}
+
+	if err := runBaseline(ctx, runner, configuration, &prepared); err != nil {
+		return warm{}, err
+	}
+
+	return prepared, nil
+}
+
+// warmUp materialises the closure, initialises it and reads the provider
+// schemas. It is everything a run needs before it decides what to execute, and
+// the only part a characterisation — which has no suite to baseline — shares.
+func warmUp(
+	ctx context.Context,
+	runner tfexec.Runner,
+	configuration discovery.Configuration,
+	workRoot string,
+) (warm, error) {
 	built, err := sandbox.Materialise(sandbox.Spec{
 		SourceRoot: configuration.ClosureRoot,
 		ModuleRel:  configuration.RootRelative(),
@@ -75,30 +103,25 @@ func prepare(
 		prepared.lockFile = path
 	}
 
-	schemas, err := runner.ProvidersSchema(ctx, prepared.moduleDir)
+	prepared.schemas, err = runner.ProvidersSchema(ctx, prepared.moduleDir)
 	if err != nil {
 		return warm{}, err
 	}
 
-	prepared.schemas = schemas
-
-	if unformatted, err := runner.FmtCheck(ctx, prepared.moduleDir); err == nil && len(unformatted) > 0 {
+	unformatted, fmtErr := runner.FmtCheck(ctx, prepared.moduleDir)
+	if fmtErr == nil && len(unformatted) > 0 {
 		prepared.warnings = append(prepared.warnings, fmt.Sprintf(
 			"%d file(s) are not canonically formatted; mutant diffs may span more than one line: %s",
 			len(unformatted), strings.Join(unformatted, ", "),
 		))
 	}
 
-	// A preview executes nothing: it needs the schemas that gate the deletion
-	// operators, and no more. The workspace still exists because init cannot be
-	// allowed to write into the source tree.
-	if config.Preview {
-		return prepared, nil
-	}
-
-	if err := runBaseline(ctx, runner, configuration, &prepared); err != nil {
+	sources, err := moduleSources(configuration)
+	if err != nil {
 		return warm{}, err
 	}
+
+	prepared.sources = sources
 
 	return prepared, nil
 }
@@ -176,13 +199,7 @@ func calibrateOracle(
 		return err
 	}
 
-	sources, err := moduleSources(configuration)
-	if err != nil {
-		return err
-	}
-
-	prepared.sources = sources
-	prepared.scan = configuration.ScanVolatility(sources)
+	prepared.scan = configuration.ScanVolatility(prepared.sources)
 	prepared.payloads = firstPayloads
 	prepared.mask = fingerprint.Derive(firstPayloads, secondPayloads).
 		Merge(staticMask(prepared.scan, firstPayloads))

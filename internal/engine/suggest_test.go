@@ -384,7 +384,7 @@ func TestARealSuggestReportValidatesAgainstThePublishedSchema(t *testing.T) {
 func loadPublishedSchema(t *testing.T) map[string]any {
 	t.Helper()
 
-	content, err := os.ReadFile("../../docs/schema/report-2.2.0.json")
+	content, err := os.ReadFile("../../docs/schema/report-2.3.0.json")
 	if err != nil {
 		t.Fatalf("reading the published schema: %v", err)
 	}
