@@ -440,15 +440,40 @@ func changes(delta fingerprint.Delta) []report.Change {
 		}
 
 		converted = append(converted, report.Change{
-			Run:      change.Run,
-			Path:     change.Path,
-			Address:  change.Address,
-			Baseline: change.Baseline,
-			Mutant:   change.Mutant,
+			Run:     change.Run,
+			Path:    change.Path,
+			Address: change.Address,
+			// The values are withheld where Terraform marks them sensitive
+			// (2.2.0). The reader still learns that the path changed, which is
+			// the whole evidential content of a delta; the value itself is the
+			// one thing a report must not carry, because every reporter — the
+			// JSON document, the SARIF artefact, the job step summary — would
+			// carry it too.
+			Baseline: withheld(change.Sensitive, change.Baseline),
+			Mutant:   withheld(change.Sensitive, change.Mutant),
+			// Carried through deliberately: the suggestion engine's
+			// sensitivity predicate is decided from this flag, and dropping it
+			// here would let a secret reach a generated expression.
+			Sensitive: change.Sensitive,
 		})
 	}
 
 	return converted
+}
+
+// SensitiveWithheld is what a report carries in place of a sensitive value. It
+// is deliberately not a canonical rendering: every rendering of a string starts
+// with a quote, so nothing a module could hold can collide with it.
+const SensitiveWithheld = "(sensitive value withheld)"
+
+// withheld replaces a sensitive rendering, and leaves an absent one absent so
+// that "the path was not there" stays distinguishable from "it was withheld".
+func withheld(sensitive bool, rendering string) string {
+	if !sensitive || rendering == "" {
+		return rendering
+	}
+
+	return SensitiveWithheld
 }
 
 // lookup is the schema coordinates a Terraform address implies.

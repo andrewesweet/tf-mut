@@ -525,3 +525,24 @@ func TestAnExistingLooseCacheDirectoryIsCorrected(t *testing.T) {
 			info.Mode().Perm())
 	}
 }
+
+// TestMockDataFilesAreAKeyDimension (round-3 review, PR #69): a mock_provider
+// source directory's .tfmock.hcl/.tfmock.json files decide the values a
+// mocked run sees, and nothing else hashes them — they are in no inventory
+// and no test-file list.
+func TestMockDataFilesAreAKeyDimension(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+	config := baseConfig(t, module)
+
+	writeFile(t, filepath.Join(module, "tests", "data.tfmock.hcl"), "# mock data v1\n")
+	cachedRun(t, config)
+
+	writeFile(t, filepath.Join(module, "tests", "data.tfmock.hcl"), "# mock data v2\n")
+
+	result := cachedRun(t, config)
+	if result.Population.Cached != 0 {
+		t.Fatalf("%d cached verdicts survived a mock-data edit", result.Population.Cached)
+	}
+}

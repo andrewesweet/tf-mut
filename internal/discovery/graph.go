@@ -1,8 +1,10 @@
 package discovery
 
 import (
+	"slices"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
@@ -66,12 +68,15 @@ type Cone struct {
 	unbounded bool
 }
 
-// BuildGraph builds the reference graph once, from the already-parsed ASTs the
-// discovery inventories were built from. No user invocation of Terraform is
-// involved: the supplemental `terraform graph` comparison lives in the test
-// suite only.
-func (c Configuration) BuildGraph() *Graph {
-	graph := &Graph{
+// UnmappedGraph is a graph in which nothing resolves: every adapter lookup
+// fails closed, which is the whole-payload floor expressed as a graph.
+//
+// It is what the engine uses while unread JSON is present in the closure. The
+// graph is built from `.tf` syntax alone, so JSON-declared references draw no
+// edges; a cone computed over it would be missing edges without saying so,
+// which is the false proof the M3 spec review's C3 prohibited.
+func UnmappedGraph() *Graph {
+	return &Graph{
 		nodes:        map[nodeID]bool{},
 		dependents:   map[nodeID][]nodeID{},
 		owners:       map[nodeID]nodeID{},
@@ -79,6 +84,14 @@ func (c Configuration) BuildGraph() *Graph {
 		moduleByPath: map[string]string{},
 		unbounded:    map[nodeID]bool{},
 	}
+}
+
+// BuildGraph builds the reference graph once, from the already-parsed ASTs the
+// discovery inventories were built from. No user invocation of Terraform is
+// involved: the supplemental `terraform graph` comparison lives in the test
+// suite only.
+func (c Configuration) BuildGraph() *Graph {
+	graph := UnmappedGraph()
 
 	relByDir := map[string]string{}
 	for _, module := range c.Modules {
@@ -127,6 +140,114 @@ func (b *graphBuilder) build() {
 		for _, block := range body.Blocks {
 			b.buildBlock(block)
 		}
+	}
+
+	b.buildJSON()
+}
+
+// buildJSON declares the nodes and draws the edges a read JSON configuration
+// file contributes (M4c). A JSON file is never a mutation site, so its blocks
+// need no site-address parity with the mutation walker; what they need is the
+// Terraform address a reader and a payload would use, so that a cone reaching
+// one sees an observable and an expression referring to one draws an edge.
+func (b *graphBuilder) buildJSON() {
+	paths := make([]string, 0, len(b.module.JSONBodies))
+	for path := range b.module.JSONBodies {
+		paths = append(paths, path)
+	}
+
+	slices.Sort(paths)
+
+	for _, path := range paths {
+		content, _, diagnostics := b.module.JSONBodies[path].PartialContent(jsonConfigurationSchema)
+		if diagnostics.HasErrors() {
+			continue
+		}
+
+		for _, block := range content.Blocks {
+			b.buildJSONBlock(block)
+		}
+	}
+}
+
+func (b *graphBuilder) buildJSONBlock(block *hcl.Block) {
+	switch block.Type {
+	case resourceBlock, dataBlock:
+		address := block.Labels[0] + "." + block.Labels[1]
+		if block.Type == dataBlock {
+			address = dataBlock + "." + address
+		}
+
+		owner := b.declare(address)
+		b.walkJSONBody(block.Body, address, owner, owner)
+	case outputBlock, moduleBlock, variableBlock, checkBlock:
+		address := block.Type + "." + block.Labels[0]
+		if block.Type == variableBlock {
+			address = "var." + block.Labels[0]
+		}
+
+		owner := b.declare(address)
+		b.walkJSONBody(block.Body, address, owner, nodeID{})
+
+		if block.Type == moduleBlock && b.connect {
+			b.wireCall(block.Labels[0], owner)
+		}
+	case localsBlock:
+		attributes, diagnostics := block.Body.JustAttributes()
+		if diagnostics.HasErrors() {
+			return
+		}
+
+		for name, attribute := range attributes {
+			node := b.declare("local." + name)
+
+			if b.connect {
+				b.linkJSON(attribute.Expr, node)
+			}
+		}
+	case providerBlock:
+		owner := b.declare(providerBlock + "." + block.Labels[0])
+		b.graph.unbounded[owner] = true
+		b.walkJSONBody(block.Body, providerBlock+"."+block.Labels[0], owner, nodeID{})
+	default:
+	}
+}
+
+// walkJSONBody is walkBody over a JSON body. JSON draws no line between an
+// attribute and a nested block, so everything the body carries is walked as an
+// attribute: a nested block's own node would need a schema per nesting level,
+// and its edges are already drawn by the traversals its expressions carry.
+func (b *graphBuilder) walkJSONBody(body hcl.Body, address string, blockNode, owner nodeID) {
+	attributes, diagnostics := body.JustAttributes()
+	if diagnostics.HasErrors() {
+		return
+	}
+
+	for name, attribute := range attributes {
+		node := b.declare(address + "." + name)
+
+		if owner != (nodeID{}) {
+			b.graph.owners[node] = owner
+		}
+
+		if b.connect {
+			b.graph.dependents[node] = append(b.graph.dependents[node], blockNode)
+			b.graph.dependents[blockNode] = append(b.graph.dependents[blockNode], node)
+			b.linkJSON(attribute.Expr, node)
+		}
+	}
+}
+
+// linkJSON records an edge from every address a JSON expression observes.
+func (b *graphBuilder) linkJSON(expr hcl.Expression, reader nodeID) {
+	for _, ref := range jsonRefs(expr) {
+		source, ok := b.resolveRef(ref.Address)
+		if !ok {
+			continue
+		}
+
+		b.graph.dependents[source] = append(b.graph.dependents[source], reader)
+		b.graph.sources[reader] = append(b.graph.sources[reader], source)
 	}
 }
 
@@ -249,6 +370,16 @@ func (b *graphBuilder) declare(address string) nodeID {
 // call's result object.
 func (b *graphBuilder) wireCall(name string, callNode nodeID) {
 	call, found := b.callByName(name)
+
+	// A JSON-declared call's inputs are not decoded, so the graph cannot model
+	// its wiring edge by edge: the call is unbounded, and any cone touching it
+	// contains everything and licenses nothing.
+	if found && call.JSONDeclared {
+		b.markCallUnbounded(callNode)
+
+		return
+	}
+
 	if !found || !call.Local {
 		// A remote call — or one discovery could not place — is wiring the
 		// graph cannot model: a changed input can alter every resource and

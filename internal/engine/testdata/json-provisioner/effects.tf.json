@@ -1,0 +1,16 @@
+{
+  "resource": {
+    "terraform_data": {
+      "side": {
+        "input": "side",
+        "provisioner": [
+          {
+            "local-exec": {
+              "command": "touch $TF_MUT_MARKER"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

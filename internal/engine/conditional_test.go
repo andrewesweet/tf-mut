@@ -26,6 +26,9 @@ func runConditional(t *testing.T, fixture string) report.Report {
 	return result
 }
 
+// gatedResource is the fixture resource the multiplicity cases pin.
+const gatedResource = "terraform_data.gated"
+
 // bodyMutants returns the mutants inside a resource's body, excluding its
 // multiplicity site.
 func bodyMutants(result report.Report, resource, meta string) []report.Mutant {
@@ -55,7 +58,7 @@ func TestABodyOnlyMutantOfAnUninstantiatedBlockStaysNoCoverage(t *testing.T) {
 	result := runConditional(t, "conditional-nocoverage")
 
 	for _, block := range []struct{ resource, meta string }{
-		{"terraform_data.gated", "count"},
+		{gatedResource, "count"},
 		{"terraform_data.each_gated", "for_each"},
 	} {
 		mutants := bodyMutants(result, block.resource, block.meta)
@@ -159,7 +162,7 @@ func TestExcludedCategoriesFailClosedToExecution(t *testing.T) {
 
 			result := runConditional(t, fixture)
 
-			mutants := bodyMutants(result, "terraform_data.gated", "count")
+			mutants := bodyMutants(result, gatedResource, "count")
 			if len(mutants) == 0 {
 				t.Fatal("no body mutants generated; the fixture lost its point")
 			}
@@ -215,7 +218,7 @@ func TestAnAutoLoadedVariableFileDefeatsTheDefault(t *testing.T) {
 
 	result := runConditional(t, "conditional-autovar")
 
-	mutants := bodyMutants(result, "terraform_data.gated", "count")
+	mutants := bodyMutants(result, gatedResource, "count")
 	if len(mutants) == 0 {
 		t.Fatal("no body mutants generated; the fixture lost its point")
 	}
@@ -240,8 +243,8 @@ func TestTerraformTfvarsDecidesOverTheDefault(t *testing.T) {
 
 	found := false
 
-	for _, mutant := range bodyMutants(result, "terraform_data.gated", "count") {
-		if mutant.Site == "terraform_data.gated" {
+	for _, mutant := range bodyMutants(result, gatedResource, "count") {
+		if mutant.Site == gatedResource {
 			continue
 		}
 

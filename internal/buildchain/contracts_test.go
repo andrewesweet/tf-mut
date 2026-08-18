@@ -2,6 +2,7 @@ package buildchain_test
 
 import (
 	"context"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -201,7 +202,8 @@ func TestLanguageManifestsAreComplete(t *testing.T) {
 	wantShell := discoverFiles(t, repository, repositoryPaths, func(path string) bool {
 		return hasBashShebang(t, repository, path)
 	})
-	wantJSON := discoverExtension(t, repository, repositoryPaths, ".json")
+	wantJSON := withoutSkipped(t, "tools/json-files-skip",
+		discoverExtension(t, repository, repositoryPaths, ".json"))
 	wantYAML := append(
 		discoverExtension(t, repository, repositoryPaths, ".yaml"),
 		discoverExtension(t, repository, repositoryPaths, ".yml")...,
@@ -212,6 +214,48 @@ func TestLanguageManifestsAreComplete(t *testing.T) {
 	assertManifest(t, "tools/json-files", wantJSON)
 	assertManifest(t, "tools/yaml-files", wantYAML)
 	assertManifest(t, "tools/toml-files", wantTOML)
+}
+
+// withoutSkipped removes the intentionally malformed fixtures a skip manifest
+// names, mirroring the Terraform format skip file: a fixture that must not
+// parse cannot be asked to. Each named fixture must exist and must indeed fail
+// to decode — a skip entry that parses cleanly is hiding a file from the lint
+// gate for no reason.
+func withoutSkipped(t *testing.T, skipManifest string, discovered []string) []string {
+	t.Helper()
+
+	root := repositoryRoot(t)
+	skipped := map[string]bool{}
+
+	for rawLine := range strings.SplitSeq(readRepositoryFile(t, skipManifest), "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		skipped[line] = true
+
+		content, err := os.ReadFile(filepath.Join(root, line)) //nolint:gosec // a repository-owned path.
+		if err != nil {
+			t.Fatalf("%s names %s, which does not exist: %v", skipManifest, line, err)
+		}
+
+		decoded := any(nil)
+		if json.Unmarshal(content, &decoded) == nil {
+			t.Fatalf("%s names %s, but it parses cleanly and belongs in tools/json-files",
+				skipManifest, line)
+		}
+	}
+
+	kept := make([]string, 0, len(discovered))
+
+	for _, path := range discovered {
+		if !skipped[path] {
+			kept = append(kept, path)
+		}
+	}
+
+	return kept
 }
 
 func assertManifest(t *testing.T, path string, want []string) {

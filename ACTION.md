@@ -1,8 +1,10 @@
 # The tf-mut GitHub Action
 
 Mutation testing for `terraform test` on every pull request: SARIF annotations on the exact
-changed lines, a maintained PR comment with the score and the new-versus-accepted findings,
-and a check whose outcome is tf-mut's own exit code.
+changed lines, the markdown summary — score and new-versus-accepted findings — in the job
+step summary, and a check whose outcome is tf-mut's own exit code. (The maintained PR
+comment was removed in M4, issue #64, so adoption's permission ask is minimal: the step
+summary needs no token at all.)
 
 ```yaml
 name: tf-mut
@@ -11,7 +13,6 @@ on:
 permissions:
   contents: read
   security-events: write   # SARIF upload
-  pull-requests: write     # the maintained comment
 jobs:
   mutate:
     runs-on: ubuntu-latest
@@ -34,10 +35,10 @@ The composite runs in a fixed order, and the order is the contract:
    `latest` is refused.
 2. **Run** tf-mut with the documented non-blocking pattern: the run's exit code is captured,
    not obeyed, so the reporting steps always execute.
-3. **Upload SARIF** (`security-events: write`).
-4. **Create or update the PR comment** (`pull-requests: write`).
-5. **Exit with the captured code.** The check outcome is tf-mut's verdict, whatever the
-   uploads managed.
+3. **Upload SARIF** (`security-events: write`). The run step has already written the
+   markdown summary to the job step summary, which needs no permission.
+4. **Exit with the captured code.** The check outcome is tf-mut's verdict, whatever the
+   upload managed.
 
 ## Least-privilege permissions
 
@@ -45,19 +46,18 @@ The composite runs in a fixed order, and the order is the contract:
 | --- | --- |
 | `contents: read` | Checkout and `--since` history |
 | `security-events: write` | The SARIF upload |
-| `pull-requests: write` | The maintained comment |
 
 ## Fork and Dependabot pull requests
 
-Fork and Dependabot PRs receive a read-only token. The SARIF upload and the comment are
-marked `continue-on-error`: whatever a token refuses degrades, and **the check outcome is
-preserved** — step 5 still exits with the captured code. Nothing about a token shape can
-turn a red run green or a green run red.
+Fork and Dependabot PRs receive a read-only token. The SARIF upload is marked
+`continue-on-error`: whatever a token refuses degrades, and **the check outcome is
+preserved** — the final step still exits with the captured code. Nothing about a token
+shape can turn a red run green or a green run red. The step summary is unaffected by token
+shape entirely.
 
 What actually degrades is measured, not assumed: on pull-request events GitHub accepts the
 SARIF upload from a read-only token — the platform scopes that write itself, so annotations
-survive even on fork PRs — while the comment write is refused and the comment is the part
-that degrades. On non-PR events a read-only token refuses the SARIF upload too.
+survive even on fork PRs. On non-PR events a read-only token refuses the SARIF upload.
 
 ## `pull_request_target` is forbidden
 

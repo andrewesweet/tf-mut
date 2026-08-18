@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -28,6 +29,13 @@ const (
 	moduleBlock   = "module"
 	variableBlock = "variable"
 
+	// The label names and nested block types both syntaxes dispatch over.
+	nameLabel         = "name"
+	typeLabel         = "type"
+	provisionerBlock  = "provisioner"
+	connectionBlock   = "connection"
+	requiredProviders = "required_providers"
+
 	resourceLabelCount = 2
 	addressParts       = 2
 
@@ -37,37 +45,112 @@ const (
 	countKeyword   = "count"
 )
 
-func parseModule(parser *hclparse.Parser, current queued) (Module, error) {
+func parseModule(parser *hclparse.Parser, current queued, options Options) (Module, []JSONFile, error) {
 	files, err := listFiles(current.dir, ".tf")
 	if err != nil {
-		return Module{}, err
+		return Module{}, nil, err
 	}
 
 	module := Module{
-		Dir:        current.dir,
-		Files:      files,
-		Bodies:     map[string]*hclsyntax.Body{},
-		References: map[string][]Reference{},
+		Dir:            current.dir,
+		Files:          files,
+		Bodies:         map[string]*hclsyntax.Body{},
+		References:     map[string][]Reference{},
+		JSONExpansions: map[string][]Ref{},
+		JSONBodies:     map[string]hcl.Body{},
 	}
 
 	providers := map[string]bool{}
 
 	for _, path := range files {
-		body, err := parseFile(parser, path)
-		if err != nil {
-			return Module{}, err
+		body, parseErr := parseFile(parser, path)
+		if parseErr != nil {
+			return Module{}, nil, parseErr
 		}
 
 		module.Bodies[path] = body
 
-		if err := collectFile(&module, providers, path, body); err != nil {
-			return Module{}, err
+		if collectErr := collectFile(&module, providers, path, body); collectErr != nil {
+			return Module{}, nil, collectErr
 		}
+	}
+
+	jsonFiles, err := readJSONConfigurations(&module, providers, current.dir, options)
+	if err != nil {
+		return Module{}, nil, err
 	}
 
 	module.Providers = sortedKeys(providers)
 
-	return module, nil
+	return module, jsonFiles, nil
+}
+
+// readJSONConfigurations decodes every `.tf.json` file in a module directory,
+// recording each file's read status. A file that cannot be read contributes
+// nothing to the inventories and keeps the safety floor down for itself alone:
+// its readable neighbours still lift theirs.
+func readJSONConfigurations(
+	module *Module,
+	providers map[string]bool,
+	dir string,
+	options Options,
+) ([]JSONFile, error) {
+	paths, err := listJSON(dir, jsonConfigurationSuffix)
+	if err != nil {
+		return nil, err
+	}
+
+	records := make([]JSONFile, 0, len(paths))
+
+	for _, path := range paths {
+		// Each file is decoded into a scratch module and merged only once it
+		// has decoded completely: a file that fails half-way must contribute
+		// nothing at all, or the inventories would carry a partial reading of
+		// content the floor is meant to stay down for.
+		scratch := Module{ //nolint:exhaustruct // a decode sink: only the collected fields matter.
+			Dir:            module.Dir,
+			References:     map[string][]Reference{},
+			JSONExpansions: map[string][]Ref{},
+			JSONBodies:     map[string]hcl.Body{},
+		}
+		found := map[string]bool{}
+
+		if readErr := skippedOr(options, func() error {
+			return readJSONConfiguration(&scratch, found, path)
+		}); readErr != nil {
+			records = append(records, unreadFile(path, JSONConfiguration, readErr))
+
+			continue
+		}
+
+		mergeJSONModule(module, providers, scratch, found)
+		records = append(records, readFileRecord(path, JSONConfiguration))
+	}
+
+	return records, nil
+}
+
+// mergeJSONModule folds one completely decoded JSON file into the module.
+func mergeJSONModule(module *Module, providers map[string]bool, scratch Module, found map[string]bool) {
+	module.Calls = append(module.Calls, scratch.Calls...)
+	module.Effects = append(module.Effects, scratch.Effects...)
+	module.ProviderAliases = append(module.ProviderAliases, scratch.ProviderAliases...)
+	module.JSONResources = append(module.JSONResources, scratch.JSONResources...)
+	module.JSONDataSources = append(module.JSONDataSources, scratch.JSONDataSources...)
+
+	for address, references := range scratch.References {
+		module.References[address] = append(module.References[address], references...)
+	}
+
+	for address, refs := range scratch.JSONExpansions {
+		module.JSONExpansions[address] = append(module.JSONExpansions[address], refs...)
+	}
+
+	maps.Copy(module.JSONBodies, scratch.JSONBodies)
+
+	for name := range found {
+		providers[name] = true
+	}
 }
 
 func collectFile(module *Module, providers map[string]bool, path string, body *hclsyntax.Body) error {
@@ -240,7 +323,7 @@ func attributesOf(body *hclsyntax.Body) []Attribute {
 
 func collectEffects(module *Module, discovered Block, block *hclsyntax.Block) {
 	for _, nested := range block.Body.Blocks {
-		if nested.Type == "provisioner" || nested.Type == "connection" {
+		if nested.Type == provisionerBlock || nested.Type == connectionBlock {
 			module.Effects = append(module.Effects, Effect{
 				Kind:    "provisioner",
 				Address: discovered.Address,
@@ -266,7 +349,7 @@ func collectEffects(module *Module, discovered Block, block *hclsyntax.Block) {
 
 func collectRequiredProviders(providers map[string]bool, block *hclsyntax.Block) {
 	for _, nested := range block.Body.Blocks {
-		if nested.Type != "required_providers" {
+		if nested.Type != requiredProviders {
 			continue
 		}
 

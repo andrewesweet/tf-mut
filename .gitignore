@@ -7,3 +7,6 @@
 /.tools/
 mise.local.toml
 mise.local.lock
+
+# Agent-managed worktrees live inside the checkout but are never repository content.
+/.claude/worktrees/

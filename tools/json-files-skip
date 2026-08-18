@@ -1,0 +1,8 @@
+# Exact paths of intentionally malformed JSON fixtures belong here, with the
+# reason. Files here are exempt from parsing, formatting, and the manifest
+# completeness contract; everything else with a .json extension must be in
+# tools/json-files.
+# These two prove the M4.0 floor: a .tf.json that does not decode keeps both
+# safety gates failed closed, so each file must stay unparseable on purpose.
+internal/engine/testdata/json-malformed/broken.tf.json
+internal/engine/testdata/json-partial/broken.tf.json

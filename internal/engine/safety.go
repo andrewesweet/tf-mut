@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
@@ -14,7 +15,13 @@ import (
 // guaranteed to happen before Terraform has evaluated a single resource — which
 // is the whole point of the provisioner gate.
 func checkSafety(configuration discovery.Configuration, config Config) ([]string, error) {
-	warnings := []string{}
+	// The JSON safety floor comes first (M4.0). Both gates are decided from
+	// inventories that unread JSON makes incomplete, so a refusal that depended
+	// on those inventories would be a refusal the tool could not stand behind.
+	warnings, err := floorOf(configuration).checkFloor(config)
+	if err != nil {
+		return nil, err
+	}
 
 	unmocked := configuration.UnmockedProviders()
 	if len(unmocked) > 0 {
@@ -80,7 +87,13 @@ func describeProviderUsers(configuration discovery.Configuration, unmocked []str
 	lines := []string{}
 
 	for _, module := range configuration.Modules {
-		for _, block := range append(append([]discovery.Block{}, module.Resources...), module.DataSources...) {
+		// JSON-declared blocks are named alongside the HCL ones: a refusal that
+		// points only at what the native syntax declares would send the reader
+		// looking for a resource that is not there.
+		blocks := slices.Concat(module.Resources, module.DataSources,
+			module.JSONResources, module.JSONDataSources)
+
+		for _, block := range blocks {
 			if !wanted[discovery.ProviderOf(block.Type)] {
 				continue
 			}

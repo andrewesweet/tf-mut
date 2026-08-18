@@ -1,11 +1,13 @@
-# The tf-mut GitHub Action (M3d.2, issue #52), under the M4-disposition trust
-# and failure-order contract: capture the run's exit code with the documented
-# non-blocking pattern, then upload SARIF, then create-or-update the comment,
-# then exit with the captured code. See ACTION.md for the permission,
+# The tf-mut GitHub Action (M3d.2, issue #52; comment removal in M4, issue
+# #64), under the trust and failure-order contract: capture the run's exit
+# code with the documented non-blocking pattern, then upload SARIF, then exit
+# with the captured code. The markdown summary goes to the job step summary —
+# the PR comment and its `pull-requests: write` ask were removed so adoption's
+# permission ask is minimal. See ACTION.md for the permission,
 # fork-degradation and distribution contract.
 name: tf-mut
 description: >-
-  Mutation testing for terraform test. Runs tf-mut over the pull request, uploads SARIF annotations, and maintains a PR comment — and the check outcome is the run's own exit code, whatever the uploads manage.
+  Mutation testing for terraform test. Runs tf-mut over the pull request, uploads SARIF annotations, and writes the markdown summary to the job step summary — and the check outcome is the run's own exit code, whatever the uploads manage.
 author: andrewesweet
 inputs:
   version:
@@ -25,10 +27,6 @@ inputs:
       Base URL for release assets. The default is this repository's releases; overriding it is for mirrors and for this repository's own workflow test. Checksum verification applies wherever the assets come from.
     required: false
     default: "https://github.com/andrewesweet/tf-mut/releases/download"
-  comment:
-    description: Maintain a PR comment with the markdown summary.
-    required: false
-    default: "true"
   sarif-category:
     description: >-
       Category for the code-scanning upload. GitHub permits one upload per job per tool/category, so a workflow invoking this Action more than once in a job must give each invocation its own category. Empty means uncategorised.
@@ -42,9 +40,6 @@ outputs:
     description: >-
       The SARIF upload step's outcome (success/failure/skipped) — the degradation contract made observable, so a caller can assert that a read-only token degraded rather than silently vanished.
     value: ${{ steps.sarif.outcome }}
-  comment-outcome:
-    description: The PR-comment step's outcome (success/failure/skipped).
-    value: ${{ steps.comment.outcome }}
 runs:
   using: composite
   steps:
@@ -76,34 +71,6 @@ runs:
       with:
         sarif_file: tf-mut.sarif
         category: ${{ inputs.sarif-category }}
-    - name: Create or update the PR comment
-      id: comment
-      if: inputs.comment == 'true' && github.event_name == 'pull_request'
-      # Same degradation contract as the SARIF upload.
-      continue-on-error: true
-      uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
-      with:
-        # A transient 5xx on the issues API must not cost the PR its comment;
-        # permission refusals (403/404) are not retried and still degrade.
-        retries: 3
-        script: |
-          const fs = require('fs');
-          const marker = '<!-- tf-mut-report -->';
-          let body = marker + '\n';
-          try {
-            body += fs.readFileSync('tf-mut-summary.md', 'utf8');
-          } catch (error) {
-            body += 'tf-mut produced no summary: ' + error.message;
-          }
-          const {owner, repo} = context.repo;
-          const issue_number = context.issue.number;
-          const comments = await github.rest.issues.listComments({owner, repo, issue_number});
-          const existing = comments.data.find(c => c.body && c.body.startsWith(marker));
-          if (existing) {
-            await github.rest.issues.updateComment({owner, repo, comment_id: existing.id, body});
-          } else {
-            await github.rest.issues.createComment({owner, repo, issue_number, body});
-          }
     - name: Exit with the captured code
       shell: bash
       env:

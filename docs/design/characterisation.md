@@ -212,6 +212,12 @@ So: **M4.5 — `tf-mut characterise` (scaffold + pin + until-dry loop), `tf-mut 
 (minimality report)**. The incremental cost over M4 is input synthesis (§3.2) and the
 granularity ladder — the rest is sequencing existing parts.
 
+M4.5 also owns the work the M4 spec review's C4 relocated here:
+`StructurallyUnassertable` **skeleton generation**, which was removed from M4 because it
+has no proven delta and is unverifiable by construction. It is sequenced **behind the
+minable-validation-share measurement above**, and wherever it lands it is modelled as a
+separate TODO/scaffold artefact — never `verified`, never applied by `suggest --apply`.
+
 One consequence worth making explicit in positioning: this inverts the tool's adoption story
 for legacy codebases. The mutation-testing pitch assumes you have tests to grade; most
 Terraform estates do not. `characterise` gives those estates their first credential-free unit

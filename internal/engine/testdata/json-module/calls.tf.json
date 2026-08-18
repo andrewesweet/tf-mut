@@ -1,0 +1,10 @@
+{
+  "module": {
+    "effects": {
+      "source": "./child-effects"
+    },
+    "provider": {
+      "source": "./child-provider"
+    }
+  }
+}

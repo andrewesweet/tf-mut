@@ -400,12 +400,41 @@ func unknownAddress(path string) (string, bool) {
 	return "", false
 }
 
+// cutBracketed splits the contents of an already-opened bracket from what
+// follows its matching close.
+//
+// Cutting at the first `]` would be wrong for every indexed instance: the
+// address inside `resource_changes[terraform_data.app[0]]` carries a bracket of
+// its own, and stopping at the inner one yields an address that names nothing.
+func cutBracketed(rest string) (inside, remainder string, ok bool) {
+	depth := 1
+
+	for index, letter := range rest {
+		switch letter {
+		case '[':
+			depth++
+		case ']':
+			depth--
+		default:
+			continue
+		}
+
+		if depth == 0 {
+			return rest[:index], rest[index+1:], true
+		}
+	}
+
+	return "", "", false
+}
+
 // The payload members whose contents are addressed by Terraform address.
 const (
 	resourceChanges = "resource_changes"
 	outputChanges   = "output_changes"
 	rootModule      = "root_module"
 	stateOutputs    = "outputs"
+	// outputRoot is the address root of a module output.
+	outputRoot = "output"
 )
 
 // AttributePath reports whether a canonical path is exactly the given argument
@@ -447,9 +476,7 @@ func Address(path string) string {
 }
 
 func resourceAddress(path, prefix string, bodies []string) string {
-	rest := strings.TrimPrefix(path, prefix)
-
-	address, remainder, found := strings.Cut(rest, "]")
+	address, remainder, found := cutBracketed(strings.TrimPrefix(path, prefix))
 	if !found {
 		return ""
 	}
@@ -522,4 +549,218 @@ func hashValues(values map[string]string) string {
 	}
 
 	return hex.EncodeToString(digest.Sum(nil))
+}
+
+// The sensitivity mirrors Terraform publishes beside every value it serialises.
+//
+// A plan's `change.after` is mirrored by `change.after_sensitive`, a state
+// resource's `values` by its `sensitive_values`, and an output carries its own
+// flag. The mirror is a document of the same shape with `true` at each
+// sensitive position, so the question "is this value sensitive" is answered by
+// reading the same path out of the mirror — and out of every ancestor of it,
+// because a sensitive container makes everything under it sensitive.
+const (
+	afterSensitive   = "after_sensitive"
+	beforeSensitive  = "before_sensitive"
+	sensitiveValues  = "sensitive_values"
+	outputSensitive  = "sensitive"
+	planValues       = "values"
+	changeAfter      = "change.after"
+	changeBefore     = "change.before"
+	outputAfterField = "after"
+	outputValueField = "value"
+)
+
+// Sensitive reports whether the payload marks the value at a canonical path
+// sensitive, at the path itself or at any of its ancestors.
+//
+// Retaining the metadata is not permission to render the value: `issensitive`
+// is a Terraform function and an assertion over it passes, which is why the
+// projection keeps these members at all. This predicate is what turns that
+// retention into a refusal to inline the value anywhere.
+func (p Payload) Sensitive(path string) bool {
+	base, attribute, ok := sensitivityMirror(path)
+	if !ok {
+		return false
+	}
+
+	for _, candidate := range ancestorPaths(base, attribute) {
+		if p.Values[candidate] == "true" {
+			return true
+		}
+	}
+
+	return false
+}
+
+// SensitiveRenderings collects the canonical rendering of every string value
+// the payload marks sensitive.
+//
+// The path predicate alone is not enough to keep a secret out of a generated
+// test file. Terraform propagates a sensitivity mark through its own
+// expressions but not through a provider: `terraform_data`'s computed `output`
+// carries the value of its sensitive `input` with no mark of its own, measured
+// against Terraform v1.15.8. A generated assertion is written into a file
+// somebody commits, so the value itself is refused wherever it appears — a
+// stricter rule than Terraform's own renderer applies, and deliberately so.
+//
+// Only string renderings are collected. A sensitive boolean or number would
+// otherwise make every `true` and every `0` in the payload unsuggestable, which
+// is a cost with no secret behind it.
+func (p Payload) SensitiveRenderings() map[string]bool {
+	renderings := map[string]bool{}
+
+	for path, value := range p.Values {
+		if !strings.HasPrefix(value, `"`) || value == `""` {
+			continue
+		}
+
+		if p.Sensitive(path) {
+			renderings[value] = true
+		}
+	}
+
+	return renderings
+}
+
+// sensitivityMirror maps a canonical value path onto the base of its
+// sensitivity mirror and the attribute path beneath it.
+func sensitivityMirror(path string) (base, attribute string, ok bool) {
+	address, attribute, ok := Split(path)
+	if !ok {
+		return "", "", false
+	}
+
+	switch {
+	case strings.HasPrefix(path, resourceChanges+"["):
+		mirror := afterSensitive
+		if strings.Contains(path, "]."+changeBefore) {
+			mirror = beforeSensitive
+		}
+
+		return resourceChanges + "[" + address + "].change." + mirror, attribute, true
+	case strings.HasPrefix(path, rootModule+"."):
+		return rootModule + ".resources[" + address + "]." + sensitiveValues, attribute, true
+	case strings.HasPrefix(path, outputChanges+"."):
+		return outputChanges + "." + strings.TrimPrefix(address, outputRoot+".") + "." + afterSensitive,
+			attribute, true
+	case strings.HasPrefix(path, stateOutputs+"."):
+		return stateOutputs + "." + strings.TrimPrefix(address, outputRoot+".") + "." + outputSensitive,
+			attribute, true
+	default:
+		return "", "", false
+	}
+}
+
+// ancestorPaths lists a mirror base and every prefix of the attribute path
+// beneath it, so a sensitive container is found from any leaf under it.
+func ancestorPaths(base, attribute string) []string {
+	paths := []string{base}
+	if attribute == "" {
+		return paths
+	}
+
+	builder := strings.Builder{}
+	builder.WriteString(base)
+
+	for _, segment := range AttributeSegments(attribute) {
+		builder.WriteString("." + segment)
+		paths = append(paths, builder.String())
+	}
+
+	return paths
+}
+
+// AttributeSegments splits an attribute path on its top-level dots, keeping
+// instance and element keys attached to the segment they index. It is exported
+// because the path grammar is this package's: the suggestion engine must not
+// rebuild it, or the two would drift.
+func AttributeSegments(attribute string) []string {
+	if attribute == "" {
+		return nil
+	}
+
+	segments := []string{}
+	builder := strings.Builder{}
+	depth := 0
+
+	for _, letter := range attribute {
+		switch {
+		case letter == '[':
+			depth++
+		case letter == ']':
+			depth--
+		case letter == '.' && depth == 0:
+			segments = append(segments, builder.String())
+			builder.Reset()
+
+			continue
+		default:
+		}
+
+		_, _ = builder.WriteRune(letter)
+	}
+
+	return append(segments, builder.String())
+}
+
+// Split separates a canonical payload path into the Terraform address a test
+// assertion could name and the attribute path beneath it.
+//
+// It is the grammar's own reader: the suggestion engine must not rebuild these
+// prefixes at its call site, or the two would drift and the address adapter
+// would be joining two address spaces without an adapter — the failure shape
+// the M3 spec review named twice.
+//
+// A path in a plan's prior state, or inside a child module's state, returns
+// false: no assertion can read either.
+func Split(path string) (address, attribute string, ok bool) {
+	switch {
+	case strings.HasPrefix(path, resourceChanges+"["):
+		return splitAddressed(strings.TrimPrefix(path, resourceChanges+"["), changeAfter)
+	case strings.HasPrefix(path, rootModule+".resources["):
+		return splitAddressed(strings.TrimPrefix(path, rootModule+".resources["), planValues)
+	case strings.HasPrefix(path, outputChanges+"."):
+		return splitOutput(strings.TrimPrefix(path, outputChanges+"."), outputAfterField)
+	case strings.HasPrefix(path, stateOutputs+"."):
+		return splitOutput(strings.TrimPrefix(path, stateOutputs+"."), outputValueField)
+	default:
+		return "", "", false
+	}
+}
+
+func splitAddressed(rest, body string) (address, attribute string, ok bool) {
+	address, remainder, found := cutBracketed(rest)
+	if !found {
+		return "", "", false
+	}
+
+	remainder = strings.TrimPrefix(remainder, ".")
+
+	if remainder == body {
+		return address, "", true
+	}
+
+	if attribute, cut := strings.CutPrefix(remainder, body+"."); cut {
+		return address, attribute, true
+	}
+
+	return "", "", false
+}
+
+func splitOutput(rest, body string) (address, attribute string, ok bool) {
+	name, remainder, _ := strings.Cut(rest, ".")
+	if name == "" {
+		return "", "", false
+	}
+
+	if remainder == body {
+		return outputRoot + "." + name, "", true
+	}
+
+	if attribute, cut := strings.CutPrefix(remainder, body+"."); cut {
+		return outputRoot + "." + name, attribute, true
+	}
+
+	return "", "", false
 }

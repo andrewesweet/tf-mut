@@ -19,6 +19,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/suggest"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
@@ -133,6 +134,27 @@ type Config struct {
 	// NoCoverage evaluator — so a control run can prove each shortcut equal
 	// to the executed verdict. It is a seam control, not a command-line flag.
 	DisableStaticShortcuts bool
+	// DisableJSONReading leaves every JSON-syntax file in the closure unread,
+	// so a control run can prove the safety floor holds for content the tool
+	// has not read. It is a seam control, not a command-line flag.
+	DisableJSONReading bool
+	// Suggest generates, and unless SuggestDryRun is set verifies, the
+	// assertion that would have killed each provable survivor.
+	Suggest bool
+	// SuggestDryRun prints the candidate patches and verifies nothing.
+	SuggestDryRun bool
+	// SurvivorIDs restricts suggestion to the named survivors. A missing or
+	// stale identifier is an operational failure that names it.
+	SurvivorIDs []string
+	// Apply writes the named verified suggestions into the module's test
+	// files, under the snapshot-bound protocol. Empty unless ApplyAll is set.
+	Apply []string
+	// ApplyAll writes every verified suggestion.
+	ApplyAll bool
+	// SeedSuggestionDefect makes the generator emit one deliberately wrong
+	// assertion, so the suggestion-soundness gate can prove that verification
+	// rejects it. It is a seam control, not a command-line flag.
+	SeedSuggestionDefect suggest.Defect
 }
 
 // Operational failures. Every one of them aborts the run: none of them can be
@@ -174,7 +196,8 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		return report.Report{}, err
 	}
 
-	configuration, err := discovery.Discover(moduleDir, settings.TestDirectory)
+	configuration, err := discovery.DiscoverWith(moduleDir, settings.TestDirectory,
+		discovery.Options{SkipJSON: settings.DisableJSONReading})
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -191,14 +214,11 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		}
 	}
 
-	if len(configuration.Tests.Runs) == 0 {
-		return report.Report{}, fmt.Errorf("%w: %s declares no run blocks",
-			ErrBaselineNoRuns, configuration.Tests.Dir)
-	}
+	settings, warnings = applyFloor(configuration, settings, warnings)
 
-	workRoot, err := os.MkdirTemp(settings.WorkDir, "tf-mut-")
+	workRoot, err := prepareWorkRoot(configuration, settings)
 	if err != nil {
-		return report.Report{}, fmt.Errorf("creating work directory: %w", err)
+		return report.Report{}, err
 	}
 
 	defer func() { _ = os.RemoveAll(workRoot) }()
@@ -210,7 +230,7 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 
 	warnings = append(append(warnings, prepared.warnings...), generated.Warnings...)
 
-	graph := configuration.BuildGraph()
+	graph := floorGraph(configuration)
 	result := shell(configuration, settings, version.Terraform, moduleDir, prepared, warnings)
 	mutants := describe(configuration, graph, settings, generated.Mutants)
 
@@ -237,7 +257,7 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		return result, nil
 	}
 
-	executed, failures := executeWithCache(ctx, &result, version, executionPlan{
+	plan := executionPlan{
 		runner:        runner,
 		configuration: configuration,
 		config:        settings,
@@ -247,23 +267,88 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		workRoot:      workRoot,
 		closure:       configuration.BuildClosure(),
 		graph:         graph,
-	})
+	}
 
-	return finish(configuration, settings, moduleDir, result, executed, failures)
+	executed, failures := executeWithCache(ctx, &result, version, plan)
+
+	return finish(ctx, plan, moduleDir, result, executed, failures)
 }
 
-// finish completes the report and applies the baseline gate.
-func finish(
+// prepareWorkRoot refuses a suite with no run blocks and creates the run's
+// temporary directory.
+func prepareWorkRoot(configuration discovery.Configuration, settings Config) (string, error) {
+	if len(configuration.Tests.Runs) == 0 {
+		return "", fmt.Errorf("%w: %s declares no run blocks",
+			ErrBaselineNoRuns, configuration.Tests.Dir)
+	}
+
+	workRoot, err := os.MkdirTemp(settings.WorkDir, "tf-mut-")
+	if err != nil {
+		return "", fmt.Errorf("creating work directory: %w", err)
+	}
+
+	return workRoot, nil
+}
+
+// applyFloor is the JSON safety floor's static half. It holds whether or not
+// the gates were authorised, and in a preview too: a shortcut is a claim about
+// the whole configuration, and part of the configuration was not read.
+func applyFloor(
 	configuration discovery.Configuration,
 	settings Config,
+	warnings []string,
+) (Config, []string) {
+	floor := floorOf(configuration)
+	if floor.active() {
+		settings.DisableStaticShortcuts = true
+		warnings = append(warnings, floor.degradation())
+	}
+
+	return settings, warnings
+}
+
+// floorGraph is the whole-payload floor expressed as the run's graph: while
+// unread JSON is present the graph is built from `.tf` syntax alone, so it
+// would be missing edges without saying so, and every mapping must fail.
+func floorGraph(configuration discovery.Configuration) *discovery.Graph {
+	if floorOf(configuration).active() {
+		return discovery.UnmappedGraph()
+	}
+
+	return configuration.BuildGraph()
+}
+
+// finish completes the report, generates and verifies any suggestions, and
+// applies the baseline gate.
+func finish(
+	ctx context.Context,
+	plan executionPlan,
 	moduleDir string,
 	result report.Report,
 	executed []report.Mutant,
 	failures []report.ExecutionError,
 ) (report.Report, error) {
-	result = complete(configuration, settings, result, executed, failures)
+	result = complete(plan.configuration, plan.config, result, executed, failures)
 
-	if err := applyBaselineGate(settings, moduleDir, &result); err != nil {
+	if plan.config.Suggest {
+		suggestions, cost, err := suggestAssertions(ctx, plan, result)
+		if err != nil {
+			return report.Report{}, err
+		}
+
+		result.Suggestions = suggestions
+		if cost != "" {
+			result.Warnings = append(result.Warnings, cost)
+		}
+
+		applySuggestions(plan.config, &result, applyContext{
+			moduleDir:   plan.configuration.ModuleDir,
+			closureRoot: plan.configuration.ClosureRoot,
+			testDirs:    []string{plan.configuration.Tests.Dir, plan.configuration.ModuleDir},
+		})
+	}
+
+	if err := applyBaselineGate(plan.config, moduleDir, &result); err != nil {
 		return report.Report{}, err
 	}
 
@@ -305,6 +390,10 @@ func finalise(settings Config, configured config.File) (Config, error) {
 	// The gate truth table's sampled and write rows: refused before any work
 	// is done.
 	if err := checkSampledGate(settings); err != nil {
+		return Config{}, err
+	}
+
+	if err := checkSuggestCombinations(settings); err != nil {
 		return Config{}, err
 	}
 
@@ -455,11 +544,14 @@ func shell(
 }
 
 func commandName(settings Config) report.Command {
-	if settings.Preview {
+	switch {
+	case settings.Preview:
 		return report.CommandPreview
+	case settings.Suggest:
+		return report.CommandSuggest
+	default:
+		return report.CommandRun
 	}
-
-	return report.CommandRun
 }
 
 func checkVersion(ctx context.Context, runner tfexec.Runner, dir string) (tfexec.Version, error) {

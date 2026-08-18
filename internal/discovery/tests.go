@@ -26,7 +26,11 @@ const (
 	planOptions    = "plan_options"
 )
 
-func parseTests(parser *hclparse.Parser, moduleDir, testDir string) (TestSuite, error) {
+func parseTests(
+	parser *hclparse.Parser,
+	moduleDir, testDir string,
+	options Options,
+) (TestSuite, []JSONFile, error) {
 	absoluteTestDir := testDir
 	if !filepath.IsAbs(absoluteTestDir) {
 		absoluteTestDir = filepath.Join(moduleDir, testDir)
@@ -40,46 +44,114 @@ func parseTests(parser *hclparse.Parser, moduleDir, testDir string) (TestSuite, 
 		Mocks:           []ProviderAlias{},
 		References:      map[string][]Reference{},
 		FileVariables:   map[string][]Attribute{},
+		JSONAssertions:  []Assertion{},
 	}
 
-	files, err := listFiles(absoluteTestDir, testFileSuffix)
+	files, err := listTestFiles(moduleDir, absoluteTestDir, testFileSuffix)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return suite, nil
-		}
-
-		return TestSuite{}, err
+		return TestSuite{}, nil, err
 	}
 
-	rootFiles, err := listFiles(moduleDir, testFileSuffix)
-	if err != nil {
-		return TestSuite{}, err
-	}
-
-	files = append(files, rootFiles...)
-	slices.Sort(files)
 	suite.Files = files
-
 	mocked := map[string]bool{}
 
 	for _, path := range files {
-		body, err := parseFile(parser, path)
-		if err != nil {
-			return TestSuite{}, err
+		body, parseErr := parseFile(parser, path)
+		if parseErr != nil {
+			return TestSuite{}, nil, parseErr
 		}
 
-		relative, err := filepath.Rel(moduleDir, path)
-		if err != nil {
-			return TestSuite{}, fmt.Errorf("resolving test file path: %w", err)
+		relative, relErr := filepath.Rel(moduleDir, path)
+		if relErr != nil {
+			return TestSuite{}, nil, fmt.Errorf("resolving test file path: %w", relErr)
 		}
 
 		collectTestFile(&suite, mocked, path, filepath.ToSlash(relative), body)
 		collectTestReferences(&suite, path, body)
 	}
 
+	jsonFiles, err := readJSONTests(&suite, mocked, moduleDir, absoluteTestDir, options)
+	if err != nil {
+		return TestSuite{}, nil, err
+	}
+
 	suite.MockedProviders = sortedKeys(mocked)
 
-	return suite, nil
+	return suite, jsonFiles, nil
+}
+
+// listTestFiles lists the test files of one syntax, from the test directory and
+// from the module root, the way Terraform reads them.
+func listTestFiles(moduleDir, testDir, suffix string) ([]string, error) {
+	files, listErr := listFiles(testDir, suffix)
+	if listErr != nil {
+		if !errors.Is(listErr, fs.ErrNotExist) {
+			return nil, listErr
+		}
+
+		files = nil
+	}
+
+	rootFiles, err := listFiles(moduleDir, suffix)
+	if err != nil {
+		return nil, err
+	}
+
+	files = append(files, rootFiles...)
+	slices.Sort(files)
+
+	return files, nil
+}
+
+// readJSONTests decodes every `.tftest.json` file, recording each file's read
+// status. A file that cannot be read contributes nothing.
+func readJSONTests(
+	suite *TestSuite,
+	mocked map[string]bool,
+	moduleDir, testDir string,
+	options Options,
+) ([]JSONFile, error) {
+	paths, err := listTestFiles(moduleDir, testDir, jsonTestSuffix)
+	if err != nil {
+		return nil, err
+	}
+
+	records := make([]JSONFile, 0, len(paths))
+
+	for _, path := range paths {
+		scratch := TestSuite{ //nolint:exhaustruct // a decode sink: only the collected fields matter.
+			References:     map[string][]Reference{},
+			JSONAssertions: []Assertion{},
+		}
+		found := map[string]bool{}
+
+		if readErr := skippedOr(options, func() error {
+			return readJSONTest(&scratch, found, moduleDir, path)
+		}); readErr != nil {
+			records = append(records, unreadFile(path, JSONTest, readErr))
+
+			continue
+		}
+
+		mergeJSONTests(suite, mocked, scratch, found)
+		records = append(records, readFileRecord(path, JSONTest))
+	}
+
+	return records, nil
+}
+
+func mergeJSONTests(suite *TestSuite, mocked map[string]bool, scratch TestSuite, found map[string]bool) {
+	suite.Runs = append(suite.Runs, scratch.Runs...)
+	suite.Mocks = append(suite.Mocks, scratch.Mocks...)
+	suite.JSONAssertions = append(suite.JSONAssertions, scratch.JSONAssertions...)
+
+	for address, references := range scratch.References {
+		suite.References[address] = append(suite.References[address], references...)
+	}
+
+	for name := range found {
+		mocked[name] = true
+	}
 }
 
 func collectTestFile(suite *TestSuite, mocked map[string]bool, path, relative string, body *hclsyntax.Body) {

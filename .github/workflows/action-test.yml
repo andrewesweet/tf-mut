@@ -42,11 +42,11 @@ jobs:
     needs: package
     runs-on: ubuntu-24.04
     # The Action's documented least-privilege caller permissions, so the
-    # publication effects — SARIF upload and PR comment — are assertable.
+    # publication effect — the SARIF upload — is assertable. The step summary
+    # needs no permission at all.
     permissions:
       contents: read
       security-events: write # The SARIF upload the contract job asserts.
-      pull-requests: write # The maintained PR comment the contract job asserts.
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -88,7 +88,6 @@ jobs:
           download-base-url: file:///tmp/tf-mut-release
           module: /tmp/module
           args: ""
-          comment: "false"
       - name: The check outcome is the captured exit code
         env:
           EXIT_CODE: ${{ steps.action.outputs.exit-code }}
@@ -107,7 +106,6 @@ jobs:
           download-base-url: file:///tmp/tf-mut-release
           module: /tmp/failing
           args: ""
-          comment: "true"
           # GitHub permits one SARIF upload per job per tool/category; the
           # green invocation above already claimed the default category.
           sarif-category: failing-run
@@ -116,7 +114,6 @@ jobs:
           FAILING_OUTCOME: ${{ steps.failing.outcome }}
           FAILING_EXIT: ${{ steps.failing.outputs.exit-code }}
           SARIF_OUTCOME: ${{ steps.failing.outputs.sarif-outcome }}
-          COMMENT_OUTCOME: ${{ steps.failing.outputs.comment-outcome }}
         run: |
           set -euo pipefail
           # The composite failed — with the run's own findings exit code,
@@ -126,22 +123,20 @@ jobs:
           test "$FAILING_EXIT" = "1"
           test -s tf-mut.sarif
           test -s tf-mut-summary.md
-          # Under the documented write permissions the publication steps
-          # themselves succeeded after the red run.
+          # Under the documented write permission the publication step
+          # itself succeeded after the red run, and the summary the step
+          # summary carries was freshly produced.
           test "$SARIF_OUTCOME" = "success"
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            test "$COMMENT_OUTCOME" = "success"
-          fi
-      - name: The comment effect is visible on the pull request
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
+      - name: The summary content was produced for the red run
         run: |
           set -euo pipefail
-          gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
-            --jq '[.[] | select(.body | startswith("<!-- tf-mut-report -->"))] | length' |
-            grep -qv '^0$'
+          # Measured platform fact (first run of this step): GITHUB_STEP_SUMMARY
+          # is a fresh file per step, so a later step cannot read what
+          # scripts/action-run appended inside the composite. What is
+          # assertable across steps is the summary's source: the markdown file
+          # the run step derives the step summary from.
+          test -s tf-mut-summary.md
+          grep -q '## tf-mut' tf-mut-summary.md
       - name: A corrupted release asset fails the install
         id: corrupted
         continue-on-error: true
@@ -151,7 +146,6 @@ jobs:
           download-base-url: file:///tmp/tf-mut-corrupt
           module: /tmp/module
           args: ""
-          comment: "false"
       - name: The checksum gate refused the corrupted asset
         env:
           CORRUPT_OUTCOME: ${{ steps.corrupted.outcome }}
@@ -164,8 +158,8 @@ jobs:
     name: Read-only token degradation
     needs: package
     runs-on: ubuntu-24.04
-    # The simulated fork shape: no security-events write, no pull-requests
-    # write. The uploads degrade; the check outcome must survive.
+    # The simulated fork shape: no security-events write. The upload
+    # degrades; the check outcome and the step summary must survive.
     permissions:
       contents: read
     steps:
@@ -196,16 +190,14 @@ jobs:
         env:
           EXIT_CODE: ${{ steps.degraded.outputs.exit-code }}
           SARIF_OUTCOME: ${{ steps.degraded.outputs.sarif-outcome }}
-          COMMENT_OUTCOME: ${{ steps.degraded.outputs.comment-outcome }}
         run: |
           set -euo pipefail
-          # The check outcome is the run's own, whatever the uploads managed.
+          # The check outcome is the run's own, whatever the upload managed,
+          # and the step summary needs no token at all — its markdown source
+          # is on disk whatever the token shape (GITHUB_STEP_SUMMARY itself is
+          # per-step and unreadable from here; measured platform fact).
           test "$EXIT_CODE" = "0"
-          # The comment write is genuinely refused on a read-only token
-          # ("Resource not accessible by integration").
-          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-            test "$COMMENT_OUTCOME" != "success"
-          fi
+          test -s tf-mut-summary.md
           # Measured platform behaviour (first green-SARIF run of this job):
           # on pull_request events GitHub accepts the SARIF upload from a
           # read-only token — the platform scopes that write itself, so PR

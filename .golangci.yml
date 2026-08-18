@@ -113,6 +113,16 @@ linters:
   exclusions:
     generated: strict
     rules:
+      # gosec's G703 taint analysis activates for writeFile's fixture-copy
+      # path only under some build-tag sets, so the required //nolint:gosec is
+      # "used" under one tag set and "unused" under the other — the same
+      # machine-dependent activation that got call-to-gc its deterministic
+      # disable above. The suppression stays; nolintlint's unused-directive
+      # check is excluded for this one file, deterministically, with this as
+      # the recorded reason.
+      - path: internal/engine/harness_test\.go
+        linters:
+          - nolintlint
       # SARIF 2.1.0 names its members in camelCase. The repository's snake_case
       # convention governs documents this project designs; this one is a
       # published specification, and renaming its members would be a defect.

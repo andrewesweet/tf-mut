@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +10,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/hashicorp/hcl/v2/json"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
@@ -74,6 +76,13 @@ func conditionallyUncovered(
 
 	for _, run := range runs {
 		if run.HasPlanTarget {
+			return false
+		}
+
+		// A JSON-declared run's variables are not in the enumerated context:
+		// an `Attribute` carries a native-syntax expression and a JSON run has
+		// none, so the evaluator cannot see what the run assigns.
+		if run.JSONDeclared {
 			return false
 		}
 
@@ -358,47 +367,24 @@ func resolveVariable(
 }
 
 // autoVarAssignment reads the automatically loaded variable files in
-// Terraform's own precedence: terraform.tfvars first, then *.auto.tfvars in
-// lexical order, later files overriding earlier ones. A JSON variant or an
-// unparseable file makes every lookup fail closed — the evaluator cannot see
-// what Terraform will.
+// Terraform's own precedence: terraform.tfvars first, then terraform.tfvars.json,
+// then the `*.auto.tfvars` and `*.auto.tfvars.json` families in lexical order,
+// later files overriding earlier ones. An unreadable file, or an assignment
+// that is not a literal, makes every lookup fail closed — the evaluator cannot
+// see what Terraform will.
+//
+// The JSON variants are read here rather than refused (M4c). The M3-era
+// conservatism they were refused under said the evaluator "cannot see what
+// Terraform will"; it can now, and only for a file it actually decoded.
 func autoVarAssignment(moduleDir, name string) (value cty.Value, decided, assigned bool) {
-	// A JSON auto-var file is outside the evaluator's HCL-literal reach:
-	// its mere presence fails the resolution closed.
-	for _, pattern := range []string{"terraform.tfvars.json", "*.auto.tfvars.json"} {
-		matches, _ := filepath.Glob(filepath.Join(moduleDir, pattern))
-		if len(matches) > 0 {
-			return cty.NilVal, false, true
-		}
-	}
-
-	paths := []string{}
-	if _, err := os.Stat(filepath.Join(moduleDir, "terraform.tfvars")); err == nil {
-		paths = append(paths, filepath.Join(moduleDir, "terraform.tfvars"))
-	}
-
-	autoLoaded, _ := filepath.Glob(filepath.Join(moduleDir, "*.auto.tfvars"))
-	slices.Sort(autoLoaded)
-	paths = append(paths, autoLoaded...)
-
-	for _, path := range slices.Backward(paths) {
-		content, err := os.ReadFile(path) //nolint:gosec // module-owned variable file.
+	for _, path := range slices.Backward(autoVariableFiles(moduleDir)) {
+		attributes, err := variableFileAttributes(path)
 		if err != nil {
 			return cty.NilVal, false, true
 		}
 
-		file, diagnostics := hclparse.NewParser().ParseHCL(content, path)
-		if diagnostics.HasErrors() {
-			return cty.NilVal, false, true
-		}
-
-		body, ok := file.Body.(*hclsyntax.Body)
-		if !ok {
-			return cty.NilVal, false, true
-		}
-
-		if attribute, found := body.Attributes[name]; found {
-			resolved, literal := literalValue(attribute.Expr)
+		if expr, found := attributes[name]; found {
+			resolved, literal := literalValue(expr)
 			if !literal {
 				return cty.NilVal, false, true
 			}
@@ -408,6 +394,72 @@ func autoVarAssignment(moduleDir, name string) (value cty.Value, decided, assign
 	}
 
 	return cty.NilVal, false, false
+}
+
+// autoVariableFiles lists the automatically loaded variable files in
+// Terraform's own precedence order, lowest first.
+func autoVariableFiles(moduleDir string) []string {
+	paths := []string{}
+
+	for _, name := range []string{"terraform.tfvars", "terraform.tfvars.json"} {
+		if _, err := os.Stat(filepath.Join(moduleDir, name)); err == nil {
+			paths = append(paths, filepath.Join(moduleDir, name))
+		}
+	}
+
+	autoLoaded, _ := filepath.Glob(filepath.Join(moduleDir, "*.auto.tfvars"))
+
+	jsonLoaded, _ := filepath.Glob(filepath.Join(moduleDir, "*.auto.tfvars.json"))
+	autoLoaded = append(autoLoaded, jsonLoaded...)
+
+	slices.Sort(autoLoaded)
+
+	return append(paths, autoLoaded...)
+}
+
+// variableFileAttributes decodes one variable file into its assignments,
+// through the parser its syntax calls for.
+func variableFileAttributes(path string) (map[string]hcl.Expression, error) {
+	content, err := os.ReadFile(path) //nolint:gosec // module-owned variable file.
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", path, err)
+	}
+
+	assignments := map[string]hcl.Expression{}
+
+	if strings.HasSuffix(path, ".json") {
+		file, diagnostics := json.Parse(content, path)
+		if diagnostics.HasErrors() {
+			return nil, fmt.Errorf("%w: %s: %s", discovery.ErrParse, path, diagnostics.Error())
+		}
+
+		attributes, attributeDiagnostics := file.Body.JustAttributes()
+		if attributeDiagnostics.HasErrors() {
+			return nil, fmt.Errorf("%w: %s: %s", discovery.ErrParse, path, attributeDiagnostics.Error())
+		}
+
+		for name, attribute := range attributes {
+			assignments[name] = attribute.Expr
+		}
+
+		return assignments, nil
+	}
+
+	file, diagnostics := hclparse.NewParser().ParseHCL(content, path)
+	if diagnostics.HasErrors() {
+		return nil, fmt.Errorf("%w: %s: %s", discovery.ErrParse, path, diagnostics.Error())
+	}
+
+	body, ok := file.Body.(*hclsyntax.Body)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s: unexpected body type", discovery.ErrParse, path)
+	}
+
+	for name, attribute := range body.Attributes {
+		assignments[name] = attribute.Expr
+	}
+
+	return assignments, nil
 }
 
 func environmentOverrides(settings Config, name string) bool {
@@ -440,7 +492,7 @@ func namedAttribute(attributes []discovery.Attribute, name string) (hclsyntax.Ex
 }
 
 // literalValue evaluates an expression as a context-free literal.
-func literalValue(expr hclsyntax.Expression) (cty.Value, bool) {
+func literalValue(expr hcl.Expression) (cty.Value, bool) {
 	value, diagnostics := expr.Value(nil)
 	if diagnostics.HasErrors() || value.IsNull() || !value.IsWhollyKnown() {
 		return cty.NilVal, false

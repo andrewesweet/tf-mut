@@ -41,6 +41,22 @@ func (r Report) ExitCode(gate Gate) int {
 		return ExitOperational
 	}
 
+	// `suggest` has its own contract: zero once all the requested work has
+	// concluded, whatever mix of verified and skipped it concluded in, and one
+	// where any suggestion was refuted — a refutation is a generator defect and
+	// a visible tool finding, not a survivor count.
+	if r.Command == CommandSuggest {
+		if r.Apply != nil && r.Apply.Aborted != "" {
+			return ExitOperational
+		}
+
+		if r.SuggestionsByStatus()[SuggestionRefuted] > 0 {
+			return ExitFindings
+		}
+
+		return ExitClean
+	}
+
 	if gate.HasMinScore || gate.FailOnNew {
 		if gate.HasMinScore && !r.minScorePasses(gate) {
 			return ExitFindings
@@ -130,15 +146,79 @@ func writePreview(builder *strings.Builder, value Report) {
 }
 
 func writeRun(builder *strings.Builder, value Report) {
-	fmt.Fprintf(builder, "tf-mut run  %s\n\n", value.Module)
+	fmt.Fprintf(builder, "tf-mut %s  %s\n\n", value.Command, value.Module)
 
 	writeFindings(builder, value)
 	writeSurvivors(builder, value)
 	writeUnassertable(builder, value)
+	writeSuggestions(builder, value)
 	writeMetrics(builder, value)
 	writeSuppressions(builder, value.Suppressions)
 	writeErrors(builder, value.Errors)
 	writeWarnings(builder, value.Warnings)
+}
+
+// writeSuggestions renders the outcome table as a review list: what the tool
+// would write, what it proved, and what it refused to claim.
+//
+// A skipped suggestion prints its status and its reason and nothing else. That
+// is not brevity: `skipped-sensitive` means the value must appear in no
+// artefact, and the terminal is one of them.
+func writeSuggestions(builder *strings.Builder, value Report) {
+	if len(value.Suggestions) == 0 {
+		return
+	}
+
+	fmt.Fprintf(builder, "SUGGESTED ASSERTIONS (%d)\n\n", len(value.Suggestions))
+
+	for _, suggestion := range value.Suggestions {
+		fmt.Fprintf(builder, "  %s  %s  %s:%s  (mutant %s)\n",
+			suggestion.ID, suggestion.Status,
+			suggestion.TargetFile, suggestion.TargetRun, suggestion.MutantID)
+
+		if suggestion.Status.Skipped() {
+			fmt.Fprintf(builder, "    %s\n\n", suggestion.StatusReason)
+
+			continue
+		}
+
+		fmt.Fprintf(builder, "    condition = %s\n", suggestion.Expression)
+
+		if suggestion.StatusReason != "" {
+			fmt.Fprintf(builder, "    %s\n", suggestion.StatusReason)
+		}
+
+		writeDiff(builder, suggestion.Patch)
+		builder.WriteString("\n")
+	}
+
+	writeApply(builder, value.Apply)
+}
+
+func writeApply(builder *strings.Builder, applied *AppliedSuggestions) {
+	if applied == nil {
+		return
+	}
+
+	if applied.Aborted != "" {
+		fmt.Fprintf(builder, "  APPLY ABORTED: %s\n", applied.Aborted)
+
+		if applied.Partial {
+			fmt.Fprintf(builder, "  Written before the failure: %s\n",
+				strings.Join(applied.Written, ", "))
+			fmt.Fprintf(builder, "  Left unwritten: %s\n", strings.Join(applied.Pending, ", "))
+			builder.WriteString("  Re-run `tf-mut suggest` to re-verify against the tree as it now is.\n")
+		} else {
+			builder.WriteString("  Nothing was written.\n")
+		}
+
+		builder.WriteString("\n")
+
+		return
+	}
+
+	fmt.Fprintf(builder, "  Applied %d suggestion(s) to %s\n\n",
+		len(applied.Requested), strings.Join(applied.Written, ", "))
 }
 
 func writeFindings(builder *strings.Builder, value Report) {

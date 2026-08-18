@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"github.com/zclconf/go-cty/cty"
+	ctyjson "github.com/zclconf/go-cty/cty/json"
 )
 
 // dataSourceKind selects the data source half of a provider schema.
@@ -31,11 +34,18 @@ type SchemaBlock struct {
 	Attributes map[string]SchemaAttribute `json:"attributes"`
 }
 
-// SchemaAttribute records the optionality flags of one argument.
+// SchemaAttribute records the optionality flags of one argument and the cty
+// type the provider published for it.
 type SchemaAttribute struct {
 	Required bool `json:"required"`
 	Optional bool `json:"optional"`
 	Computed bool `json:"computed"`
+	// Type is the argument's cty type in its JSON encoding: "string", or
+	// ["list","string"], or ["object",{...}]. It is the normative type source
+	// for anything that renders a value back into Terraform syntax: the
+	// payload alone cannot tell a set from a list, and `toset(["a"]) == ["a"]`
+	// is false.
+	Type json.RawMessage `json:"type"`
 }
 
 // ProvidersSchema retrieves the provider schemas visible from dir.
@@ -85,6 +95,29 @@ func (s Schemas) Optionality(kind, resourceType, attribute string) (optional, kn
 	return false, false
 }
 
+// AttributeType returns the cty type the provider published for an argument.
+//
+// The second result is false where no provider schema types the argument at
+// all, including where the published type is Terraform's `dynamic`: a dynamic
+// attribute is type evidence about the schema and none about the value.
+func (s Schemas) AttributeType(kind, resourceType, attribute string) (cty.Type, bool) {
+	described, found := s.attribute(kind, resourceType, attribute)
+	if !found || len(described.Type) == 0 {
+		return cty.NilType, false
+	}
+
+	decoded, err := ctyjson.UnmarshalType(described.Type)
+	if err != nil {
+		return cty.NilType, false
+	}
+
+	if decoded == cty.DynamicPseudoType {
+		return cty.NilType, false
+	}
+
+	return decoded, true
+}
+
 // Computed reports whether the named argument of a managed resource or data
 // source is one the provider fills in.
 //
@@ -112,4 +145,28 @@ func (s Schemas) Computed(kind, resourceType, attribute string) (computed, known
 	}
 
 	return false, false
+}
+
+// attribute finds one argument's schema across every visible provider.
+func (s Schemas) attribute(kind, resourceType, attribute string) (SchemaAttribute, bool) {
+	for _, provider := range s.ProviderSchemas {
+		schemas := provider.ResourceSchemas
+		if kind == dataSourceKind {
+			schemas = provider.DataSourceSchemas
+		}
+
+		schema, found := schemas[resourceType]
+		if !found {
+			continue
+		}
+
+		described, found := schema.Block.Attributes[attribute]
+		if !found {
+			return SchemaAttribute{}, false //nolint:exhaustruct // nothing was described.
+		}
+
+		return described, true
+	}
+
+	return SchemaAttribute{}, false //nolint:exhaustruct // no provider describes it.
 }

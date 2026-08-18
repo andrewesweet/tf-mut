@@ -154,6 +154,18 @@ func cacheKey(
 		write("test", filepath.Base(path), hashBytes(content))
 	}
 
+	// Every JSON-syntax file in the closure, whether or not this run read it.
+	// Terraform reads them regardless, so they reach verdicts; the key hashes
+	// all JSON classes and no finer key is built (M4c).
+	for _, file := range configuration.JSONFiles() {
+		content, err := os.ReadFile(file.Path)
+		if err != nil {
+			return "", err
+		}
+
+		write("json", file.Rel, hashBytes(content))
+	}
+
 	// The dependency lock, where one exists.
 	if prepared.lockFile != "" {
 		content, err := os.ReadFile(prepared.lockFile)
@@ -168,6 +180,14 @@ func cacheKey(
 	// being asked, so they reach verdicts without appearing in the source
 	// closure (review of #48).
 	if err := hashAutoVarFiles(write, configuration.ModuleDir); err != nil {
+		return "", err
+	}
+
+	// Mock-data files (round-3 review, PR #69): a mock_provider's source
+	// directory of .tfmock.hcl/.tfmock.json files decides the values a mocked
+	// run sees, so an edit there changes verdicts — and nothing else hashes
+	// them, because they are in no inventory and no test-file list.
+	if err := hashMockDataFiles(write, configuration.ClosureRoot); err != nil {
 		return "", err
 	}
 
@@ -234,6 +254,46 @@ func hashAutoVarFiles(write func(kind, name, value string), moduleDir string) er
 		}
 
 		write("auto-var", filepath.Base(path), hashBytes(content))
+	}
+
+	return nil
+}
+
+// hashMockDataFiles hashes every mock-data file under the closure, in path
+// order, whatever directory its mock_provider points at.
+func hashMockDataFiles(write func(kind, name, value string), closureRoot string) error {
+	paths := []string{}
+
+	walk := func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+
+		if strings.HasSuffix(path, ".tfmock.hcl") || strings.HasSuffix(path, ".tfmock.json") {
+			paths = append(paths, path)
+		}
+
+		return nil
+	}
+
+	if err := filepath.WalkDir(closureRoot, walk); err != nil {
+		return fmt.Errorf("walking %s for mock data: %w", closureRoot, err)
+	}
+
+	slices.Sort(paths)
+
+	for _, path := range paths {
+		content, err := os.ReadFile(path) //nolint:gosec // a closure-owned path.
+		if err != nil {
+			return err
+		}
+
+		rel, err := filepath.Rel(closureRoot, path)
+		if err != nil {
+			return err
+		}
+
+		write("mock-data", filepath.ToSlash(rel), hashBytes(content))
 	}
 
 	return nil

@@ -13,7 +13,7 @@ import (
 )
 
 // schemaPath is the published contract the JSON reporter promises to keep.
-const schemaPath = "../../docs/schema/report-2.1.0.json"
+const schemaPath = "../../docs/schema/report-2.2.0.json"
 
 func TestPublishedSchemaMatchesTheReportersVersion(t *testing.T) {
 	t.Parallel()
@@ -109,6 +109,9 @@ func stringsAt(document map[string]any, key string) []string {
 // The literals the sample report reuses.
 const (
 	sampleFile     = "main.tf"
+	samplePatch    = "--- a/tests/unit.tftest.hcl\n+++ b/tests/unit.tftest.hcl\n"
+	samplePass     = "pass"
+	sampleOtherID  = "ba9876543210"
 	sampleRun      = "defaults"
 	sampleResource = "terraform_data.app"
 	sampleTestFile = "tests/unit.tftest.hcl"
@@ -148,9 +151,17 @@ func sampleReport() report.Report {
 			Site:     sampleOutput,
 			Message:  "no run block executed, so no verdict is possible",
 		}},
-		Population: report.Population{Selected: 2, Omitted: 3, Cached: 0, Fresh: 2},
-		Selection:  report.Selection{Mode: report.SelectionSince, Ref: "main", ForcedFull: ""},
-		Sampling:   &report.Sampling{RatePercent: 25, Seed: 42, Authoritative: false},
+		Population:  report.Population{Selected: 2, Omitted: 3, Cached: 0, Fresh: 2},
+		Selection:   report.Selection{Mode: report.SelectionSince, Ref: "main", ForcedFull: ""},
+		Sampling:    &report.Sampling{RatePercent: 25, Seed: 42, Authoritative: false},
+		Suggestions: sampleSuggestions(),
+		Apply: &report.AppliedSuggestions{
+			Requested: []string{"aaaabbbbcccc"},
+			Written:   []string{sampleTestFile},
+			Pending:   nil,
+			Aborted:   "",
+			Partial:   false,
+		},
 		Gates: &report.Gates{
 			MinScore: report.GateOutcome{
 				Evaluated: true, Scope: "selected", Partial: true, Passed: true, Refused: "",
@@ -168,6 +179,71 @@ func sampleReport() report.Report {
 	}
 }
 
+// decidedAndSkippedRows is the outcome table's row count.
+const decidedAndSkippedRows = 7
+
+// sampleSuggestions covers every row of the outcome table: the three decided
+// statuses and all four skips, with the presence rules each row promises.
+func sampleSuggestions() []report.Suggestion {
+	legs := &report.Verification{
+		Baseline: report.VerificationLeg{
+			Passed: true,
+			Runs: []report.RunOutcome{{
+				File: sampleTestFile, Run: sampleRun, Phase: 1, Status: samplePass,
+			}},
+			Detail: "the full suite ran 1 run block(s) with 1 suggested assertion(s) applied",
+		},
+		Mutant: report.VerificationLeg{
+			Passed: true,
+			Runs: []report.RunOutcome{{
+				File: sampleTestFile, Run: sampleRun, Phase: 1, Status: "fail",
+			}},
+			Detail: "the mutant failed the suggested assertion applied on its own",
+		},
+	}
+
+	decided := make([]report.Suggestion, 0, decidedAndSkippedRows)
+
+	decided = append(decided, []report.Suggestion{
+		{
+			ID: "aaaabbbbcccc", MutantID: sampleMutantID,
+			TargetFile: sampleTestFile, TargetRun: sampleRun,
+			Status: report.SuggestionVerified, Expression: sampleOutput + ` == "critical"`,
+			Patch:          samplePatch,
+			VerifiedDigest: "8f1c0e6a8f1c0e6a", Verification: legs, StatusReason: "",
+		},
+		{
+			ID: "bbbbccccdddd", MutantID: sampleOtherID,
+			TargetFile: sampleTestFile, TargetRun: sampleRun,
+			Status: report.SuggestionCandidate, Expression: sampleOutput + ` == "critical"`,
+			Patch:          samplePatch,
+			VerifiedDigest: "", Verification: nil, StatusReason: "",
+		},
+		{
+			ID: "ccccddddeeee", MutantID: "fedcba987654",
+			TargetFile: sampleTestFile, TargetRun: sampleRun,
+			Status: report.SuggestionRefuted, Expression: sampleOutput + ` == "critical"`,
+			Patch:          samplePatch,
+			VerifiedDigest: "", Verification: legs,
+			StatusReason: "the mutant survived the suggested assertion applied on its own",
+		},
+	}...)
+
+	for index, status := range []report.SuggestionStatus{
+		report.SuggestionSkippedSensitive, report.SuggestionSkippedUnaddressable,
+		report.SuggestionSkippedUnrenderable, report.SuggestionSkippedUnsupportedTarget,
+	} {
+		decided = append(decided, report.Suggestion{
+			ID: fmt.Sprintf("dddd0000%04d", index), MutantID: sampleMutantID,
+			TargetFile: sampleTestFile, TargetRun: sampleRun,
+			Status: status, Expression: "", Patch: "", VerifiedDigest: "",
+			Verification: nil, StatusReason: "the adapter refused, and said why",
+		})
+	}
+
+	return decided
+}
+
 func sampleFindings() []report.Finding {
 	return []report.Finding{{
 		ID:      "abcdef012345",
@@ -180,7 +256,7 @@ func sampleFindings() []report.Finding {
 			End:   report.Position{Line: 7, Column: 2},
 		},
 		Message: "1 extreme mutant(s) executed and no assertion caught any of them.",
-		Mutants: []string{"ba9876543210"},
+		Mutants: []string{sampleOtherID},
 	}}
 }
 
@@ -222,8 +298,8 @@ func sampleMutants() []report.Mutant {
 				},
 			},
 			Runs: []report.RunOutcome{
-				{File: sampleTestFile, Run: sampleRun, Phase: 1, Status: "pass"},
-				{File: sampleTestFile, Run: sampleRun, Phase: 2, Status: "pass"},
+				{File: sampleTestFile, Run: sampleRun, Phase: 1, Status: samplePass},
+				{File: sampleTestFile, Run: sampleRun, Phase: 2, Status: samplePass},
 			},
 			Diagnostics:  nil,
 			ExecutedRuns: 1,
@@ -238,7 +314,7 @@ func sampleMutants() []report.Mutant {
 			},
 		},
 		{
-			ID:       "ba9876543210",
+			ID:       sampleOtherID,
 			Operator: "EXT-BODY-BLANK",
 			Tier:     smokeTier,
 			Module:   ".",
@@ -325,6 +401,14 @@ func validate(root, schema map[string]any, document any, path string) []string {
 
 	if allowed, ok := schema["enum"].([]any); ok && !slices.Contains(allowed, document) {
 		problems = append(problems, fmt.Sprintf("%s: %v is not one of %v", path, document, allowed))
+	}
+
+	if clauses, ok := schema["allOf"].([]any); ok {
+		for _, clause := range clauses {
+			if conditional, isMap := clause.(map[string]any); isMap {
+				problems = append(problems, validateConditional(root, conditional, document, path)...)
+			}
+		}
 	}
 
 	if fixed, ok := schema["const"]; ok && document != fixed {
@@ -421,5 +505,66 @@ func matchesType(expected string, document any) bool {
 		return ok && number == float64(int64(number))
 	default:
 		return true
+	}
+}
+
+// validateConditional evaluates one if/then clause plus the `not: required` form the
+// outcome table's presence rules use — the same deliberately small vocabulary
+// stance as the rest of this checker.
+func validateConditional(root, clause map[string]any, document any, path string) []string {
+	condition, hasIf := clause["if"].(map[string]any)
+	consequence, hasThen := clause["then"].(map[string]any)
+
+	if !hasIf || !hasThen {
+		return nil
+	}
+
+	if len(validate(root, condition, document, path)) > 0 {
+		return nil // the condition does not hold, so the clause is vacuous.
+	}
+
+	problems := validate(root, consequence, document, path)
+
+	if forbidden, ok := consequence["not"].(map[string]any); ok {
+		if required, isList := forbidden["required"].([]any); isList {
+			object, isObject := document.(map[string]any)
+
+			for _, entry := range required {
+				name, isString := entry.(string)
+				if _, present := object[name]; isObject && isString && present {
+					problems = append(problems, fmt.Sprintf("%s: property %q must be absent", path, name))
+				}
+			}
+		}
+	}
+
+	return problems
+}
+
+func TestSchemaRejectsAPatchOnASkippedSuggestion(t *testing.T) {
+	t.Parallel()
+
+	sample := sampleReport()
+
+	for index := range sample.Suggestions {
+		if sample.Suggestions[index].Status.Skipped() {
+			sample.Suggestions[index].Patch = samplePatch
+
+			break
+		}
+	}
+
+	encoded, err := json.Marshal(sample)
+	if err != nil {
+		t.Fatalf("encoding report: %v", err)
+	}
+
+	document := any(nil)
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatalf("decoding report: %v", err)
+	}
+
+	if problems := validate(loadSchema(t), loadSchema(t), document, "$"); len(problems) == 0 {
+		t.Fatal("the schema accepted a patch on a skipped suggestion")
 	}
 }
