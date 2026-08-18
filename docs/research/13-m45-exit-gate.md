@@ -14,7 +14,7 @@ here rather than in a commit message.
 | M2a honesty | `just gate` | unchanged |
 | M3 offline | `just gate-m3` | unchanged |
 | M4 offline | `just gate-m4` | one substitution, below |
-| **M4.5 offline** | **`just gate-m45`** | 49 named cases, audited by name |
+| **M4.5 offline** | **`just gate-m45`** | 55 named cases, audited by name |
 | M4.5-0 measurement | `just measure-synthesis` | network-gated, publishes its own decision |
 
 The M4 gate's `TestACheckBlockInJSONRetainsTheFloor` is retired and
@@ -25,7 +25,7 @@ still unmodelled.
 
 ## 2. Platform facts measured in this slice, not assumed
 
-Standing rule 3 says never to trust a plausible reading of Terraform behaviour. Four readings
+Standing rule 3 says never to trust a plausible reading of Terraform behaviour. Five readings
 were run.
 
 1. **`removed` blocks accept destroy-time provisioners, and `check` blocks accept exactly one
@@ -41,7 +41,11 @@ were run.
    than reconstructed by isolating assertions one at a time. No indeterminate-participation
    status was needed. Proved in the slice by `TestOneMutantFailingTwoAssertionsAttributesBoth`
    over a fixture pair with the declaration order reversed.
-4. **Terraform refuses an assert whose condition references nothing from the configuration**
+4. **`expect_failures = [var.<name>]` passes with a violating input and fails with a
+   conforming one.** That asymmetry is what makes scaffold promotion a verification rather
+   than a rubber stamp: an answer that does not produce the failure produces a failing run
+   block, and the scaffold stays non-executable.
+5. **Terraform refuses an assert whose condition references nothing from the configuration**
    (`The condition expression must refer to at least one object from elsewhere in the
    configuration`). This shaped the curate fixture: an assertion with a genuinely empty kill
    set has to read *something*, so the fixture's assertion reads the test's own input rather
@@ -118,7 +122,7 @@ Two costs the number carried with it, both flagged for the next review:
 | Normative behaviour (issue #71) | Proved by |
 | --- | --- |
 | `check` and `removed` reach both inventories, both syntaxes | eight cases in `constructs_test.go` |
-| `moved`/`import` refused in both readers | `TestAMovedBlockIsRefusedInHCL`, `TestAnImportBlockIsRefusedInHCL`, `TestAMovedBlockInJSONRetainsTheFloor` |
+| `moved`/`import` refused in both readers, no opt-in overriding it | `TestAMovedBlockIsRefusedInHCL`, `TestAnImportBlockIsRefusedInHCL`, `TestAMovedBlockInJSONIsRefusedByName`, `TestAnImportBlockInJSONIsRefusedByName` |
 | the effective staged suite is what the gates judge | `TestAnUntestedAliasedProviderModuleCharacterisesWithNoOptIn` |
 | the gates decided before any Terraform execution | `TestNoTerraformRunPrecedesAStagedGateRefusal` |
 | a mock per provider *configuration* | `TestAMissingAliasMockRefusesBeforeExecution` |
@@ -130,6 +134,9 @@ Two costs the number carried with it, both flagged for the next review:
 | `todos`, `--answer`, `--resume`, promotion | `TestAnAnsweredTodoIsPromotedAndTheSuiteIsGreen`, `TestTheTodoSurfacesAreWiredInBothArgumentOrders` |
 | a refuted answer is rejected, not fatal | `TestARefutedAnswerIsRejectedRatherThanAnOperationalFailure` |
 | the mined rung fires when it is reached | `TestAMinedValidationResolvesAnInputWithNoDefault` |
+| a sensitive answer verifies and stays withheld | `TestASensitiveAnswerIsVerifiedAndStillWithheld` |
+| a grown closure at the probe | `TestANewClosureFileAtTheProbeYieldsZeroWrites` |
+| a partial commit reports what it wrote | `TestAPartialCommitReportsWhatItWrote` |
 | double-run volatility exclusion | `skipped-volatile` in `TestTheConfiguredRungPinsOnlyWhatTheConfigurationDetermined` |
 | pinning through the M4 renderer and sensitivity machinery | `TestASensitiveValueReachesNoGeneratedArtefact` |
 | redaction from the first failed attempt onwards | `TestASecretInAFailedAttemptReachesNoArtefact` |
@@ -144,31 +151,24 @@ Two costs the number carried with it, both flagged for the next review:
 | eligibility by provenance; report-only | `TestCurateReportsAnEmptyKillSetWithItsEvidence`, `TestCurateWritesNothing` |
 | kill-set participation measured | `TestOneMutantFailingTwoAssertionsAttributesBoth` |
 | `expect_failures` scaffolds non-executable | `TestUnassertableConstructsBecomeNonExecutableScaffolds` |
+| scaffold promotion is earned by verification | `TestAnAnsweredScaffoldIsVerifiedBeforeItIsPromoted` |
 | the characterisation skill under the install protocol | `internal/skill` suite, extended to both skills |
 | the falsifiable walkthrough | `TestTheInstalledSkillsWalkthroughExecutes`, `TestASeededWrongFlagInTheSkillTurnsTheGateRed` |
 | report-2.3.0 validated on real reports | `TestARealCharacterisationReportValidatesAgainstThePublishedSchema` |
 
 ## 7. Built narrower than the spec's words — say so here
 
-Three places. None of them is hidden behind a passing test.
+Two places. Neither is hidden behind a passing test. (A third — scaffold promotion — was
+listed here and is now built; see §8.)
 
-1. **Scaffold promotion is emission-only.** `expect_failures` scaffolds are generated, travel
-   in the non-executable artefact, and can never become test content — which satisfies
-   "unverified always equals non-executable" in the safe direction. What is missing is the
-   other half: there is no surface that *answers* a scaffold and verifies its
-   `expect_failures` behaviour before promoting it. A TODO can be answered, refuted or
-   promoted; a scaffold can only be emitted. The consequence for report-2.3.0 is that
-   `ScaffoldPromoted` is a documented value nothing currently produces — declared because the
-   spec's vocabulary is closed and normative, unreachable because this half is unbuilt. This
-   is the largest gap in the slice.
-2. **Assertion provenance is decided at file granularity.** The registry records a file's
+1. **Assertion provenance is decided at file granularity.** The registry records a file's
    content digest, so "generated-unmodified" is a claim about the file rather than about each
    assertion in it. Editing one assertion reclassifies the whole file as
    `generated-edited` — the conservative direction, since it makes more assertions eligible
    for a *report* and none eligible for a write that does not exist. A per-assertion registry
    would need per-assertion digests written at generation time, and is a prerequisite for any
    future `curate --apply`.
-3. **The staged run's verdict cache is disabled rather than keyed on staged bytes.** The M2
+2. **The staged run's verdict cache is disabled rather than keyed on staged bytes.** The M2
    disposition asks for staged bytes to enter the cache identity so that no verdict is reused
    across changed staged content. Note where the staged bytes already are: a staged round
    points the whole pipeline at the staging root, so the sources the cache key hashes *are*
@@ -176,7 +176,61 @@ Three places. None of them is hidden behind a passing test.
    It is disabled because its directory is discarded with the round, which satisfies the
    safety property by construction — nothing is ever reused — and forgoes only the speed.
 
-## 8. What the two-axis review changed
+## 8. What the adversarial review changed
+
+A second adversarial review, against issue #71 and the recorded dispositions, found fourteen
+release-contract failures under a fully green M4.5 gate. All fourteen were repaired. Six are
+worth naming, because each was a contract no passing case could have caught:
+
+- **`--until-dry` never tested what it generated.** The staged files were built once, before
+  the loop, so round N+1 executed round N-1's suite, treated round N's assertions as merely
+  *known*, and could declare the run dry without ever running them. The suite is now
+  re-rendered from the pins as they stand at the start of every round — and re-rendered
+  rather than replayed from the report, because the report's view of a generated file is
+  redacted and a suite staged from it would plan a redaction marker.
+- **A sensitive answer could never be verified.** One string served as both the reported
+  assignment and the planned one, so a sensitive variable's run block was rendered
+  `token = (sensitive value withheld)` and every sensitive answer came back as unbalanced
+  parentheses. The two views are now separate by construction: the scaffold carries the
+  executable assignments, the report carries the redacted ones, and the file digest is the
+  written bytes'.
+- **JSON `moved` and `import` were unread rather than refused.** Omitting them from the schema
+  only lowered the safety floor, and a floor is one opt-in away from being lifted: granting
+  both existing opt-ins let a run proceed with neither construct represented anywhere. They
+  are now collected and refused by name, and the refusal aborts discovery rather than
+  lowering a gate — asserted with both opt-ins granted.
+- **The write probe could not see a closure that had *grown*.** Re-reading the path list
+  discovery captured misses the whole class of change that matters most: a `.tf` or
+  `.tftest.hcl` added since. The closure is now re-*discovered* at every probe — and the
+  commit's own target set is excluded from it, without which writing the first generated file
+  would change the closure and refuse the second.
+- **`length(...)` was read as a counts-rung marker.** The suggestion engine renders a
+  configured collection attribute the same way, so `--pin counts` admitted configured-value
+  assertions. Classification now reads the addressed subject: a `length` over a bare resource
+  address is a count, a `length` over an attribute of one is that attribute's value.
+- **A "flip" that flipped nothing.** Returning the compared literal is only an opposite case
+  when the base does not already equal it; for `var.env == "prod"` with a default of `"prod"`
+  the generated flip set `"prod"` and exercised the same branch.
+
+Also repaired: the counts rung now pins `for_each` *keys* as well as counts, because moving
+from `{a}` to `{b}` preserves the count and changes exactly the thing the rung is named for; an
+incomplete characterisation no longer exits 0; a partial commit returns its report rather than
+only an error; `todos` is dispatched before the version gate, because the shipped skill
+promises a cheap local inspection that runs no Terraform; a JSON-declared local no longer
+passes for an output and suppresses the zero-output escalation; TODO identity includes the
+normalised constraint and its range, so two constraints on one variable stay distinct and a
+stale `--answer` cannot re-arm; and pins are deduplicated per scenario, so two scenarios
+needing the same rendered condition both keep theirs.
+
+**Scaffold promotion is now built.** A scaffold is answered with the inputs that make the
+construct fail — `--answer scf-<id>='{ size = 0 }'` — and the tool renders the
+`expect_failures` run block, executes it, and promotes only if Terraform agrees the failure
+happened. An answer that does not produce the failure leaves the scaffold non-executable and
+says why. Measured first, as the rule requires: on v1.15.8 `expect_failures = [var.size]`
+passes with a violating input and *fails* with a conforming one, which is what makes the
+verification worth running.
+
+## 9. What the two-axis review changed
 
 The change was reviewed along both axes before it landed, and eight findings were repaired
 rather than argued with. Four are worth naming because each was a contract the tests as
@@ -209,10 +263,10 @@ document; a generated file's header recording Terraform's version where it claim
 measurement showed fires rarely and which nothing exercised until
 `TestAMinedValidationResolvesAnInputWithNoDefault`.
 
-## 9. Open questions for M5
+## 10. Open questions for M5
 
-- Does scaffold promotion belong to characterise at all, or to `suggest`, which already owns
-  a verify-then-write protocol? The two write protocols are now adjacent and differ.
+- Scaffold promotion and `suggest --apply` are now two verify-then-write protocols side by
+  side, and they differ. Should they be one?
 - The `moved` refusal's measured cost. If the next review reverses it, the collector is
   small: `moved` names two resource addresses and carries no provider and no effect.
 - Validation mining fired zero times over the corpus. Is the rung worth its code, or should

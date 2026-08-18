@@ -20,6 +20,8 @@ const (
 	untestedSecretFixture = "untested-secret-diagnostic"
 	untestedMinedFixture  = "untested-mined"
 
+	untestedSensitiveAnswerFixture = "untested-sensitive-answer"
+
 	// answeredCIDR is the value the mandatory end-to-end case answers with.
 	answeredCIDR = `"10.0.0.0/16"`
 )
@@ -346,5 +348,73 @@ func TestARefutedAnswerIsRejectedRatherThanAnOperationalFailure(t *testing.T) {
 	if result.ExitCode(report.Gate{}) != report.ExitFindings { //nolint:exhaustruct // no gate is requested.
 		t.Fatalf("exit code = %d, want one while the judgement point still needs an answer",
 			result.ExitCode(report.Gate{})) //nolint:exhaustruct // no gate is requested.
+	}
+}
+
+// TestASensitiveAnswerIsVerifiedAndStillWithheld holds both halves of a
+// contract that pulls in opposite directions: a secret must reach no artefact,
+// and Terraform cannot plan a redaction marker. One string for both meant a
+// generated run block carrying `token = (sensitive value withheld)` and every
+// sensitive answer refused as unparseable.
+func TestASensitiveAnswerIsVerifiedAndStillWithheld(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedSensitiveAnswerFixture)
+
+	opened, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	if err != nil {
+		t.Fatalf("characterise: %v", err)
+	}
+
+	// The answer the fixture's constraint names.
+	const secret = `"tok-0123abcd"`
+
+	answered := characteriseConfig(t, module)
+	answered.CharacteriseWrite = true
+	answered.Answers = []string{opened.Characterisation.Todos[0].ID + "=" + secret}
+
+	result, err := engine.Run(t.Context(), answered)
+	if err != nil {
+		t.Fatalf("a sensitive answer must verify like any other: %v", err)
+	}
+
+	block := result.Characterisation
+	if block.OpenTodos() != 0 {
+		t.Fatalf("the sensitive answer was not accepted: %+v", block.Todos)
+	}
+
+	if !block.Complete {
+		t.Fatal("the characterisation is incomplete after a verified answer")
+	}
+
+	for _, scenario := range block.Scenarios {
+		for _, input := range scenario.Inputs {
+			if input.Expression != report.SensitiveWithheld {
+				t.Fatalf("the report carries the sensitive assignment: %s", input.Expression)
+			}
+		}
+	}
+
+	encoded := strings.Builder{}
+	if err := report.WriteJSON(&encoded, result); err != nil {
+		t.Fatalf("encoding: %v", err)
+	}
+
+	if strings.Contains(encoded.String(), "tok-0123abcd") {
+		t.Fatal("the JSON report carries the answered secret")
+	}
+
+	// The report's view of the generated file is redacted too, so the value
+	// Terraform has to plan is only visible on disk — which is the whole point
+	// of keeping the two renderings apart.
+	for _, file := range block.Files {
+		if strings.Contains(file.Content, "tok-0123abcd") {
+			t.Fatalf("the reported content of %s carries the secret", file.Path)
+		}
+	}
+
+	written := readFile(t, filepath.Join(module, "tests", "characterise_defaults.tftest.hcl"))
+	if !strings.Contains(written, "token = "+secret) {
+		t.Fatalf("the written suite does not carry the value Terraform has to plan:\n%s", written)
 	}
 }

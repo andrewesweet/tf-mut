@@ -123,6 +123,16 @@ type Scaffold struct {
 	// resolve. A scenario with an open TODO is not executable, so the scaffold
 	// travels as a non-executable artefact until one is answered.
 	Todos []report.Todo
+	// Values are the assignments the generated run blocks actually carry,
+	// keyed by scenario identifier and then by variable name.
+	//
+	// They are deliberately not the same strings as `report.Scenario.Inputs`.
+	// A sensitive variable's *report* carries the withheld marker, because a
+	// secret must reach no artefact; its *run block* has to carry the value,
+	// because Terraform cannot plan a marker. Holding one string for both
+	// rendered `token = (sensitive value withheld)` into an executable file
+	// and refused every sensitive answer as unparseable.
+	Values map[string]map[string]string
 	// Mocks are the provider configurations the scaffold plans a mock for.
 	// The staged provider gate is evaluated against exactly this list.
 	Mocks []Mock

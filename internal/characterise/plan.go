@@ -2,6 +2,7 @@ package characterise
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -28,11 +29,12 @@ func Plan(
 	options Options,
 	planned []discovery.ProviderAlias,
 ) Scaffold {
-	scenarios, todos := planScenarios(configuration, options)
+	scenarios, todos, values := planScenarios(configuration, options)
 
 	scaffold := Scaffold{
 		Scenarios:        scenarios,
 		Todos:            todos,
+		Values:           values,
 		Mocks:            planMocks(configuration, schemas, planned),
 		Rung:             options.Rung,
 		Requested:        options.Rung,
@@ -60,13 +62,27 @@ func escalate(scaffold Scaffold, configuration discovery.Configuration) Scaffold
 	return scaffold
 }
 
+// outputCount is the module's contract surface: the outputs it declares, in
+// either syntax.
+//
+// `JSONExpansions` is keyed by address and carries locals as well as outputs,
+// so counting it whole would let a JSON-declared local pass for an output and
+// suppress the zero-output escalation the ladder depends on.
 func outputCount(configuration discovery.Configuration) int {
 	root, found := configuration.ModuleByDir(configuration.ModuleDir)
 	if !found {
 		return 0
 	}
 
-	return len(root.Outputs) + len(root.JSONExpansions)
+	count := len(root.Outputs)
+
+	for address := range root.JSONExpansions {
+		if strings.HasPrefix(address, "output.") {
+			count++
+		}
+	}
+
+	return count
 }
 
 // PlanInputs resolves the module's inputs and returns the scenarios and the
@@ -76,7 +92,9 @@ func PlanInputs(
 	configuration discovery.Configuration,
 	options Options,
 ) ([]report.Scenario, []report.Todo) {
-	return planScenarios(configuration, options)
+	scenarios, todos, _ := planScenarios(configuration, options)
+
+	return scenarios, todos
 }
 
 // planScenarios builds the harvest points: the default scenario, and one more
@@ -89,23 +107,30 @@ func PlanInputs(
 func planScenarios(
 	configuration discovery.Configuration,
 	options Options,
-) ([]report.Scenario, []report.Todo) {
+) ([]report.Scenario, []report.Todo, map[string]map[string]string) {
+	values := map[string]map[string]string{}
+
 	root, found := configuration.ModuleByDir(configuration.ModuleDir)
 	if !found {
-		return nil, nil
+		return nil, nil, values
 	}
 
-	inputs, todos := synthesiseInputs(root, options)
+	inputs, todos, executable := synthesiseInputs(root, options)
 
-	scenarios := []report.Scenario{newScenario(root.Rel, defaultScenario, inputs, options)}
+	base := newScenario(root.Rel, defaultScenario, inputs, options)
+	scenarios := []report.Scenario{base}
+	values[base.ID] = executable
 
 	// A scenario is only worth expanding once every input resolves: with a
 	// judgement point open there is no executable scenario to vary.
 	if len(todos) == 0 {
-		scenarios = append(scenarios, flippedScenarios(root, inputs, options)...)
+		for _, flipped := range flippedScenarios(root, inputs, options) {
+			scenarios = append(scenarios, flipped.scenario)
+			values[flipped.scenario.ID] = flipped.values
+		}
 	}
 
-	return scenarios, todos
+	return scenarios, todos, values
 }
 
 // newScenario names a harvest point and derives its identity.
@@ -125,12 +150,16 @@ func newScenario(moduleRel, name string, inputs []report.Input, options Options)
 // synthesiseInputs resolves the module's inputs in the design's preference
 // order — default, then mined validation, then typed synthesis — and records
 // everything that order could not resolve as an open judgement point.
-func synthesiseInputs(root discovery.Module, options Options) ([]report.Input, []report.Todo) {
+func synthesiseInputs(
+	root discovery.Module,
+	options Options,
+) ([]report.Input, []report.Todo, map[string]string) {
 	inputs := []report.Input{}
 	todos := []report.Todo{}
+	executable := map[string]string{}
 
 	for _, variable := range sortedVariables(root) {
-		identifier := todoID(root.Rel, variable.Name)
+		identifier := todoID(root.Rel, variable, options.Sources)
 		resolved := Synthesise(variable, options.Sources, options.Answers[identifier])
 
 		if !resolved.Resolved() {
@@ -157,9 +186,10 @@ func synthesiseInputs(root discovery.Module, options Options) ([]report.Input, [
 			Expression: withheld(variable, resolved.Expression),
 			Provenance: resolved.Provenance,
 		})
+		executable[variable.Name] = resolved.Expression
 	}
 
-	return inputs, todos
+	return inputs, todos, executable
 }
 
 // withheld keeps a sensitive or ephemeral variable's synthesised value out of
@@ -181,8 +211,34 @@ func withheld(variable discovery.Block, expression string) string {
 	return expression
 }
 
-func todoID(moduleRel, variable string) string {
-	return Identify("todo-", moduleRel, variable)
+// todoID is the judgement point's stable identity: the module, the variable,
+// the constraint's normalised text and the range it is declared at.
+//
+// The variable alone is not enough. Two constraints on one variable are
+// distinct judgement points and would otherwise collapse into one; and an
+// answer recorded against a constraint that has since moved would silently
+// bind to whatever now sits in its place, which is the shape of a stale
+// `--answer` quietly re-arming.
+func todoID(moduleRel string, variable discovery.Block, sources map[string][]byte) string {
+	parts := make([]string, 0, partsBeforeInputs+identityPartsPerValidation*len(variable.Validations))
+	parts = append(parts, moduleRel, variable.Name)
+
+	for _, validation := range variable.Validations {
+		parts = append(parts, normalised(sourceText(validation, sources)),
+			validation.File+":"+strconv.Itoa(validation.Range.Start.Byte)+
+				"-"+strconv.Itoa(validation.Range.End.Byte))
+	}
+
+	return Identify("todo-", parts...)
+}
+
+// identityPartsPerValidation is the constraint text and the range beside it.
+const identityPartsPerValidation = 2
+
+// normalised collapses a constraint's whitespace, so a reformatting that does
+// not change what the constraint says does not change its identity either.
+func normalised(constraint string) string {
+	return strings.Join(strings.Fields(constraint), " ")
 }
 
 func todoFor(
@@ -354,6 +410,12 @@ func pinnedLiteral(schemas tfexec.Schemas, reference discovery.AttributeRef) (st
 	}
 }
 
+// expansion is one flipped scenario and the assignments its run block carries.
+type expansion struct {
+	scenario report.Scenario
+	values   map[string]string
+}
+
 // flippedScenarios expands the branches a variable can take.
 //
 // In Terraform a conditional reachable from an input is overwhelmingly of the
@@ -364,14 +426,18 @@ func flippedScenarios(
 	root discovery.Module,
 	base []report.Input,
 	options Options,
-) []report.Scenario {
-	flips := branchFlips(root, options)
-	scenarios := make([]report.Scenario, 0, len(flips))
+) []expansion {
+	flips := branchFlips(root, base, options)
+	scenarios := make([]expansion, 0, len(flips))
 
 	for _, flip := range flips {
-		scenarios = append(scenarios, newScenario(root.Rel,
-			"flip_"+flip.variable+"_"+Identify("", flip.variable, flip.expression)[:flipSuffix],
-			withFlip(base, flip), options))
+		inputs, values := withFlip(root, base, flip, options)
+		scenarios = append(scenarios, expansion{
+			scenario: newScenario(root.Rel,
+				"flip_"+flip.variable+"_"+Identify("", flip.variable, flip.expression)[:flipSuffix],
+				inputs, options),
+			values: values,
+		})
 	}
 
 	return scenarios
@@ -387,40 +453,78 @@ type flip struct {
 	expression string
 }
 
-// withFlip overlays a flip on the default scenario's assignments.
-func withFlip(base []report.Input, flipped flip) []report.Input {
+// withFlip overlays a flip on the default scenario's assignments, in both
+// views: the redacted one the report carries and the executable one the run
+// block does.
+func withFlip(
+	root discovery.Module,
+	base []report.Input,
+	flipped flip,
+	options Options,
+) ([]report.Input, map[string]string) {
+	variable, _ := variableByName(root, flipped.variable)
 	inputs := make([]report.Input, 0, len(base)+1)
+	values := map[string]string{}
 	replaced := false
 
 	for _, input := range base {
 		if input.Name == flipped.variable {
 			inputs = append(inputs, report.Input{
-				Name: input.Name, Expression: flipped.expression, Provenance: report.FromType,
+				Name:       input.Name,
+				Expression: withheld(variable, flipped.expression),
+				Provenance: report.FromType,
 			})
+			values[input.Name] = flipped.expression
 			replaced = true
 
 			continue
 		}
 
 		inputs = append(inputs, input)
+		values[input.Name] = executableOf(root, options, input.Name)
 	}
 
 	if !replaced {
 		inputs = append(inputs, report.Input{
-			Name: flipped.variable, Expression: flipped.expression, Provenance: report.FromType,
+			Name:       flipped.variable,
+			Expression: withheld(variable, flipped.expression),
+			Provenance: report.FromType,
 		})
+		values[flipped.variable] = flipped.expression
 	}
 
 	slices.SortFunc(inputs, func(left, right report.Input) int {
 		return strings.Compare(left.Name, right.Name)
 	})
 
-	return inputs
+	return inputs, values
+}
+
+// executableOf re-resolves one variable's executable value, which is the
+// redacted report value's twin.
+func executableOf(root discovery.Module, options Options, name string) string {
+	variable, found := variableByName(root, name)
+	if !found {
+		return ""
+	}
+
+	return Synthesise(variable, options.Sources,
+		options.Answers[todoID(root.Rel, variable, options.Sources)]).Expression
+}
+
+func variableByName(root discovery.Module, name string) (discovery.Block, bool) {
+	for _, variable := range root.Variables {
+		if variable.Name == name {
+			return variable, true
+		}
+	}
+
+	return discovery.Block{}, false //nolint:exhaustruct // the not-found sentinel.
 }
 
 // branchFlips walks the module for conditionals a variable decides, and
 // returns one flipping assignment per distinct one, in deterministic order.
-func branchFlips(root discovery.Module, options Options) []flip {
+func branchFlips(root discovery.Module, base []report.Input, options Options) []flip {
 	byName := map[string]discovery.Block{}
 	for _, variable := range root.Variables {
 		byName[variable.Name] = variable
@@ -431,7 +535,7 @@ func branchFlips(root discovery.Module, options Options) []flip {
 
 	for _, body := range root.Bodies {
 		discovery.WalkExpressions(body, func(expr hclsyntax.Expression) {
-			for _, candidate := range flipsIn(expr, byName, options) {
+			for _, candidate := range flipsIn(expr, byName, base, options) {
 				if seen[candidate] {
 					continue
 				}
@@ -457,6 +561,7 @@ func branchFlips(root discovery.Module, options Options) []flip {
 func flipsIn(
 	expr hclsyntax.Expression,
 	variables map[string]discovery.Block,
+	base []report.Input,
 	options Options,
 ) []flip {
 	operation, ok := expr.(*hclsyntax.BinaryOpExpr)
@@ -484,6 +589,15 @@ func flipsIn(
 		expression = "null"
 	}
 
+	// A candidate that the base scenario already assigns is not a flip: it
+	// takes the same branch under a different name, and generating it would
+	// claim to have characterised the other side of a conditional nothing
+	// evaluated differently. `var.env == "prod"` with a default of `"prod"` is
+	// the case that caught this.
+	if operation.Op == hclsyntax.OpEqual && baseValue(variable, base) == expression {
+		return nil
+	}
+
 	// The flip has to satisfy the module's own constraints like any other
 	// synthesised value: a branch nobody can legally reach is not a scenario.
 	if resolved := Synthesise(variable, options.Sources, expression); !resolved.Resolved() {
@@ -491,6 +605,33 @@ func flipsIn(
 	}
 
 	return []flip{{variable: name, expression: expression}}
+}
+
+// baseValue is what the default scenario effectively assigns a variable: the
+// assignment it carries where it carries one, and the variable's own declared
+// default where it does not.
+func baseValue(variable discovery.Block, base []report.Input) string {
+	for _, input := range base {
+		if input.Name == variable.Name {
+			return input.Expression
+		}
+	}
+
+	attribute, declared := attributeOf(variable, "default")
+	if !declared {
+		return ""
+	}
+
+	value, diagnostics := attribute.Expr.Value(nil)
+	if diagnostics.HasErrors() || !value.IsKnown() {
+		return ""
+	}
+
+	if value.IsNull() {
+		return "null"
+	}
+
+	return renderValue(value)
 }
 
 // comparedVariable reads the variable and the literal out of a comparison.

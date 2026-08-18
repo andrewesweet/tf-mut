@@ -48,11 +48,16 @@ var jsonConfigurationSchema = &hcl.BodySchema{
 		{Type: variableBlock, LabelNames: []string{nameLabel}},
 		{Type: checkBlock, LabelNames: []string{nameLabel}},
 		{Type: removedBlock, LabelNames: nil},
-		// moved and import remain absent (round-3 review, PR #69; M4.5 spec
-		// review C4): this version has no collector for either, so a file
-		// declaring one stays unread and its floor stays down. check and
-		// removed left this list once collectCheckBlock and
-		// collectRemovedBlock walked their bodies into both inventories.
+		// moved and import are listed so that they can be *refused by name*
+		// (M4.5 spec review C4). Leaving them out would only leave the file
+		// unread, and the floor that stands in for a reading is an opt-in away
+		// from being lifted: grant --allow-real-infrastructure and
+		// --allow-unsandboxed-effects and processing continues with neither
+		// construct represented anywhere. A collector that refuses is not
+		// overridable by an opt-in, which is what a construct this version
+		// cannot model requires.
+		{Type: movedBlock, LabelNames: nil},
+		{Type: importBlock, LabelNames: nil},
 	},
 }
 
@@ -216,6 +221,8 @@ func collectJSONBlock(
 		return collectJSONCheck(module, providers, path, block)
 	case removedBlock:
 		return collectJSONRemoved(module, providers, path, block)
+	case movedBlock, importBlock:
+		return unmodelledConstruct(block.Type, path, block.DefRange.Start)
 	default:
 		// Every remaining block type contributes references and graph nodes
 		// through the body walk, and nothing to an inventory.

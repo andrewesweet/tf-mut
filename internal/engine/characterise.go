@@ -97,7 +97,8 @@ func characteriseModule(
 	// the same shape for every command.
 	result.Selection = report.Selection{Mode: scopeLabel(true), Ref: "", ForcedFull: ""}
 
-	block, err := scaffoldSuite(ctx, runner, configuration, settings, workRoot, prepared, scaffold)
+	block, files, err := scaffoldSuite(ctx, runner, configuration, settings,
+		workRoot, prepared, scaffold)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -106,23 +107,36 @@ func characteriseModule(
 	// survivors still yield, over the staged suite: nothing on disk changes
 	// until the caller asks for a write.
 	if settings.UntilDry && block.Complete {
-		if err := untilDry(ctx, runner, configuration, settings, version, &block, workRoot); err != nil {
+		if err := untilDry(ctx, runner, configuration, settings, version,
+			&block, scaffold, workRoot); err != nil {
 			return report.Report{}, err
 		}
 
-		block.Files = append(pinnedFiles(scaffold, block.Pins),
+		promoted, refusals := promoteScaffolds(ctx, runner, configuration,
+			prepared, &block, scaffold, answers, workRoot)
+		result.Warnings = append(result.Warnings, refusals...)
+
+		files = append(append(pinnedFiles(scaffold, block.Pins), promoted...),
 			scaffoldArtefact(scaffold, &block)...)
+		block.Files = entriesOf(files)
 	}
 
 	result.Characterisation = &block
 	result.Metrics = report.ComputeMetrics(nil)
 
 	if settings.CharacteriseWrite {
-		if err := commitScaffold(configuration, settings, prepared, &block); err != nil {
-			return report.Report{}, err
-		}
+		if err := commitScaffold(configuration, settings, prepared, &block, files); err != nil {
+			// The report travels with the failure. A commit that renamed one
+			// file and then aborted has left the caller a partial state, and
+			// an error alone would not say which files moved.
+			if block.Write == nil || len(block.Write.Partial) == 0 {
+				return report.Report{}, err
+			}
 
-		result.Characterisation = &block
+			result.Warnings = append(result.Warnings, err.Error())
+
+			return result, nil
+		}
 	}
 
 	return result, nil
@@ -137,7 +151,7 @@ func scaffoldSuite(
 	workRoot string,
 	prepared warm,
 	scaffold characterise.Scaffold,
-) (report.Characterisation, error) {
+) (report.Characterisation, []generated, error) {
 	block := report.Characterisation{ //nolint:exhaustruct // filled in below, stage by stage.
 		Rung: string(scaffold.Rung), Complete: false,
 		Scenarios: scaffold.Scenarios, Pins: []report.Pin{}, Todos: scaffold.Todos,
@@ -154,9 +168,10 @@ func scaffoldSuite(
 	// artefact is the editable surface, and promotion after verification is the
 	// only route from it into test content.
 	if openTodos(scaffold.Todos) > 0 {
-		block.Files = artefactFiles(scaffold, scaffold.Todos)
+		files := artefactFiles(scaffold, scaffold.Todos)
+		block.Files = entriesOf(files)
 
-		return block, nil
+		return block, files, nil
 	}
 
 	harvest, err := harvestScaffold(ctx, runner, configuration, workRoot, prepared, scaffold, settings)
@@ -165,7 +180,9 @@ func scaffoldSuite(
 	}
 
 	block.Pins = characterise.Pin(scaffold, configuration, prepared.schemas, harvest)
-	block.Files = pinnedFiles(scaffold, block.Pins)
+
+	files := pinnedFiles(scaffold, block.Pins)
+	block.Files = entriesOf(files)
 
 	if err := verifyScaffold(ctx, runner, configuration, workRoot, prepared,
 		scaffold, block.Pins, settings); err != nil {
@@ -181,7 +198,7 @@ func scaffoldSuite(
 	// zero-output contract exists to prevent.
 	block.Complete = pinnedCount(block.Pins) > 0
 
-	return block, nil
+	return block, files, nil
 }
 
 // openTodos counts the judgement points still awaiting an answer.
@@ -222,7 +239,7 @@ func rejectAnswers(
 	block report.Characterisation,
 	scaffold characterise.Scaffold,
 	failure error,
-) (report.Characterisation, error) {
+) (report.Characterisation, []generated, error) {
 	rejected := false
 
 	for index, todo := range block.Todos {
@@ -236,65 +253,106 @@ func rejectAnswers(
 	}
 
 	if !rejected {
-		return report.Characterisation{}, failure
+		return report.Characterisation{}, nil, failure //nolint:exhaustruct // nothing was produced.
 	}
 
+	files := artefactFiles(scaffold, block.Todos)
 	block.Pins = []report.Pin{}
-	block.Files = artefactFiles(scaffold, block.Todos)
+	block.Files = entriesOf(files)
 	block.Complete = false
 
-	return block, nil
+	return block, files, nil
 }
 
 // artefactFiles renders the non-executable artefact for every scenario whose
 // inputs are not fully resolved.
-func artefactFiles(scaffold characterise.Scaffold, todos []report.Todo) []report.GeneratedFile {
-	files := make([]report.GeneratedFile, 0, len(scaffold.Scenarios))
+func artefactFiles(scaffold characterise.Scaffold, todos []report.Todo) []generated {
+	files := make([]generated, 0, len(scaffold.Scenarios))
 
 	for _, scenario := range scaffold.Scenarios {
+		// The artefact is redacted in both views: it is the editable surface,
+		// and nothing in it is ever planned.
+		content := characterise.RenderArtefact(scaffold, scenario, todos)
 		files = append(files, generatedFile(
 			characterise.ArtefactFile(scaffold.Options.TestDirRel, scenario.Name),
-			characterise.RenderArtefact(scaffold, scenario, todos), false,
+			content, content, false,
 		))
 	}
 
 	return files
 }
 
+// generated pairs the bytes a file is written and verified with against the
+// view a report publishes.
+//
+// They differ only where a sensitive variable is assigned: Terraform cannot
+// plan a redaction marker, and a report may not carry a secret. The digest is
+// the written bytes', because that is what the write protocol commits against.
+type generated struct {
+	entry report.GeneratedFile
+	bytes []byte
+}
+
 // generatedFile is the one place a generated file's report entry is built, so
-// its digest is always the digest of the content beside it.
-func generatedFile(path string, content []byte, executable bool) report.GeneratedFile {
-	return report.GeneratedFile{
-		Path:       path,
-		Content:    string(content),
-		Digest:     characterise.Digest(content),
-		Executable: executable,
-		Written:    false,
+// its digest is always the digest of the bytes that will be written.
+func generatedFile(path string, written, reported []byte, executable bool) generated {
+	return generated{
+		entry: report.GeneratedFile{
+			Path:       path,
+			Content:    string(reported),
+			Digest:     characterise.Digest(written),
+			Executable: executable,
+			Written:    false,
+		},
+		bytes: written,
 	}
+}
+
+// entriesOf is the reported view of a generated file set.
+func entriesOf(files []generated) []report.GeneratedFile {
+	entries := make([]report.GeneratedFile, 0, len(files))
+	for _, file := range files {
+		entries = append(entries, file.entry)
+	}
+
+	return entries
 }
 
 // scaffoldArtefact renders the non-executable file the scaffolds live in.
 func scaffoldArtefact(
 	scaffold characterise.Scaffold,
 	block *report.Characterisation,
-) []report.GeneratedFile {
-	if len(block.Scaffolds) == 0 {
+) []generated {
+	// A promoted scaffold has left the artefact: it is test content now.
+	outstanding := []report.Scaffold{}
+
+	for _, entry := range block.Scaffolds {
+		if entry.Status == report.Scaffolded {
+			outstanding = append(outstanding, entry)
+		}
+	}
+
+	if len(outstanding) == 0 {
 		return nil
 	}
 
-	return []report.GeneratedFile{generatedFile(
+	content := characterise.RenderScaffolds(scaffold, outstanding)
+
+	return []generated{generatedFile(
 		characterise.ArtefactFile(scaffold.Options.TestDirRel, scaffoldScenario),
-		characterise.RenderScaffolds(scaffold, block.Scaffolds), false,
+		content, content, false,
 	)}
 }
 
 // pinnedFiles renders the executable suite.
-func pinnedFiles(scaffold characterise.Scaffold, pins []report.Pin) []report.GeneratedFile {
-	files := make([]report.GeneratedFile, 0, len(scaffold.Scenarios))
+func pinnedFiles(scaffold characterise.Scaffold, pins []report.Pin) []generated {
+	files := make([]generated, 0, len(scaffold.Scenarios))
 
 	for _, scenario := range scaffold.Scenarios {
+		one := []report.Scenario{scenario}
 		files = append(files, generatedFile(scenario.File,
-			characterise.Render(scaffold, []report.Scenario{scenario}, pins), true))
+			characterise.Render(scaffold, one, pins, characterise.Executable),
+			characterise.Render(scaffold, one, pins, characterise.Redacted), true))
 	}
 
 	return files
@@ -362,7 +420,9 @@ func stagedScaffold(
 
 	if settings.SeedSharedFileOrder == "" {
 		for _, scenario := range scaffold.Scenarios {
-			staged[stagedPath(configuration, scenario.File)] = characterise.Render(scaffold, []report.Scenario{scenario}, pins)
+			staged[stagedPath(configuration, scenario.File)] = characterise.Render(
+				scaffold, []report.Scenario{scenario}, pins, characterise.Executable,
+			)
 		}
 
 		return staged
@@ -375,7 +435,7 @@ func stagedScaffold(
 
 	staged[stagedPath(configuration, characterise.ScenarioFile(
 		configuration.TestDirRelative(), "shared",
-	))] = characterise.Render(scaffold, ordered, pins)
+	))] = characterise.Render(scaffold, ordered, pins, characterise.Executable)
 
 	return staged
 }

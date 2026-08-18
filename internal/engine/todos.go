@@ -138,6 +138,10 @@ func expressionSource(content []byte, expr hclsyntax.Expression) string {
 // per iteration, and a surface that planned providers and initialised a
 // workspace to print a handful of constraints would be the wrong shape for the
 // loop it exists to serve.
+// listTodos runs no Terraform at all — not even the version gate. The shipped
+// skill promises a cheap local inspection an agent calls every iteration, and
+// a surface that refused to work because Terraform was absent or broken would
+// be the wrong shape for the loop it serves.
 func listTodos(
 	configuration discovery.Configuration,
 	settings Config,
@@ -171,10 +175,14 @@ func listTodos(
 	result.Command = report.CommandTodos
 	result.Selection = report.Selection{Mode: scopeLabel(true), Ref: "", ForcedFull: ""}
 	result.Metrics = report.ComputeMetrics(nil)
-	result.Characterisation = &report.Characterisation{ //nolint:exhaustruct // a listing carries no scaffold.
+	block := &report.Characterisation{ //nolint:exhaustruct // a listing carries no scaffold.
 		Rung: string(rung), Complete: false, Scenarios: scenarios,
 		Pins: []report.Pin{}, Todos: todos, Files: []report.GeneratedFile{}, Staged: true,
 	}
+	// A listing is complete when it has nothing outstanding to list, which is
+	// what makes its exit code mean the same thing as every other command's.
+	block.Complete = block.OpenTodos() == 0
+	result.Characterisation = block
 
 	return result, nil
 }

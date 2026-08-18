@@ -198,6 +198,15 @@ type Config struct {
 	// race the commit step exists to close can be staged at the probe. It is a
 	// seam control, not a command-line flag.
 	SeedClosureChange string
+	// SeedClosureFile adds a module-relative Terraform file immediately before
+	// the first atomic rename, so the half of the input-closure race that
+	// *grows* the closure can be staged at the probe. It is a seam control,
+	// not a command-line flag.
+	SeedClosureFile string
+	// SeedClosureAfter delays the seeded closure change until this many files
+	// have already been renamed, so a *partial* commit can be staged rather
+	// than a refused one. It is a seam control, not a command-line flag.
+	SeedClosureAfter int
 	// SeedNoEscalation suppresses the zero-output auto-escalation, so the other
 	// half of the contract — a rung that pinned nothing may never report
 	// complete — can be proven on its own. It is a seam control, not a
@@ -237,6 +246,20 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		return report.Report{}, err
 	}
 
+	// `todos` is dispatched before the version gate, because it runs no
+	// Terraform at all: the shipped skill promises a cheap local inspection an
+	// agent calls every iteration, and making it unavailable when Terraform is
+	// absent or broken would break the loop over a check it never needed.
+	if settings.Todos {
+		listed, listErr := discovery.DiscoverWith(moduleDir, settings.TestDirectory,
+			discovery.Options{SkipJSON: settings.DisableJSONReading})
+		if listErr != nil {
+			return report.Report{}, listErr
+		}
+
+		return listTodos(listed, settings, "")
+	}
+
 	runner := tfexec.Runner{Binary: settings.TerraformBinary, Env: settings.Env}
 
 	version, err := checkVersion(ctx, runner, moduleDir)
@@ -253,9 +276,6 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 	// Characterisation is the same machinery pointed the other way: it has no
 	// suite to baseline, no population to grade, and its safety gates are
 	// judged against the suite it plans rather than the one on disk.
-	if settings.Todos {
-		return listTodos(configuration, settings, version.Terraform)
-	}
 
 	if settings.Curate {
 		return curateSuite(ctx, runner, configuration, settings, version, moduleDir)

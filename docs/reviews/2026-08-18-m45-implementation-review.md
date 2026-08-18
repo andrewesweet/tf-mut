@@ -64,13 +64,34 @@ asserted that a good answer is promoted — true whether a bad one is rejected o
 run. In each case the test was about the happy path of a safety property, and the property
 itself went unasserted until something read the code rather than the results.
 
+## What the adversarial review repaired
+
+Fourteen release-contract failures under a fully green gate, all repaired; the six that
+mattered are named in `docs/research/13-m45-exit-gate.md` §8. The pattern is the same one the
+two-axis review found, one level sharper: **a green gate is evidence about the cases it names,
+and nothing at all about the ones nobody wrote.**
+
+Three of the six were not "the test asserted the wrong thing" but "there was no test of this
+at all, because the behaviour looked like an implementation detail rather than a contract".
+That `--until-dry` re-renders between rounds is not obviously a contract until you notice that
+without it the loop cannot do the one thing it exists for. That the executable and reported
+views of a generated file must be different strings is not obviously a contract until a
+sensitive answer proves the two requirements are incompatible in one. And that a refusal must
+survive an opt-in is not obviously a contract until you follow the JSON floor to the place
+where two flags lift it.
+
+The generalisation worth carrying to M5: **when a mechanism has two ends, test the path
+between them, not each end.** The loop's ends were both correct. The redaction was correct and
+the rendering was correct. The floor was correct and the refusal was correct. Everything broke
+in between.
+
 ## Where the implementation is narrower than the spec
 
-Recorded in full in the exit gate, §7. In short: scaffold promotion is emission-only (a TODO
-can be answered and promoted, a scaffold cannot); assertion provenance is decided at file
-granularity because that is what a content digest can honestly support; and the staged run's
-verdict cache is disabled rather than keyed on staged bytes, which satisfies the safety
-property the disposition protects and forgoes the speed it implies.
+Recorded in full in the exit gate, §7. Two places remain: assertion provenance is decided at
+file granularity because that is what a content digest can honestly support; and the staged
+run's verdict cache is disabled rather than keyed on staged bytes, which satisfies the safety
+property the disposition protects and forgoes the speed it implies. Scaffold promotion, listed
+here as the largest gap, is now built.
 
 ## Flagged for the next review under standing rule 2
 
@@ -81,12 +102,13 @@ arrive unreviewed:
    that does not exist on disk. The refusal path is proven; what is unreviewed is whether the
    *planned* scaffold can diverge from the *executed* one in any way the acceptance pair does
    not catch.
-2. **The non-executable promotion protocol** (C2's repair). Promotion is the only route into
-   executable content, and it runs the same verification the write protocol runs. What is
-   unreviewed is the asymmetry above — accepting an answer an undecidable constraint cannot
-   clear — together with its failure path: a wrong answer is now rejected with the diagnostic
-   attached and the artefact rewritten, which is the reported-finding shape
-   `agent-integration.md` §2.4 asks for, and which nothing had asserted until the review.
+2. **The non-executable promotion protocol** (C2's repair), now covering both classes.
+   An answered TODO re-synthesises, pin-verifies and promotes; an answered scaffold renders
+   its `expect_failures` run block, executes it, and promotes only if Terraform agrees the
+   failure happened. What is unreviewed is the asymmetry above — accepting an answer an
+   undecidable constraint cannot clear — together with the shape of a scaffold answer, which
+   is an object of input assignments and is the one place a reader supplies something the
+   tool renders directly into a run block.
 3. **The staged-suite overlay** (M2's repair), and its consequence that the staged run's cache
    is scoped to a directory that is about to vanish.
 

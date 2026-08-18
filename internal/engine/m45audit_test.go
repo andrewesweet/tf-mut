@@ -14,7 +14,7 @@ import (
 const m45GateRecipe = "gate-m45:"
 
 // minimumM45GateCases guards against a recipe edit that empties the gate.
-const minimumM45GateCases = 45
+const minimumM45GateCases = 50
 
 func TestTheM45GateNamesOnlyTestsThatExist(t *testing.T) {
 	t.Parallel()
@@ -88,6 +88,10 @@ func TestTheM45GateCoversEveryNamedRequirement(t *testing.T) {
 		"curate reachable through the CLI":         "TestCurateIsWiredThroughTheCommandLine",
 		"trailing arguments refused: curate":       "TestCurateRefusesArgumentsAfterTheModulePath",
 		"the mined rung fires when it is reached":  "TestAMinedValidationResolvesAnInputWithNoDefault",
+		"a sensitive answer verifies, withheld":    "TestASensitiveAnswerIsVerifiedAndStillWithheld",
+		"a grown closure at the probe":             "TestANewClosureFileAtTheProbeYieldsZeroWrites",
+		"a partial commit reports what it wrote":   "TestAPartialCommitReportsWhatItWrote",
+		"scaffold promotion is earned":             "TestAnAnsweredScaffoldIsVerifiedBeforeItIsPromoted",
 	}
 
 	assertGateCovers(t, "M4.5", m45GatedTests(t), required)

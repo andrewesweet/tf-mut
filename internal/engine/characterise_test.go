@@ -634,3 +634,76 @@ func TestNoTerraformRunPrecedesAStagedGateRefusal(t *testing.T) {
 		}
 	}
 }
+
+// TestANewClosureFileAtTheProbeYieldsZeroWrites is the other half of the same
+// race, and the half a digest fed from a captured path list cannot see: the
+// closure gained a file rather than changing one. Membership has to be
+// recomputed at the probe, not replayed from what discovery found.
+func TestANewClosureFileAtTheProbeYieldsZeroWrites(t *testing.T) {
+	t.Parallel()
+	requireProviderMirror(t)
+
+	module := copyFixture(t, untestedAliasesFixture)
+
+	config := characteriseConfig(t, module)
+	config.CharacteriseWrite = true
+	config.SeedClosureFile = "added.tf"
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrWriteRefused) {
+		t.Fatalf("error = %v, want a refusal of the grown closure", err)
+	}
+
+	entries, readErr := os.ReadDir(filepath.Join(module, "tests"))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatalf("reading the test directory: %v", readErr)
+	}
+
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tftest.hcl") {
+			t.Fatalf("the aborted commit wrote %s", entry.Name())
+		}
+	}
+}
+
+// TestAPartialCommitReportsWhatItWrote is the write contract's other half:
+// either zero writes or an explicit partial state. A commit that renamed one
+// file and then aborted has changed the caller's tree, and an error with no
+// report would leave them to work out what moved.
+func TestAPartialCommitReportsWhatItWrote(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedBranchesFixture)
+
+	config := characteriseConfig(t, module)
+	config.CharacteriseWrite = true
+	// The closure grows between the first rename and the second, so the first
+	// file lands and the second is refused.
+	config.SeedClosureFile = "added.tf"
+	config.SeedClosureAfter = 1
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("a partial commit must return its report: %v", err)
+	}
+
+	write := result.Characterisation.Write
+	if write == nil || len(write.Partial) == 0 {
+		t.Fatalf("the report does not record the partial state: %+v", write)
+	}
+
+	if write.Refused == "" {
+		t.Fatal("the partial state does not say what stopped the commit")
+	}
+
+	for _, path := range write.Partial {
+		if _, statErr := os.Stat(filepath.Join(module, path)); statErr != nil {
+			t.Fatalf("%s is reported written but is not on disk: %v", path, statErr)
+		}
+	}
+
+	if result.ExitCode(report.Gate{}) != report.ExitOperational { //nolint:exhaustruct // no gate is requested.
+		t.Fatalf("exit code = %d, want an operational failure for a partial commit",
+			result.ExitCode(report.Gate{})) //nolint:exhaustruct // no gate is requested.
+	}
+}

@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"path/filepath"
@@ -121,6 +122,14 @@ func readJSONConfigurations(
 		if readErr := skippedOr(options, func() error {
 			return readJSONConfiguration(&scratch, found, path)
 		}); readErr != nil {
+			// A construct this version refuses by name is not the same as one
+			// it merely could not read. The floor stands in for a reading and
+			// two opt-ins can lift it; a refusal must survive them both, so it
+			// stops discovery rather than lowering a gate.
+			if errors.Is(readErr, ErrUnmodelledConstruct) {
+				return nil, readErr
+			}
+
 			records = append(records, unreadFile(path, JSONConfiguration, readErr))
 
 			continue

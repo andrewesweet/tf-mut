@@ -58,13 +58,24 @@ type registryFile struct {
 }
 
 // commitScaffold performs the write, or refuses it and says why.
+//
+// A refusal that happens before any rename leaves nothing behind and is an
+// error. A failure after the first rename has left the caller a partial state,
+// and an error alone would not say which files moved — so the write record
+// carries the paths and the caller keeps the report.
 func commitScaffold(
 	configuration discovery.Configuration,
 	settings Config,
 	prepared warm,
 	block *report.Characterisation,
+	files []generated,
 ) error {
-	inputDigest, err := InputClosureDigest(configuration, settings, prepared)
+	// The commit's own target set is excluded from the digest: the probe is
+	// there to catch a change somebody else made, and a commit that tripped
+	// over the file it just placed would refuse every write after the first.
+	targets := targetPaths(configuration, files)
+
+	inputDigest, err := InputClosureDigest(configuration, settings, prepared, targets)
 	if err != nil {
 		return err
 	}
@@ -77,13 +88,13 @@ func commitScaffold(
 
 	existing := loadRegistry(configuration.ModuleDir)
 
-	if refusal := checkTargets(configuration, settings, block.Files, existing); refusal != "" {
+	if refusal := checkTargets(configuration, settings, entriesOf(files), existing); refusal != "" {
 		record.Refused = refusal
 
 		return fmt.Errorf("%w: %s", ErrWriteRefused, refusal)
 	}
 
-	written, err := writeFiles(configuration, settings, prepared, inputDigest, block)
+	written, err := writeFiles(configuration, settings, prepared, inputDigest, block, files, targets)
 	record.Written = written
 
 	if err != nil {
@@ -145,15 +156,19 @@ func writeFiles(
 	prepared warm,
 	inputDigest string,
 	block *report.Characterisation,
+	files []generated,
+	targets map[string]bool,
 ) ([]string, error) {
 	written := []string{}
 
-	for _, file := range block.Files {
-		if err := seedClosureChange(configuration, settings); err != nil {
-			return written, err
+	for _, file := range files {
+		if len(written) == settings.SeedClosureAfter {
+			if err := seedClosureChange(configuration, settings); err != nil {
+				return written, err
+			}
 		}
 
-		current, err := InputClosureDigest(configuration, settings, prepared)
+		current, err := InputClosureDigest(configuration, settings, prepared, targets)
 		if err != nil {
 			return written, err
 		}
@@ -164,18 +179,18 @@ func writeFiles(
 				"longer exists (%s became %s)", ErrWriteRefused, inputDigest, current)
 		}
 
-		target := filepath.Join(configuration.ModuleDir, filepath.FromSlash(file.Path))
+		target := filepath.Join(configuration.ModuleDir, filepath.FromSlash(file.entry.Path))
 
-		if refusal := checkTargets(configuration, settings, []report.GeneratedFile{file},
+		if refusal := checkTargets(configuration, settings, []report.GeneratedFile{file.entry},
 			loadRegistry(configuration.ModuleDir)); refusal != "" {
 			return written, fmt.Errorf("%w: %s", ErrWriteRefused, refusal)
 		}
 
-		if err := sandbox.WriteFresh(target, "", []byte(file.Content)); err != nil {
+		if err := sandbox.WriteFresh(target, "", file.bytes); err != nil {
 			return written, err
 		}
 
-		written = append(written, file.Path)
+		written = append(written, file.entry.Path)
 	}
 
 	markWritten(block, written)
@@ -183,10 +198,35 @@ func writeFiles(
 	return written, nil
 }
 
+// targetPaths is the absolute path set this commit is placing.
+func targetPaths(configuration discovery.Configuration, files []generated) map[string]bool {
+	targets := map[string]bool{}
+
+	for _, file := range files {
+		targets[filepath.Join(configuration.ModuleDir,
+			filepath.FromSlash(file.entry.Path))] = true
+	}
+
+	// The registry is written by the commit too, and is no more a change
+	// somebody else made than the suite is.
+	targets[filepath.Join(configuration.ModuleDir, RegistryName)] = true
+
+	return targets
+}
+
 // seedClosureChange stages the race the commit step exists to close: a source
 // file that moved between the verification that made the scaffold green and
 // the rename that would install it. It fires once, before the first rename.
 func seedClosureChange(configuration discovery.Configuration, settings Config) error {
+	if settings.SeedClosureFile != "" {
+		added := filepath.Join(configuration.ModuleDir,
+			filepath.FromSlash(settings.SeedClosureFile))
+		if err := os.WriteFile(added, []byte("# staged closure addition\n"),
+			generatedFileMode); err != nil {
+			return fmt.Errorf("staging the closure addition: %w", err)
+		}
+	}
+
 	if settings.SeedClosureChange == "" {
 		return nil
 	}

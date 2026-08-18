@@ -139,6 +139,7 @@ internal/engine/testdata/untested-aliases/main.tf
 internal/engine/testdata/untested-branches/main.tf
 internal/engine/testdata/untested-mined/main.tf
 internal/engine/testdata/untested-secret-diagnostic/main.tf
+internal/engine/testdata/untested-sensitive-answer/main.tf
 internal/engine/testdata/untested-sensitive/main.tf
 internal/engine/testdata/untested-todo/main.tf
 internal/engine/testdata/untested-zero-output/main.tf

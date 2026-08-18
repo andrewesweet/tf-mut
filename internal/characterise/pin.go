@@ -299,7 +299,7 @@ func countPins(
 		return nil
 	}
 
-	counts := instanceCounts(payload)
+	instances := instancesOf(payload)
 	pins := []report.Pin{}
 
 	for _, module := range configuration.Modules {
@@ -312,28 +312,70 @@ func countPins(
 				continue
 			}
 
-			key := scenario.ID + "\x00length(" + block.Address + ")"
-			if seen[key] {
-				continue
+			pins = append(pins, countPin(scenario, block.Address,
+				len(instances[block.Address]), seen)...)
+
+			// A for_each collection's identity is its key set, not its size:
+			// moving from {a} to {b} preserves the count and changes exactly
+			// the thing the rung is named for. `keys` returns them sorted, so
+			// the comparison is a list equality and type-correct.
+			if block.HasForEach {
+				pins = append(pins, keyPin(scenario, block.Address,
+					instanceKeys(instances[block.Address]), seen)...)
 			}
-
-			seen[key] = true
-
-			pins = append(pins, report.Pin{
-				ID:       PinID(scenario.ID, "length("+block.Address+")", strconv.Itoa(counts[block.Address])),
-				Scenario: scenario.ID, Address: "length(" + block.Address + ")",
-				Expression: "length(" + block.Address + ") == " + strconv.Itoa(counts[block.Address]),
-				Status:     report.Pinned, Reason: "", Rung: string(RungCounts),
-			})
 		}
 	}
 
 	return pins
 }
 
-// instanceCounts counts the instances of each resource collection in a state
-// payload.
-func instanceCounts(payload fingerprint.Payload) map[string]int {
+// countPin pins one resource collection's instance count.
+func countPin(scenario report.Scenario, address string, count int, seen map[string]bool) []report.Pin {
+	expression := "length(" + address + ") == " + strconv.Itoa(count)
+
+	return onlyOnce(scenario, "length("+address+")", expression, seen)
+}
+
+// keyPin pins one for_each collection's key set.
+func keyPin(
+	scenario report.Scenario,
+	address string,
+	keys []string,
+	seen map[string]bool,
+) []report.Pin {
+	rendered := make([]string, 0, len(keys))
+	for _, key := range keys {
+		rendered = append(rendered, `"`+key+`"`)
+	}
+
+	expression := "keys(" + address + ") == [" + strings.Join(rendered, ", ") + "]"
+
+	return onlyOnce(scenario, "keys("+address+")", expression, seen)
+}
+
+// onlyOnce emits a counts-rung pin the first time its address is seen.
+func onlyOnce(
+	scenario report.Scenario,
+	address, expression string,
+	seen map[string]bool,
+) []report.Pin {
+	key := scenario.ID + "\x00" + address
+	if seen[key] {
+		return nil
+	}
+
+	seen[key] = true
+
+	return []report.Pin{{
+		ID: PinID(scenario.ID, address, expression), Scenario: scenario.ID,
+		Address: address, Expression: expression, Status: report.Pinned,
+		Reason: "", Rung: string(RungCounts),
+	}}
+}
+
+// instancesOf groups a state payload's resource instances by the collection
+// they belong to.
+func instancesOf(payload fingerprint.Payload) map[string]map[string]bool {
 	instances := map[string]map[string]bool{}
 
 	for path := range payload.Values {
@@ -355,10 +397,29 @@ func instanceCounts(payload fingerprint.Payload) map[string]int {
 		instances[collection][instance] = true
 	}
 
-	counts := map[string]int{}
-	for collection, members := range instances {
-		counts[collection] = len(members)
+	return instances
+}
+
+// instanceKeys reads the for_each keys out of a collection's instance
+// addresses, sorted the way `keys` returns them.
+func instanceKeys(members map[string]bool) []string {
+	keys := make([]string, 0, len(members))
+
+	for instance := range members {
+		_, bracketed, found := strings.Cut(instance, "[")
+		if !found {
+			continue
+		}
+
+		key := strings.TrimSuffix(bracketed, "]")
+		if unquoted, err := strconv.Unquote(key); err == nil {
+			key = unquoted
+		}
+
+		keys = append(keys, key)
 	}
 
-	return counts
+	slices.Sort(keys)
+
+	return keys
 }

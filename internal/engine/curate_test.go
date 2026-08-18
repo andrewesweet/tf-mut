@@ -335,3 +335,104 @@ func removeTests(t *testing.T, module string) {
 		t.Fatalf("removing the test directory: %v", err)
 	}
 }
+
+// TestAnAnsweredScaffoldIsVerifiedBeforeItIsPromoted is the C2 workflow's
+// scaffold half: promotion is earned by execution, never granted. The answer
+// supplies the inputs that make the construct fail; a run block asserting a
+// failure that does not happen is a failing run block, which is what makes the
+// check worth running.
+func TestAnAnsweredScaffoldIsVerifiedBeforeItIsPromoted(t *testing.T) {
+	t.Parallel()
+
+	for name, answer := range map[string]string{
+		"a failing input promotes":       "{ size = 0 }",
+		"an input that does not promote": "{ size = 2 }",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, contractFixture)
+			removeTests(t, module)
+
+			config := characteriseConfig(t, module)
+			config.UntilDry = true
+
+			opened, err := engine.Run(t.Context(), config)
+			if err != nil {
+				t.Fatalf("characterise --until-dry: %v", err)
+			}
+
+			identifier := scaffoldFor(t, opened.Characterisation, "var.size.validation")
+
+			answered := characteriseConfig(t, module)
+			answered.UntilDry = true
+			answered.Answers = []string{identifier + "=" + answer}
+
+			result, err := engine.Run(t.Context(), answered)
+			if err != nil {
+				t.Fatalf("characterise --until-dry --answer: %v", err)
+			}
+
+			promoted := answer == "{ size = 0 }"
+			assertScaffoldPromotion(t, result, identifier, promoted)
+		})
+	}
+}
+
+// assertScaffoldPromotion checks the scaffold's status and whether its check
+// became test content.
+func assertScaffoldPromotion(t *testing.T, result report.Report, identifier string, promoted bool) {
+	t.Helper()
+
+	block := result.Characterisation
+	wanted := report.Scaffolded
+
+	if promoted {
+		wanted = report.ScaffoldPromoted
+	}
+
+	for _, scaffold := range block.Scaffolds {
+		if scaffold.ID != identifier {
+			continue
+		}
+
+		if scaffold.Status != wanted {
+			t.Fatalf("scaffold %s is %s, want %s", identifier, scaffold.Status, wanted)
+		}
+	}
+
+	executable := false
+
+	for _, file := range block.Files {
+		if strings.Contains(file.Path, identifier) && file.Executable {
+			executable = true
+
+			if !strings.Contains(file.Content, "expect_failures = [var.size]") {
+				t.Fatalf("the promoted check names no checkable object:\n%s", file.Content)
+			}
+		}
+	}
+
+	if executable != promoted {
+		t.Fatalf("executable check present = %v, want %v", executable, promoted)
+	}
+
+	if !promoted && len(result.Warnings) == 0 {
+		t.Fatal("a refused promotion says nothing about why")
+	}
+}
+
+// scaffoldFor finds the scaffold recorded for one construct address.
+func scaffoldFor(t *testing.T, block *report.Characterisation, address string) string {
+	t.Helper()
+
+	for _, scaffold := range block.Scaffolds {
+		if scaffold.Address == address {
+			return scaffold.ID
+		}
+	}
+
+	t.Fatalf("no scaffold was recorded for %s", address)
+
+	return ""
+}

@@ -46,7 +46,19 @@ func (r Report) ExitCode(gate Gate) int {
 	// judgement point is still open or a curate finding is still unread, and
 	// two only for an operational failure.
 	if r.Characterisation != nil {
-		if r.Characterisation.OpenTodos() > 0 || len(r.Characterisation.Findings) > 0 {
+		// A commit that changed the tree and then stopped is an operational
+		// failure, whatever the scaffold itself reported: the caller has a
+		// half-written suite and has to act before anything else is true.
+		if write := r.Characterisation.Write; write != nil && len(write.Partial) > 0 {
+			return ExitOperational
+		}
+
+		// Incompleteness is a user-action state like any other: a rung that
+		// pinned nothing has produced a suite nobody should trust, and exit 0
+		// is reserved for output that is complete.
+		if !r.Characterisation.Complete ||
+			r.Characterisation.OpenTodos() > 0 ||
+			len(r.Characterisation.Findings) > 0 {
 			return ExitFindings
 		}
 

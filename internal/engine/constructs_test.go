@@ -215,10 +215,16 @@ func TestAnImportBlockIsRefusedInHCL(t *testing.T) {
 	}
 }
 
-// TestAMovedBlockInJSONRetainsTheFloor keeps the M4 protection the check-block
-// collector no longer provides: a top-level JSON construct this version cannot
-// read leaves the file unread and the floor down.
-func TestAMovedBlockInJSONRetainsTheFloor(t *testing.T) {
+// TestAMovedBlockInJSONIsRefusedByName is the other half of the C4 disposition
+// in the syntax that has a floor.
+//
+// Leaving the construct out of the schema would only leave the file *unread*,
+// and a floor is one opt-in away from being lifted: grant
+// --allow-real-infrastructure and --allow-unsandboxed-effects and the run
+// proceeds with the construct represented nowhere. A refusal is not
+// overridable, which is what a construct this version cannot model needs — so
+// the refusal is asserted with both opt-ins granted.
+func TestAMovedBlockInJSONIsRefusedByName(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, jsonProviderFixture)
@@ -227,13 +233,31 @@ func TestAMovedBlockInJSONRetainsTheFloor(t *testing.T) {
 
 	config := baseConfig(t, module)
 	config.AllowRealInfrastructure = true
+	config.AllowUnsandboxedEffects = true
 
 	_, err := engine.Run(t.Context(), config)
-	if !errors.Is(err, engine.ErrUnsandboxedEffects) {
-		t.Fatalf("error = %v, want the floor's effects refusal for the unread file", err)
+	if !errors.Is(err, discovery.ErrUnmodelledConstruct) {
+		t.Fatalf("error = %v, want a refusal no opt-in can override", err)
 	}
 
 	if !strings.Contains(err.Error(), "moves.tf.json") {
-		t.Fatalf("the refusal does not name the unread file: %v", err)
+		t.Fatalf("the refusal does not name the file: %v", err)
+	}
+}
+
+// TestAnImportBlockInJSONIsRefusedByName is its twin.
+func TestAnImportBlockInJSONIsRefusedByName(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, contractFixture)
+	writeFile(t, filepath.Join(module, "imports.tf.json"),
+		`{"import":[{"to":"${terraform_data.anchor}","id":"anchor"}]}`+"\n")
+
+	config := baseConfig(t, module)
+	config.AllowRealInfrastructure = true
+	config.AllowUnsandboxedEffects = true
+
+	if _, err := engine.Run(t.Context(), config); !errors.Is(err, discovery.ErrUnmodelledConstruct) {
+		t.Fatalf("error = %v, want a refusal no opt-in can override", err)
 	}
 }

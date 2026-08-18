@@ -134,7 +134,7 @@ func cacheKey(
 	write("baseline", "", baselineFingerprint(prepared))
 	write("config", "", resolvedConfiguration(settings))
 
-	if err := writeClosure(write, configuration, settings, prepared, prepared.sources); err != nil {
+	if err := writeClosure(write, configuration, settings, prepared, prepared.sources, nil); err != nil {
 		return "", err
 	}
 
@@ -150,27 +150,43 @@ func cacheKey(
 // and it is what the characterisation write protocol commits against: a
 // scaffold is only green for the closure that produced it, so the commit step
 // re-checks this digest immediately before each rename.
+// The digest deliberately excludes the paths the commit itself is placing.
+// Without that, writing the first generated file would change the closure and
+// the probe would refuse the second — the commit tripping over its own
+// footprints. What the probe is for is a change somebody *else* made.
 func InputClosureDigest(
 	configuration discovery.Configuration,
 	settings Config,
 	prepared warm,
+	excluded map[string]bool,
 ) (string, error) {
 	digest := sha256.New()
 	write := func(kind, name, value string) {
 		_, _ = fmt.Fprintf(digest, "%s\x00%s\x00%s\x00", kind, name, value)
 	}
 
-	// The module sources are re-read from disk rather than taken from the map
-	// discovery captured. That is the whole point of the digest here: the
-	// finding it answers is "sources can change after harvest while the output
-	// stays identical", and a leg fed from an in-memory snapshot could never
-	// detect it.
-	sources, err := moduleSources(configuration)
+	// The closure is re-*discovered*, not just re-read. The finding this
+	// digest answers is "sources can change after harvest while the output
+	// stays identical", and a leg fed from the path list discovery captured
+	// would miss the whole class of change that matters most: a `.tf`,
+	// `.tftest.hcl`, `.tf.json` or `.tftest.json` file added since. Membership
+	// has to be recomputed, not replayed.
+	live, err := discovery.DiscoverWith(configuration.ModuleDir, settings.TestDirectory,
+		discovery.Options{SkipJSON: settings.DisableJSONReading})
 	if err != nil {
 		return "", err
 	}
 
-	if err := writeClosure(write, configuration, settings, prepared, sources); err != nil {
+	sources, err := moduleSources(live)
+	if err != nil {
+		return "", err
+	}
+
+	for path := range excluded {
+		delete(sources, path)
+	}
+
+	if err := writeClosure(write, live, settings, prepared, sources, excluded); err != nil {
 		return "", err
 	}
 
@@ -184,6 +200,7 @@ func writeClosure(
 	settings Config,
 	prepared warm,
 	sources map[string][]byte,
+	excluded map[string]bool,
 ) error {
 	// The entire materialised source closure, in path order.
 	for _, path := range sortedKeys(sources) {
@@ -197,6 +214,10 @@ func writeClosure(
 
 	// Every test file.
 	for _, path := range configuration.Tests.Files {
+		if excluded[path] {
+			continue
+		}
+
 		content, err := os.ReadFile(path) //nolint:gosec // discovery-owned path.
 		if err != nil {
 			return err
@@ -209,6 +230,10 @@ func writeClosure(
 	// Terraform reads them regardless, so they reach verdicts; the key hashes
 	// all JSON classes and no finer key is built (M4c).
 	for _, file := range configuration.JSONFiles() {
+		if excluded[file.Path] {
+			continue
+		}
+
 		content, err := os.ReadFile(file.Path)
 		if err != nil {
 			return err
