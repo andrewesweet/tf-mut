@@ -109,7 +109,7 @@ func valuePins(
 
 	for _, path := range paths {
 		rung, admitted := rungOf(path)
-		if !admitted || !scaffold.Rung.includes(rung) {
+		if !admitted || !scaffold.Rung.Includes(rung) {
 			continue
 		}
 
@@ -287,7 +287,7 @@ func countPins(
 	scenario report.Scenario,
 	seen map[string]bool,
 ) []report.Pin {
-	if !scaffold.Rung.includes(RungCounts) {
+	if !scaffold.Rung.Includes(RungCounts) {
 		return nil
 	}
 

@@ -164,3 +164,43 @@ func pad(name string, width int) string {
 func oneLine(text string) string {
 	return strings.Join(strings.Fields(text), " ")
 }
+
+// RenderScaffolds produces the non-executable file the `expect_failures`
+// scaffolds live in.
+//
+// A scaffold names a construct the oracle cannot assert on and the shape of
+// the check somebody has to write for it. It is never executable and never
+// verified, so it stays outside the suite until that check exists and has been
+// proven — which is the whole reason skeleton generation was moved out of a
+// milestone that would have shipped it as test content.
+func RenderScaffolds(scaffold Scaffold, scaffolds []report.Scaffold) []byte {
+	builder := strings.Builder{}
+	builder.WriteString(GeneratedHeader(scaffold.Options.Version, "scaffolds"))
+	builder.WriteString(strings.Join([]string{
+		"#",
+		"# This file is NOT executable. `terraform test` never reads it.",
+		"# Each scaffold below names a construct no assertion over the plan or the",
+		"# state can distinguish. Write the check it proposes, prove it fails for",
+		"# the right reason, and only then move it into a test file.",
+		"",
+	}, "\n"))
+
+	for _, entry := range scaffolds {
+		builder.WriteString("\nscaffold " + `"` + entry.ID + `" {` + "\n")
+		builder.WriteString("  kind    = \"" + entry.Kind + "\"\n")
+		builder.WriteString("  address = \"" + entry.Address + "\"\n")
+		builder.WriteString("\n  # Proposed shape:\n")
+		builder.WriteString("  #   run \"expect_" + identifierOf(entry.Address) + "\" {\n")
+		builder.WriteString("  #     command         = plan\n")
+		builder.WriteString("  #     expect_failures = [" + entry.Address + "]\n")
+		builder.WriteString("  #   }\n")
+		builder.WriteString("}\n")
+	}
+
+	return []byte(builder.String())
+}
+
+// identifierOf turns an address into something legal as a run block name.
+func identifierOf(address string) string {
+	return strings.NewReplacer(".", "_", "[", "_", "]", "", `"`, "").Replace(address)
+}

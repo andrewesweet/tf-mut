@@ -200,7 +200,13 @@ type RunBlock struct {
 	ModuleSource string
 	// Assertions counts the assert blocks in the run.
 	Assertions int
-	DefRange   hcl.Range
+	// Asserts records each assert block's condition, so a failure diagnostic's
+	// source range can be attributed to the assertion that produced it. That
+	// attribution is what a kill set is: Terraform v1.15.8 reports every
+	// failed assertion of a run, each with its own range, measured rather than
+	// assumed (M4.5 spec review, M7).
+	Asserts  []AssertBlock
+	DefRange hcl.Range
 	// Variables are the run-level variable assignments, part of the
 	// conditional-instantiation evaluator's enumerated context (M3a.3).
 	Variables []Attribute
@@ -212,6 +218,16 @@ type RunBlock struct {
 	// carries a native-syntax expression and a JSON one has none — so the
 	// evaluator fails closed on it, and no suggestion may target it.
 	JSONDeclared bool
+}
+
+// AssertBlock is one assert block in a run.
+type AssertBlock struct {
+	// Range is the condition expression's source range, which is what a
+	// failure diagnostic points at.
+	Range hcl.Range
+	// Source is the condition verbatim, so a curate finding can quote the
+	// assertion it is about.
+	Source string
 }
 
 // TestSuite is the discovered test inventory.

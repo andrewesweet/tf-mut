@@ -96,6 +96,18 @@ func characteriseModule(
 		return report.Report{}, err
 	}
 
+	// The until-dry loop grades what the scaffold pinned and pins whatever its
+	// survivors still yield, over the staged suite: nothing on disk changes
+	// until the caller asks for a write.
+	if settings.UntilDry && block.Complete {
+		if err := untilDry(ctx, runner, configuration, settings, version, &block, workRoot); err != nil {
+			return report.Report{}, err
+		}
+
+		block.Files = append(pinnedFiles(scaffold, block.Pins),
+			scaffoldArtefact(scaffold, &block)...)
+	}
+
 	result.Characterisation = &block
 	result.Metrics = report.ComputeMetrics(nil)
 
@@ -208,6 +220,26 @@ func artefactFiles(scaffold characterise.Scaffold) []report.GeneratedFile {
 	}
 
 	return files
+}
+
+// scaffoldArtefact renders the non-executable file the scaffolds live in.
+func scaffoldArtefact(
+	scaffold characterise.Scaffold,
+	block *report.Characterisation,
+) []report.GeneratedFile {
+	if len(block.Scaffolds) == 0 {
+		return nil
+	}
+
+	content := characterise.RenderScaffolds(scaffold, block.Scaffolds)
+
+	return []report.GeneratedFile{{
+		Path:       characterise.ArtefactFile(scaffold.Options.TestDirRel, scaffoldScenario),
+		Content:    string(content),
+		Digest:     characterise.Digest(content),
+		Executable: false,
+		Written:    false,
+	}}
 }
 
 // pinnedFiles renders the executable suite.

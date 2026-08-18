@@ -67,8 +67,8 @@ const (
 	levelConfigured
 )
 
-// includes reports whether a rung pins everything a lower rung pins.
-func (r Rung) includes(other Rung) bool {
+// Includes reports whether a rung pins everything a lower rung pins.
+func (r Rung) Includes(other Rung) bool {
 	return ladder[r] >= ladder[other]
 }
 

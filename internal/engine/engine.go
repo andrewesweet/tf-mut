@@ -173,6 +173,11 @@ type Config struct {
 	SeedMissingMock string
 	// Todos lists the open judgement points and runs no Terraform.
 	Todos bool
+	// Curate reports redundancy over an authoritative population.
+	Curate bool
+	// UntilDry iterates scaffold, mutate and pin until the survivors stop
+	// yielding new assertions at the chosen granularity.
+	UntilDry bool
 	// Answers supplies TODO answers as todo-<id>=<value>.
 	Answers []string
 	// Resume reads answered TODOs from the edited non-executable artefact as
@@ -240,6 +245,10 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 	// judged against the suite it plans rather than the one on disk.
 	if settings.Todos {
 		return listTodos(configuration, settings, version.Terraform)
+	}
+
+	if settings.Curate {
+		return curateSuite(ctx, runner, configuration, settings, version, moduleDir)
 	}
 
 	if settings.Characterise {
@@ -456,6 +465,10 @@ func finalise(settings Config, configured config.File) (Config, error) {
 		return Config{}, err
 	}
 
+	if err := checkCuratePopulation(settings); err != nil {
+		return Config{}, err
+	}
+
 	if err := checkBaselineWrite(settings); err != nil {
 		return Config{}, err
 	}
@@ -606,6 +619,8 @@ func commandName(settings Config) report.Command {
 	switch {
 	case settings.Todos:
 		return report.CommandTodos
+	case settings.Curate:
+		return report.CommandCurate
 	case settings.Characterise:
 		return report.CommandCharacterise
 	case settings.Preview:

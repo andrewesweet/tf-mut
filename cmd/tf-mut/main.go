@@ -29,6 +29,7 @@ const (
 	suggestCommand      = "suggest"
 	characteriseCommand = "characterise"
 	todosCommand        = "todos"
+	curateCommand       = "curate"
 	skillCommand        = "skill"
 	versionCommand      = "version"
 	versionFlag         = "--version"
@@ -50,10 +51,11 @@ Commands:
   characterise
             Scaffold, harvest and pin a first test suite for a module that has none
   todos     List the open judgement points characterisation refuses to guess at
+  curate    Report redundant assertions from a full, authoritative population
   skill     Install the shipped agent skills (skill install [--agent claude|generic] [--path .])
   version   Print the build version
 
-Flags for run, preview, suggest, characterise and todos:
+Flags for run, preview, suggest, characterise, todos and curate:
   --test-directory PATH        Test directory relative to the module (default "tests")
   --jobs N                     Mutants to execute concurrently (default: CPU count)
   --timeout-factor F           Multiple of the baseline run time (default 10)
@@ -86,6 +88,8 @@ Flags for characterise:
                                (default outputs; a module with no outputs escalates)
   --write                      Place the verified suite in the test directory
   --force                      Replace generated files nobody has edited
+  --until-dry                  Iterate scaffold, mutate and pin until the
+                               survivors stop yielding new assertions
   --answer todo-ID=VALUE       Answer one judgement point; repeatable
   --resume                     Read answered judgement points from the edited
                                artefact, re-synthesise, verify and promote
@@ -119,7 +123,8 @@ func run(args []string, buildVersion string, stdout, stderr io.Writer) int {
 		}
 
 		return exitSuccess
-	case runCommand, previewCommand, suggestCommand, characteriseCommand, todosCommand:
+	case runCommand, previewCommand, suggestCommand, characteriseCommand,
+		todosCommand, curateCommand:
 		return execute(args[0], args[1:], stdout, stderr)
 	case skillCommand:
 		return skillInstall(args[1:], buildVersion, stdout, stderr)
@@ -176,7 +181,7 @@ type flagValues struct {
 	dryRun, allVerified                      *bool
 	survivors, apply                         *string
 	pin                                      *string
-	write, force, resume                     *bool
+	write, force, resume, untilDry           *bool
 	answers                                  *answerFlag
 }
 
@@ -237,6 +242,8 @@ func declareFlags(set *flag.FlagSet) flagValues {
 		force:       set.Bool("force", false, "replace generated files nobody has edited"),
 		resume: set.Bool("resume", false,
 			"read answered judgement points from the edited artefact and promote them"),
+		untilDry: set.Bool("until-dry", false,
+			"iterate until the survivors stop yielding new assertions"),
 		answers: declareAnswerFlag(set),
 	}
 }
@@ -360,6 +367,8 @@ func engineConfig(
 		CharacteriseWrite:       *values.write,
 		CharacteriseForce:       *values.force,
 		Todos:                   command == todosCommand,
+		Curate:                  command == curateCommand,
+		UntilDry:                *values.untilDry,
 		Answers:                 *values.answers,
 		Resume:                  *values.resume,
 	}
