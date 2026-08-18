@@ -83,6 +83,11 @@ type ModuleCall struct {
 	File     string
 	DefRange hcl.Range
 	Inputs   []Attribute
+	// JSONDeclared marks a call declared in a `.tf.json` file. Its inputs are
+	// not decoded into `Inputs` — an `Attribute` carries a native-syntax
+	// expression and a JSON one has none — so the reference graph treats the
+	// call as unbounded, and no mutation is ever generated on it.
+	JSONDeclared bool
 }
 
 // Module is one local module in the closure.

@@ -288,6 +288,11 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 			WriteBaseline:           *values.writeBaseline,
 			BaselinePath:            *values.baselinePath,
 			GeneratedFunctions:      *values.generatedFunctions,
+			Suggest:                 command == suggestCommand,
+			SuggestDryRun:           *values.dryRun,
+			SurvivorIDs:             commaSeparated(*values.survivors),
+			Apply:                   commaSeparated(*values.apply),
+			ApplyAll:                *values.allVerified,
 		},
 		gate: report.Gate{
 			MinScore:             *values.minScore,

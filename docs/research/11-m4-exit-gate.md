@@ -8,7 +8,7 @@ the decisions; this document carries the gates and the measurements.
 
 `just gate-m4` runs the M4 offline gates: the JSON safety floor set, the M4c re-proof, the
 three adapter matrices, the suggestion-soundness gate, the apply-protocol cases and the
-skill contract — 57 named cases across `internal/engine`, `internal/suggest`,
+skill contract — 71 named cases across `internal/engine`, `internal/suggest`,
 `internal/skill` and `cmd/tf-mut`. Two tests keep the recipe honest exactly as the M2 and
 M3 gates are kept honest: `TestTheM4GateNamesOnlyTestsThatExist` fails on any name that
 resolves to nothing, and `TestTheM4GateCoversEveryNamedRequirement` maps each behaviour the

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/suggest"
 )
 
 // The literals the fabricated suggestions share.
@@ -14,6 +15,7 @@ const (
 	preflightMutantID   = "0123456789ab"
 	preflightRun        = "applied"
 	preflightExpression = "output.x == 1"
+	preflightTarget     = "tests/unit.tftest.hcl"
 )
 
 // The digest-mismatch row of the apply protocol, at the preflight itself.
@@ -42,7 +44,7 @@ func TestAStaleVerifiedDigestAbortsThePreflightNamingBothDigests(t *testing.T) {
 
 	stale := report.Suggestion{
 		ID: "aaaabbbbcccc", MutantID: preflightMutantID,
-		TargetFile: "tests/unit.tftest.hcl", TargetRun: preflightRun,
+		TargetFile: preflightTarget, TargetRun: preflightRun,
 		Status: report.SuggestionVerified, Expression: preflightExpression,
 		Patch: "", VerifiedDigest: strings.Repeat("0", 64),
 		Verification: nil, StatusReason: "",
@@ -117,7 +119,7 @@ func TestAnUnparseableTargetAbortsThePreflight(t *testing.T) {
 
 	stale := report.Suggestion{
 		ID: "ccccddddeeee", MutantID: preflightMutantID,
-		TargetFile: "tests/unit.tftest.hcl", TargetRun: preflightRun,
+		TargetFile: preflightTarget, TargetRun: preflightRun,
 		Status: report.SuggestionVerified, Expression: preflightExpression,
 		Patch: "", VerifiedDigest: strings.Repeat("0", 64),
 		Verification: nil, StatusReason: "",
@@ -129,4 +131,78 @@ func TestAnUnparseableTargetAbortsThePreflight(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no longer parses") {
 		t.Fatalf("an unparseable target was not refused before the digest check: %v", err)
 	}
+}
+
+// TestAnEditBetweenPreflightAndCommitAbortsTheReplacement stages, through the
+// commit probe seam, the race no engine-seam test can stage deterministically:
+// an editor writing the target after the preflight read it and before the
+// rename would replace it.
+// The commit probe is package state, so this test must not run in parallel
+// with anything that could also arm it.
+//
+//nolint:paralleltest // the applyCommitProbe seam is package state.
+func TestAnEditBetweenPreflightAndCommitAbortsTheReplacement(t *testing.T) {
+	module := t.TempDir()
+	testsDir := filepath.Join(module, "tests")
+
+	if err := os.MkdirAll(testsDir, 0o750); err != nil {
+		t.Fatalf("creating the test directory: %v", err)
+	}
+
+	target := filepath.Join(testsDir, "unit.tftest.hcl")
+	content := "run \"applied\" {\n  command = apply\n}\n"
+
+	if err := os.WriteFile(target, []byte(content), 0o600); err != nil {
+		t.Fatalf("writing the target: %v", err)
+	}
+
+	fresh := report.Suggestion{
+		ID: "ddddeeeeffff", MutantID: preflightMutantID,
+		TargetFile: preflightTarget, TargetRun: preflightRun,
+		Status: report.SuggestionVerified, Expression: preflightExpression,
+		Patch: "", VerifiedDigest: suggestDigest(content),
+		Verification: nil, StatusReason: "",
+	}
+
+	planned, err := preflight(applyContext{
+		moduleDir: module, closureRoot: module, testDirs: []string{testsDir, module},
+	}, []report.Suggestion{fresh})
+	if err != nil {
+		t.Fatalf("preflight: %v", err)
+	}
+
+	edited := content + "# an editor was here\n"
+
+	applyCommitProbe = func(string) {
+		if writeErr := os.WriteFile(target, []byte(edited), 0o600); writeErr != nil {
+			t.Fatalf("staging the concurrent edit: %v", writeErr)
+		}
+	}
+
+	t.Cleanup(func() { applyCommitProbe = nil })
+
+	record := &report.AppliedSuggestions{
+		Requested: []string{fresh.ID}, Written: []string{},
+		Pending: []string{}, Aborted: "", Partial: false,
+	}
+	write(record, planned)
+
+	if record.Aborted == "" || !strings.Contains(record.Aborted, "between preflight and commit") {
+		t.Fatalf("the concurrent edit was not caught at commit: %+v", record)
+	}
+
+	if len(record.Written) != 0 {
+		t.Fatalf("files were written despite the caught race: %v", record.Written)
+	}
+
+	current, readErr := os.ReadFile(target) //nolint:gosec // a test-owned temporary path.
+	if readErr != nil || string(current) != edited {
+		t.Fatal("the editor's bytes were overwritten despite the caught race")
+	}
+}
+
+// suggestDigest mirrors the digest apply binds to, for fabricating a fresh
+// suggestion.
+func suggestDigest(content string) string {
+	return suggest.Digest([]byte(content))
 }

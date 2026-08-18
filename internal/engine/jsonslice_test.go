@@ -321,3 +321,83 @@ func TestNoTerraformRunPrecedesAContentDrivenRefusal(t *testing.T) {
 		}
 	}
 }
+
+// TestAJSONDeclaredModuleCallJoinsTheClosure is the PR #69 review's critical
+// reproduction: the only calls to both children live in a `.tf.json`, so a
+// closure followed through the HCL syntax alone would inventory neither the
+// child's unmocked provider nor its provisioner — and both gates would fail
+// open through the side door the floor exists to close.
+func TestAJSONDeclaredModuleCallJoinsTheClosure(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "json-module")
+	marker := filepath.Join(t.TempDir(), "provisioner-ran")
+
+	// The provider gate first: the JSON-called child requires an unmocked null.
+	noFlags := baseConfig(t, module)
+	noFlags.Env = append(noFlags.Env, "TF_MUT_MARKER="+marker)
+
+	_, err := engine.Run(t.Context(), noFlags)
+	if !errors.Is(err, engine.ErrRealInfrastructure) {
+		t.Fatalf("error = %v, want a real-infrastructure refusal from the JSON-called child", err)
+	}
+
+	if !strings.Contains(err.Error(), "null") {
+		t.Fatalf("the refusal does not name the child's provider: %v", err)
+	}
+
+	// The effects gate next, independently: the other JSON-called child
+	// carries a provisioner.
+	realOnly := baseConfig(t, module)
+	realOnly.AllowRealInfrastructure = true
+	realOnly.Env = append(realOnly.Env, "TF_MUT_MARKER="+marker)
+
+	_, err = engine.Run(t.Context(), realOnly)
+	if !errors.Is(err, engine.ErrUnsandboxedEffects) {
+		t.Fatalf("error = %v, want an unsandboxed-effects refusal from the JSON-called child", err)
+	}
+
+	if !strings.Contains(err.Error(), "provisioner") {
+		t.Fatalf("the refusal does not name the child's provisioner: %v", err)
+	}
+
+	if _, statErr := os.Stat(marker); statErr == nil {
+		t.Fatal("the child's provisioner executed despite the refusals")
+	}
+}
+
+// TestAnUnmodelledJSONRunArgumentRetainsTheFloor: run arguments beyond
+// `command` — expect_failures here — change what an execution outcome means,
+// so their presence leaves the file unread and both gates closed.
+func TestAnUnmodelledJSONRunArgumentRetainsTheFloor(t *testing.T) {
+	t.Parallel()
+
+	_, err := engine.Run(t.Context(), baseConfig(t, copyFixture(t, "json-run-unmodelled")))
+	if !errors.Is(err, engine.ErrRealInfrastructure) {
+		t.Fatalf("error = %v, want a floor refusal for the unmodelled run argument", err)
+	}
+
+	if !strings.Contains(err.Error(), "expect_failures") {
+		t.Fatalf("the refusal does not name what it could not model: %v", err)
+	}
+}
+
+// TestAnUnmodelledNestedTerraformConstructRetainsTheFloor: required_version is
+// deliberately accepted (it can inform no gate); everything else inside the
+// terraform block is refused rather than silently dropped.
+func TestAnUnmodelledNestedTerraformConstructRetainsTheFloor(t *testing.T) {
+	t.Parallel()
+
+	_, err := engine.Run(t.Context(), baseConfig(t, copyFixture(t, "json-terraform-unmodelled")))
+	if !errors.Is(err, engine.ErrRealInfrastructure) {
+		t.Fatalf("error = %v, want a floor refusal for the unmodelled nested construct", err)
+	}
+
+	if !strings.Contains(err.Error(), "experiments") {
+		t.Fatalf("the refusal does not name what it could not model: %v", err)
+	}
+
+	if strings.Contains(err.Error(), "required_version") {
+		t.Fatalf("the deliberately accepted attribute is named as unmodelled: %v", err)
+	}
+}

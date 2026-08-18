@@ -17,13 +17,15 @@ var jsonTestSchema = &hcl.BodySchema{
 		{Type: mockProvider, LabelNames: []string{nameLabel}},
 		{Type: providerBlock, LabelNames: []string{nameLabel}},
 		{Type: variablesBlock, LabelNames: nil},
-		{Type: "override_resource", LabelNames: nil},
-		{Type: "override_data", LabelNames: nil},
-		{Type: "override_module", LabelNames: nil},
 	},
 }
 
 // jsonRunSchema is the nested block set of a JSON `run` block.
+//
+// `expect_failures` and the override blocks are deliberately absent: each
+// changes what an execution outcome means or what a run actually evaluates,
+// and this version does not model either, so their presence must leave the
+// file unread rather than be silently accepted.
 //
 //nolint:gochecknoglobals // an immutable schema.
 var jsonRunSchema = &hcl.BodySchema{
@@ -33,10 +35,6 @@ var jsonRunSchema = &hcl.BodySchema{
 		{Type: moduleBlock, LabelNames: nil},
 		{Type: variablesBlock, LabelNames: nil},
 		{Type: planOptions, LabelNames: nil},
-		{Type: "override_resource", LabelNames: nil},
-		{Type: "override_data", LabelNames: nil},
-		{Type: "override_module", LabelNames: nil},
-		{Type: "expect_failures", LabelNames: nil},
 	},
 }
 
@@ -123,6 +121,18 @@ func jsonRun(path, relative string, block *hcl.Block) (RunBlock, error) {
 	attributes, diagnostics := rest.JustAttributes()
 	if diagnostics.HasErrors() {
 		return RunBlock{}, fmt.Errorf("%w: %s: %s", ErrParse, path, diagnostics.Error())
+	}
+
+	// The only run argument this version models is `command`. Everything else
+	// a run can carry — `providers` remaps which provider configuration a run
+	// sees, `expect_failures` changes what a failing evaluation means — can
+	// affect execution in ways the inventories would not reflect, so any other
+	// attribute leaves the file unread and the floor down.
+	for name := range attributes {
+		if name != "command" {
+			return RunBlock{}, fmt.Errorf("%w: %s run %q declares %s, which this version "+
+				"does not model", ErrUnmodelledJSON, path, block.Labels[0], name)
+		}
 	}
 
 	if attribute, found := attributes["command"]; found {

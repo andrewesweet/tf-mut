@@ -131,14 +131,24 @@ func parseJSONFile(path string) (hcl.Body, error) {
 // not name. JSON draws no line between an attribute and a block, so whatever is
 // left over is a construct this version has no reader for.
 func refuseUnmodelled(path string, rest hcl.Body) error {
+	return refuseUnmodelledExcept(path, rest, nil)
+}
+
+// refuseUnmodelledExcept is refuseUnmodelled with a deliberate allow-list of
+// attributes the caller accepts without modelling — each one a recorded
+// decision that the attribute cannot inform a safety gate.
+func refuseUnmodelledExcept(path string, rest hcl.Body, allowed map[string]bool) error {
 	attributes, diagnostics := rest.JustAttributes()
 	if diagnostics.HasErrors() {
 		return fmt.Errorf("%w: %s: %s", ErrParse, path, diagnostics.Error())
 	}
 
 	names := make([]string, 0, len(attributes))
+
 	for name := range attributes {
-		names = append(names, name)
+		if !allowed[name] {
+			names = append(names, name)
+		}
 	}
 
 	if len(names) == 0 {
@@ -165,6 +175,8 @@ func collectJSONBlock(
 		return collectJSONProvider(module, path, block)
 	case outputBlock, localsBlock:
 		return collectJSONExpansion(module, path, block)
+	case moduleBlock:
+		return collectJSONModuleCall(module, path, block)
 	default:
 		// Every remaining block type contributes references and graph nodes
 		// through the body walk, and nothing to an inventory.
@@ -238,10 +250,25 @@ func collectJSONResource(
 	return collectJSONReferences(module, path, rest)
 }
 
+// terraformBlockAttributes are the `terraform` block arguments this version
+// deliberately accepts without modelling: none of them can declare a provider,
+// an effect or a run, so none can inform a safety gate. Anything else in the
+// block is content this version has no reader for, and refusing it is what
+// keeps a future Terraform construct from becoming silent permission.
+//
+//nolint:gochecknoglobals // an immutable allow-list.
+var terraformBlockAttributes = map[string]bool{
+	"required_version": true,
+}
+
 func collectJSONTerraform(providers map[string]bool, path string, block *hcl.Block) error {
-	nested, _, diagnostics := block.Body.PartialContent(jsonTerraformSchema)
+	nested, rest, diagnostics := block.Body.PartialContent(jsonTerraformSchema)
 	if diagnostics.HasErrors() {
 		return fmt.Errorf("%w: %s: %s", ErrParse, path, diagnostics.Error())
+	}
+
+	if err := refuseUnmodelledExcept(path, rest, terraformBlockAttributes); err != nil {
+		return err
 	}
 
 	for _, inner := range nested.Blocks {
@@ -275,6 +302,46 @@ func collectJSONProvider(module *Module, path string, block *hcl.Block) error {
 	}
 
 	module.ProviderAliases = append(module.ProviderAliases, declared)
+
+	return collectJSONReferences(module, path, block.Body)
+}
+
+// collectJSONModuleCall decodes a JSON-declared module call into the closure.
+//
+// The call must enter `module.Calls`: discovery follows the local-module
+// closure exclusively through it, and a call that is graphed but never queued
+// leaves the child's providers and effects outside both safety gates — the
+// exact fail-open edge the floor exists to close. Inputs are deliberately not
+// decoded (no native-syntax expression exists for them), which is why the
+// reference graph treats a JSON-declared call as unbounded.
+func collectJSONModuleCall(module *Module, path string, block *hcl.Block) error {
+	attributes, diagnostics := block.Body.JustAttributes()
+	if diagnostics.HasErrors() {
+		return fmt.Errorf("%w: %s: %s", ErrParse, path, diagnostics.Error())
+	}
+
+	source, found := attributes["source"]
+	if !found {
+		return fmt.Errorf("%w: %s declares module %q with no source", ErrParse, path, block.Labels[0])
+	}
+
+	call := ModuleCall{
+		Name: block.Labels[0], Source: jsonLiteralString(source.Expr),
+		Local: false, Dir: "", File: path, DefRange: block.DefRange,
+		Inputs: nil, JSONDeclared: true,
+	}
+
+	if call.Source == "" {
+		return fmt.Errorf("%w: %s declares module %q whose source is not a constant string",
+			ErrUnmodelledJSON, path, block.Labels[0])
+	}
+
+	call.Local = isLocalSource(call.Source)
+	if call.Local {
+		call.Dir = filepath.Clean(filepath.Join(module.Dir, call.Source))
+	}
+
+	module.Calls = append(module.Calls, call)
 
 	return collectJSONReferences(module, path, block.Body)
 }

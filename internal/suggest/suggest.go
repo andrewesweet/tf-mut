@@ -115,7 +115,7 @@ func (g Generator) seed(mutant report.Mutant, suggestion report.Suggestion) repo
 		expression = reference + ` == "` + SeededWrongValue + `"`
 	}
 
-	return candidate(mutant, target, expression, mutant.Verdict.Evidence.Delta[0])
+	return candidate(mutant, target, expression)
 }
 
 // partsOfAnEquality is the operand count of the equality the generator writes.
@@ -210,7 +210,7 @@ func (g Generator) suggestFor(
 			continue
 		}
 
-		return candidate(mutant, target, expression, change)
+		return candidate(mutant, target, expression)
 	}
 
 	if sensitive != nil {
@@ -279,16 +279,20 @@ func statusOf(err error) report.SuggestionStatus {
 }
 
 // candidate builds the suggestion for an admitted change.
+//
+// The patch is rendered with the same message renderer verification and apply
+// use, after the stable identifier is known: the bytes a reporter shows, the
+// bytes the sandbox verifies and the bytes apply writes must be one sequence,
+// or the digest protocol proves a file nobody was shown.
 func candidate(
 	mutant report.Mutant,
 	target discovery.RunBlock,
 	expression string,
-	change report.Change,
 ) report.Suggestion {
-	message := assertionMessage(mutant, change)
+	id := identifier(mutant.ID, target.Rel, target.Name, expression)
 
 	suggestion := report.Suggestion{
-		ID:             identifier(mutant.ID, target.Rel, target.Name, expression),
+		ID:             id,
 		MutantID:       mutant.ID,
 		TargetFile:     target.Rel,
 		TargetRun:      target.Name,
@@ -300,7 +304,7 @@ func candidate(
 		StatusReason:   "",
 	}
 
-	patch, err := PatchFor(target, expression, message)
+	patch, err := PatchFor(target, expression, VerifiedMessage(id, mutant.ID))
 	if err != nil {
 		return skipped(mutant, target, report.SuggestionSkippedUnaddressable,
 			"the target run could not be rewritten: "+err.Error())
@@ -309,15 +313,6 @@ func candidate(
 	suggestion.Patch = patch
 
 	return suggestion
-}
-
-// assertionMessage is the `error_message` the generated assert carries. It
-// names the mutant it kills and never the value it compares: a sensitive value
-// never reaches this function, and keeping the shape uniform means no future
-// change can leak one through it.
-func assertionMessage(mutant report.Mutant, change report.Change) string {
-	return fmt.Sprintf("%s must not change: mutant %s (%s at %s) survived because nothing asserted it",
-		change.Address, mutant.ID, mutant.Operator, mutant.Site)
 }
 
 // skipped builds a suggestion that carries a status and a reason and no patch.

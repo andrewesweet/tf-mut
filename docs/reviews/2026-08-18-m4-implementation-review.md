@@ -88,3 +88,39 @@ the engine seam in `suggest_test.go`.
   therefore always skip. A typed-fixture provider (the mirror already carries
   `hashicorp/null`) would widen the rendering matrix's positive rows from schema evidence
   rather than from fabricated schemas. Worth a spike before M4.5 leans on rendering.
+
+## Addendum: the PR #69 adversarial review (2026-08-18)
+
+The delivery review found five contract breaches, all confirmed and repaired in
+the same change, each now a named gate case:
+
+1. **The suggest surface was unreachable.** `parse` never mapped the five
+   suggest fields into `engine.Config` — a silent no-op in the wiring edit that
+   built it, which the whole engine-seam suite could not see because the seam
+   starts below the CLI. Wired, and covered by three command-level tests
+   (dry-run, survivor selection, apply selection). Lesson recorded: a public
+   shell needs at least one command-level test per command, because the seam's
+   thoroughness proves nothing about the shell.
+2. **JSON-declared module calls were outside the closure.** The generic-
+   reference path never created a `ModuleCall`, so a JSON-called child's
+   providers and effects bypassed both gates — the R2-10 shape again, one level
+   up. JSON calls now enter `module.Calls` (inputs undecoded, so the graph
+   marks the call unbounded and generation skips it), reproduced through the
+   engine seam with an unmocked-provider child and a provisioner child.
+3. **Two readers accepted content they did not model.** The `terraform` block
+   discarded its remainder; a JSON run accepted every attribute while reading
+   only `command`. Both now refuse unmodelled content (`required_version` is
+   the one recorded allow-list entry), and `expect_failures` and the override
+   blocks were removed from the run schema so they refuse rather than decode
+   to nothing.
+4. **The reported patch was not the verified bytes.** Candidate patches were
+   rendered with a different message than verification and apply used. One
+   renderer now produces all three, and a gate case asserts every added patch
+   line appears verbatim in the applied file.
+5. **The apply protocol had a check-then-replace race.** The preflight's digest
+   and file identity now travel to the commit step, which re-resolves the path,
+   re-checks device/inode and digest immediately before the rename, and aborts
+   on any change; a probe seam stages the race deterministically. The residual
+   window is the instants between the final read and the rename — the
+   narrowest a content-conditional replacement can be without a filesystem
+   compare-and-swap, and recorded here as such.

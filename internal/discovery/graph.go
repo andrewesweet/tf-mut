@@ -370,6 +370,16 @@ func (b *graphBuilder) declare(address string) nodeID {
 // call's result object.
 func (b *graphBuilder) wireCall(name string, callNode nodeID) {
 	call, found := b.callByName(name)
+
+	// A JSON-declared call's inputs are not decoded, so the graph cannot model
+	// its wiring edge by edge: the call is unbounded, and any cone touching it
+	// contains everything and licenses nothing.
+	if found && call.JSONDeclared {
+		b.markCallUnbounded(callNode)
+
+		return
+	}
+
 	if !found || !call.Local {
 		// A remote call — or one discovery could not place — is wiring the
 		// graph cannot model: a changed input can alter every resource and

@@ -132,6 +132,7 @@ func readJSONConfigurations(
 
 // mergeJSONModule folds one completely decoded JSON file into the module.
 func mergeJSONModule(module *Module, providers map[string]bool, scratch Module, found map[string]bool) {
+	module.Calls = append(module.Calls, scratch.Calls...)
 	module.Effects = append(module.Effects, scratch.Effects...)
 	module.ProviderAliases = append(module.ProviderAliases, scratch.ProviderAliases...)
 	module.JSONResources = append(module.JSONResources, scratch.JSONResources...)

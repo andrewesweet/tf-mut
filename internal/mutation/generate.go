@@ -400,7 +400,9 @@ func (g Generator) generateCalls(module discovery.Module, sources map[string]sou
 	mutants := []Mutant{}
 
 	for _, call := range module.Calls {
-		if !call.Local {
+		// A JSON file is never a mutation site, and a JSON call's inputs were
+		// never decoded to delete.
+		if !call.Local || call.JSONDeclared {
 			continue
 		}
 

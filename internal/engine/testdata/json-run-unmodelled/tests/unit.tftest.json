@@ -1,0 +1,10 @@
+{
+  "run": {
+    "planned": {
+      "command": "plan",
+      "expect_failures": [
+        "output.anchor"
+      ]
+    }
+  }
+}

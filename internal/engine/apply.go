@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
@@ -111,13 +112,29 @@ func selectForApply(settings Config, result report.Report) ([]report.Suggestion,
 }
 
 // plannedWrite is one target file with every selected suggestion for it
-// already applied in memory.
+// already applied in memory, together with the identity and digest of the
+// bytes the preflight checked — the commit step re-checks both, so the
+// preflight's proof travels to the replacement instead of decaying into a
+// check-then-act race.
 type plannedWrite struct {
 	path    string
 	rel     string
 	mode    os.FileMode
 	content []byte
+	// checkedDigest is the digest of the preflighted (verified) bytes.
+	checkedDigest string
+	// device and inode identify the regular file the preflight read, so a
+	// parent path swapped for a symlink after resolution is caught too.
+	device uint64
+	inode  uint64
 }
+
+// applyCommitProbe runs between a target's preflight and its commit re-check.
+// It is a test seam and nothing else: the race it exists to stage — an editor
+// writing between the two — cannot be staged deterministically from outside.
+//
+//nolint:gochecknoglobals // a test seam, nil outside the suite.
+var applyCommitProbe func(rel string)
 
 // preflight resolves and checks every target before a single byte is written.
 // Any refusal here aborts the whole invocation with zero writes.
@@ -173,6 +190,11 @@ func preflightFile(
 		return empty, fmt.Errorf("%w: %s is not a regular file", ErrApply, file)
 	}
 
+	identity, ok := fileIdentity(info)
+	if !ok {
+		return empty, fmt.Errorf("%w: %s carries no file identity to re-check at commit", ErrApply, file)
+	}
+
 	current, err := os.ReadFile(resolved)
 	if err != nil {
 		return empty, fmt.Errorf("%w: reading %s: %w", ErrApply, file, err)
@@ -202,7 +224,68 @@ func preflightFile(
 		}
 	}
 
-	return plannedWrite{path: resolved, rel: file, mode: info.Mode().Perm(), content: content}, nil
+	return plannedWrite{
+		path: resolved, rel: file, mode: info.Mode().Perm(), content: content,
+		checkedDigest: digest, device: identity.device, inode: identity.inode,
+	}, nil
+}
+
+// identity is the (device, inode) pair naming one file on one filesystem.
+type identity struct {
+	device uint64
+	inode  uint64
+}
+
+// fileIdentity extracts the identity the commit re-check compares against.
+func fileIdentity(info os.FileInfo) (identity, bool) {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return identity{device: 0, inode: 0}, false
+	}
+
+	return identity{device: stat.Dev, inode: stat.Ino}, true
+}
+
+// recheck re-proves, immediately before the rename, that the target is still
+// the file the preflight read: same regular file by device and inode, same
+// bytes by digest, no symlink introduced anywhere on the path. It shrinks the
+// check-to-replace window from "the whole verification run" to the instants
+// between this read and the rename — the narrowest any content-conditional
+// replacement can be without a compare-and-swap the filesystem does not offer.
+func recheck(target plannedWrite) error {
+	if applyCommitProbe != nil {
+		applyCommitProbe(target.rel)
+	}
+
+	resolved, err := filepath.EvalSymlinks(target.path)
+	if err != nil || resolved != filepath.Clean(target.path) {
+		return fmt.Errorf("%w: %s changed shape between preflight and commit: the path no "+
+			"longer resolves to the preflighted file", ErrApply, target.rel)
+	}
+
+	info, err := os.Lstat(target.path)
+	if err != nil || !info.Mode().IsRegular() {
+		return fmt.Errorf("%w: %s is no longer a regular file", ErrApply, target.rel)
+	}
+
+	current, ok := fileIdentity(info)
+	if !ok || current.device != target.device || current.inode != target.inode {
+		return fmt.Errorf("%w: %s was replaced between preflight and commit "+
+			"(the file identity changed)", ErrApply, target.rel)
+	}
+
+	content, err := os.ReadFile(target.path)
+	if err != nil {
+		return fmt.Errorf("%w: re-reading %s: %w", ErrApply, target.rel, err)
+	}
+
+	if suggest.Digest(content) != target.checkedDigest {
+		return fmt.Errorf("%w: %s changed between preflight and commit "+
+			"(preflighted %s, found %s); nothing was written to it",
+			ErrApply, target.rel, short(target.checkedDigest), short(suggest.Digest(content)))
+	}
+
+	return nil
 }
 
 // write performs the atomic writes and records exactly what happened, so a
@@ -225,8 +308,10 @@ func write(record *report.AppliedSuggestions, planned []plannedWrite) {
 	}
 }
 
-// atomicWrite writes through a temporary file in the same directory and renames
-// it over the target, so a reader never sees a half-written test file.
+// atomicWrite writes through a temporary file in the same directory, re-checks
+// the target against the preflight's identity and digest, and renames the
+// temporary over it — so a reader never sees a half-written test file and a
+// concurrent edit aborts instead of being overwritten.
 func atomicWrite(target plannedWrite) error {
 	directory := filepath.Dir(target.path)
 
@@ -251,6 +336,10 @@ func atomicWrite(target plannedWrite) error {
 
 	if err := os.Chmod(name, target.mode); err != nil {
 		return fmt.Errorf("%w: preserving the mode of %s: %w", ErrApply, target.rel, err)
+	}
+
+	if err := recheck(target); err != nil {
+		return err
 	}
 
 	if err := os.Rename(name, target.path); err != nil {

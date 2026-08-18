@@ -288,3 +288,39 @@ func TestApplyIsTheThirdWriteExceptionAndTouchesOnlyItsTargets(t *testing.T) {
 		}
 	}
 }
+
+// TestTheReportedPatchIsTheBytesApplyWrites is #63's exact-patch contract, the
+// PR #69 review's drift finding: every added line of a verified suggestion's
+// Patch must appear verbatim in the applied file, because the patch a reporter
+// shows, the bytes the sandbox verified, and the bytes apply writes are one
+// sequence or the digest protocol proves a file nobody was shown.
+func TestTheReportedPatchIsTheBytesApplyWrites(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, suggestBasicFixture)
+
+	result := runSuggest(t, applyAllConfig(t, module))
+	if result.Apply == nil || result.Apply.Aborted != "" {
+		t.Fatalf("apply did not complete: %+v", result.Apply)
+	}
+
+	written := readFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"))
+
+	for _, suggestion := range withStatus(result, report.SuggestionVerified) {
+		if suggestion.Patch == "" {
+			t.Fatalf("verified suggestion %s carries no patch", suggestion.ID)
+		}
+
+		for line := range strings.SplitSeq(suggestion.Patch, "\n") {
+			added, isAddition := strings.CutPrefix(line, "+")
+			if !isAddition || strings.HasPrefix(line, "+++") {
+				continue
+			}
+
+			if !strings.Contains(written, added) {
+				t.Fatalf("the applied file is missing the patch line %q of suggestion %s",
+					added, suggestion.ID)
+			}
+		}
+	}
+}
