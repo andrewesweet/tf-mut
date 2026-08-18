@@ -24,6 +24,11 @@ const (
 	untestedZeroOutputFixture = "untested-zero-output"
 	untestedSensitiveFixture  = "untested-sensitive"
 	untestedBranchesFixture   = "untested-branches"
+	untestedAliasFixture      = "untested-configuration-aliases"
+
+	// secondaryConfiguration is the alias the acceptance pair removes a mock
+	// for, in both fixtures that declare one.
+	secondaryConfiguration = "null.secondary"
 
 	rungOutputs = "outputs"
 )
@@ -93,14 +98,14 @@ func TestAMissingAliasMockRefusesBeforeExecution(t *testing.T) {
 	module := copyFixture(t, untestedAliasesFixture)
 
 	config := characteriseConfig(t, module)
-	config.SeedMissingMock = "null.secondary"
+	config.SeedMissingMock = secondaryConfiguration
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrRealInfrastructure) {
 		t.Fatalf("error = %v, want a refusal for the unmocked provider configuration", err)
 	}
 
-	if !strings.Contains(err.Error(), "null.secondary") {
+	if !strings.Contains(err.Error(), secondaryConfiguration) {
 		t.Fatalf("the refusal does not name the configuration: %v", err)
 	}
 
@@ -621,7 +626,7 @@ func TestNoTerraformRunPrecedesAStagedGateRefusal(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "terraform-calls")
 
 	config := characteriseConfig(t, copyFixture(t, untestedAliasesFixture))
-	config.SeedMissingMock = "null.secondary"
+	config.SeedMissingMock = secondaryConfiguration
 	config.TerraformBinary = recordingTerraform(t, log)
 
 	if _, err := engine.Run(t.Context(), config); !errors.Is(err, engine.ErrRealInfrastructure) {
@@ -705,5 +710,108 @@ func TestAPartialCommitReportsWhatItWrote(t *testing.T) {
 	if result.ExitCode(report.Gate{}) != report.ExitOperational { //nolint:exhaustruct // no gate is requested.
 		t.Fatalf("exit code = %d, want an operational failure for a partial commit",
 			result.ExitCode(report.Gate{})) //nolint:exhaustruct // no gate is requested.
+	}
+}
+
+// TestConfigurationAliasesAreMockedAndGated is the reusable-module case: a
+// module that names its caller's provider configurations with
+// `configuration_aliases` and declares no `provider` block at all.
+//
+// A reader that collects only `provider` blocks sees no alias, so the scaffold
+// mocks none of them and — the part that matters — the gate that requires a
+// mock per provider configuration never learns the configuration is there. An
+// aliased resource then escapes mock coverage entirely.
+func TestConfigurationAliasesAreMockedAndGated(t *testing.T) {
+	t.Parallel()
+	requireProviderMirror(t)
+
+	module := copyFixture(t, untestedAliasFixture)
+
+	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	if err != nil {
+		t.Fatalf("characterise: %v", err)
+	}
+
+	content := result.Characterisation.Files[0].Content
+	for _, wanted := range []string{`alias = "primary"`, `alias = "secondary"`} {
+		if !strings.Contains(content, wanted) {
+			t.Fatalf("the scaffold mocks no %s configuration:\n%s", wanted, content)
+		}
+	}
+
+	// The gate has to see them too: a configuration nothing mocks must refuse
+	// before execution, exactly as a `provider`-block alias does.
+	seeded := characteriseConfig(t, module)
+	seeded.SeedMissingMock = secondaryConfiguration
+
+	if _, err := engine.Run(t.Context(), seeded); !errors.Is(err, engine.ErrRealInfrastructure) {
+		t.Fatalf("error = %v, want a refusal for the unmocked configuration alias", err)
+	}
+}
+
+// TestARegistryFailureReportsThePartialState is the write contract's last
+// gap: by the time the registry is stored, every generated test file has been
+// renamed, so a registry that will not store leaves a changed tree and no
+// record of what changed it.
+func TestARegistryFailureReportsThePartialState(t *testing.T) {
+	t.Parallel()
+	requireProviderMirror(t)
+
+	module := copyFixture(t, untestedBranchesFixture)
+
+	config := characteriseConfig(t, module)
+	config.CharacteriseWrite = true
+	config.SeedRegistryFailure = true
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("a partial commit must return its report: %v", err)
+	}
+
+	write := result.Characterisation.Write
+	if write == nil || len(write.Partial) == 0 {
+		t.Fatalf("the registry failure was not reported as a partial state: %+v", write)
+	}
+
+	for _, path := range write.Partial {
+		if _, statErr := os.Stat(filepath.Join(module, path)); statErr != nil {
+			t.Fatalf("%s is reported written but is not on disk: %v", path, statErr)
+		}
+	}
+}
+
+// TestAClosureChangeInsideTheRenameWindowIsCaught is the write protocol's
+// boundary, asserted where the boundary actually is.
+//
+// Creating, writing, closing and chmodding a temporary file takes real time. A
+// probe that ran before all of that has checked the closure before the window
+// rather than immediately before the rename, so a source edited while the
+// temporary file was being written still commits. The seam fires the change
+// inside that window; a protocol that only checked before it would write.
+func TestAClosureChangeInsideTheRenameWindowIsCaught(t *testing.T) {
+	t.Parallel()
+	requireProviderMirror(t)
+
+	module := copyFixture(t, untestedAliasesFixture)
+
+	config := characteriseConfig(t, module)
+	config.CharacteriseWrite = true
+	config.SeedClosureChange = mainFile
+	config.SeedRenameWindowChange = true
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrWriteRefused) {
+		t.Fatalf("error = %v, want a refusal of the change made inside the window", err)
+	}
+
+	entries, readErr := os.ReadDir(filepath.Join(module, "tests"))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatalf("reading the test directory: %v", readErr)
+	}
+
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tftest.hcl") {
+			t.Fatalf("the aborted commit wrote %s", entry.Name())
+		}
 	}
 }

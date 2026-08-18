@@ -216,6 +216,16 @@ type Config struct {
 	// be proven load-bearing rather than assumed. It is a seam control, not a
 	// command-line flag.
 	SeedFinalPinDefect bool
+	// SeedRenameWindowChange fires the seeded closure change inside the rename
+	// window rather than before it — after the temporary file has been
+	// created, written, closed and chmodded — so a probe that ran only before
+	// that window can be shown to miss it. It is a seam control, not a
+	// command-line flag.
+	SeedRenameWindowChange bool
+	// SeedRegistryFailure makes the provenance registry fail to store, so the
+	// one window in which every generated file has already been renamed can be
+	// staged. It is a seam control, not a command-line flag.
+	SeedRegistryFailure bool
 	// SeedNoEscalation suppresses the zero-output auto-escalation, so the other
 	// half of the contract — a rung that pinned nothing may never report
 	// complete — can be proven on its own. It is a seam control, not a

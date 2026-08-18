@@ -36,6 +36,10 @@ const RegistryName = ".tf-mut-generated.json"
 // registryVersion is the registry's own format version.
 const registryVersion = "1.0.0"
 
+// insideTheWindow is the commit callback's second invocation: the one
+// WriteFreshChecked makes immediately before the rename.
+const insideTheWindow = 2
+
 // seedFileMode is the permission the closure-race seam's own writes carry.
 // Generated files are written by sandbox.WriteFresh, which sets its own mode;
 // this constant belongs to the seam and to nothing else.
@@ -90,6 +94,16 @@ func commitScaffold(
 
 	existing := loadRegistry(configuration.ModuleDir)
 
+	// The registry is part of the target path set and is checked with
+	// everything else in it. It was excluded once, and an ordinary `--write`
+	// then replaced a registry a user owned — a tool-owned write over a file
+	// the tool had never written.
+	if refusal := checkRegistry(configuration); refusal != "" {
+		record.Refused = refusal
+
+		return fmt.Errorf("%w: %s", ErrWriteRefused, refusal)
+	}
+
 	if refusal := checkTargets(configuration, settings, entriesOf(files), existing); refusal != "" {
 		record.Refused = refusal
 
@@ -108,7 +122,55 @@ func commitScaffold(
 
 	block.Staged = false
 
-	return storeRegistry(configuration.ModuleDir, block, inputDigest, existing)
+	if err := storeRegistry(configuration.ModuleDir, settings, block, inputDigest, existing); err != nil {
+		// Every generated file has already been renamed by this point, so a
+		// registry that will not store is a partial state and not a refusal:
+		// the caller's tree has changed and the record of what changed it has
+		// not. Without this the report is discarded as a pre-write error and
+		// the written files are invisible.
+		record.Partial = written
+		record.Refused = err.Error()
+
+		return err
+	}
+
+	return nil
+}
+
+// checkRegistry applies the collision protocol to the provenance registry.
+//
+// The registry cannot be proven by digest the way a generated test file is —
+// a file cannot record its own content hash — so it is proven by *shape*: a
+// file at this path that parses as a registry of the current format is one
+// this tool wrote, and anything else is somebody's, whatever `--force` says.
+// A tool-owned write over a file the tool never wrote is the thing the
+// never-write contract exists to prevent, and `--force` is permission to
+// replace this tool's own output, not permission to replace a file that
+// happens to share its name.
+func checkRegistry(configuration discovery.Configuration) string {
+	path := filepath.Join(configuration.ModuleDir, RegistryName)
+
+	content, err := os.ReadFile(path) //nolint:gosec // a module-relative tool file.
+	if errors.Is(err, fs.ErrNotExist) {
+		return ""
+	}
+
+	if err != nil {
+		return fmt.Sprintf("%s could not be inspected: %v", RegistryName, err)
+	}
+
+	loaded := registry{Version: "", Files: nil}
+	if json.Unmarshal(content, &loaded) != nil || loaded.Version != registryVersion {
+		return fmt.Sprintf("%s exists and is not a provenance registry this version wrote, "+
+			"so it will not be replaced: move it aside if it is not yours", RegistryName)
+	}
+
+	// A registry this tool wrote is updated without `--force`. It is the
+	// tool's own ledger and every legitimate second write has to extend it —
+	// a resume that promoted an answer, a `--force` that replaced a suite.
+	// What `--force` governs is the *generated suite*; what this check
+	// governs is whether the ledger is ours at all.
+	return ""
 }
 
 // checkTargets applies the collision rule over the full target path set.
@@ -164,31 +226,39 @@ func writeFiles(
 	written := []string{}
 
 	for _, file := range files {
-		if len(written) == settings.SeedClosureAfter {
+		if len(written) == settings.SeedClosureAfter && !settings.SeedRenameWindowChange {
 			if err := seedClosureChange(configuration, settings); err != nil {
 				return written, err
 			}
 		}
 
-		current, err := InputClosureDigest(configuration, settings, prepared, targets)
-		if err != nil {
+		target := filepath.Join(configuration.ModuleDir, filepath.FromSlash(file.entry.Path))
+
+		// The same two questions the loop asked, asked again in the instant
+		// before the rename: everything between them and here — creating,
+		// writing, closing and chmodding a temporary file — is time in which
+		// somebody else could have edited a source or created this target.
+		// The seam fires only on the *second* call — the one the rename
+		// boundary makes — so that a protocol which checked before the window
+		// and not inside it would see nothing and write.
+		calls := 0
+		commit := func() error {
+			calls++
+
+			if settings.SeedRenameWindowChange && calls == insideTheWindow {
+				if err := seedClosureChange(configuration, settings); err != nil {
+					return err
+				}
+			}
+
+			return recheckWrite(configuration, settings, prepared, inputDigest, targets, file.entry)
+		}
+
+		if err := commit(); err != nil {
 			return written, err
 		}
 
-		if current != inputDigest {
-			return written, fmt.Errorf("%w: the input closure changed while the suite was "+
-				"being verified, so the generated content is green for a module that no "+
-				"longer exists (%s became %s)", ErrWriteRefused, inputDigest, current)
-		}
-
-		target := filepath.Join(configuration.ModuleDir, filepath.FromSlash(file.entry.Path))
-
-		if refusal := checkTargets(configuration, settings, []report.GeneratedFile{file.entry},
-			loadRegistry(configuration.ModuleDir)); refusal != "" {
-			return written, fmt.Errorf("%w: %s", ErrWriteRefused, refusal)
-		}
-
-		if err := sandbox.WriteFresh(target, "", file.bytes); err != nil {
+		if err := sandbox.WriteFreshChecked(target, "", file.bytes, commit); err != nil {
 			return written, err
 		}
 
@@ -214,6 +284,35 @@ func targetPaths(configuration discovery.Configuration, files []generated) map[s
 	targets[filepath.Join(configuration.ModuleDir, RegistryName)] = true
 
 	return targets
+}
+
+// recheckWrite asks the write protocol's two questions: is the closure the one that
+// made this content green, and is the target still free?
+func recheckWrite(
+	configuration discovery.Configuration,
+	settings Config,
+	prepared warm,
+	inputDigest string,
+	targets map[string]bool,
+	file report.GeneratedFile,
+) error {
+	current, err := InputClosureDigest(configuration, settings, prepared, targets)
+	if err != nil {
+		return err
+	}
+
+	if current != inputDigest {
+		return fmt.Errorf("%w: the input closure changed while the suite was being "+
+			"verified, so the generated content is green for a module that no longer "+
+			"exists (%s became %s)", ErrWriteRefused, inputDigest, current)
+	}
+
+	if refusal := checkTargets(configuration, settings, []report.GeneratedFile{file},
+		loadRegistry(configuration.ModuleDir)); refusal != "" {
+		return fmt.Errorf("%w: %s", ErrWriteRefused, refusal)
+	}
+
+	return nil
 }
 
 // seedClosureChange stages the race the commit step exists to close: a source
@@ -289,10 +388,15 @@ func loadRegistry(moduleDir string) registry {
 // writes recorded.
 func storeRegistry(
 	moduleDir string,
+	settings Config,
 	block *report.Characterisation,
 	inputDigest string,
 	existing registry,
 ) error {
+	if settings.SeedRegistryFailure {
+		return fmt.Errorf("%w: the provenance registry could not be stored", ErrWriteRefused)
+	}
+
 	for _, file := range block.Files {
 		if !file.Written {
 			continue

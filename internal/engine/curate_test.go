@@ -518,3 +518,87 @@ func TestTheFinalPinSetIsVerifiedBeforeAnyWrite(t *testing.T) {
 		}
 	}
 }
+
+// TestAScaffoldAnswerCannotInjectConfiguration is the answer grammar's real
+// boundary.
+//
+// A value goes through cty and comes back a literal, so it can only be a
+// constant. A *key* was taken as written and emitted as an HCL identifier, so
+// `{ "size = 0\n  injected" = 1 }` rendered two assignments — arbitrary
+// configuration smuggled in through a name, into a file the staged safety
+// check had already approved on the strength of answers being constants.
+func TestAScaffoldAnswerCannotInjectConfiguration(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, contractFixture)
+	removeTests(t, module)
+
+	config := characteriseConfig(t, module)
+	config.UntilDry = true
+
+	opened, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("characterise --until-dry: %v", err)
+	}
+
+	identifier := scaffoldFor(t, opened.Characterisation, "var.size.validation")
+
+	for name, answer := range map[string]string{
+		"an injected assignment": `{ "size = 0\n    injected" = 1 }`,
+		"an undeclared variable": `{ nonexistent = 1 }`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			refused := characteriseConfig(t, module)
+			refused.UntilDry = true
+			refused.Answers = []string{identifier + "=" + answer}
+
+			result, err := engine.Run(t.Context(), refused)
+			if err != nil {
+				t.Fatalf("characterise: %v", err)
+			}
+
+			for _, scaffold := range result.Characterisation.Scaffolds {
+				if scaffold.ID == identifier && scaffold.Status == report.ScaffoldPromoted {
+					t.Fatal("the refused answer promoted the scaffold")
+				}
+			}
+
+			for _, file := range result.Characterisation.Files {
+				if strings.Contains(file.Content, "injected") {
+					t.Fatalf("%s carries the injected assignment:\n%s", file.Path, file.Content)
+				}
+			}
+		})
+	}
+}
+
+// TestAForeignRegistryIsNeverReplaced is the collision protocol applied to the
+// provenance registry, which was excluded from the target set it belongs to.
+//
+// The registry cannot be proven by digest — a file cannot record its own
+// content hash — so it is proven by shape. `--force` is permission to replace
+// this tool's own output; a file that merely shares the name is somebody's.
+func TestAForeignRegistryIsNeverReplaced(t *testing.T) {
+	t.Parallel()
+	requireProviderMirror(t)
+
+	module := copyFixture(t, untestedBranchesFixture)
+	registry := filepath.Join(module, engine.RegistryName)
+
+	writeFile(t, registry, "{\"this\":\"is not a provenance registry\"}\n")
+
+	config := characteriseConfig(t, module)
+	config.CharacteriseWrite = true
+	config.CharacteriseForce = true
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrWriteRefused) {
+		t.Fatalf("error = %v, want a refusal of the foreign registry", err)
+	}
+
+	if readFile(t, registry) != "{\"this\":\"is not a provenance registry\"}\n" {
+		t.Fatal("the foreign registry was overwritten")
+	}
+}

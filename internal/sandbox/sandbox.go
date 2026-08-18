@@ -73,6 +73,17 @@ var linkableSuffixes = []string{
 // target must be fresh: see Materialise.
 var ErrTargetExists = errors.New("sandbox target already exists")
 
+// ErrEscapingPath reports a staged or mutated path that resolves outside the
+// sandbox it was to be written into.
+//
+// The keys of Staged and Mutations are relative paths built from
+// caller-controlled input — a `--test-directory` among them — and
+// `filepath.Join` *cleans* a `..` rather than refusing it, so a path that
+// climbs out of the sandbox arrives looking like an ordinary join. The whole
+// value of a sandbox is that everything written lands inside it, so a path
+// that would not is refused rather than cleaned.
+var ErrEscapingPath = errors.New("path resolves outside the sandbox")
+
 // Share describes the warm workspace a sandbox borrows from.
 type Share struct {
 	// DataDir is the warm module's .terraform directory.
@@ -185,7 +196,12 @@ func copyTree(spec Spec) error {
 		}
 
 		if content, mutated := spec.Mutations[slashed]; mutated {
-			return WriteFresh(target, path, content)
+			confined, confineErr := confine(spec.Target, slashed)
+			if confineErr != nil {
+				return confineErr
+			}
+
+			return WriteFresh(confined, path, content)
 		}
 
 		// A staged path is written by stage() as a fresh inode. Sharing it here
@@ -211,7 +227,11 @@ func stage(spec Spec) error {
 	slices.Sort(paths)
 
 	for _, relative := range paths {
-		target := filepath.Join(spec.Target, filepath.FromSlash(relative))
+		target, err := confine(spec.Target, relative)
+		if err != nil {
+			return err
+		}
+
 		source := filepath.Join(spec.SourceRoot, filepath.FromSlash(relative))
 
 		if err := WriteFresh(target, source, spec.Staged[relative]); err != nil {
@@ -220,6 +240,32 @@ func stage(spec Spec) error {
 	}
 
 	return nil
+}
+
+// confine resolves a relative path inside a root and refuses one that leaves
+// it.
+//
+// The check is on the *resolved* path rather than on the text: `..` can arrive
+// spelled several ways and `filepath.Join` cleans every one of them into a
+// path that looks ordinary. Asking `filepath.Rel` where the result actually
+// landed is the question that has one answer.
+func confine(root, relative string) (string, error) {
+	if filepath.IsAbs(relative) {
+		return "", fmt.Errorf("%w: %s is absolute", ErrEscapingPath, relative)
+	}
+
+	target := filepath.Join(root, filepath.FromSlash(relative))
+
+	inside, err := filepath.Rel(root, target)
+	if err != nil {
+		return "", fmt.Errorf("resolving %s: %w", relative, err)
+	}
+
+	if inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("%w: %s resolves to %s", ErrEscapingPath, relative, target)
+	}
+
+	return target, nil
 }
 
 // share links or copies a file the sandbox will not mutate.
@@ -286,6 +332,20 @@ func copyFile(source, target string) error {
 // Together they are the R2-3 guard — a mutated write can never reach the
 // source tree, whatever the caller passed.
 func WriteFresh(target, source string, content []byte) error {
+	return WriteFreshChecked(target, source, content, nil)
+}
+
+// WriteFreshChecked is WriteFresh with one last question asked at the rename
+// boundary itself.
+//
+// The boundary matters more than it looks. Creating, writing, closing and
+// chmodding the temporary file is a window of real duration, and a caller that
+// checked its preconditions *before* calling this has checked them before that
+// window rather than after it — so a source edited, or a target created, while
+// the temporary file was being written still commits. `commit` immediately
+// before `os.Rename` is the only place the check means what the write protocol
+// says it means.
+func WriteFreshChecked(target, source string, content []byte, commit func() error) error {
 	if err := assertDistinct(target, source); err != nil {
 		return err
 	}
@@ -320,6 +380,12 @@ func WriteFresh(target, source string, content []byte) error {
 
 	if err := assertDistinct(name, source); err != nil {
 		return err
+	}
+
+	if commit != nil {
+		if err := commit(); err != nil {
+			return err
+		}
 	}
 
 	if err := os.Rename(name, target); err != nil {

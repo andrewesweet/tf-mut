@@ -196,7 +196,17 @@ func verifyScaffoldAnswer(
 
 	variables, parsed := characterise.AnsweredVariables(answer)
 	if !parsed {
-		return empty, "the answer is not an object of constant input assignments"
+		return empty, "the answer is not an object of constant assignments to legal " +
+			"variable names"
+	}
+
+	// Every name has to be an input the module declares. A legal identifier is
+	// not enough on its own: an answer naming something the module has no
+	// variable for would render a run block Terraform refuses, and the point
+	// of checking here is that the refusal names the answer rather than the
+	// generated file.
+	if undeclared := undeclaredInputs(stage.configuration, variables); undeclared != "" {
+		return empty, "the answer names " + undeclared + ", which the module does not declare"
 	}
 
 	content := characterise.RenderExpectFailures(scaffold, entry, checkable, variables)
@@ -359,6 +369,40 @@ func scenarioForRun(block *report.Characterisation, run string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// undeclaredInputs names the first assignment whose variable the module does
+// not declare, or empty where every one of them is real.
+func undeclaredInputs(
+	configuration discovery.Configuration,
+	variables map[string]string,
+) string {
+	declared := map[string]bool{}
+
+	for _, module := range configuration.Modules {
+		if module.Dir != configuration.ModuleDir {
+			continue
+		}
+
+		for _, variable := range module.Variables {
+			declared[variable.Name] = true
+		}
+	}
+
+	names := make([]string, 0, len(variables))
+	for name := range variables {
+		names = append(names, name)
+	}
+
+	slices.Sort(names)
+
+	for _, name := range names {
+		if !declared[name] {
+			return name
+		}
+	}
+
+	return ""
 }
 
 // rungOfExpression classifies a generated assertion by the ladder level it

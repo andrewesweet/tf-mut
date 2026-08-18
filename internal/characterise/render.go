@@ -341,6 +341,15 @@ const checkableParts = 2
 
 // AnsweredVariables reads a scaffold answer — an object expression naming the
 // inputs that make the construct fail — into per-variable assignments.
+//
+// Both halves are constrained, and the key half is the one that matters. A
+// value goes through `cty` and is rendered back as a literal, so it cannot be
+// anything but a constant. A key was previously taken as written and emitted
+// as an HCL identifier, so `{ "size = 0\n  injected" = 1 }` rendered *two*
+// assignments — arbitrary configuration smuggled in through a name. A key is
+// now required to be a legal Terraform identifier and nothing else, which is
+// the only shape a variable name can take; the caller checks separately that
+// the module actually declares it.
 func AnsweredVariables(answer string) (map[string]string, bool) {
 	expr, diagnostics := hclsyntax.ParseExpression([]byte(answer), "answer", hcl.InitialPos)
 	if diagnostics.HasErrors() {
@@ -356,7 +365,7 @@ func AnsweredVariables(answer string) (map[string]string, bool) {
 
 	for _, item := range object.Items {
 		name, named := objectKey(item.KeyExpr)
-		if !named {
+		if !named || !hclsyntax.ValidIdentifier(name) {
 			return nil, false
 		}
 
