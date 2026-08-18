@@ -184,3 +184,82 @@ declined with reasoning. Each repair is a named gate-m4 case.
     recorded non-issue: mock data can declare no provider, effect or run, so
     it informs neither gate — the same disposition as the variables class —
     and the class is noted in the M4.5 handover.
+
+## Briefing for the next milestone's spec author
+
+What M4's implementation and its three adversarial rounds taught, distilled to what
+changes how the next spec should be written. Everything here is earned in this
+milestone's history; nothing is aspirational.
+
+1. **Specify the shell, not only the seam.** M4's worst self-inflicted defect was a
+   `suggest` command whose five flags never reached the engine — invisible to the entire
+   engine-seam suite because the seam starts below the CLI, and invisible to the author
+   because the wiring edit failed silently. Every spec that adds a public command or flag
+   should require at least one command-level acceptance case per command *and per argument
+   order* (round 3 found that flags after the module path were silently discarded, so the
+   one wiring test that existed proved only one ordering).
+
+2. **"Enumerated in a schema" is not "modelled"; make specs demand the negative case.**
+   Three separate fail-opens had the same shape: a construct the reader *accepted* but did
+   not *collect* (JSON `check` blocks, `mock_provider` bodies, `terraform`-block
+   remainders, run attributes). The M4 spec's own checklist line — every emission into a
+   foreign grammar needs its own fail-closed adapter — was necessary but not sufficient;
+   the sufficient form is: **for every construct a reader's schema names, the spec must
+   say what is collected from it, and everything else must have a refusal fixture.** A
+   useful spec-review question: "list the schema entries; which acceptance case proves
+   each one's remainder is refused?"
+
+3. **Safety predicates must be specified over every payload that exists, not the obvious
+   one.** The sensitivity predicate was specified over "the exact baseline path and its
+   ancestors" — and a mutation moved a secret into a path whose *baseline* value was
+   public, so only the mutant payload carried the mark. When a spec defines a predicate
+   over "the payload", it should name which payloads exist at that point (baseline,
+   mutant, re-run) and require the predicate over all of them, with a fixture whose
+   interesting fact lives only in the non-obvious one. Corollary from the same finding:
+   marks that do not propagate (Terraform drops sensitivity across a provider's computed
+   echo) mean value-based guards are needed alongside path-based ones — specify both.
+
+4. **Check-then-act protocols need their re-check specified at the act.** The apply
+   protocol's C6 repair specified the preflight; the race between preflight and rename was
+   only closed in round 3. When a spec orders "verify, then write", it should state where
+   the verified identity travels to and what re-proves it at the final step — and require
+   a deterministic seam (a probe hook) for the race no black-box test can stage. The same
+   lesson generalises: our seam controls (`DisableStaticShortcuts`, `DisableJSONReading`,
+   `SeedSuggestionDefect`, `applyCommitProbe`) were each the only way to keep an
+   already-repaired behaviour provable after the repair; specs should name the seam
+   control alongside the behaviour.
+
+5. **Identity keys deserve a design sentence.** Suggestion identity included the mutant
+   ID, so one assertion killing five mutants became five suggestions, five verification
+   runs and five identical assert blocks. When a spec gives an entity a stable ID, it
+   should also say what the ID *deduplicates over* — and what the user-visible cardinality
+   is meant to be.
+
+6. **Published schemas must encode their presence rules, and be validated against engine
+   output.** The 2.2.0 outcome table's rules ("every skipped status carries no patch")
+   lived in Go tests and description prose until round 3; a consumer validating against
+   the published contract got none of them. Future schema changes: conditionals in the
+   schema, plus one suite case that validates a *real* report per interesting shape.
+
+7. **Platform facts still bite last.** Two more measured this milestone, both after the
+   spec was "done": Terraform refuses a constant assert `condition` (the soundness gate's
+   vacuous seed had to become a tautology), and `GITHUB_STEP_SUMMARY` is per-step (the
+   workflow test had to assert the summary's on-disk source instead). Rule 3 — run it,
+   don't reason about it — applies to the CI platform as much as to Terraform, and specs
+   should ask for the platform-fact measurement in the same slice as the feature, not
+   after it.
+
+8. **Formatter parity is part of "done".** The only red CI round after three green local
+   gates was gofumpt-vs-gofmt drift: local verification used the weaker formatter. Specs
+   need not say this, but the delivery checklist should: run the repo's own recipes
+   (`just fmt-check`, both lint tag-sets) rather than their approximations.
+
+9. **What the next specs inherit, concretely.** M4.5: the relocated skeleton work behind
+   the minable-share measurement, the characterisation skill, and the open question of a
+   typed-fixture provider so the rendering matrix's positive rows come from real schema
+   evidence. M5: any finer cache key must be graph-dependency-aware and re-run the pinned
+   protocol (the per-file key is rejected on 3 false reuses); mock-data files
+   (`.tfmock.*`) are hashed into the cache key as of this PR but are in no floor class —
+   decide their class if Terraform ever lets a mock body carry more than values. And #70:
+   the HCL `check`-block inventory blind spot, reproduced end-to-end, waiting on a real
+   collector for both syntaxes.
