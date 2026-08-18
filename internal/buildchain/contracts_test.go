@@ -223,7 +223,7 @@ func withoutSkipped(t *testing.T, skipManifest string, discovered []string) []st
 
 	skipped := map[string]bool{}
 
-	for _, line := range strings.Fields(readRepositoryFile(t, skipManifest)) {
+	for line := range strings.FieldsSeq(readRepositoryFile(t, skipManifest)) {
 		if !strings.HasPrefix(line, "#") {
 			skipped[line] = true
 		}

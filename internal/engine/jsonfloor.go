@@ -76,16 +76,15 @@ func (f jsonFloor) informing(flag string) []discovery.JSONFile {
 }
 
 func gatesInformedBy(class discovery.JSONClass) []string {
-	switch class {
-	case discovery.JSONConfiguration, discovery.JSONTest:
-		return []string{FlagAllowRealInfrastructure, FlagAllowUnsandboxedEffects}
-	case discovery.JSONVariables:
+	// The variables classes declare values: no provider, no provisioner, no
+	// run, so they inform neither gate. Everything else — including a class
+	// this version does not recognise — is content of unknown shape, and fails
+	// closed on both gates rather than on neither.
+	if class == discovery.JSONVariables {
 		return nil
-	default:
-		// An unrecognised class is content of unknown shape: it fails closed on
-		// both gates rather than on neither.
-		return []string{FlagAllowRealInfrastructure, FlagAllowUnsandboxedEffects}
 	}
+
+	return []string{FlagAllowRealInfrastructure, FlagAllowUnsandboxedEffects}
 }
 
 // checkFloor refuses the run unless every gate the unread content could have

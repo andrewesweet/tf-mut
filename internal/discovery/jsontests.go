@@ -13,9 +13,9 @@ import (
 var jsonTestSchema = &hcl.BodySchema{
 	Attributes: nil,
 	Blocks: []hcl.BlockHeaderSchema{
-		{Type: runBlock, LabelNames: []string{"name"}},
-		{Type: mockProvider, LabelNames: []string{"name"}},
-		{Type: providerBlock, LabelNames: []string{"name"}},
+		{Type: runBlock, LabelNames: []string{nameLabel}},
+		{Type: mockProvider, LabelNames: []string{nameLabel}},
+		{Type: providerBlock, LabelNames: []string{nameLabel}},
 		{Type: variablesBlock, LabelNames: nil},
 		{Type: "override_resource", LabelNames: nil},
 		{Type: "override_data", LabelNames: nil},
@@ -57,8 +57,8 @@ func readJSONTest(suite *TestSuite, mocked map[string]bool, moduleDir, path stri
 		return fmt.Errorf("%w: %s: %s", ErrParse, path, diagnostics.Error())
 	}
 
-	if err := refuseUnmodelled(path, rest); err != nil {
-		return err
+	if unmodelledErr := refuseUnmodelled(path, rest); unmodelledErr != nil {
+		return unmodelledErr
 	}
 
 	relative, err := filepath.Rel(moduleDir, path)

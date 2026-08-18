@@ -54,6 +54,7 @@ func TestAStaleVerifiedDigestAbortsThePreflightNamingBothDigests(t *testing.T) {
 		}
 	}
 
+	//nolint:gosec // a test-owned temporary path.
 	if readBack, readErr := os.ReadFile(target); readErr != nil || string(readBack) != content {
 		t.Fatal("the preflight touched the file it refused")
 	}

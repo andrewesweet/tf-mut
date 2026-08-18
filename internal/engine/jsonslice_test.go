@@ -94,8 +94,8 @@ func TestTheSliceLetsTheEvaluatorReadAJSONVariablesFile(t *testing.T) {
 	// the body mutants.
 	gated := 0
 
-	for _, mutant := range bodyMutants(result, "terraform_data.gated", "count") {
-		if mutant.Site == "terraform_data.gated" {
+	for _, mutant := range bodyMutants(result, gatedResource, "count") {
+		if mutant.Site == gatedResource {
 			continue
 		}
 

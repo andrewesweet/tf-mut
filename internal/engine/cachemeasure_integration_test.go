@@ -5,6 +5,7 @@ package engine_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,8 +33,13 @@ import (
 // The result of running this measurement is published in
 // docs/research/11-m4-exit-gate.md.
 
+// crossFileEdit names the seeded verdict-changing edit the assertions key on.
+const crossFileEdit = "E3-cross-file-dependency"
+
 // The pinned edit sequence. Each edit is applied to a fresh copy of the
 // fixture at its previous state, in order.
+//
+//nolint:gochecknoglobals // the pinned protocol itself: an immutable table.
 var cacheMeasurementEdits = []struct {
 	name string
 	file string
@@ -65,7 +71,7 @@ var cacheMeasurementEdits = []struct {
 		// of local.orphan flips the a.tf orphan mutants from Survived to
 		// statically Unobservable without touching a.tf, which is exactly the
 		// reuse the per-file key would claim and must not be allowed to.
-		name: "E3-cross-file-dependency",
+		name: crossFileEdit,
 		file: "b.tf",
 		edit: func(string) string {
 			return "# E3: the reader is gone, so nothing observes local.orphan.\n" +
@@ -98,12 +104,12 @@ func TestCacheOverInvalidationMeasurement(t *testing.T) {
 			"simulated-reused=%d false-reuse=%d",
 			step.name, coarse, coarse, simulated, reused, falseReuse)
 
-		if step.name == "E3-cross-file-dependency" && falseReuse == 0 {
+		if step.name == crossFileEdit && falseReuse == 0 {
 			t.Fatal("the seeded verdict-changing dependency was not caught: " +
 				"the measurement cannot reject a lying key it cannot see lie")
 		}
 
-		if step.name != "E3-cross-file-dependency" && falseReuse != 0 {
+		if step.name != crossFileEdit && falseReuse != 0 {
 			t.Fatalf("%s: %d false reuses on an edit that changes no cross-file verdict",
 				step.name, falseReuse)
 		}
@@ -161,7 +167,7 @@ func measureRun(t *testing.T, module string) measured {
 			continue
 		}
 
-		content, err := os.ReadFile(filepath.Join(module, entry.Name()))
+		content, err := os.ReadFile(filepath.Join(module, entry.Name())) //nolint:gosec // a test-owned fixture copy.
 		if err != nil {
 			t.Fatalf("reading %s: %v", entry.Name(), err)
 		}
@@ -175,9 +181,7 @@ func measureRun(t *testing.T, module string) measured {
 
 func perFileDigests(previous measured) map[string]string {
 	digests := map[string]string{}
-	for name, digest := range previous.files {
-		digests[name] = digest
-	}
+	maps.Copy(digests, previous.files)
 
 	return digests
 }
@@ -220,9 +224,10 @@ func simulateReuse(
 func fixtureDigests(t *testing.T, module string) string {
 	t.Helper()
 
-	parts := []string{}
+	digests := treeDigest(t, module)
+	parts := make([]string, 0, len(digests))
 
-	for path, digest := range treeDigest(t, module) {
+	for path, digest := range digests {
 		parts = append(parts, path+"="+digest[:12])
 	}
 

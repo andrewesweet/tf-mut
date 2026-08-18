@@ -40,17 +40,11 @@ const (
 )
 
 // Skipped reports whether a status is one of the skipped family, which is what
-// the "no patch" rule turns on.
+// the "no patch" rule turns on. The vocabulary is closed, so anything else —
+// including a value from a future schema — is not a skip.
 func (s SuggestionStatus) Skipped() bool {
-	switch s {
-	case SuggestionSkippedSensitive, SuggestionSkippedUnaddressable,
-		SuggestionSkippedUnrenderable, SuggestionSkippedUnsupportedTarget:
-		return true
-	case SuggestionCandidate, SuggestionVerified, SuggestionRefuted:
-		return false
-	default:
-		return false
-	}
+	return s == SuggestionSkippedSensitive || s == SuggestionSkippedUnaddressable ||
+		s == SuggestionSkippedUnrenderable || s == SuggestionSkippedUnsupportedTarget
 }
 
 // VerificationLeg is the outcome of one half of the verification contract.

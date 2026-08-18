@@ -140,7 +140,6 @@ func preflight(configuration applyContext, selected []report.Suggestion) ([]plan
 	return planned, nil
 }
 
-//nolint:cyclop // the preflight is a checklist: every clause is one refusal the contract names.
 func preflightFile(
 	configuration applyContext,
 	file string,
@@ -173,7 +172,7 @@ func preflightFile(
 		return empty, fmt.Errorf("%w: %s is not a regular file", ErrApply, file)
 	}
 
-	current, err := os.ReadFile(resolved) //nolint:gosec // a preflighted test file inside the module.
+	current, err := os.ReadFile(resolved)
 	if err != nil {
 		return empty, fmt.Errorf("%w: reading %s: %w", ErrApply, file, err)
 	}

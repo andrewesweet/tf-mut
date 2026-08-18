@@ -118,30 +118,6 @@ func (s Schemas) AttributeType(kind, resourceType, attribute string) (cty.Type, 
 	return decoded, true
 }
 
-// attribute finds one argument's schema across every visible provider.
-func (s Schemas) attribute(kind, resourceType, attribute string) (SchemaAttribute, bool) {
-	for _, provider := range s.ProviderSchemas {
-		schemas := provider.ResourceSchemas
-		if kind == dataSourceKind {
-			schemas = provider.DataSourceSchemas
-		}
-
-		schema, found := schemas[resourceType]
-		if !found {
-			continue
-		}
-
-		described, found := schema.Block.Attributes[attribute]
-		if !found {
-			return SchemaAttribute{}, false //nolint:exhaustruct // nothing was described.
-		}
-
-		return described, true
-	}
-
-	return SchemaAttribute{}, false //nolint:exhaustruct // no provider describes it.
-}
-
 // Computed reports whether the named argument of a managed resource or data
 // source is one the provider fills in.
 //
@@ -169,4 +145,28 @@ func (s Schemas) Computed(kind, resourceType, attribute string) (computed, known
 	}
 
 	return false, false
+}
+
+// attribute finds one argument's schema across every visible provider.
+func (s Schemas) attribute(kind, resourceType, attribute string) (SchemaAttribute, bool) {
+	for _, provider := range s.ProviderSchemas {
+		schemas := provider.ResourceSchemas
+		if kind == dataSourceKind {
+			schemas = provider.DataSourceSchemas
+		}
+
+		schema, found := schemas[resourceType]
+		if !found {
+			continue
+		}
+
+		described, found := schema.Block.Attributes[attribute]
+		if !found {
+			return SchemaAttribute{}, false //nolint:exhaustruct // nothing was described.
+		}
+
+		return described, true
+	}
+
+	return SchemaAttribute{}, false //nolint:exhaustruct // no provider describes it.
 }

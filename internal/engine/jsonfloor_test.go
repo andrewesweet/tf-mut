@@ -340,14 +340,15 @@ func recordingTerraform(t *testing.T, log string) string {
 	// parallel. Probe until the kernel lets the wrapper run; the probe argument
 	// records nothing and executes nothing.
 	for range probeAttempts {
-		if err := exec.Command(path, "--tf-mut-probe").Run(); err == nil {
+		//nolint:gosec // a test-owned wrapper script.
+		if err := exec.CommandContext(t.Context(), path, "--tf-mut-probe").Run(); err == nil {
 			return path
 		}
 
 		time.Sleep(probeInterval)
 	}
 
-	t.Fatalf("the recording terraform wrapper never became executable")
+	t.Fatal("the recording terraform wrapper never became executable")
 
 	return ""
 }
@@ -372,7 +373,7 @@ func terraformInvocations(t *testing.T, log string) []string {
 
 	lines := []string{}
 
-	for _, line := range strings.Split(strings.TrimSpace(string(content)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(content)), "\n") {
 		if line != "" {
 			lines = append(lines, line)
 		}

@@ -27,7 +27,7 @@ const (
 
 // PatchFor renders the unified diff that adds the assertion to the target run.
 func PatchFor(target discovery.RunBlock, expression, message string) (string, error) {
-	original, err := os.ReadFile(target.File) //nolint:gosec // a discovered test file.
+	original, err := os.ReadFile(target.File)
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", target.Rel, err)
 	}

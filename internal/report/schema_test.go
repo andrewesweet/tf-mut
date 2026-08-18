@@ -109,6 +109,9 @@ func stringsAt(document map[string]any, key string) []string {
 // The literals the sample report reuses.
 const (
 	sampleFile     = "main.tf"
+	samplePatch    = "--- a/tests/unit.tftest.hcl\n+++ b/tests/unit.tftest.hcl\n"
+	samplePass     = "pass"
+	sampleOtherID  = "ba9876543210"
 	sampleRun      = "defaults"
 	sampleResource = "terraform_data.app"
 	sampleTestFile = "tests/unit.tftest.hcl"
@@ -176,6 +179,9 @@ func sampleReport() report.Report {
 	}
 }
 
+// decidedAndSkippedRows is the outcome table's row count.
+const decidedAndSkippedRows = 7
+
 // sampleSuggestions covers every row of the outcome table: the three decided
 // statuses and all four skips, with the presence rules each row promises.
 func sampleSuggestions() []report.Suggestion {
@@ -183,7 +189,7 @@ func sampleSuggestions() []report.Suggestion {
 		Baseline: report.VerificationLeg{
 			Passed: true,
 			Runs: []report.RunOutcome{{
-				File: sampleTestFile, Run: sampleRun, Phase: 1, Status: "pass",
+				File: sampleTestFile, Run: sampleRun, Phase: 1, Status: samplePass,
 			}},
 			Detail: "the full suite ran 1 run block(s) with 1 suggested assertion(s) applied",
 		},
@@ -196,30 +202,32 @@ func sampleSuggestions() []report.Suggestion {
 		},
 	}
 
-	decided := []report.Suggestion{
+	decided := make([]report.Suggestion, 0, decidedAndSkippedRows)
+
+	decided = append(decided, []report.Suggestion{
 		{
 			ID: "aaaabbbbcccc", MutantID: sampleMutantID,
 			TargetFile: sampleTestFile, TargetRun: sampleRun,
 			Status: report.SuggestionVerified, Expression: sampleOutput + ` == "critical"`,
-			Patch:          "--- a/tests/unit.tftest.hcl\n+++ b/tests/unit.tftest.hcl\n",
+			Patch:          samplePatch,
 			VerifiedDigest: "8f1c0e6a8f1c0e6a", Verification: legs, StatusReason: "",
 		},
 		{
-			ID: "bbbbccccdddd", MutantID: "ba9876543210",
+			ID: "bbbbccccdddd", MutantID: sampleOtherID,
 			TargetFile: sampleTestFile, TargetRun: sampleRun,
 			Status: report.SuggestionCandidate, Expression: sampleOutput + ` == "critical"`,
-			Patch:          "--- a/tests/unit.tftest.hcl\n+++ b/tests/unit.tftest.hcl\n",
+			Patch:          samplePatch,
 			VerifiedDigest: "", Verification: nil, StatusReason: "",
 		},
 		{
 			ID: "ccccddddeeee", MutantID: "fedcba987654",
 			TargetFile: sampleTestFile, TargetRun: sampleRun,
 			Status: report.SuggestionRefuted, Expression: sampleOutput + ` == "critical"`,
-			Patch:          "--- a/tests/unit.tftest.hcl\n+++ b/tests/unit.tftest.hcl\n",
+			Patch:          samplePatch,
 			VerifiedDigest: "", Verification: legs,
 			StatusReason: "the mutant survived the suggested assertion applied on its own",
 		},
-	}
+	}...)
 
 	for index, status := range []report.SuggestionStatus{
 		report.SuggestionSkippedSensitive, report.SuggestionSkippedUnaddressable,
@@ -248,7 +256,7 @@ func sampleFindings() []report.Finding {
 			End:   report.Position{Line: 7, Column: 2},
 		},
 		Message: "1 extreme mutant(s) executed and no assertion caught any of them.",
-		Mutants: []string{"ba9876543210"},
+		Mutants: []string{sampleOtherID},
 	}}
 }
 
@@ -290,8 +298,8 @@ func sampleMutants() []report.Mutant {
 				},
 			},
 			Runs: []report.RunOutcome{
-				{File: sampleTestFile, Run: sampleRun, Phase: 1, Status: "pass"},
-				{File: sampleTestFile, Run: sampleRun, Phase: 2, Status: "pass"},
+				{File: sampleTestFile, Run: sampleRun, Phase: 1, Status: samplePass},
+				{File: sampleTestFile, Run: sampleRun, Phase: 2, Status: samplePass},
 			},
 			Diagnostics:  nil,
 			ExecutedRuns: 1,
@@ -306,7 +314,7 @@ func sampleMutants() []report.Mutant {
 			},
 		},
 		{
-			ID:       "ba9876543210",
+			ID:       sampleOtherID,
 			Operator: "EXT-BODY-BLANK",
 			Tier:     smokeTier,
 			Module:   ".",

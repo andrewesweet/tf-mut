@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -27,6 +28,13 @@ const (
 	localsBlock   = "locals"
 	moduleBlock   = "module"
 	variableBlock = "variable"
+
+	// The label names and nested block types both syntaxes dispatch over.
+	nameLabel         = "name"
+	typeLabel         = "type"
+	provisionerBlock  = "provisioner"
+	connectionBlock   = "connection"
+	requiredProviders = "required_providers"
 
 	resourceLabelCount = 2
 	addressParts       = 2
@@ -55,15 +63,15 @@ func parseModule(parser *hclparse.Parser, current queued, options Options) (Modu
 	providers := map[string]bool{}
 
 	for _, path := range files {
-		body, err := parseFile(parser, path)
-		if err != nil {
-			return Module{}, nil, err
+		body, parseErr := parseFile(parser, path)
+		if parseErr != nil {
+			return Module{}, nil, parseErr
 		}
 
 		module.Bodies[path] = body
 
-		if err := collectFile(&module, providers, path, body); err != nil {
-			return Module{}, nil, err
+		if collectErr := collectFile(&module, providers, path, body); collectErr != nil {
+			return Module{}, nil, collectErr
 		}
 	}
 
@@ -137,9 +145,7 @@ func mergeJSONModule(module *Module, providers map[string]bool, scratch Module, 
 		module.JSONExpansions[address] = append(module.JSONExpansions[address], refs...)
 	}
 
-	for path, body := range scratch.JSONBodies {
-		module.JSONBodies[path] = body
-	}
+	maps.Copy(module.JSONBodies, scratch.JSONBodies)
 
 	for name := range found {
 		providers[name] = true
@@ -316,7 +322,7 @@ func attributesOf(body *hclsyntax.Body) []Attribute {
 
 func collectEffects(module *Module, discovered Block, block *hclsyntax.Block) {
 	for _, nested := range block.Body.Blocks {
-		if nested.Type == "provisioner" || nested.Type == "connection" {
+		if nested.Type == provisionerBlock || nested.Type == connectionBlock {
 			module.Effects = append(module.Effects, Effect{
 				Kind:    "provisioner",
 				Address: discovered.Address,
@@ -342,7 +348,7 @@ func collectEffects(module *Module, discovered Block, block *hclsyntax.Block) {
 
 func collectRequiredProviders(providers map[string]bool, block *hclsyntax.Block) {
 	for _, nested := range block.Body.Blocks {
-		if nested.Type != "required_providers" {
+		if nested.Type != requiredProviders {
 			continue
 		}
 

@@ -660,10 +660,12 @@ func ancestorPaths(base, attribute string) []string {
 		return paths
 	}
 
-	current := base
+	builder := strings.Builder{}
+	builder.WriteString(base)
+
 	for _, segment := range attributeSegments(attribute) {
-		current += "." + segment
-		paths = append(paths, current)
+		builder.WriteString("." + segment)
+		paths = append(paths, builder.String())
 	}
 
 	return paths

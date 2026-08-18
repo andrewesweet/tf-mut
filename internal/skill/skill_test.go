@@ -115,14 +115,15 @@ func TestAUserEditSurvivesAReinstallUnlessForced(t *testing.T) {
 
 	target := installedPath(t, root, skill.AgentClaude)
 
-	content, err := os.ReadFile(target)
+	content, err := os.ReadFile(target) //nolint:gosec // a test-owned temporary path.
 	if err != nil {
 		t.Fatalf("reading: %v", err)
 	}
 
 	edited := string(content) + "\n## My local adaptation\n"
-	if err := os.WriteFile(target, []byte(edited), 0o600); err != nil {
-		t.Fatalf("editing: %v", err)
+	//nolint:gosec // a test-owned temporary path.
+	if writeErr := os.WriteFile(target, []byte(edited), 0o600); writeErr != nil {
+		t.Fatalf("editing: %v", writeErr)
 	}
 
 	// A cross-version upgrade must not destroy the edit.
@@ -131,7 +132,7 @@ func TestAUserEditSurvivesAReinstallUnlessForced(t *testing.T) {
 		t.Fatalf("outcome = %s, want preserved-user-edit", preserved.Outcome)
 	}
 
-	kept, err := os.ReadFile(target)
+	kept, err := os.ReadFile(target) //nolint:gosec // a test-owned temporary path.
 	if err != nil {
 		t.Fatalf("re-reading: %v", err)
 	}
@@ -145,7 +146,7 @@ func TestAUserEditSurvivesAReinstallUnlessForced(t *testing.T) {
 		t.Fatalf("outcome = %s, want forced", forced.Outcome)
 	}
 
-	replaced, err := os.ReadFile(target)
+	replaced, err := os.ReadFile(target) //nolint:gosec // a test-owned temporary path.
 	if err != nil {
 		t.Fatalf("re-reading: %v", err)
 	}

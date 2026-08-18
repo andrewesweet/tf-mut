@@ -109,11 +109,11 @@ func TestASeededVacuousAssertionIsRefutedThroughTheMutantLeg(t *testing.T) {
 	}
 
 	if !seeded.Verification.Baseline.Passed {
-		t.Fatalf("the vacuous assertion should keep the suite green; it did not")
+		t.Fatal("the vacuous assertion should keep the suite green; it did not")
 	}
 
 	if seeded.Verification.Mutant.Passed {
-		t.Fatalf("the vacuous assertion was credited with a kill it did not make")
+		t.Fatal("the vacuous assertion was credited with a kill it did not make")
 	}
 
 	if len(withStatus(result, report.SuggestionVerified)) == 0 {

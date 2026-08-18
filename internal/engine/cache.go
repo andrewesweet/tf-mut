@@ -158,7 +158,7 @@ func cacheKey(
 	// Terraform reads them regardless, so they reach verdicts; the key hashes
 	// all JSON classes and no finer key is built (M4c).
 	for _, file := range configuration.JSONFiles() {
-		content, err := os.ReadFile(file.Path) //nolint:gosec // discovery-owned path.
+		content, err := os.ReadFile(file.Path)
 		if err != nil {
 			return "", err
 		}

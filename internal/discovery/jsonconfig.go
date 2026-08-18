@@ -39,14 +39,14 @@ var jsonConfigurationSchema = &hcl.BodySchema{
 	Attributes: nil,
 	Blocks: []hcl.BlockHeaderSchema{
 		{Type: terraformBlock, LabelNames: nil},
-		{Type: providerBlock, LabelNames: []string{"name"}},
-		{Type: resourceBlock, LabelNames: []string{"type", "name"}},
-		{Type: dataBlock, LabelNames: []string{"type", "name"}},
-		{Type: moduleBlock, LabelNames: []string{"name"}},
-		{Type: outputBlock, LabelNames: []string{"name"}},
+		{Type: providerBlock, LabelNames: []string{nameLabel}},
+		{Type: resourceBlock, LabelNames: []string{typeLabel, nameLabel}},
+		{Type: dataBlock, LabelNames: []string{typeLabel, nameLabel}},
+		{Type: moduleBlock, LabelNames: []string{nameLabel}},
+		{Type: outputBlock, LabelNames: []string{nameLabel}},
 		{Type: localsBlock, LabelNames: nil},
-		{Type: variableBlock, LabelNames: []string{"name"}},
-		{Type: checkBlock, LabelNames: []string{"name"}},
+		{Type: variableBlock, LabelNames: []string{nameLabel}},
+		{Type: checkBlock, LabelNames: []string{nameLabel}},
 		{Type: "moved", LabelNames: nil},
 		{Type: "import", LabelNames: nil},
 		{Type: "removed", LabelNames: nil},
@@ -59,10 +59,10 @@ var jsonConfigurationSchema = &hcl.BodySchema{
 var jsonResourceSchema = &hcl.BodySchema{
 	Attributes: nil,
 	Blocks: []hcl.BlockHeaderSchema{
-		{Type: "provisioner", LabelNames: []string{"kind"}},
-		{Type: "connection", LabelNames: nil},
+		{Type: provisionerBlock, LabelNames: []string{"kind"}},
+		{Type: connectionBlock, LabelNames: nil},
 		{Type: "lifecycle", LabelNames: nil},
-		{Type: "dynamic", LabelNames: []string{"name"}},
+		{Type: "dynamic", LabelNames: []string{nameLabel}},
 	},
 }
 
@@ -72,7 +72,7 @@ var jsonResourceSchema = &hcl.BodySchema{
 var jsonTerraformSchema = &hcl.BodySchema{
 	Attributes: nil,
 	Blocks: []hcl.BlockHeaderSchema{
-		{Type: "required_providers", LabelNames: nil},
+		{Type: requiredProviders, LabelNames: nil},
 		{Type: "backend", LabelNames: []string{"type"}},
 		{Type: "cloud", LabelNames: nil},
 	},
@@ -91,8 +91,8 @@ func readJSONConfiguration(module *Module, providers map[string]bool, path strin
 		return fmt.Errorf("%w: %s: %s", ErrParse, path, diagnostics.Error())
 	}
 
-	if err := refuseUnmodelled(path, rest); err != nil {
-		return err
+	if unmodelledErr := refuseUnmodelled(path, rest); unmodelledErr != nil {
+		return unmodelledErr
 	}
 
 	relative, err := filepath.Rel(module.Dir, path)
@@ -197,7 +197,7 @@ func collectJSONResource(
 	}
 
 	for _, inner := range nested.Blocks {
-		if inner.Type == "provisioner" || inner.Type == "connection" {
+		if inner.Type == provisionerBlock || inner.Type == connectionBlock {
 			module.Effects = append(module.Effects, Effect{
 				Kind: "provisioner", Address: address, File: path, Range: inner.DefRange,
 			})
@@ -245,7 +245,7 @@ func collectJSONTerraform(providers map[string]bool, path string, block *hcl.Blo
 	}
 
 	for _, inner := range nested.Blocks {
-		if inner.Type != "required_providers" {
+		if inner.Type != requiredProviders {
 			continue
 		}
 

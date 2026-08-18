@@ -30,7 +30,7 @@ func TestACleanApplyWritesAtomicallyAndTheMutantsDie(t *testing.T) {
 	module := copyFixture(t, suggestBasicFixture)
 	target := filepath.Join(module, "tests", "unit.tftest.hcl")
 
-	if err := os.Chmod(target, 0o640); err != nil {
+	if err := os.Chmod(target, 0o640); err != nil { //nolint:gosec // the mode is the assertion.
 		t.Fatalf("setting a recognisable mode: %v", err)
 	}
 
@@ -83,8 +83,10 @@ func TestAnEditBetweenVerificationAndApplyAbortsWithZeroWrites(t *testing.T) {
 	// Verify first, then edit, then try to apply the stale suggestion by ID.
 	verified := runSuggest(t, suggestConfig(t, module))
 
-	ids := []string{}
-	for _, suggestion := range withStatus(verified, report.SuggestionVerified) {
+	verifiedSuggestions := withStatus(verified, report.SuggestionVerified)
+
+	ids := make([]string, 0, len(verifiedSuggestions))
+	for _, suggestion := range verifiedSuggestions {
 		ids = append(ids, suggestion.ID)
 	}
 
@@ -109,7 +111,7 @@ func TestAnEditBetweenVerificationAndApplyAbortsWithZeroWrites(t *testing.T) {
 
 	for _, suggestion := range withStatus(verified, report.SuggestionVerified) {
 		if suggest.Digest(current) == suggestion.VerifiedDigest {
-			t.Fatalf("the digest did not change with the bytes: the binding proves nothing")
+			t.Fatal("the digest did not change with the bytes: the binding proves nothing")
 		}
 	}
 }
@@ -168,16 +170,16 @@ func TestASymlinkedTargetAbortsBeforeAnyWrite(t *testing.T) {
 
 	module := copyFixture(t, suggestBasicFixture)
 	target := filepath.Join(module, "tests", "unit.tftest.hcl")
-	real := filepath.Join(t.TempDir(), "elsewhere.tftest.hcl")
+	outside := filepath.Join(t.TempDir(), "elsewhere.tftest.hcl")
 
 	content := readFile(t, target)
-	writeFile(t, real, content)
+	writeFile(t, outside, content)
 
 	if err := os.Remove(target); err != nil {
 		t.Fatalf("removing the target: %v", err)
 	}
 
-	if err := os.Symlink(real, target); err != nil {
+	if err := os.Symlink(outside, target); err != nil {
 		t.Fatalf("symlinking the target: %v", err)
 	}
 
@@ -190,7 +192,7 @@ func TestASymlinkedTargetAbortsBeforeAnyWrite(t *testing.T) {
 		t.Fatalf("files were written despite the refusal: %v", result.Apply.Written)
 	}
 
-	if readFile(t, real) != content {
+	if readFile(t, outside) != content {
 		t.Fatal("the symlink's destination was written through")
 	}
 }
@@ -232,11 +234,11 @@ func TestAMultiFileApplyReportsAPartialFailureExplicitly(t *testing.T) {
 	}
 
 	locked := filepath.Join(module, "tests")
-	if err := os.Chmod(locked, 0o550); err != nil {
+	if err := os.Chmod(locked, 0o550); err != nil { //nolint:gosec // read-only is the induced failure.
 		t.Fatalf("locking %s: %v", locked, err)
 	}
 
-	t.Cleanup(func() { _ = os.Chmod(locked, 0o750) })
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o750) }) //nolint:gosec // restoring the fixture mode.
 
 	result := runSuggest(t, applyAllConfig(t, module))
 	if result.Apply == nil || result.Apply.Aborted == "" {

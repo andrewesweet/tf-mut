@@ -33,39 +33,55 @@ type address struct {
 	run discovery.RunBlock
 }
 
+// traversalParts is what the address adapter hands the rendering contract:
+// the legal expression, and the resource address and attribute path the type
+// lookup is keyed by.
+type traversalParts struct {
+	expression string
+	resource   string
+	attribute  string
+}
+
 // traversal maps a canonical payload path onto the traversal an assertion in
-// the target run can legally name, together with the resource address and
-// attribute path the rendering contract needs.
-func (a address) traversal(path string) (expression, resource, attribute string, err error) {
+// the target run can legally name.
+//
+// The receiver's run is context rather than input today: a retargeted run's
+// payload is already expressed relative to its own root, so the child-module
+// refusal reads the module path out of the address itself. The run stays on
+// the adapter because it is the contract's unit of evaluation, and the first
+// feature that needs run-relative name resolution will need it in hand.
+func (address) traversal(path string) (traversalParts, error) {
+	empty := traversalParts{expression: "", resource: "", attribute: ""}
+
 	resource, attribute, ok := fingerprint.Split(path)
 	if !ok {
-		return "", "", "", fmt.Errorf(
+		return empty, fmt.Errorf(
 			"%w: %s names no value a `terraform test` assertion could read", ErrUnaddressable, path)
 	}
 
 	if strings.Contains(resource, discovery.Wildcard) || strings.Contains(attribute, discovery.Wildcard) {
-		return "", "", "", fmt.Errorf(
+		return empty, fmt.Errorf(
 			"%w: %s was canonicalised through a splat or wildcard, so the concrete "+
 				"instance it names is not recoverable", ErrUnaddressable, path)
 	}
 
 	if parsed := discovery.ParseAddr(resource); len(parsed.ModulePath) > 0 {
-		return "", "", "", fmt.Errorf(
+		return empty, fmt.Errorf(
 			"%w: %s is inside %s, and a run rooted at this module can observe a child "+
 				"module only through its outputs, never through its internals",
 			ErrUnaddressable, resource, "module."+strings.Join(parsed.ModulePath, ".module."))
 	}
 
-	expression = resource
+	expression := resource
 	if attribute != "" {
 		expression += "." + attribute
 	}
 
 	if err := parseTraversal(expression); err != nil {
-		return "", "", "", err
+		return empty, err
 	}
 
-	return expression, resource, attribute, nil
+	return traversalParts{expression: expression, resource: resource, attribute: attribute}, nil
 }
 
 // parseTraversal proves the generated text is a traversal HCL accepts.

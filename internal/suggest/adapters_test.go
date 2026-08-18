@@ -24,7 +24,9 @@ import (
 // verdict the adapters lead to is still asserted through the engine seam.
 
 // runIn builds the run block a suggestion would be placed in.
-func runIn(file, name, moduleSource string) discovery.RunBlock {
+func runIn(name, moduleSource string) discovery.RunBlock {
+	const file = "tests/unit.tftest.hcl"
+
 	return discovery.RunBlock{
 		Name: name, File: "/module/" + file, Rel: file,
 		Command: discovery.CommandApply, ModuleSource: moduleSource,
@@ -42,7 +44,9 @@ func changeAt(path, baseline string) report.Change {
 
 // schemaTyping publishes one attribute's cty type, which is the rendering
 // contract's normative type source.
-func schemaTyping(resourceType, attribute, ctyType string) tfexec.Schemas {
+func schemaTyping(attribute, ctyType string) tfexec.Schemas {
+	const resourceType = "example_thing"
+
 	return tfexec.Schemas{
 		FormatVersion: "1.0",
 		ProviderSchemas: map[string]tfexec.ProviderSchema{
@@ -69,12 +73,15 @@ func untyped() tfexec.Schemas {
 	return tfexec.Schemas{FormatVersion: "1.0", ProviderSchemas: map[string]tfexec.ProviderSchema{}}
 }
 
-const statePrefix = "root_module.resources["
+const (
+	statePrefix    = "root_module.resources["
+	steadyBaseline = `"steady"`
+)
 
-// TestTheAddressAdapterMatrix is the seven mandatory address fixtures, verbatim
+// TestTheAddressAdapterMatrix is the seven mandatory address fixtures, quoted
 // from the C2 disposition: "root resource; `count`; string-keyed `for_each`;
 // nested collection element; root run observing a child only through an output;
-// direct child-module run; wildcard/splat mapping failure."
+// direct child-module run; wildcard/splat mapping failure". Each is one row.
 func TestTheAddressAdapterMatrix(t *testing.T) {
 	t.Parallel()
 
@@ -88,41 +95,41 @@ func TestTheAddressAdapterMatrix(t *testing.T) {
 		refused  error
 	}{
 		{
-			name: "root resource", run: runIn("tests/unit.tftest.hcl", "applied", ""),
-			path: statePrefix + "example_thing.app].values.input", baseline: `"steady"`,
+			name: "root resource", run: runIn("applied", ""),
+			path: statePrefix + "example_thing.app].values.input", baseline: steadyBaseline,
 			schemas: untyped(), want: `example_thing.app.input == "steady"`, refused: nil,
 		},
 		{
-			name: "count", run: runIn("tests/unit.tftest.hcl", "applied", ""),
-			path: statePrefix + "example_thing.app[0]].values.input", baseline: `"steady"`,
+			name: "count", run: runIn("applied", ""),
+			path: statePrefix + "example_thing.app[0]].values.input", baseline: steadyBaseline,
 			schemas: untyped(), want: `example_thing.app[0].input == "steady"`, refused: nil,
 		},
 		{
-			name: "string-keyed for_each", run: runIn("tests/unit.tftest.hcl", "applied", ""),
-			path: statePrefix + `example_thing.app["blue"]].values.input`, baseline: `"steady"`,
+			name: "string-keyed for_each", run: runIn("applied", ""),
+			path: statePrefix + `example_thing.app["blue"]].values.input`, baseline: steadyBaseline,
 			schemas: untyped(), want: `example_thing.app["blue"].input == "steady"`, refused: nil,
 		},
 		{
-			name: "nested collection element", run: runIn("tests/unit.tftest.hcl", "applied", ""),
+			name: "nested collection element", run: runIn("applied", ""),
 			path: statePrefix + "example_thing.app].values.items[1]", baseline: `"second"`,
-			schemas: schemaTyping("example_thing", "items", `["list","string"]`),
+			schemas: schemaTyping("items", `["list","string"]`),
 			want:    `example_thing.app.items[1] == "second"`, refused: nil,
 		},
 		{
 			name: "root run observing a child only through an output",
-			run:  runIn("tests/unit.tftest.hcl", "applied", ""),
-			path: "outputs.from_child.value", baseline: `"steady"`,
+			run:  runIn("applied", ""),
+			path: "outputs.from_child.value", baseline: steadyBaseline,
 			schemas: untyped(), want: `output.from_child == "steady"`, refused: nil,
 		},
 		{
 			name: "direct child-module run",
-			run:  runIn("tests/unit.tftest.hcl", "child", "./child"),
-			path: statePrefix + "example_thing.inner].values.input", baseline: `"steady"`,
+			run:  runIn("child", "./child"),
+			path: statePrefix + "example_thing.inner].values.input", baseline: steadyBaseline,
 			schemas: untyped(), want: `example_thing.inner.input == "steady"`, refused: nil,
 		},
 		{
-			name: "wildcard/splat mapping failure", run: runIn("tests/unit.tftest.hcl", "applied", ""),
-			path: statePrefix + "example_thing.app[*]].values.input", baseline: `"steady"`,
+			name: "wildcard/splat mapping failure", run: runIn("applied", ""),
+			path: statePrefix + "example_thing.app[*]].values.input", baseline: steadyBaseline,
 			schemas: untyped(), want: "", refused: suggest.ErrUnaddressable,
 		},
 	} {
@@ -150,8 +157,8 @@ func TestChildModuleInternalsAreNeverALegalAssertionSurface(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := suggest.Express(runIn("tests/unit.tftest.hcl", "applied", ""),
-				untyped(), changeAt(path, `"steady"`))
+			_, err := suggest.Express(runIn("applied", ""),
+				untyped(), changeAt(path, steadyBaseline))
 
 			if !errors.Is(err, suggest.ErrUnaddressable) {
 				t.Fatalf("error = %v, want an unaddressable refusal", err)
@@ -172,8 +179,8 @@ func TestAGeneratorLimitIsNeverARefutation(t *testing.T) {
 		"outputs.thing.type",
 		"resource_changes[example_thing.app].change.before.input",
 	} {
-		_, err := suggest.Express(runIn("tests/unit.tftest.hcl", "applied", ""),
-			untyped(), changeAt(path, `"steady"`))
+		_, err := suggest.Express(runIn("applied", ""),
+			untyped(), changeAt(path, steadyBaseline))
 
 		if !errors.Is(err, suggest.ErrUnaddressable) {
 			t.Fatalf("%s: error = %v, want an unaddressable refusal", path, err)
@@ -183,7 +190,8 @@ func TestAGeneratorLimitIsNeverARefutation(t *testing.T) {
 
 // TestTheRenderingContractMatrix gates the eight categories the C3 disposition
 // names — "lists, tuples, sets, maps, objects, typed nulls, nested values,
-// non-identifier map keys" — and admits the three forms it allows.
+// non-identifier map keys" — and TestTheRenderingContractAdmissions admits the
+// three forms it allows.
 func TestTheRenderingContractMatrix(t *testing.T) {
 	t.Parallel()
 
@@ -198,19 +206,19 @@ func TestTheRenderingContractMatrix(t *testing.T) {
 		{
 			name: "list element by concrete key, schema-typed",
 			path: statePrefix + "example_thing.app].values.items[0]", baseline: `"first"`,
-			schemas: schemaTyping("example_thing", "items", `["list","string"]`),
+			schemas: schemaTyping("items", `["list","string"]`),
 			want:    `example_thing.app.items[0] == "first"`, refused: nil,
 		},
 		{
 			name: "tuple element by concrete key, schema-typed",
 			path: statePrefix + "example_thing.app].values.pair[1]", baseline: "2",
-			schemas: schemaTyping("example_thing", "pair", `["tuple",["string","number"]]`),
+			schemas: schemaTyping("pair", `["tuple",["string","number"]]`),
 			want:    "example_thing.app.pair[1] == 2", refused: nil,
 		},
 		{
 			name: "set element: a set has no index",
 			path: statePrefix + "example_thing.app].values.names[0]", baseline: `"a"`,
-			schemas: schemaTyping("example_thing", "names", `["set","string"]`),
+			schemas: schemaTyping("names", `["set","string"]`),
 			want:    "", refused: suggest.ErrUnrenderable,
 		},
 		{
@@ -221,13 +229,13 @@ func TestTheRenderingContractMatrix(t *testing.T) {
 		{
 			name: "map attribute", path: statePrefix + "example_thing.app].values.tags",
 			baseline: `"not-a-map"`,
-			schemas:  schemaTyping("example_thing", "tags", `["map","string"]`),
+			schemas:  schemaTyping("tags", `["map","string"]`),
 			want:     "", refused: suggest.ErrUnrenderable,
 		},
 		{
 			name: "object attribute", path: statePrefix + "example_thing.app].values.settings",
 			baseline: `"not-an-object"`,
-			schemas:  schemaTyping("example_thing", "settings", `["object",{"a":"string"}]`),
+			schemas:  schemaTyping("settings", `["object",{"a":"string"}]`),
 			want:     "", refused: suggest.ErrUnrenderable,
 		},
 		{
@@ -242,9 +250,34 @@ func TestTheRenderingContractMatrix(t *testing.T) {
 			name: "non-identifier map key", path: statePrefix + "example_thing.app].values.tags.my.key",
 			baseline: `"value"`, schemas: untyped(), want: "", refused: suggest.ErrUnrenderable,
 		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			expression, err := suggest.Express(runIn("applied", ""),
+				testCase.schemas, changeAt(testCase.path, testCase.baseline))
+
+			assertAdapter(t, expression, err, testCase.want, testCase.refused)
+		})
+	}
+}
+
+// TestTheRenderingContractAdmissions is the matrix's other half: the three
+// forms the contract admits, each rendering type-correctly.
+func TestTheRenderingContractAdmissions(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name     string
+		path     string
+		baseline string
+		schemas  tfexec.Schemas
+		want     string
+		refused  error
+	}{
 		{
 			name: "scalar leaf where nothing types the attribute",
-			path: statePrefix + "example_thing.app].values.input", baseline: `"steady"`,
+			path: statePrefix + "example_thing.app].values.input", baseline: steadyBaseline,
 			schemas: untyped(), want: `example_thing.app.input == "steady"`, refused: nil,
 		},
 		{
@@ -274,7 +307,7 @@ func TestTheRenderingContractMatrix(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			expression, err := suggest.Express(runIn("tests/unit.tftest.hcl", "applied", ""),
+			expression, err := suggest.Express(runIn("applied", ""),
 				testCase.schemas, changeAt(testCase.path, testCase.baseline))
 
 			assertAdapter(t, expression, err, testCase.want, testCase.refused)
@@ -291,8 +324,8 @@ func TestATosetAmbiguityIsAlwaysSkipped(t *testing.T) {
 	for _, ctyType := range []string{
 		`["set","string"]`, `["list","string"]`, `["map","string"]`, `["object",{"a":"string"}]`,
 	} {
-		_, err := suggest.Express(runIn("tests/unit.tftest.hcl", "applied", ""),
-			schemaTyping("example_thing", "items", ctyType),
+		_, err := suggest.Express(runIn("applied", ""),
+			schemaTyping("items", ctyType),
 			changeAt(statePrefix+"example_thing.app].values.items", `"scalar-rendered"`))
 
 		if !errors.Is(err, suggest.ErrUnrenderable) {
@@ -322,7 +355,7 @@ func TestTheSensitivityPredicateRefusesBeforeAnythingRenders(t *testing.T) {
 			change.Sensitive = true
 
 			expression, err := suggest.Express(
-				runIn("tests/unit.tftest.hcl", "applied", ""), untyped(), change)
+				runIn("applied", ""), untyped(), change)
 
 			if !errors.Is(err, suggest.ErrSensitive) {
 				t.Fatalf("error = %v, want a sensitivity refusal", err)

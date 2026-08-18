@@ -56,14 +56,14 @@ func parseTests(
 	mocked := map[string]bool{}
 
 	for _, path := range files {
-		body, err := parseFile(parser, path)
-		if err != nil {
-			return TestSuite{}, nil, err
+		body, parseErr := parseFile(parser, path)
+		if parseErr != nil {
+			return TestSuite{}, nil, parseErr
 		}
 
-		relative, err := filepath.Rel(moduleDir, path)
-		if err != nil {
-			return TestSuite{}, nil, fmt.Errorf("resolving test file path: %w", err)
+		relative, relErr := filepath.Rel(moduleDir, path)
+		if relErr != nil {
+			return TestSuite{}, nil, fmt.Errorf("resolving test file path: %w", relErr)
 		}
 
 		collectTestFile(&suite, mocked, path, filepath.ToSlash(relative), body)
@@ -83,10 +83,10 @@ func parseTests(
 // listTestFiles lists the test files of one syntax, from the test directory and
 // from the module root, the way Terraform reads them.
 func listTestFiles(moduleDir, testDir, suffix string) ([]string, error) {
-	files, err := listFiles(testDir, suffix)
-	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
+	files, listErr := listFiles(testDir, suffix)
+	if listErr != nil {
+		if !errors.Is(listErr, fs.ErrNotExist) {
+			return nil, listErr
 		}
 
 		files = nil

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -275,13 +276,7 @@ func identifiersOf(result report.Report) []string {
 }
 
 func containsString(values []string, wanted string) bool {
-	for _, value := range values {
-		if value == wanted {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(values, wanted)
 }
 
 // renderAll renders the report through every reporter a suggestion can reach,

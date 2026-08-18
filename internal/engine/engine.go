@@ -214,23 +214,11 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 		}
 	}
 
-	// The floor's static half holds whether or not the gates were authorised,
-	// and in a preview too: a shortcut is a claim about the whole
-	// configuration, and part of the configuration was not read.
-	floor := floorOf(configuration)
-	if floor.active() {
-		settings.DisableStaticShortcuts = true
-		warnings = append(warnings, floor.degradation())
-	}
+	settings, warnings = applyFloor(configuration, settings, warnings)
 
-	if len(configuration.Tests.Runs) == 0 {
-		return report.Report{}, fmt.Errorf("%w: %s declares no run blocks",
-			ErrBaselineNoRuns, configuration.Tests.Dir)
-	}
-
-	workRoot, err := os.MkdirTemp(settings.WorkDir, "tf-mut-")
+	workRoot, err := prepareWorkRoot(configuration, settings)
 	if err != nil {
-		return report.Report{}, fmt.Errorf("creating work directory: %w", err)
+		return report.Report{}, err
 	}
 
 	defer func() { _ = os.RemoveAll(workRoot) }()
@@ -242,13 +230,7 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 
 	warnings = append(append(warnings, prepared.warnings...), generated.Warnings...)
 
-	graph := configuration.BuildGraph()
-	if floor.active() {
-		// The whole-payload floor: the graph is built from `.tf` syntax alone,
-		// so unread JSON means missing edges. Every mapping fails.
-		graph = discovery.UnmappedGraph()
-	}
-
+	graph := floorGraph(configuration)
 	result := shell(configuration, settings, version.Terraform, moduleDir, prepared, warnings)
 	mutants := describe(configuration, graph, settings, generated.Mutants)
 
@@ -290,6 +272,50 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 	executed, failures := executeWithCache(ctx, &result, version, plan)
 
 	return finish(ctx, plan, moduleDir, result, executed, failures)
+}
+
+// prepareWorkRoot refuses a suite with no run blocks and creates the run's
+// temporary directory.
+func prepareWorkRoot(configuration discovery.Configuration, settings Config) (string, error) {
+	if len(configuration.Tests.Runs) == 0 {
+		return "", fmt.Errorf("%w: %s declares no run blocks",
+			ErrBaselineNoRuns, configuration.Tests.Dir)
+	}
+
+	workRoot, err := os.MkdirTemp(settings.WorkDir, "tf-mut-")
+	if err != nil {
+		return "", fmt.Errorf("creating work directory: %w", err)
+	}
+
+	return workRoot, nil
+}
+
+// applyFloor is the JSON safety floor's static half. It holds whether or not
+// the gates were authorised, and in a preview too: a shortcut is a claim about
+// the whole configuration, and part of the configuration was not read.
+func applyFloor(
+	configuration discovery.Configuration,
+	settings Config,
+	warnings []string,
+) (Config, []string) {
+	floor := floorOf(configuration)
+	if floor.active() {
+		settings.DisableStaticShortcuts = true
+		warnings = append(warnings, floor.degradation())
+	}
+
+	return settings, warnings
+}
+
+// floorGraph is the whole-payload floor expressed as the run's graph: while
+// unread JSON is present the graph is built from `.tf` syntax alone, so it
+// would be missing edges without saying so, and every mapping must fail.
+func floorGraph(configuration discovery.Configuration) *discovery.Graph {
+	if floorOf(configuration).active() {
+		return discovery.UnmappedGraph()
+	}
+
+	return configuration.BuildGraph()
 }
 
 // finish completes the report, generates and verifies any suggestions, and

@@ -186,23 +186,36 @@ func (g Generator) suggestFor(
 	adapter := address{run: target}
 	renderer := render{schemas: g.Schemas}
 
-	var first error
+	var first, sensitive error
 
 	for _, change := range changes {
 		if change.Run != runKey(target) {
 			continue
 		}
 
-		expression, err := express(adapter, renderer, change)
+		expression, err := expressChange(adapter, renderer, change)
 		if err != nil {
 			if first == nil {
 				first = err
+			}
+
+			// A sensitivity refusal outranks every other refusal for the
+			// reported status: when nothing is expressible and part of the
+			// delta is sensitive, "the value appears in no artefact" is the
+			// contract the reader has to know about, not the addressing
+			// detail of some other change.
+			if sensitive == nil && errors.Is(err, ErrSensitive) {
+				sensitive = err
 			}
 
 			continue
 		}
 
 		return candidate(mutant, target, expression, change)
+	}
+
+	if sensitive != nil {
+		first = sensitive
 	}
 
 	if first == nil {
@@ -225,23 +238,23 @@ func Express(
 	schemas tfexec.Schemas,
 	change report.Change,
 ) (string, error) {
-	return express(address{run: run}, render{schemas: schemas}, change)
+	return expressChange(address{run: run}, render{schemas: schemas}, change)
 }
 
-// express runs one change through the three adapters in order. Sensitivity
-// comes first: a sensitive value must not reach a renderer at all.
-func express(adapter address, renderer render, change report.Change) (string, error) {
+// expressChange runs one change through the three adapters in order.
+// Sensitivity comes first: a sensitive value must not reach a renderer at all.
+func expressChange(adapter address, renderer render, change report.Change) (string, error) {
 	if change.Sensitive {
 		return "", fmt.Errorf("%w: Terraform marks the value at this path, or a container "+
 			"of it, sensitive", ErrSensitive)
 	}
 
-	expression, resource, attribute, err := adapter.traversal(change.Path)
+	parts, err := adapter.traversal(change.Path)
 	if err != nil {
 		return "", err
 	}
 
-	return renderer.equality(expression, resource, attribute, change.Baseline)
+	return renderer.equality(parts, change.Baseline)
 }
 
 // ErrSensitive reports a delta whose value Terraform marks sensitive.
@@ -354,7 +367,7 @@ func TargetPath(moduleDir, relative string) string {
 
 // ReadTarget reads a suggestion's target file.
 func ReadTarget(moduleDir, relative string) ([]byte, error) {
-	content, err := os.ReadFile(TargetPath(moduleDir, relative)) //nolint:gosec // a discovered test file.
+	content, err := os.ReadFile(TargetPath(moduleDir, relative))
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", relative, err)
 	}

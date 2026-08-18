@@ -70,6 +70,7 @@ func TestTheM4GateCoversEveryNamedRequirement(t *testing.T) {
 		"apply: JSON test files never written":   "TestAJSONTestFileIsNeverWrittenByApply",
 		"skill: edits preserved unless forced":   "TestAUserEditSurvivesAReinstallUnlessForced",
 		"skill: self-consistent with the binary": "TestTheInstalledSkillReferencesOnlyCommandsAndFlagsTheBinaryHas",
+		"the outcome-table row sweep":            "TestEveryOutcomeTableRowIsReachableThroughTheSeam",
 	}
 
 	named := map[string]bool{}

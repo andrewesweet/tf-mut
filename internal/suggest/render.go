@@ -40,7 +40,9 @@ type render struct {
 }
 
 // equality renders the assert condition for one delta change, or fails closed.
-func (r render) equality(expression, resource, attribute, baseline string) (string, error) {
+func (r render) equality(parts traversalParts, baseline string) (string, error) {
+	expression, resource, attribute := parts.expression, parts.resource, parts.attribute
+
 	if baseline == "" {
 		return "", fmt.Errorf("%w: the value is absent from the baseline, and an "+
 			"assertion cannot express the absence of a value", ErrUnrenderable)
@@ -195,7 +197,7 @@ func stripKeys(address string) string {
 		case letter == ']':
 			depth--
 		case depth == 0:
-			builder.WriteRune(letter)
+			_, _ = builder.WriteRune(letter)
 		default:
 		}
 	}
@@ -228,7 +230,7 @@ func attributeSegments(attribute string) []string {
 		default:
 		}
 
-		builder.WriteRune(letter)
+		_, _ = builder.WriteRune(letter)
 	}
 
 	return append(segments, builder.String())

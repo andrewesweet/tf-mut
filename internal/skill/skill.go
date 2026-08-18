@@ -111,6 +111,8 @@ func Install(root, agent, version string, force bool) (Result, error) {
 		outcome = OutcomeUpgraded
 	case !errors.Is(err, os.ErrNotExist):
 		return Result{}, fmt.Errorf("reading %s: %w", relative, err) //nolint:exhaustruct // nothing was installed.
+	default:
+		// The target does not exist: a fresh install.
 	}
 
 	if err := atomicInstall(target, shipped); err != nil {
@@ -161,12 +163,19 @@ func unmodified(content string) bool {
 	return recorded == hex.EncodeToString(digest[:])
 }
 
+// The modes an install writes with: directories group-traversable, the skill
+// itself world-readable documentation.
+const (
+	installDirectoryMode = 0o750
+	installedFileMode    = 0o644
+)
+
 // atomicInstall writes through a temporary file in the target's directory and
 // renames it into place.
 func atomicInstall(target, content string) error {
 	directory := filepath.Dir(target)
 
-	if err := os.MkdirAll(directory, 0o750); err != nil {
+	if err := os.MkdirAll(directory, installDirectoryMode); err != nil {
 		return fmt.Errorf("creating %s: %w", directory, err)
 	}
 
@@ -189,7 +198,7 @@ func atomicInstall(target, content string) error {
 		return fmt.Errorf("closing the temporary file for %s: %w", target, err)
 	}
 
-	if err := os.Chmod(name, 0o644); err != nil { //nolint:gosec // documentation, world-readable on purpose.
+	if err := os.Chmod(name, installedFileMode); err != nil {
 		return fmt.Errorf("setting the mode of %s: %w", target, err)
 	}
 
