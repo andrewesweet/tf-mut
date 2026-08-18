@@ -158,9 +158,26 @@ check and a partial-state report, twice by review rather than by design. **A pro
 exists in one place is not a protocol the next writer inherits** — it is a thing they will
 rediscover, or not.
 
+## What the fourth adversarial review repaired
+
+A blocker and ten findings; the full record is in `docs/research/13-m45-exit-gate.md` §12. The
+blocker was a regression I recorded the existence of and mis-stated the size of: refusing
+`moved` broke *every* command on any module with a refactoring in its history, and the exit
+gate called that "not characterisable" because characterisation was what the milestone was
+about. **A cost stated in the vocabulary of the change that caused it will be read in that
+vocabulary.**
+
+The two findings underneath it share a shape the previous rounds did not have. The write
+protocol's entire gate skipped without the provider mirror, and the validation-function table
+had no caller at all — so both were *green without having run*. A skipped case and a passing
+case are the same colour in a summary line, and neither of the mechanisms this branch built to
+catch dishonest gates could see it: the gate-honesty pair checks that names resolve to tests,
+and the document check that documents name real tests. Nothing checked what the green
+executed.
+
 ## Pattern note
 
-Four lessons now, and they point the same way.
+Five lessons now, and they point the same way.
 
 The first repeats the spec review's: **the cheapest defects were the ones a measurement found,
 and the measurement only found them because it ran the shipped pipeline rather than a proxy for
@@ -184,6 +201,10 @@ honoured in one place is not honoured anywhere else.** Every boundary this round
 already been crossed correctly somewhere in the repository, by an earlier protocol nobody
 extracted.
 
-All four are the same instruction in different clothes — **assert the thing the contract is
+The fifth is the fourth review's: **check what the green actually executed.** A gate whose
+cases skip, and a table nothing calls, both report success — and success that was never
+computed is the one kind of evidence no amount of asserting the right property will catch.
+
+All five are the same instruction in different clothes — **assert the thing the contract is
 about, not the thing you expect to see when it holds** — with two riders: prove the assertion
 can fail, and check whether the contract you are writing already exists two packages over.

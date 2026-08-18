@@ -14,7 +14,7 @@ here rather than in a commit message.
 | M2a honesty | `just gate` | unchanged |
 | M3 offline | `just gate-m3` | unchanged |
 | M4 offline | `just gate-m4` | one substitution, below |
-| **M4.5 offline** | **`just gate-m45`** | 65 named cases, audited by name |
+| **M4.5 offline** | **`just gate-m45`** | 68 named cases, audited by name; 5 skip without the provider mirror |
 | M4.5-0 measurement | `just measure-synthesis` | network-gated, publishes its own decision |
 
 The M4 gate's check-block floor case is retired: the check block's file is now *read*, so a
@@ -357,7 +357,57 @@ Two of the six were regressions of patterns this repository already had — the 
 check, and the partial-state report — which is the same shape as the previous round's skill
 installer. **A protocol that exists in one place is not a protocol the next writer inherits.**
 
-## 12. Open questions for M5
+## 12. What the fourth adversarial review changed
+
+Ten findings and a blocker. The blocker is the one worth leading on, because it is the
+failure mode this document had already half-recorded and mis-sized.
+
+**`moved` was refused for every command, not just the generation direction.** The refusal
+lives in `parseModule`, which `run`, `preview`, `suggest`, `curate` and `characterise` all
+share, so a module carrying a `moved` block — most modules with a refactoring in their history
+— failed outright on every command, with no opt-in and no such regression in M1–M4. §4 of this
+document recorded the cost as "not characterisable". The measurement was right and the
+sentence was wrong: the cost was *no `tf-mut` command runs at all*. A measurement stated in
+the vocabulary of the milestone that produced it will be read in that vocabulary, and the
+number was never the problem.
+
+The constructs are now separated. `import` keeps the refusal — it names a provider
+configuration and Terraform reads the real resource at plan time. `moved` is read and
+contributes nothing, because there is nothing in it to contribute.
+
+**The write protocol was never executed by its own gate.** Sixteen of the gate's cases skipped
+without the provider mirror, and among them was every case of the fifth never-write exception:
+the write itself, the collision refusal, `--force`, both closure-race probes, the rename-window
+probe, both registry probes, and the case asserting that the default characterisation writes
+nothing. `just gate-m45` reported green having executed none of them. They now run on the
+offline `terraform_data` fixture, and the gate's offline skips are five — the aliased-provider
+acceptance pair, the configuration-alias case and the configured-rung skip classes, each of
+which genuinely needs a provider schema.
+
+**The function table had no test, and a wrong entry there is silent.** Eleven function
+semantics with only `contains` exercised, and `can` never executed at all — both fixtures wrap
+it around `cidrnetmask`, which is absent from the table, so the condition errors before the
+call. The table earns AGENTS.md's fifth recorded testing exception, and the first run of it
+found `length()` over a *string* treated as undecidable, because cty's `LengthFunc` accepts
+only collections. `length(var.x) > n` is among the commonest validation idioms there is; every
+variable constrained that way became a judgement point nobody needed to answer, and nothing
+failed.
+
+Five correctness findings and two about shipped instructions are listed in the commit. The one
+worth carrying: **a declared `default` was accepted without being checked against the
+variable's own validations**, and `default = null` beside a non-null validation is the standard
+required-with-a-message idiom — so the tool produced a scenario Terraform refuses and a report
+that blamed its own generator.
+
+### The pattern this round
+
+Every previous round's lesson was about a property nobody asserted. This one is about
+**evidence that was not collected where it was claimed**: a gate green because its cases
+skipped, a function table green because nothing called it, a measurement true in a sentence
+that mis-stated its scope. The instruction that follows is narrower than "test the property" —
+**check what the green actually executed**, because a skip and a pass are the same colour.
+
+## 13. Open questions for M5
 
 - Scaffold promotion and `suggest --apply` are now two verify-then-write protocols side by
   side, and they differ. Should they be one?
