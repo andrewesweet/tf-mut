@@ -14,7 +14,7 @@ here rather than in a commit message.
 | M2a honesty | `just gate` | unchanged |
 | M3 offline | `just gate-m3` | unchanged |
 | M4 offline | `just gate-m4` | one substitution, below |
-| **M4.5 offline** | **`just gate-m45`** | 59 named cases, audited by name |
+| **M4.5 offline** | **`just gate-m45`** | 65 named cases, audited by name |
 | M4.5-0 measurement | `just measure-synthesis` | network-gated, publishes its own decision |
 
 The M4 gate's check-block floor case is retired: the check block's file is now *read*, so a
@@ -32,7 +32,7 @@ test, never that every name in a *document* does.)
 
 ## 2. Platform facts measured in this slice, not assumed
 
-Standing rule 3 says never to trust a plausible reading of Terraform behaviour. Five readings
+Standing rule 3 says never to trust a plausible reading of Terraform behaviour. Six readings
 were run.
 
 1. **`removed` blocks accept destroy-time provisioners, and `check` blocks accept exactly one
@@ -48,11 +48,15 @@ were run.
    than reconstructed by isolating assertions one at a time. No indeterminate-participation
    status was needed. Proved in the slice by `TestOneMutantFailingTwoAssertionsAttributesBoth`
    over a fixture pair with the declaration order reversed.
-4. **`expect_failures = [var.<name>]` passes with a violating input and fails with a
+4. **An aliased `mock_provider` satisfies a `configuration_aliases` requirement.** A module
+   that names its caller's provider configurations and declares no `provider` block is
+   therefore characterisable, which is what makes collecting those declarations worth doing
+   rather than refusing the module.
+5. **`expect_failures = [var.<name>]` passes with a violating input and fails with a
    conforming one.** That asymmetry is what makes scaffold promotion a verification rather
    than a rubber stamp: an answer that does not produce the failure produces a failing run
    block, and the scaffold stays non-executable.
-5. **Terraform refuses an assert whose condition references nothing from the configuration**
+6. **Terraform refuses an assert whose condition references nothing from the configuration**
    (`The condition expression must refer to at least one object from elsewhere in the
    configuration`). This shaped the curate fixture: an assertion with a genuinely empty kill
    set has to read *something*, so the fixture's assertion reads the test's own input rather
@@ -187,7 +191,40 @@ listed here and is now built; see §8.)
    It is disabled because its directory is discarded with the round, which satisfies the
    safety property by construction — nothing is ever reused — and forgoes only the speed.
 
-## 8. What the first adversarial review changed
+## 8. What the two-axis review changed
+
+The change was reviewed along both axes before it landed — the first of four rounds — and
+eight findings were repaired rather than argued with. Four are worth naming because each was a contract the tests as
+written could not have caught:
+
+- **The gates ran after `terraform init`.** `warmUp` preceded `checkStagedSafety`, so a
+  refusal cost a provider download and a schema read — and the acceptance pair asserted only
+  the error text, never that nothing had executed. The gate is now decided from discovery
+  alone, before the work root exists, and `TestNoTerraformRunPrecedesAStagedGateRefusal`
+  asserts the invocation log the way the JSON floor's own case does.
+- **The write protocol's source leg was frozen.** `InputClosureDigest` hashed the source map
+  discovery captured once, so the exact defect M1 names — "sources can change after harvest
+  while the output stays identical" — was undetectable. Module sources are now re-read from
+  disk at every probe, and `TestAClosureChangeAtTheProbeYieldsZeroWrites` stages the race.
+- **A refuted answer was an operational failure.** `TodoRejected` was declared and
+  unreachable: a wrong answer aborted with a red scaffold instead of coming back as an
+  attributed finding. That inverted the safety property `agent-integration.md` §2.4 rests on.
+  A refuted answer is now rejected with its diagnostic, the artefact is rewritten, and the
+  exit code says work is outstanding.
+- **`curate` accepted two partial populations it should have refused.** A tier selection
+  narrows the operator population and was unchecked, and a population with timeouts or
+  execution errors leaves mutants *unobserved* — which is exactly when an assertion looks
+  like it senses nothing. Both now refuse, the second reusing the gate table's
+  unobserved-versus-absent distinction rather than restating it.
+
+Also repaired: the never-write contract's exception count and the registry's absence from any
+document; a generated file's header recording Terraform's version where it claimed the tool's;
+`curate`'s missing command-level cases; four separate identifier derivations collapsed into
+`characterise.Identify`; and the middle rung of the preference order, which the corpus
+measurement showed fires rarely and which nothing exercised until
+`TestAMinedValidationResolvesAnInputWithNoDefault`.
+
+## 9. What the first adversarial review changed
 
 A second adversarial review, against issue #71 and the recorded dispositions, found fourteen
 release-contract failures under a fully green M4.5 gate. All fourteen were repaired. Six are
@@ -241,7 +278,7 @@ says why. Measured first, as the rule requires: on v1.15.8 `expect_failures = [v
 passes with a violating input and *fails* with a conforming one, which is what makes the
 verification worth running.
 
-## 9. What the second adversarial review changed
+## 10. What the second adversarial review changed
 
 Ten findings against `cf81f4d`, all acted on. The three criticals share one shape, and it is
 the shape this branch had already named as its lesson — which is the finding worth carrying
@@ -285,40 +322,39 @@ One defect was found while fixing another. `sandbox.Materialise` documented its 
 tree resembling neither run, and presented as "the module has no output named tier". The
 precondition is enforced rather than described now.
 
-## 10. What the two-axis review changed
+## 11. What the third adversarial review changed
 
-The change was reviewed along both axes before it landed, and eight findings were repaired
-rather than argued with. Four are worth naming because each was a contract the tests as
-written could not have caught:
+Six findings, every one reproduced before it was repaired, and two of them were writes
+escaping their bounds. The theme is narrower than the previous rounds' and worth naming for
+it: **every one lived at a boundary that something else had already crossed correctly.**
 
-- **The gates ran after `terraform init`.** `warmUp` preceded `checkStagedSafety`, so a
-  refusal cost a provider download and a schema read — and the acceptance pair asserted only
-  the error text, never that nothing had executed. The gate is now decided from discovery
-  alone, before the work root exists, and `TestNoTerraformRunPrecedesAStagedGateRefusal`
-  asserts the invocation log the way the JSON floor's own case does.
-- **The write protocol's source leg was frozen.** `InputClosureDigest` hashed the source map
-  discovery captured once, so the exact defect M1 names — "sources can change after harvest
-  while the output stays identical" — was undetectable. Module sources are now re-read from
-  disk at every probe, and `TestAClosureChangeAtTheProbeYieldsZeroWrites` stages the race.
-- **A refuted answer was an operational failure.** `TodoRejected` was declared and
-  unreachable: a wrong answer aborted with a red scaffold instead of coming back as an
-  attributed finding. That inverted the safety property `agent-integration.md` §2.4 rests on.
-  A refuted answer is now rejected with its diagnostic, the artefact is rewritten, and the
-  exit code says work is outstanding.
-- **`curate` accepted two partial populations it should have refused.** A tier selection
-  narrows the operator population and was unchecked, and a population with timeouts or
-  execution errors leaves mutants *unobserved* — which is exactly when an assertion looks
-  like it senses nothing. Both now refuse, the second reusing the gate table's
-  unobserved-versus-absent distinction rather than restating it.
+- **A staged path could write outside the sandbox.** `--test-directory` reaches the keys of
+  the sandbox overlay, and `filepath.Join` *cleans* a `..` rather than refusing it, so
+  `characterise --test-directory ../../../tmp/x` created a file under `/tmp` — with no
+  `--write` given at all. The never-write contract, broken by a relative path. Every staged
+  and mutated path is now resolved and confined.
+- **A scaffold answer could inject configuration through a key.** The answer grammar was
+  constrained on the value side and not on the name side, so
+  `{ "size = 0\n  injected" = 1 }` rendered two assignments into a file the staged safety
+  check had already approved *because* answers were constants.
+- **`configuration_aliases` were invisible.** A reusable module names its caller's provider
+  configurations there and has no `provider` block at all, so the alias reached neither the
+  mocks nor the gate. The parse detail is worth recording: inside an object-cons value
+  `null.primary` is a *relative* traversal, not a scoped one, so a type switch on the scoped
+  form matched nothing and reported no aliases rather than failing.
+- **The write protocol's probes ran before the rename window rather than inside it.**
+  Creating, writing, closing and chmodding a temporary file is real duration. The M4 apply
+  protocol had this right already — its `recheck` sits between the chmod and the rename — and
+  the characterisation write, written later, regressed it.
+- **The provenance registry bypassed the collision protocol it enforces for everything else**,
+  and a registry that failed to store discarded a report after every generated file had
+  landed.
 
-Also repaired: the never-write contract's exception count and the registry's absence from any
-document; a generated file's header recording Terraform's version where it claimed the tool's;
-`curate`'s missing command-level cases; four separate identifier derivations collapsed into
-`characterise.Identify`; and the middle rung of the preference order, which the corpus
-measurement showed fires rarely and which nothing exercised until
-`TestAMinedValidationResolvesAnInputWithNoDefault`.
+Two of the six were regressions of patterns this repository already had — the pre-rename
+check, and the partial-state report — which is the same shape as the previous round's skill
+installer. **A protocol that exists in one place is not a protocol the next writer inherits.**
 
-## 11. Open questions for M5
+## 12. Open questions for M5
 
 - Scaffold promotion and `suggest --apply` are now two verify-then-write protocols side by
   side, and they differ. Should they be one?
@@ -328,3 +364,7 @@ measurement showed fires rarely and which nothing exercised until
   the constraint go straight to the reader as a judgement point?
 - Per-assertion provenance would make `curate` sharper and is a prerequisite for any future
   `curate --apply`.
+- Three write protocols now exist side by side — `suggest --apply`, the characterisation
+  commit and `skill install` — and each has independently grown a pre-rename check and a
+  partial-state report, twice by regression review. One shared protocol would be cheaper than
+  a fourth rediscovery.

@@ -138,9 +138,29 @@ pull request and an exit-gate document could both cite a test that was never wri
 mechanism built precisely to stop that could not see it. **A gate that checks one direction of
 a correspondence is evidence about one direction.**
 
+## What the third adversarial review repaired
+
+Six findings, every one reproduced before repair, and two of them were writes escaping their
+bounds: a staged path that wrote outside the sandbox through a `--test-directory`, and a
+scaffold-answer *key* that rendered arbitrary configuration into a file the safety check had
+approved because answers were constants. Recorded in full in
+`docs/research/13-m45-exit-gate.md` §11.
+
+The part that generalises is not either escape. It is that **two of the six were regressions
+of protocols this repository already had.** The M4 apply protocol checks its preconditions
+between the chmod and the rename — the only place the check means what it says — and the
+characterisation commit, written months later, checked before the whole window. The apply
+protocol reports partial state when a write half-completes; the characterisation registry
+discarded it. The previous round found the same shape in `skill install`.
+
+Three write protocols now exist side by side, and each has independently grown a pre-rename
+check and a partial-state report, twice by review rather than by design. **A protocol that
+exists in one place is not a protocol the next writer inherits** — it is a thing they will
+rediscover, or not.
+
 ## Pattern note
 
-Three lessons now, and they point the same way.
+Four lessons now, and they point the same way.
 
 The first repeats the spec review's: **the cheapest defects were the ones a measurement found,
 and the measurement only found them because it ran the shipped pipeline rather than a proxy for
@@ -159,6 +179,11 @@ the invocation log, the staged closure change, the rejected status. The third is
 the reviewer used — delete the mechanism, or neuter the seed, and see whether the test
 notices. It costs a minute and it is the only thing that separates a gate from a decoration.
 
-All three are the same instruction in different clothes — **assert the thing the contract is
-about, not the thing you expect to see when it holds** — and the third adds: then prove the
-assertion can fail.
+The fourth is the third review's, and it is about the code rather than the tests: **a contract
+honoured in one place is not honoured anywhere else.** Every boundary this round found had
+already been crossed correctly somewhere in the repository, by an earlier protocol nobody
+extracted.
+
+All four are the same instruction in different clothes — **assert the thing the contract is
+about, not the thing you expect to see when it holds** — with two riders: prove the assertion
+can fail, and check whether the contract you are writing already exists two packages over.
