@@ -120,7 +120,8 @@ func TestTheSliceRepairsTheMixedModuleFalseProof(t *testing.T) {
 	requireProviderMirror(t)
 
 	configuration, err := discovery.Discover(
-		filepath.Join(fixtureRoot, jsonMixedFixture), engine.DefaultTestDirectory)
+		filepath.Join(fixtureRoot, jsonMixedFixture), engine.DefaultTestDirectory,
+	)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}
@@ -255,7 +256,8 @@ func TestAChangedJSONConfigurationIsACacheKeyDimension(t *testing.T) {
 
 	writeFile(t, filepath.Join(module, "side.tf.json"), strings.Replace(
 		readFile(t, filepath.Join(module, "side.tf.json")),
-		"read-from-json", "changed-in-json", 1))
+		"read-from-json", "changed-in-json", 1,
+	))
 
 	second, err := engine.Run(t.Context(), baseConfig(t, module))
 	if err != nil {

@@ -362,7 +362,8 @@ func TestTheSensitivityPredicateRefusesBeforeAnythingRenders(t *testing.T) {
 			change.Sensitive = true
 
 			expression, err := suggest.Express(
-				runIn("applied", ""), untyped(), change)
+				runIn("applied", ""), untyped(), change,
+			)
 
 			if !errors.Is(err, suggest.ErrSensitive) {
 				t.Fatalf("error = %v, want a sensitivity refusal", err)

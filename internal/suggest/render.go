@@ -124,7 +124,8 @@ func scalarEquality(expression, baseline string) (string, error) {
 	}
 
 	return expression + " == " + strings.TrimSpace(
-		string(hclwrite.TokensForValue(value).Bytes())), nil
+		string(hclwrite.TokensForValue(value).Bytes()),
+	), nil
 }
 
 func scalarValue(baseline string) (cty.Value, error) {

@@ -92,12 +92,14 @@ func findRun(file *hclwrite.File, name string) *hclwrite.Block {
 // file, and the address adapter has already proven this one parses.
 func expressionTokens(expression string) (hclwrite.Tokens, error) {
 	if _, diagnostics := hclsyntax.ParseExpression(
-		[]byte(expression), "suggestion", hcl.InitialPos); diagnostics.HasErrors() {
+		[]byte(expression), "suggestion", hcl.InitialPos,
+	); diagnostics.HasErrors() {
 		return nil, fmt.Errorf("%w: %s: %s", ErrPatch, expression, diagnostics.Error())
 	}
 
 	tokens, diagnostics := hclwrite.ParseConfig(
-		[]byte(conditionName+" = "+expression+"\n"), "suggestion", hcl.InitialPos)
+		[]byte(conditionName+" = "+expression+"\n"), "suggestion", hcl.InitialPos,
+	)
 	if diagnostics.HasErrors() {
 		return nil, fmt.Errorf("%w: %s: %s", ErrPatch, expression, diagnostics.Error())
 	}

@@ -222,7 +222,8 @@ func TestTheHCLOnlyGraphIsTheFalseProofTheFloorWithdraws(t *testing.T) {
 
 	configuration, err := discovery.DiscoverWith(
 		filepath.Join(fixtureRoot, jsonMixedFixture), engine.DefaultTestDirectory,
-		discovery.Options{SkipJSON: true})
+		discovery.Options{SkipJSON: true},
+	)
 	if err != nil {
 		t.Fatalf("discover: %v", err)
 	}

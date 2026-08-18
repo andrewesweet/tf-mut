@@ -108,7 +108,8 @@ func decide(
 
 			return refute(candidate, baseline, mutantLeg, fmt.Sprintf(
 				"mutant %s survived the suggested assertion applied on its own, so the "+
-					"assertion does not kill it", mutantID))
+					"assertion does not kill it", mutantID,
+			))
 		}
 	}
 

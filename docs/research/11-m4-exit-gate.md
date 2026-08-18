@@ -110,9 +110,12 @@ The PR comment step, its `comment`/`comment-outcome` surface, and the
 `ACTION.md`, the workflow test). The markdown summary was already written to the job step
 summary by `scripts/action-run` on every run — green, red, and degraded alike — and the step
 summary needs no token, so the fork-degradation matrix loses its only degrading writer on
-pull-request events. The workflow test now asserts the summary's presence in
-`$GITHUB_STEP_SUMMARY` for the green, red and degraded paths; the assertions run in CI, not
-locally, per the existing pattern.
+pull-request events. The workflow test asserts the summary's markdown source
+(`tf-mut-summary.md`) for the green, red and degraded paths — a measured platform fact from
+this change's first CI run: `$GITHUB_STEP_SUMMARY` is a fresh file per step, so a later step
+cannot read what the composite appended, and the on-disk markdown the run step derives the
+summary from is the cross-step assertable artefact. The assertions run in CI, not locally,
+per the existing pattern.
 
 ## Standing facts carried forward
 

@@ -45,20 +45,23 @@ func traversal(path string) (traversalParts, error) {
 	resource, attribute, ok := fingerprint.Split(path)
 	if !ok {
 		return empty, fmt.Errorf(
-			"%w: %s names no value a `terraform test` assertion could read", ErrUnaddressable, path)
+			"%w: %s names no value a `terraform test` assertion could read", ErrUnaddressable, path,
+		)
 	}
 
 	if strings.Contains(resource, discovery.Wildcard) || strings.Contains(attribute, discovery.Wildcard) {
 		return empty, fmt.Errorf(
 			"%w: %s was canonicalised through a splat or wildcard, so the concrete "+
-				"instance it names is not recoverable", ErrUnaddressable, path)
+				"instance it names is not recoverable", ErrUnaddressable, path,
+		)
 	}
 
 	if parsed := discovery.ParseAddr(resource); len(parsed.ModulePath) > 0 {
 		return empty, fmt.Errorf(
 			"%w: %s is inside %s, and a run rooted at this module can observe a child "+
 				"module only through its outputs, never through its internals",
-			ErrUnaddressable, resource, "module."+strings.Join(parsed.ModulePath, ".module."))
+			ErrUnaddressable, resource, "module."+strings.Join(parsed.ModulePath, ".module."),
+		)
 	}
 
 	expression := resource
@@ -92,7 +95,8 @@ func traversal(path string) (traversalParts, error) {
 // through. Anything that is not a pure traversal fails closed.
 func parseTraversal(expression string) error {
 	parsed, diagnostics := hclsyntax.ParseExpression(
-		[]byte(expression), "suggestion", hcl.InitialPos)
+		[]byte(expression), "suggestion", hcl.InitialPos,
+	)
 	if diagnostics.HasErrors() {
 		return fmt.Errorf("%w: %s does not parse as an expression: %s",
 			ErrUnaddressable, expression, diagnostics.Error())
