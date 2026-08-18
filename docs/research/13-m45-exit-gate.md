@@ -14,7 +14,7 @@ here rather than in a commit message.
 | M2a honesty | `just gate` | unchanged |
 | M3 offline | `just gate-m3` | unchanged |
 | M4 offline | `just gate-m4` | one substitution, below |
-| **M4.5 offline** | **`just gate-m45`** | 55 named cases, audited by name |
+| **M4.5 offline** | **`just gate-m45`** | 59 named cases, audited by name |
 | M4.5-0 measurement | `just measure-synthesis` | network-gated, publishes its own decision |
 
 The M4 gate's check-block floor case is retired: the check block's file is now *read*, so a
@@ -159,6 +159,10 @@ Two costs the number carried with it, both flagged for the next review:
 | kill-set participation measured | `TestOneMutantFailingTwoAssertionsAttributesBoth` |
 | `expect_failures` scaffolds non-executable | `TestUnassertableConstructsBecomeNonExecutableScaffolds` |
 | scaffold promotion is earned by verification | `TestAnAnsweredScaffoldIsVerifiedBeforeItIsPromoted` |
+| the final pin set is verified before any write | `TestTheFinalPinSetIsVerifiedBeforeAnyWrite` |
+| curate spares its own untouched generated work | `TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions` |
+| a partial skill install reports what landed | `TestAPartialSkillInstallReportsWhatLanded` |
+| every test a document names exists | `TestEveryTestNameADocumentClaimsExists` |
 | the characterisation skill under the install protocol | `internal/skill` suite, extended to both skills |
 | the falsifiable walkthrough | `TestTheInstalledSkillsWalkthroughExecutes`, `TestASeededWrongFlagInTheSkillTurnsTheGateRed` |
 | report-2.3.0 validated on real reports | `TestARealCharacterisationReportValidatesAgainstThePublishedSchema` |
@@ -183,7 +187,7 @@ listed here and is now built; see §8.)
    It is disabled because its directory is discarded with the round, which satisfies the
    safety property by construction — nothing is ever reused — and forgoes only the speed.
 
-## 8. What the adversarial review changed
+## 8. What the first adversarial review changed
 
 A second adversarial review, against issue #71 and the recorded dispositions, found fourteen
 release-contract failures under a fully green M4.5 gate. All fourteen were repaired. Six are
@@ -237,7 +241,51 @@ says why. Measured first, as the rule requires: on v1.15.8 `expect_failures = [v
 passes with a violating input and *fails* with a conforming one, which is what makes the
 verification worth running.
 
-## 9. What the two-axis review changed
+## 9. What the second adversarial review changed
+
+Ten findings against `cf81f4d`, all acted on. The three criticals share one shape, and it is
+the shape this branch had already named as its lesson — which is the finding worth carrying
+forward rather than any one repair.
+
+**All three were properties nobody asserted, behind tests that asserted something else.**
+
+- `TestASeededWrongFlagInTheSkillTurnsTheGateRed` appended the module path to a transcript line
+  that already ended in `.`, so the CLI refused two positional arguments and returned exit 2
+  whatever the seed did. Neutering the seed to a no-op left it green in 0.00s. The one test
+  that made the end-of-MVP walkthrough falsifiable was itself unfalsifiable. It now runs the
+  transcript unseeded (every command must succeed) and then seeded (a refusal must *name* the
+  seeded flag), and the seed goes into the fenced block rather than the file's first match,
+  because the prose names `--until-dry` several times before the transcript does. Both
+  directions verified.
+- `unmockedConfigurations` compared `Configurations(configuration)` against a `planned` set
+  that *was* `Configurations(configuration)`. No input could separate them; the gate was
+  unreachable except through its own seam, and both gate tests set the seam. The mocked set is
+  now read out of the **rendered** mock blocks, so the gate checks the renderer against the
+  plan.
+- `crossScenarioFindings` took the provenance map and used it only to label output, never to
+  filter — so curate reported the tool's own untouched generated assertions as redundant, the
+  one direction that does damage.
+
+Beyond the criticals: a bounded until-dry exit could write pins no green run covered (the
+final set is verified now, asserted by seeding a pin nothing could have harvested); a partial
+`skill install` reported nothing; `--generated-functions` escaped curate's population posture;
+and the schema now states which bytes `generated_file.digest` covers, because for a sensitive
+scenario it is deliberately not the bytes in `content`.
+
+Two findings were about documents rather than code, and one of them changed the gates. The M4
+gate lost a case with no replacement, and two documents named
+`TestAMovedBlockInJSONRetainsTheFloor` — the pre-rename name of a case whose claim
+strengthened, and a test that was never written. `TestEveryTestNameADocumentClaimsExists` now
+closes the hole that let it survive: the gate-honesty pair checks recipe-to-test and never
+document-to-test, so a document could cite evidence that did not exist and nothing would
+notice. A claim about evidence is worth what the evidence is worth.
+
+One defect was found while fixing another. `sandbox.Materialise` documented its target as
+"must not exist" and tolerated one that did; materialising twice into one directory produced a
+tree resembling neither run, and presented as "the module has no output named tier". The
+precondition is enforced rather than described now.
+
+## 10. What the two-axis review changed
 
 The change was reviewed along both axes before it landed, and eight findings were repaired
 rather than argued with. Four are worth naming because each was a contract the tests as
@@ -270,7 +318,7 @@ document; a generated file's header recording Terraform's version where it claim
 measurement showed fires rarely and which nothing exercised until
 `TestAMinedValidationResolvesAnInputWithNoDefault`.
 
-## 10. Open questions for M5
+## 11. Open questions for M5
 
 - Scaffold promotion and `suggest --apply` are now two verify-then-write protocols side by
   side, and they differ. Should they be one?

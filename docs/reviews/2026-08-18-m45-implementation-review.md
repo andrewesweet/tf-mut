@@ -119,9 +119,28 @@ And one measured cost, which is not a repair but is squarely a rule-2 question:
    state bookkeeping with no provider, no effect and no evaluation. The C4 disposition disposed
    of them as one construct, and the measurement says that costs real modules.
 
+## What the second adversarial review repaired
+
+Ten more findings, three critical, all against a branch whose gates were green and whose own
+documents had already named the failure class. Recorded in full in
+`docs/research/13-m45-exit-gate.md` §9. The part worth keeping:
+
+**Every one of the three criticals was a test that could not fail.** Not a test that asserted
+the wrong thing — one that asserted a *consequence* so weakly coupled to the property that the
+property could be deleted without the test noticing. The falsifiability gate passed with its
+seed removed. The provider gate compared a set with itself. The curate filter was passed a map
+it never read.
+
+The repair that generalises is not any of the three. It is
+`TestEveryTestNameADocumentClaimsExists`: the gate-honesty pair had always checked that every
+name in a recipe resolves to a test, and never that every name in a *document* does — so a
+pull request and an exit-gate document could both cite a test that was never written, and the
+mechanism built precisely to stop that could not see it. **A gate that checks one direction of
+a correspondence is evidence about one direction.**
+
 ## Pattern note
 
-Two lessons, and they point the same way.
+Three lessons now, and they point the same way.
 
 The first repeats the spec review's: **the cheapest defects were the ones a measurement found,
 and the measurement only found them because it ran the shipped pipeline rather than a proxy for
@@ -130,11 +149,16 @@ and a `moved` block makes a major public module uncharacterisable — and both c
 `tf-mut todos` through the real seam over real modules. The form census this replaced would
 have reported a share and changed nothing.
 
-The second is the review's: **a test that asserts the outcome a safety property implies does
-not assert the property.** Four contracts were broken under a fully green gate, each behind a
+The second is the first review's: **a test that asserts the outcome a safety property implies
+does not assert the property.** Four contracts were broken under a fully green gate, each behind a
 case that checked what the contract produces rather than what it forbids — a refusal happened,
 but after `init`; a collision was refused, but from a frozen digest; an answer was promoted,
 but a wrong one aborted. The repair in each case was to assert the forbidden thing directly:
-the invocation log, the staged closure change, the rejected status. Both lessons are the same
-instruction in different clothes — **assert the thing the contract is about, not the thing you
-expect to see when it holds.**
+the invocation log, the staged closure change, the rejected status. The third is the second review's, and it is the first two turned on the tests themselves:
+**a test that cannot fail is not evidence, whatever it asserts.** The cheap check is the one
+the reviewer used — delete the mechanism, or neuter the seed, and see whether the test
+notices. It costs a minute and it is the only thing that separates a gate from a decoration.
+
+All three are the same instruction in different clothes — **assert the thing the contract is
+about, not the thing you expect to see when it holds** — and the third adds: then prove the
+assertion can fail.
