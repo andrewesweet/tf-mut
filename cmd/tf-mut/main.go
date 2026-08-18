@@ -18,6 +18,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/skill"
 )
 
 var version = "dev"
@@ -26,6 +27,7 @@ const (
 	runCommand     = "run"
 	previewCommand = "preview"
 	suggestCommand = "suggest"
+	skillCommand   = "skill"
 	versionCommand = "version"
 	versionFlag    = "--version"
 
@@ -43,6 +45,7 @@ Commands:
   run       Mutate the module at PATH and report which resources are pseudo-tested
   preview   List the mutants that would be generated, as diffs, executing nothing
   suggest   Generate, verify and optionally apply the assertions that kill the survivors
+  skill     Install the shipped agent skills (skill install [--agent claude|generic] [--path .])
   version   Print the build version
 
 Flags for run, preview and suggest:
@@ -104,6 +107,8 @@ func run(args []string, buildVersion string, stdout, stderr io.Writer) int {
 		return exitSuccess
 	case runCommand, previewCommand, suggestCommand:
 		return execute(args[0], args[1:], stdout, stderr)
+	case skillCommand:
+		return skillInstall(args[1:], buildVersion, stdout, stderr)
 	default:
 		return fail(stderr, usage)
 	}
@@ -346,6 +351,37 @@ func commaSeparated(value string) []string {
 }
 
 var errUnknownReporter = errors.New("unknown reporter")
+
+// skillInstall handles `tf-mut skill install`: the never-write contract's
+// fourth recorded exception, performed by internal/skill under its
+// preserve-user-edits protocol.
+func skillInstall(args []string, buildVersion string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "install" {
+		return fail(stderr, "usage: tf-mut skill install [--agent claude|generic] [--path .] [--force]")
+	}
+
+	set := flag.NewFlagSet("tf-mut skill install", flag.ContinueOnError)
+	set.SetOutput(stderr)
+
+	agent := set.String("agent", skill.AgentClaude, "target agent: claude or generic")
+	path := set.String("path", ".", "the project root to install into")
+	force := set.Bool("force", false, "replace a user-edited skill file")
+
+	if err := set.Parse(args[1:]); err != nil {
+		return report.ExitOperational
+	}
+
+	result, err := skill.Install(*path, *agent, buildinfo.Resolve(buildVersion), *force)
+	if err != nil {
+		return fail(stderr, "tf-mut: "+err.Error())
+	}
+
+	if _, err := fmt.Fprintf(stdout, "%s: %s\n", result.Path, result.Outcome); err != nil {
+		return report.ExitOperational
+	}
+
+	return exitSuccess
+}
 
 func execute(command string, args []string, stdout, stderr io.Writer) int {
 	parsed, err := parse(command, args, stderr)

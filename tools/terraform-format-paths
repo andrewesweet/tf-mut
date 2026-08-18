@@ -9,6 +9,9 @@ internal/engine/testdata/aws-mocked/observability.tf
 internal/engine/testdata/aws-mocked/state.tf
 internal/engine/testdata/aws-mocked/storage.tf
 internal/engine/testdata/aws-mocked/tests/unit.tftest.hcl
+internal/engine/testdata/cache-measure/a.tf
+internal/engine/testdata/cache-measure/b.tf
+internal/engine/testdata/cache-measure/tests/unit.tftest.hcl
 internal/engine/testdata/closure/main.tf
 internal/engine/testdata/closure/tests/unit.tftest.hcl
 internal/engine/testdata/conditional-autovar/main.tf

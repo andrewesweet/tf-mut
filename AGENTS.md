@@ -1,13 +1,17 @@
 # tf-mut — agent instructions
 
 Mutation testing and characterisation-test scaffolding for `terraform test`, optimised for
-fully-mocked unit tests. Milestones M1, M2 and M3 are implemented: `tf-mut run` and `tf-mut
+fully-mocked unit tests. Milestones M1–M4 are implemented: `tf-mut run` and `tf-mut
 preview` drive Tiers 0–3 end to end against real Terraform, every survivor carries one
 diagnosis from the fingerprint oracle, the attribute-level reference graph sharpens the
 oracle behind fail-closed adapters, `--since`, the verdict cache and the baseline gate table
 make runs fast and CI honest, and seven reporters (terminal, JSON, SARIF,
-mutation-testing-elements, HTML, JUnit, markdown) derive from one report value. Later
-milestones are still specified in GitHub issues labelled `ready-for-agent`.
+mutation-testing-elements, HTML, JUnit, markdown) derive from one report value. M4 adds the
+JSON safety floor and the discover-only JSON slice (`.tf.json`/`.tftest.json` feed the
+inventories and the graph, never the mutation surface), `tf-mut suggest` — verified
+suggested assertions behind three fail-closed adapters, applied under a snapshot-bound
+protocol — and `tf-mut skill install`. Later milestones are still specified in GitHub
+issues labelled `ready-for-agent`.
 
 ## Reading order
 
@@ -67,8 +71,8 @@ millisecond-fast; the one real-provider performance measurement is network-gated
 separate. The R1/R2 reproduction cases (recipes in review docs and issue #1) are mandatory
 fixtures.
 
-**Two exceptions, both narrow, both here rather than taken quietly.** Neither may be widened
-without amending this section.
+**Recorded exceptions, each narrow, each here rather than taken quietly.** None may be
+widened without amending this section.
 
 1. `internal/fingerprint` is tested directly on payload *shapes* — null against absent against
    empty, an addressed collection Terraform reordered, a value that changed type between two
@@ -87,6 +91,11 @@ without amending this section.
    test-suite-only by the M3 spec review's M1 disposition. Every verdict the graph leads to
    — path-scoped unknowns, static `Unobservable`, conditional `NoCoverage` — is still
    asserted through the engine seam.
+4. The M4 suggestion engine's three adapter matrices (`internal/suggest/adapters_test.go`)
+   are exercised directly over canonical payload paths and published provider types, for
+   exception 1's own reason: they are contracts about documents and types, and the real
+   binary cannot be driven into each of the fifteen shapes on demand. Every adapter outcome
+   is still asserted through the engine seam (`internal/engine/suggest_test.go`).
 
 ## Build and verification
 
@@ -117,14 +126,16 @@ this repository contract.
 | `internal/discovery` | `hclsyntax` parsing of modules and `.tftest.hcl` files; the `..`-closure; provider and effect inventories; reference forms |
 | `internal/mutation` | The operator catalogue and its applicability matrix. Tier 0 is applied through `hclwrite`; Tiers 1–3 rewrite byte ranges, so a mutant differs from the original only in the tokens its operator owns. Content-derived identifiers; deduplication; diffs |
 | `internal/fingerprint` | The oracle's arithmetic: canonical payload projection, the volatile mask, the masked delta. Decides what two runs can honestly be said to have in common, and never a verdict |
+| `internal/suggest` | The suggestion engine: the address, rendering and sensitivity adapters, the run-block patch writer, and the stable suggestion identity |
+| `internal/skill` | The shipped agent skills and the `skill install` write protocol |
 | `internal/config` | `.tf-mut.hcl` and the inline suppression directives |
 | `internal/sandbox` | Closure-rooted materialisation, provider and remote-module sharing, fresh-inode writes |
 | `internal/tfexec` | The Terraform CLI: `version`, `init`, `validate`, `providers schema`, `fmt`, and the `test -json` stream |
 | `internal/report` | The report value, its state, diagnosis and metric definitions, and the terminal, JSON and SARIF renderings |
 
-The JSON reporter's contract is published at `docs/schema/report-2.1.0.json` and validated in
-the suite; `report-2.0.0.json` and `report-1.0.0.json` remain published for earlier
-consumers. Changing a field's name or meaning means a new schema version and a new file.
+The JSON reporter's contract is published at `docs/schema/report-2.2.0.json` and validated in
+the suite; `report-2.1.0.json`, `report-2.0.0.json` and `report-1.0.0.json` remain published
+for earlier consumers. Changing a field's name or meaning means a new schema version and a new file.
 SARIF output is validated against the vendored `docs/schema/sarif-2.1.0.json`; the
 mutation-testing-elements adapter against the vendored
 `docs/schema/mutation-testing-report-2.0.0.json` (declared lossy — tf-mut's metrics are the
@@ -145,13 +156,15 @@ mutation's forward cone — judged under the fail-closed address adapters, with 
 whole-payload rule as the floor wherever a mapping fails — or volatility it could not
 decompose, makes the comparison indeterminate rather than identical.
 
-`just gate` runs the M2a honesty gate — the reproductions the oracle has to survive — and
+`just gate` runs the M2a honesty gate — the reproductions the oracle has to survive —
 `just gate-m3` runs the M3 offline gates: graph soundness, the count levers and the gate
-table, audited by name exactly as the honesty gate is. Both are separate recipes from
-`just test` on purpose: operator and interface breadth must not be able to
-hide a failed oracle behind a large green checklist. Two tests keep the recipe honest by
-checking that every name in it resolves to a test that exists, and that every reproduction the
-spec requires is still named.
+table, and `just gate-m4` runs the M4 offline gates: the JSON safety floor, the
+suggestion-soundness gate, the apply protocol and the skill contract — each audited by name
+exactly as the honesty gate is. All are separate recipes from `just test` on purpose:
+operator and interface breadth must not be able to hide a failed oracle behind a large green
+checklist. Per gate, two tests keep the recipe honest by checking that every name in it
+resolves to a test that exists, and that every reproduction the spec requires is still
+named.
 
 ## Conventions
 
@@ -161,12 +174,16 @@ spec requires is still named.
   helper must remain in `tools/shell-files` and pass the shared parse, format and lint gates.
 - Keep CI thin: bootstrap locked tools, then invoke the same Just recipes used locally.
 - Preserve `GOTOOLCHAIN=local`; toolchain drift must fail rather than download another Go.
-- The source tree of a module under test is never written to. Sandboxes only. Two recorded
-  exceptions, both tool-owned files the user asks for: the verdict cache in the
+- The source tree of a module under test is never written to. Sandboxes only. Four recorded
+  exceptions, each a tool-owned write the user asks for by name: the verdict cache in the
   project-local `.tf-mut-cache/` directory (M3 spec review M6; `--no-cache` removes even
-  that), and the acceptance list `.tf-mut-baseline.json`, written only on an explicit
-  `--write-baseline` over a full, unsampled, freshly executed population. Module sources
-  themselves are never written.
+  that); the acceptance list `.tf-mut-baseline.json`, written only on an explicit
+  `--write-baseline` over a full, unsampled, freshly executed population; the test files
+  `suggest --apply` writes, bound to the verified source digest under the snapshot-bound
+  preflight-then-atomic-rename protocol (M4 spec review C6, `internal/engine/apply.go`) —
+  and never a JSON test file; and the skill files `skill install` places, atomic,
+  user-edits-preserved unless `--force` (M4 spec review M4, `internal/skill`). Module
+  sources themselves are never written.
 - New milestone specs: run `/to-spec` against the design docs; one milestone per spec;
   absorb the previous milestone's implementation learnings first — they live in
   `docs/reviews/<date>-<milestone>-implementation-review.md` and the milestone's exit-gate
@@ -182,5 +199,8 @@ spec requires is still named.
   except `unformatted`, which is named in `tools/terraform-format-skip` with its reason: an
   unformatted fixture makes `hclwrite` re-align the file it round-trips, which silently turns
   every Tier 0 mutant's diff into a whole-file one.
+- Intentionally malformed JSON fixtures are named in `tools/json-files-skip` with their
+  reason, mirroring the Terraform format skip file; everything else with a `.json`
+  extension must be in `tools/json-files`.
 - `.golangci.yml` disables a handful of linters with a stated reason each. Adding a disable is
   allowed; adding one without the reason is not.

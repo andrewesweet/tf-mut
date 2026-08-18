@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/skill"
 )
 
 // The command line is a thin shell over the engine, so these tests check the
@@ -220,5 +222,48 @@ func writeFile(t *testing.T, path, content string) {
 
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("writing %s: %v", path, err)
+	}
+}
+
+// TestTheInstalledSkillReferencesOnlyCommandsAndFlagsTheBinaryHas is the
+// self-consistency assertion issue #65 requires: the skill is versioned with
+// the binary, so every command and flag it teaches must exist in this build's
+// own usage text.
+func TestTheInstalledSkillReferencesOnlyCommandsAndFlagsTheBinaryHas(t *testing.T) {
+	t.Parallel()
+
+	content := skill.Content()
+
+	for _, flagName := range regexp.MustCompile(`--[a-z][a-z-]*`).FindAllString(content, -1) {
+		if !strings.Contains(usage, flagName) {
+			t.Errorf("the skill teaches %s, which the usage text does not document", flagName)
+		}
+	}
+
+	for _, command := range regexp.MustCompile("`tf-mut ([a-z]+)").FindAllStringSubmatch(content, -1) {
+		if !strings.Contains(usage, "\n  "+command[1]+" ") {
+			t.Errorf("the skill teaches `tf-mut %s`, which is not a command of this binary", command[1])
+		}
+	}
+}
+
+func TestSkillInstallIsWiredThroughTheCommandLine(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	stdout := bytes.Buffer{}
+
+	code := run([]string{"skill", "install", "--agent", "generic", "--path", root},
+		"test", &stdout, &bytes.Buffer{})
+	if code != exitSuccess {
+		t.Fatalf("exit code = %d, want success", code)
+	}
+
+	if !strings.Contains(stdout.String(), "installed") {
+		t.Fatalf("no outcome was reported: %s", stdout.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "tf-mut-mutation.md")); err != nil {
+		t.Fatalf("the generic skill was not placed: %v", err)
 	}
 }
