@@ -26,13 +26,14 @@ func Plan(
 	configuration discovery.Configuration,
 	schemas tfexec.Schemas,
 	options Options,
+	planned []discovery.ProviderAlias,
 ) Scaffold {
 	scenarios, todos := planScenarios(configuration, options)
 
 	scaffold := Scaffold{
 		Scenarios:        scenarios,
 		Todos:            todos,
-		Mocks:            planMocks(configuration, schemas),
+		Mocks:            planMocks(configuration, schemas, planned),
 		Rung:             options.Rung,
 		Requested:        options.Rung,
 		Escalated:        false,
@@ -181,7 +182,7 @@ func withheld(variable discovery.Block, expression string) string {
 }
 
 func todoID(moduleRel, variable string) string {
-	return identify("todo-", moduleRel, variable)
+	return Identify("todo-", moduleRel, variable)
 }
 
 func todoFor(
@@ -250,13 +251,16 @@ func attributeOf(block discovery.Block, name string) (discovery.Attribute, bool)
 
 // planMocks builds one mock per provider configuration, with a pinned default
 // for every computed attribute the configuration reads downstream.
-func planMocks(configuration discovery.Configuration, schemas tfexec.Schemas) []Mock {
+func planMocks(
+	configuration discovery.Configuration,
+	schemas tfexec.Schemas,
+	planned []discovery.ProviderAlias,
+) []Mock {
 	resources, data := pinnedDefaults(configuration, schemas)
 
-	configurations := Configurations(configuration)
-	mocks := make([]Mock, 0, len(configurations))
+	mocks := make([]Mock, 0, len(planned))
 
-	for _, declared := range configurations {
+	for _, declared := range planned {
 		mocks = append(mocks, Mock{
 			Name:      declared.Name,
 			Alias:     declared.Alias,
@@ -366,7 +370,7 @@ func flippedScenarios(
 
 	for _, flip := range flips {
 		scenarios = append(scenarios, newScenario(root.Rel,
-			"flip_"+flip.variable+"_"+identify("", flip.variable, flip.expression)[:flipSuffix],
+			"flip_"+flip.variable+"_"+Identify("", flip.variable, flip.expression)[:flipSuffix],
 			withFlip(base, flip), options))
 	}
 
@@ -504,11 +508,12 @@ func comparedVariable(
 	return "", nil, false
 }
 
-// variableName reports the variable an expression reads, when it reads exactly
-// one and nothing else.
+// variableName reports the variable an expression reads, when the expression
+// is exactly `var.<name>` and nothing else. It is the one decoder for that
+// shape: mining, flipping and answer-checking all ask the same question.
 func variableName(expr hclsyntax.Expression) (string, bool) {
 	traversal, ok := expr.(*hclsyntax.ScopeTraversalExpr)
-	if !ok || len(traversal.Traversal) != addressWithKind {
+	if !ok || len(traversal.Traversal) != variableTraversalParts {
 		return "", false
 	}
 

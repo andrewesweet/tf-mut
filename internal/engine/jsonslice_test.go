@@ -318,7 +318,7 @@ func TestNoTerraformRunPrecedesAContentDrivenRefusal(t *testing.T) {
 	}
 
 	for _, invocation := range terraformInvocations(t, log) {
-		if invocation != "version" {
+		if invocation != versionInvocation {
 			t.Fatalf("terraform %s ran before the content-driven refusal", invocation)
 		}
 	}

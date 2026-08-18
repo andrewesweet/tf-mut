@@ -575,3 +575,62 @@ func TestScenarioPinsAreInvariantUnderFileOrder(t *testing.T) {
 		t.Fatal("the fixture pinned nothing, so the comparison proves nothing")
 	}
 }
+
+// TestAClosureChangeAtTheProbeYieldsZeroWrites is the M1 disposition's race
+// case. The scaffold is green for the closure that produced it and for no
+// other, so the commit step re-checks the input-closure digest immediately
+// before every rename; a closure that moved in between must yield zero writes
+// rather than a file that was green for a module which no longer exists.
+func TestAClosureChangeAtTheProbeYieldsZeroWrites(t *testing.T) {
+	t.Parallel()
+	requireProviderMirror(t)
+
+	module := copyFixture(t, untestedAliasesFixture)
+
+	config := characteriseConfig(t, module)
+	config.CharacteriseWrite = true
+	config.SeedClosureChange = "main.tf"
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrWriteRefused) {
+		t.Fatalf("error = %v, want a refusal of the changed closure", err)
+	}
+
+	if !strings.Contains(err.Error(), "input closure changed") {
+		t.Fatalf("the refusal does not say what moved: %v", err)
+	}
+
+	entries, readErr := os.ReadDir(filepath.Join(module, "tests"))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatalf("reading the test directory: %v", readErr)
+	}
+
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tftest.hcl") {
+			t.Fatalf("the aborted commit wrote %s", entry.Name())
+		}
+	}
+}
+
+// TestNoTerraformRunPrecedesAStagedGateRefusal holds the pre-execution
+// guarantee for the new command: the gates are decided from discovery alone,
+// so a refusal costs no init, no provider download and no schema read.
+func TestNoTerraformRunPrecedesAStagedGateRefusal(t *testing.T) {
+	t.Parallel()
+
+	log := filepath.Join(t.TempDir(), "terraform-calls")
+
+	config := characteriseConfig(t, copyFixture(t, untestedAliasesFixture))
+	config.SeedMissingMock = "null.secondary"
+	config.TerraformBinary = recordingTerraform(t, log)
+
+	if _, err := engine.Run(t.Context(), config); !errors.Is(err, engine.ErrRealInfrastructure) {
+		t.Fatalf("error = %v, want a refusal", err)
+	}
+
+	for _, invocation := range terraformInvocations(t, log) {
+		if invocation != versionInvocation {
+			t.Fatalf("terraform %s ran before the refusal; a refusal must be free", invocation)
+		}
+	}
+}

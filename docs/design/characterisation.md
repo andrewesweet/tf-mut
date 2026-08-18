@@ -213,10 +213,10 @@ So: **M4.5 — `tf-mut characterise` (scaffold + pin + until-dry loop), `tf-mut 
 granularity ladder — the rest is sequencing existing parts.
 
 **Shipped.** Two claims in this document were measured during implementation and the
-measurements outrank the prose above. The minable-validation share is not merely
-unquantified: over the pinned public-module corpus, validation mining fired **zero** times,
-and 605 of 609 resolved inputs came from the module's own declared default
-(`docs/research/12-m45-synthesis-rate.md`). And the `configured` rung generates no
+measurements outrank the prose above. The minable-validation share turned out to matter less
+than the *reachability* of the mining rung at all: over the pinned public-module corpus,
+mining was reached four times and fired zero, because 605 of 609 resolved inputs came from the
+module's own declared default (`docs/research/12-m45-synthesis-rate.md`). And the `configured` rung generates no
 schema-typed *collection* pin at all — the M4 rendering contract refuses them — so the ladder
 documents four measured skip classes instead (`docs/research/13-m45-exit-gate.md` §3).
 

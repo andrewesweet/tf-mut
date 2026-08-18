@@ -161,7 +161,7 @@ func listTodos(
 	scenarios, todos := characterise.PlanInputs(configuration, characterise.Options{
 		Rung:       rung,
 		TestDirRel: configuration.TestDirRelative(),
-		Version:    version,
+		Version:    settings.toolVersion(),
 		Sources:    sources,
 		Answers:    answers,
 	})

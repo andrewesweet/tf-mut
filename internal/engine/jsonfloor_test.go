@@ -143,6 +143,10 @@ func TestConfiguredExclusionsCannotHideUnreadJSON(t *testing.T) {
 	}
 }
 
+// versionInvocation is the one Terraform call a refusal is allowed to have
+// made: the version gate, which runs before any configuration is read.
+const versionInvocation = "version"
+
 func TestNoTerraformRunPrecedesAFloorRefusal(t *testing.T) {
 	t.Parallel()
 
@@ -156,7 +160,7 @@ func TestNoTerraformRunPrecedesAFloorRefusal(t *testing.T) {
 	}
 
 	for _, invocation := range terraformInvocations(t, log) {
-		if invocation != "version" {
+		if invocation != versionInvocation {
 			t.Fatalf("terraform %s ran before the refusal; a refusal must be free", invocation)
 		}
 	}

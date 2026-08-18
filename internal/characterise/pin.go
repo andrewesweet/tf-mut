@@ -158,7 +158,7 @@ func onePin(context pinContext) report.Pin {
 
 	skip := func(status report.PinStatus, reason string) report.Pin {
 		return report.Pin{
-			ID: pinID(context.scenario.ID, expression, ""), Scenario: context.scenario.ID,
+			ID: PinID(context.scenario.ID, expression, ""), Scenario: context.scenario.ID,
 			Address: expression, Expression: "", Status: status, Reason: reason,
 			Rung: string(context.rung),
 		}
@@ -196,7 +196,7 @@ func onePin(context pinContext) report.Pin {
 	}
 
 	return report.Pin{
-		ID: pinID(context.scenario.ID, expression, rendered), Scenario: context.scenario.ID,
+		ID: PinID(context.scenario.ID, expression, rendered), Scenario: context.scenario.ID,
 		Address: expression, Expression: rendered, Status: report.Pinned, Reason: "",
 		Rung: string(context.rung),
 	}
@@ -240,7 +240,7 @@ func schemaCoordinates(address string) (kind, resourceType string, ok bool) {
 
 	parts := trimmed.Parts
 	if parts[0] == dataKind {
-		if len(parts) < addressWithKind {
+		if len(parts) < dataAddressParts {
 			return "", "", false
 		}
 
@@ -250,9 +250,17 @@ func schemaCoordinates(address string) (kind, resourceType string, ok bool) {
 	return "resource", parts[0], true
 }
 
-const addressWithKind = 2
+// dataAddressParts is the length of `data.<type>`: the shortest address that
+// names a data source's type.
+const dataAddressParts = 2
 
 // rungOf reports which ladder level a canonical payload path belongs to.
+//
+// Its twin in the engine, `rungOfExpression`, classifies a *generated
+// expression* rather than a payload path, because that is all a suggestion
+// carries. The two read different inputs and neither can be derived from the
+// other; what they must agree on is the ladder itself, which is the exported
+// `Rung` vocabulary they both return.
 func rungOf(path string) (Rung, bool) {
 	switch {
 	case strings.HasPrefix(path, outputPrefix):
@@ -312,7 +320,7 @@ func countPins(
 			seen[key] = true
 
 			pins = append(pins, report.Pin{
-				ID:       pinID(scenario.ID, "length("+block.Address+")", strconv.Itoa(counts[block.Address])),
+				ID:       PinID(scenario.ID, "length("+block.Address+")", strconv.Itoa(counts[block.Address])),
 				Scenario: scenario.ID, Address: "length(" + block.Address + ")",
 				Expression: "length(" + block.Address + ") == " + strconv.Itoa(counts[block.Address]),
 				Status:     report.Pinned, Reason: "", Rung: string(RungCounts),

@@ -196,16 +196,21 @@ named.
   helper must remain in `tools/shell-files` and pass the shared parse, format and lint gates.
 - Keep CI thin: bootstrap locked tools, then invoke the same Just recipes used locally.
 - Preserve `GOTOOLCHAIN=local`; toolchain drift must fail rather than download another Go.
-- The source tree of a module under test is never written to. Sandboxes only. Four recorded
+- The source tree of a module under test is never written to. Sandboxes only. Five recorded
   exceptions, each a tool-owned write the user asks for by name: the verdict cache in the
   project-local `.tf-mut-cache/` directory (M3 spec review M6; `--no-cache` removes even
   that); the acceptance list `.tf-mut-baseline.json`, written only on an explicit
   `--write-baseline` over a full, unsampled, freshly executed population; the test files
   `suggest --apply` writes, bound to the verified source digest under the snapshot-bound
   preflight-then-atomic-rename protocol (M4 spec review C6, `internal/engine/apply.go`) —
-  and never a JSON test file; and the skill files `skill install` places, atomic,
-  user-edits-preserved unless `--force` (M4 spec review M4, `internal/skill`). Module
-  sources themselves are never written.
+  and never a JSON test file; the skill files `skill install` places, atomic,
+  user-edits-preserved unless `--force` (M4 spec review M4, `internal/skill`); and the
+  generated suite `characterise --write` places under the test directory, together with the
+  `.tf-mut-generated.json` provenance registry at the module root (`engine.RegistryName`) —
+  each file carrying the digest of the input closure that made it green, re-checked
+  immediately before its atomic rename, and `--force` replacing only what the registry marks
+  generated-and-unmodified (M4.5 spec review M1, `internal/engine/characterisewrite.go`).
+  Module sources themselves are never written.
 - New milestone specs: run `/to-spec` against the design docs; one milestone per spec;
   absorb the previous milestone's implementation learnings first — they live in
   `docs/reviews/<date>-<milestone>-implementation-review.md` and the milestone's exit-gate
@@ -215,8 +220,10 @@ named.
 - Safety gates (`--allow-real-infrastructure`, `--allow-unsandboxed-effects`) are
   load-bearing product decisions, not defaults to soften.
 - Engine fixtures live in `internal/engine/testdata/`. They are `terraform_data`-based and
-  offline unless the name says otherwise; `mocked-null`, `mocked-aliases` and `unmocked` need
-  the provider mirror (`just tools-install`) and skip without it, and `aws-mocked` is
+  offline unless the name says otherwise; `mocked-null`, `mocked-aliases`, `unmocked` and
+  `untested-aliases` need the provider mirror (`just tools-install`) and skip without it, and
+  the other `untested-*` fixtures — the modules characterisation is exercised against — are
+  `terraform_data`-based and offline like the rest. `aws-mocked` is
   network-gated behind the `integration` tag. Every fixture is in the Terraform format manifest
   except `unformatted`, which is named in `tools/terraform-format-skip` with its reason: an
   unformatted fixture makes `hclwrite` re-align the file it round-trips, which silently turns

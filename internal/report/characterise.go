@@ -286,12 +286,14 @@ func (c Characterisation) PinsByStatus() map[PinStatus]int {
 	return counts
 }
 
-// OpenTodos counts the TODOs still awaiting an answer.
+// OpenTodos counts the judgement points still awaiting an answer, which
+// includes an answer verification refuted: a rejected answer is a point that
+// still needs one.
 func (c Characterisation) OpenTodos() int {
 	open := 0
 
 	for _, todo := range c.Todos {
-		if todo.Status == TodoOpen {
+		if todo.Status == TodoOpen || todo.Status == TodoRejected {
 			open++
 		}
 	}

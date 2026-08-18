@@ -143,7 +143,7 @@ func recordScaffolds(block *report.Characterisation, result report.Report) {
 		known[mutant.Site] = true
 
 		block.Scaffolds = append(block.Scaffolds, report.Scaffold{
-			ID:      "scf-" + characterise.Digest([]byte(mutant.Site))[:pinIDLength],
+			ID:      characterise.Identify("scf-", mutant.Site),
 			Kind:    "expect_failures",
 			Address: mutant.Site,
 			Status:  report.Scaffolded,
@@ -219,7 +219,7 @@ func absorb(block *report.Characterisation, result report.Report) int {
 		added++
 
 		block.Pins = append(block.Pins, report.Pin{
-			ID:       "pin-" + characterise.Digest([]byte(scenario + suggestion.Expression))[:pinIDLength],
+			ID:       characterise.PinID(scenario, suggestion.Expression, suggestion.Expression),
 			Scenario: scenario, Address: suggestion.Expression,
 			Expression: suggestion.Expression, Status: report.Pinned, Reason: "",
 			Rung: string(rungOfExpression(suggestion.Expression)),
@@ -236,8 +236,6 @@ func absorb(block *report.Characterisation, result report.Report) int {
 
 	return added
 }
-
-const pinIDLength = 12
 
 // scenarioForRun maps a suggestion's target run back to the scenario that
 // generated it. A suggestion aimed at a run block this tool did not generate

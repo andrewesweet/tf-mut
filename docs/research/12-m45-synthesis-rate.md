@@ -49,11 +49,19 @@ batch path, and the product claim is not reworded.
 
 **1. Defaults do nearly all the work, and that is the design's own claim.** 605 of the 609
 resolved inputs came from the module's own declared default; typed synthesis supplied 4;
-validation mining supplied **none at all**. The design's honest caveat — that the minable
-share was unquantified and probably small — is confirmed, and the preference order that puts
-defaults first is what makes the rate what it is. Mining is worth keeping (it costs little and
-it is the only rung that reads a constraint as a *value*), but nothing in the product claim
-may rest on it.
+validation mining supplied **none at all**.
+
+The precise reading matters, because "mining supplied none" has two possible causes and only
+one of them is about mining. The preference order tries a default first, so mining was
+*reached* exactly four times across the whole corpus — once per input that declared no default
+— and produced nothing usable on all four. Mining is not broken: given
+`contains(["bronze","silver","gold"], var.tier)` it returns `"bronze"`, which is asserted
+through the seam. What the corpus shows is that public modules default almost everything, so
+the rung that reads a constraint as a *value* is reached vanishingly rarely, and on the rare
+occasions it is reached the constraint states a property rather than a value.
+
+Mining stays — it costs little and it is the only rung of its kind — but nothing in the
+product claim may rest on it, and the design's caveat is confirmed twice over.
 
 **2. The refusal of `moved` has a measured cost: one corpus module in ten.**
 `terraform-aws-modules/eks` v20.8.5 declares `moved` blocks, and the M4.5 spec review's C4

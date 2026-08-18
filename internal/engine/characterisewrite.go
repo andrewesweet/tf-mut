@@ -36,6 +36,9 @@ const RegistryName = ".tf-mut-generated.json"
 // registryVersion is the registry's own format version.
 const registryVersion = "1.0.0"
 
+// generatedFileMode is the permission a generated file carries.
+const generatedFileMode = 0o600
+
 // registry records what this tool generated, so that "generated-unmodified",
 // "generated-edited" and "pre-existing" are decided mechanically rather than
 // guessed at.
@@ -146,6 +149,10 @@ func writeFiles(
 	written := []string{}
 
 	for _, file := range block.Files {
+		if err := seedClosureChange(configuration, settings); err != nil {
+			return written, err
+		}
+
 		current, err := InputClosureDigest(configuration, settings, prepared)
 		if err != nil {
 			return written, err
@@ -174,6 +181,35 @@ func writeFiles(
 	markWritten(block, written)
 
 	return written, nil
+}
+
+// seedClosureChange stages the race the commit step exists to close: a source
+// file that moved between the verification that made the scaffold green and
+// the rename that would install it. It fires once, before the first rename.
+func seedClosureChange(configuration discovery.Configuration, settings Config) error {
+	if settings.SeedClosureChange == "" {
+		return nil
+	}
+
+	target := filepath.Join(configuration.ModuleDir, filepath.FromSlash(settings.SeedClosureChange))
+
+	//nolint:gosec // a seam control's own path, and a test-owned tree.
+	file, err := os.OpenFile(target, os.O_APPEND|os.O_WRONLY, generatedFileMode)
+	if err != nil {
+		return fmt.Errorf("staging the closure change: %w", err)
+	}
+
+	if _, err := file.WriteString("\n# staged closure change\n"); err != nil {
+		_ = file.Close()
+
+		return fmt.Errorf("staging the closure change: %w", err)
+	}
+
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("staging the closure change: %w", err)
+	}
+
+	return nil
 }
 
 func markWritten(block *report.Characterisation, written []string) {

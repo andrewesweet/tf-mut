@@ -48,6 +48,22 @@ matters most and is the least obvious: `var.token == "…"` names the secret out
 the constraint verbatim into a TODO would publish it. The mandatory fixture's secret exists
 only in a failed synthesis attempt, which is before the point the M4 predicate started at.
 
+## What the two-axis review repaired
+
+The change was reviewed along both axes before it landed. Eight findings were repaired rather
+than argued with; the four that mattered are named in `docs/research/13-m45-exit-gate.md` §8.
+The pattern across them is worth its own line, because it is not the pattern the spec review
+found:
+
+**Every one was a contract the passing tests could not have caught, because each test asserted
+the *outcome* the contract implies and not the *property* the contract is about.** The
+acceptance pair asserted that a missing alias mock produces a refusal — true both before and
+after the gates moved ahead of `terraform init`. The write-protocol cases asserted that a
+collision is refused — true whether the digest's source leg is live or frozen. The answer loop
+asserted that a good answer is promoted — true whether a bad one is rejected or aborts the
+run. In each case the test was about the happy path of a safety property, and the property
+itself went unasserted until something read the code rather than the results.
+
 ## Where the implementation is narrower than the spec
 
 Recorded in full in the exit gate, §7. In short: scaffold promotion is emission-only (a TODO
@@ -68,8 +84,9 @@ arrive unreviewed:
 2. **The non-executable promotion protocol** (C2's repair). Promotion is the only route into
    executable content, and it runs the same verification the write protocol runs. What is
    unreviewed is the asymmetry above — accepting an answer an undecidable constraint cannot
-   clear — and its failure mode: a wrong answer surfaces as a red scaffold verification, which
-   is an operational failure rather than a re-opened judgement point.
+   clear — together with its failure path: a wrong answer is now rejected with the diagnostic
+   attached and the artefact rewritten, which is the reported-finding shape
+   `agent-integration.md` §2.4 asks for, and which nothing had asserted until the review.
 3. **The staged-suite overlay** (M2's repair), and its consequence that the staged run's cache
    is scoped to a directory that is about to vanish.
 
@@ -82,9 +99,20 @@ And one measured cost, which is not a repair but is squarely a rule-2 question:
 
 ## Pattern note
 
-The round's own lesson repeats the spec review's: **the cheapest defects were the ones a
-measurement found, and the measurement only found them because it ran the shipped pipeline
-rather than a proxy for it.** The corpus run surfaced two facts nothing in the design predicted
-— mining fires never, and a `moved` block makes a major public module uncharacterisable — and
-both came from driving `tf-mut todos` through the real seam over real modules. The form census
-this replaced would have reported a share and changed nothing.
+Two lessons, and they point the same way.
+
+The first repeats the spec review's: **the cheapest defects were the ones a measurement found,
+and the measurement only found them because it ran the shipped pipeline rather than a proxy for
+it.** The corpus run surfaced two facts nothing in the design predicted — mining fires never,
+and a `moved` block makes a major public module uncharacterisable — and both came from driving
+`tf-mut todos` through the real seam over real modules. The form census this replaced would
+have reported a share and changed nothing.
+
+The second is the review's: **a test that asserts the outcome a safety property implies does
+not assert the property.** Four contracts were broken under a fully green gate, each behind a
+case that checked what the contract produces rather than what it forbids — a refusal happened,
+but after `init`; a collision was refused, but from a frozen digest; an answer was promoted,
+but a wrong one aborted. The repair in each case was to assert the forbidden thing directly:
+the invocation log, the staged closure change, the rejected status. Both lessons are the same
+instruction in different clothes — **assert the thing the contract is about, not the thing you
+expect to see when it holds.**

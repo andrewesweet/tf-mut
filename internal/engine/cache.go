@@ -134,7 +134,7 @@ func cacheKey(
 	write("baseline", "", baselineFingerprint(prepared))
 	write("config", "", resolvedConfiguration(settings))
 
-	if err := writeClosure(write, configuration, settings, prepared); err != nil {
+	if err := writeClosure(write, configuration, settings, prepared, prepared.sources); err != nil {
 		return "", err
 	}
 
@@ -160,7 +160,17 @@ func InputClosureDigest(
 		_, _ = fmt.Fprintf(digest, "%s\x00%s\x00%s\x00", kind, name, value)
 	}
 
-	if err := writeClosure(write, configuration, settings, prepared); err != nil {
+	// The module sources are re-read from disk rather than taken from the map
+	// discovery captured. That is the whole point of the digest here: the
+	// finding it answers is "sources can change after harvest while the output
+	// stays identical", and a leg fed from an in-memory snapshot could never
+	// detect it.
+	sources, err := moduleSources(configuration)
+	if err != nil {
+		return "", err
+	}
+
+	if err := writeClosure(write, configuration, settings, prepared, sources); err != nil {
 		return "", err
 	}
 
@@ -173,15 +183,16 @@ func writeClosure(
 	configuration discovery.Configuration,
 	settings Config,
 	prepared warm,
+	sources map[string][]byte,
 ) error {
 	// The entire materialised source closure, in path order.
-	for _, path := range sortedKeys(prepared.sources) {
+	for _, path := range sortedKeys(sources) {
 		rel, err := filepath.Rel(configuration.ClosureRoot, path)
 		if err != nil {
 			return err
 		}
 
-		write("source", filepath.ToSlash(rel), hashBytes(prepared.sources[path]))
+		write("source", filepath.ToSlash(rel), hashBytes(sources[path]))
 	}
 
 	// Every test file.

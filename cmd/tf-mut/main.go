@@ -124,7 +124,7 @@ func run(args []string, buildVersion string, stdout, stderr io.Writer) int {
 		return exitSuccess
 	case runCommand, previewCommand, suggestCommand, characteriseCommand,
 		todosCommand, curateCommand:
-		return execute(args[0], args[1:], stdout, stderr)
+		return execute(args[0], buildVersion, args[1:], stdout, stderr)
 	case skillCommand:
 		return skillInstall(args[1:], buildVersion, stdout, stderr)
 	default:
@@ -262,7 +262,7 @@ func declareOutputFlag(set *flag.FlagSet) *outputFlag {
 	return outputs
 }
 
-func parse(command string, args []string, stderr io.Writer) (options, error) {
+func parse(command, buildVersion string, args []string, stderr io.Writer) (options, error) {
 	set := flag.NewFlagSet("tf-mut "+command, flag.ContinueOnError)
 	set.SetOutput(stderr)
 
@@ -303,7 +303,7 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 	})
 
 	return options{
-		config: engineConfig(command, values, moduleDir, given, requested, sampled),
+		config: engineConfig(command, buildVersion, values, moduleDir, given, requested, sampled),
 		gate: report.Gate{
 			MinScore:             *values.minScore,
 			HasMinScore:          requested,
@@ -318,7 +318,7 @@ func parse(command string, args []string, stderr io.Writer) (options, error) {
 
 // engineConfig maps the parsed flags onto the engine's one input value.
 func engineConfig(
-	command string,
+	command, buildVersion string,
 	values flagValues,
 	moduleDir string,
 	given []string,
@@ -361,6 +361,7 @@ func engineConfig(
 		SurvivorIDs:             commaSeparated(*values.survivors),
 		Apply:                   commaSeparated(*values.apply),
 		ApplyAll:                *values.allVerified,
+		ToolVersion:             buildinfo.Resolve(buildVersion),
 		Characterise:            command == characteriseCommand,
 		PinRung:                 *values.pin,
 		CharacteriseWrite:       *values.write,
@@ -480,8 +481,8 @@ func skillInstall(args []string, buildVersion string, stdout, stderr io.Writer) 
 	return exitSuccess
 }
 
-func execute(command string, args []string, stdout, stderr io.Writer) int {
-	parsed, err := parse(command, args, stderr)
+func execute(command, buildVersion string, args []string, stdout, stderr io.Writer) int {
+	parsed, err := parse(command, buildVersion, args, stderr)
 	if err != nil {
 		return fail(stderr, err.Error())
 	}

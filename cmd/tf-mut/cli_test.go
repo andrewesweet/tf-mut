@@ -779,3 +779,42 @@ func walkthroughFixture(t *testing.T) string {
 
 	return module
 }
+
+// TestCurateIsWiredThroughTheCommandLine covers the third new command: the
+// refusal a partial population earns can only be asserted from the shell if
+// the shell actually reaches the engine with the command set.
+func TestCurateIsWiredThroughTheCommandLine(t *testing.T) {
+	t.Parallel()
+
+	module := fixture(t)
+	stderr := bytes.Buffer{}
+
+	code := run([]string{curateCommand, "--sample", "50", noCacheFlag, module},
+		"test", &bytes.Buffer{}, &stderr)
+	if code != report.ExitOperational {
+		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
+	}
+
+	if !strings.Contains(stderr.String(), "false finding") {
+		t.Fatalf("the refusal did not come from curate's population posture: %s", stderr.String())
+	}
+}
+
+// TestCurateRefusesArgumentsAfterTheModulePath keeps the round-3 ordering
+// repair asserted by name for every command the milestone added.
+func TestCurateRefusesArgumentsAfterTheModulePath(t *testing.T) {
+	t.Parallel()
+
+	stderr := bytes.Buffer{}
+
+	code := run([]string{curateCommand, ".", noCacheFlag}, "test", &bytes.Buffer{}, &stderr)
+	if code != report.ExitOperational {
+		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
+	}
+
+	for _, expected := range []string{noCacheFlag, beforeThePath} {
+		if !strings.Contains(stderr.String(), expected) {
+			t.Fatalf("the refusal does not carry %q: %s", expected, stderr.String())
+		}
+	}
+}

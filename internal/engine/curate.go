@@ -12,6 +12,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
+	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
@@ -67,6 +68,10 @@ func checkCuratePopulation(settings Config) error {
 		refusals = append(refusals, "an exclusion removes sites from the population")
 	}
 
+	if settings.Tier != "" && settings.Tier != mutation.TierStandard {
+		refusals = append(refusals, "a tier selection narrows the operator population")
+	}
+
 	if len(refusals) == 0 {
 		return nil
 	}
@@ -75,6 +80,36 @@ func checkCuratePopulation(settings Config) error {
 		"  A redundancy finding drawn from a partial population is a false finding,\n"+
 		"  and reporting it rather than acting on it would not make it true",
 		ErrCuratePopulation, strings.Join(refusals, "; "))
+}
+
+// checkPopulationObserved refuses a population that did not fully execute.
+//
+// Timeouts and execution errors both leave mutants unobserved. The gate table
+// already distinguishes unobserved from absent for the baseline; curate needs
+// the same distinction for a different reason — an assertion looks like it
+// senses nothing precisely when the mutants that would have proved otherwise
+// never ran.
+func checkPopulationObserved(result report.Report) error {
+	reasons := []string{}
+
+	if timeouts := result.Count(report.Timeout); timeouts > 0 {
+		reasons = append(reasons,
+			strconv.Itoa(timeouts)+" mutant(s) timed out, so their kills were never observed")
+	}
+
+	if len(result.Errors) > 0 {
+		reasons = append(reasons,
+			strconv.Itoa(len(result.Errors))+" mutant(s) could not be evaluated at all")
+	}
+
+	if len(reasons) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%w: %s\n"+
+		"  An unobserved mutant is not an absent one, and an empty kill set drawn over\n"+
+		"  mutants that never ran is a false finding",
+		ErrCuratePopulation, strings.Join(reasons, "; "))
 }
 
 // curateSuite runs the full population and reports what the kill sets show.
@@ -91,6 +126,14 @@ func curateSuite(
 
 	result, err := mutate(ctx, runner, configuration, graded, version, moduleDir)
 	if err != nil {
+		return report.Report{}, err
+	}
+
+	// The gate table's distinction, reused rather than restated: a mutant that
+	// did not run is unobserved, not absent, and an empty kill set drawn over
+	// unobserved mutants is a false finding of exactly the kind the population
+	// posture exists to prevent.
+	if err := checkPopulationObserved(result); err != nil {
 		return report.Report{}, err
 	}
 
@@ -148,12 +191,8 @@ func assertionInventory(configuration discovery.Configuration) []assertion {
 // two identical conditions in one run, which is legal and which a content hash
 // alone would collapse.
 func assertionID(file, run, source string, index int) string {
-	return "asrt-" + characterise.Digest(
-		[]byte(file + "\x00" + run + "\x00" + source + "\x00" + strconv.Itoa(index)),
-	)[:assertionIDLength]
+	return characterise.Identify("asrt-", file, run, source, strconv.Itoa(index))
 }
-
-const assertionIDLength = 12
 
 // attributeKills records which mutants' deaths each assertion participated in.
 //
@@ -296,7 +335,7 @@ func subsumedBy(
 		}
 
 		theirs := killSets[other.ID]
-		if len(theirs) <= len(mine) || !contains(theirs, mine) {
+		if len(theirs) <= len(mine) || !covers(theirs, mine) {
 			continue
 		}
 
@@ -352,17 +391,17 @@ func finding(
 	}
 
 	return report.CurateFinding{
-		ID: "cur-" + characterise.Digest([]byte(string(kind) + "\x00" +
-			strings.Join(identifiers, "\x00")))[:assertionIDLength],
+		ID:   characterise.Identify("cur-", append([]string{string(kind)}, identifiers...)...),
 		Kind: kind, Members: identifiers, Provenance: classes,
 		Mutants: mutants, PopulationAuthoritative: true, Message: message,
 	}
 }
 
-// contains reports whether every member of subset is in superset.
-func contains(superset, subset []string) bool {
-	for _, member := range subset {
-		if !slices.Contains(superset, member) {
+// covers reports whether the wider kill set contains every member of the
+// narrower one, which is what subsumption means.
+func covers(wider, narrower []string) bool {
+	for _, member := range narrower {
+		if !slices.Contains(wider, member) {
 			return false
 		}
 	}

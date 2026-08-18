@@ -44,6 +44,28 @@ func characteriseModule(
 	settings Config,
 	version tfexec.Version,
 ) (report.Report, error) {
+	rung, err := characterise.ParseRung(settings.PinRung)
+	if err != nil {
+		return report.Report{}, err
+	}
+
+	answers, err := collectAnswers(configuration, settings)
+	if err != nil {
+		return report.Report{}, err
+	}
+
+	// The gates first, and nothing before them but the version check. The
+	// program they judge is the module sources plus the *planned* scaffold,
+	// and which provider configurations that scaffold plans a mock for is
+	// decided by discovery alone — so a refusal costs no `init`, no provider
+	// download and no schema read, exactly as it does for a mutation run.
+	planned := seedMissingMock(characterise.Configurations(configuration), settings)
+
+	warnings, err := checkStagedSafety(configuration, planned, settings)
+	if err != nil {
+		return report.Report{}, err
+	}
+
 	workRoot, err := os.MkdirTemp(settings.WorkDir, "tf-mut-")
 	if err != nil {
 		return report.Report{}, fmt.Errorf("creating work directory: %w", err)
@@ -56,30 +78,14 @@ func characteriseModule(
 		return report.Report{}, err
 	}
 
-	rung, err := characterise.ParseRung(settings.PinRung)
-	if err != nil {
-		return report.Report{}, err
-	}
-
-	answers, err := collectAnswers(configuration, settings)
-	if err != nil {
-		return report.Report{}, err
-	}
-
-	scaffold := characterise.Plan(configuration, prepared.schemas, characterise.Options{
-		Rung:       rung,
-		TestDirRel: configuration.TestDirRelative(),
-		Version:    version.Terraform,
-		Sources:    prepared.sources,
-		Answers:    answers,
-	})
-
-	scaffold = seedMissingMock(seedNoEscalation(scaffold, settings), settings)
-
-	warnings, err := checkStagedSafety(configuration, scaffold, settings)
-	if err != nil {
-		return report.Report{}, err
-	}
+	scaffold := seedNoEscalation(characterise.Plan(configuration, prepared.schemas,
+		characterise.Options{
+			Rung:       rung,
+			TestDirRel: configuration.TestDirRelative(),
+			Version:    settings.toolVersion(),
+			Sources:    prepared.sources,
+			Answers:    answers,
+		}, planned), settings)
 
 	warnings = append(warnings, prepared.warnings...)
 
@@ -148,14 +154,14 @@ func scaffoldSuite(
 	// artefact is the editable surface, and promotion after verification is the
 	// only route from it into test content.
 	if openTodos(scaffold.Todos) > 0 {
-		block.Files = artefactFiles(scaffold)
+		block.Files = artefactFiles(scaffold, scaffold.Todos)
 
 		return block, nil
 	}
 
 	harvest, err := harvestScaffold(ctx, runner, configuration, workRoot, prepared, scaffold, settings)
 	if err != nil {
-		return report.Characterisation{}, err
+		return rejectAnswers(block, scaffold, err)
 	}
 
 	block.Pins = characterise.Pin(scaffold, configuration, prepared.schemas, harvest)
@@ -163,7 +169,7 @@ func scaffoldSuite(
 
 	if err := verifyScaffold(ctx, runner, configuration, workRoot, prepared,
 		scaffold, block.Pins, settings); err != nil {
-		return report.Characterisation{}, err
+		return rejectAnswers(block, scaffold, err)
 	}
 
 	// Promotion is what verification earns, and nothing else: an answer is
@@ -203,23 +209,68 @@ func pinnedCount(pins []report.Pin) int {
 	return count
 }
 
+// rejectAnswers turns a failed harvest or verification into a rejected answer
+// where one was supplied, and into an operational failure where none was.
+//
+// The distinction is the whole safety property `agent-integration.md` §2.4
+// rests on: a value somebody supplied is a hypothesis the tool tests, so a
+// wrong one comes back as a reported, attributed finding with the diagnostic
+// attached and the artefact rewritten. A failure with no answer in play is a
+// defect in the generator, and reporting that as a finding about the module
+// would be the tool blaming its own bug on its user.
+func rejectAnswers(
+	block report.Characterisation,
+	scaffold characterise.Scaffold,
+	failure error,
+) (report.Characterisation, error) {
+	rejected := false
+
+	for index, todo := range block.Todos {
+		if todo.Status != report.TodoAnswered {
+			continue
+		}
+
+		block.Todos[index].Status = report.TodoRejected
+		block.Todos[index].Diagnostic = failure.Error()
+		rejected = true
+	}
+
+	if !rejected {
+		return report.Characterisation{}, failure
+	}
+
+	block.Pins = []report.Pin{}
+	block.Files = artefactFiles(scaffold, block.Todos)
+	block.Complete = false
+
+	return block, nil
+}
+
 // artefactFiles renders the non-executable artefact for every scenario whose
 // inputs are not fully resolved.
-func artefactFiles(scaffold characterise.Scaffold) []report.GeneratedFile {
+func artefactFiles(scaffold characterise.Scaffold, todos []report.Todo) []report.GeneratedFile {
 	files := make([]report.GeneratedFile, 0, len(scaffold.Scenarios))
 
 	for _, scenario := range scaffold.Scenarios {
-		content := characterise.RenderArtefact(scaffold, scenario, scaffold.Todos)
-		files = append(files, report.GeneratedFile{
-			Path:       characterise.ArtefactFile(scaffold.Options.TestDirRel, scenario.Name),
-			Content:    string(content),
-			Digest:     characterise.Digest(content),
-			Executable: false,
-			Written:    false,
-		})
+		files = append(files, generatedFile(
+			characterise.ArtefactFile(scaffold.Options.TestDirRel, scenario.Name),
+			characterise.RenderArtefact(scaffold, scenario, todos), false,
+		))
 	}
 
 	return files
+}
+
+// generatedFile is the one place a generated file's report entry is built, so
+// its digest is always the digest of the content beside it.
+func generatedFile(path string, content []byte, executable bool) report.GeneratedFile {
+	return report.GeneratedFile{
+		Path:       path,
+		Content:    string(content),
+		Digest:     characterise.Digest(content),
+		Executable: executable,
+		Written:    false,
+	}
 }
 
 // scaffoldArtefact renders the non-executable file the scaffolds live in.
@@ -231,15 +282,10 @@ func scaffoldArtefact(
 		return nil
 	}
 
-	content := characterise.RenderScaffolds(scaffold, block.Scaffolds)
-
-	return []report.GeneratedFile{{
-		Path:       characterise.ArtefactFile(scaffold.Options.TestDirRel, scaffoldScenario),
-		Content:    string(content),
-		Digest:     characterise.Digest(content),
-		Executable: false,
-		Written:    false,
-	}}
+	return []report.GeneratedFile{generatedFile(
+		characterise.ArtefactFile(scaffold.Options.TestDirRel, scaffoldScenario),
+		characterise.RenderScaffolds(scaffold, block.Scaffolds), false,
+	)}
 }
 
 // pinnedFiles renders the executable suite.
@@ -247,14 +293,8 @@ func pinnedFiles(scaffold characterise.Scaffold, pins []report.Pin) []report.Gen
 	files := make([]report.GeneratedFile, 0, len(scaffold.Scenarios))
 
 	for _, scenario := range scaffold.Scenarios {
-		content := characterise.Render(scaffold, []report.Scenario{scenario}, pins)
-		files = append(files, report.GeneratedFile{
-			Path:       scenario.File,
-			Content:    string(content),
-			Digest:     characterise.Digest(content),
-			Executable: true,
-			Written:    false,
-		})
+		files = append(files, generatedFile(scenario.File,
+			characterise.Render(scaffold, []report.Scenario{scenario}, pins), true))
 	}
 
 	return files
@@ -429,7 +469,7 @@ func stagedPath(configuration discovery.Configuration, moduleRelative string) st
 // mock per requirement leaves every alias reaching a real provider.
 func checkStagedSafety(
 	configuration discovery.Configuration,
-	scaffold characterise.Scaffold,
+	planned []discovery.ProviderAlias,
 	settings Config,
 ) ([]string, error) {
 	warnings, err := floorOf(configuration).checkFloor(settings)
@@ -437,7 +477,7 @@ func checkStagedSafety(
 		return nil, err
 	}
 
-	if unmocked := unmockedConfigurations(configuration, scaffold); len(unmocked) > 0 {
+	if unmocked := unmockedConfigurations(configuration, planned); len(unmocked) > 0 {
 		if !settings.AllowRealInfrastructure {
 			return nil, fmt.Errorf(
 				"%w: the staged suite plans no mock for provider configuration %s.%s\n"+
@@ -476,17 +516,17 @@ func checkStagedSafety(
 // leaves without a mock.
 func unmockedConfigurations(
 	configuration discovery.Configuration,
-	scaffold characterise.Scaffold,
+	planned []discovery.ProviderAlias,
 ) []string {
-	planned := map[discovery.ProviderAlias]bool{}
-	for _, mock := range scaffold.Mocks {
-		planned[discovery.ProviderAlias{Name: mock.Name, Alias: mock.Alias}] = true
+	mocked := map[discovery.ProviderAlias]bool{}
+	for _, declared := range planned {
+		mocked[declared] = true
 	}
 
 	unmocked := []string{}
 
 	for _, declared := range characterise.Configurations(configuration) {
-		if planned[declared] {
+		if mocked[declared] {
 			continue
 		}
 
@@ -537,26 +577,23 @@ func seedNoEscalation(scaffold characterise.Scaffold, settings Config) character
 	return scaffold
 }
 
-// seedMissingMock removes one planned alias mock, so the staged provider gate
-// can be proven to refuse before execution. It is a seam control and not a
-// command-line flag.
-func seedMissingMock(scaffold characterise.Scaffold, settings Config) characterise.Scaffold {
+// seedMissingMock removes one planned provider configuration, so the staged
+// provider gate can be proven to refuse before execution. It is a seam control
+// and not a command-line flag.
+func seedMissingMock(planned []discovery.ProviderAlias, settings Config) []discovery.ProviderAlias {
 	if settings.SeedMissingMock == "" {
-		return scaffold
+		return planned
 	}
 
-	kept := make([]characterise.Mock, 0, len(scaffold.Mocks))
+	kept := make([]discovery.ProviderAlias, 0, len(planned))
 
-	for _, mock := range scaffold.Mocks {
-		if configurationName(discovery.ProviderAlias{Name: mock.Name, Alias: mock.Alias}) ==
-			settings.SeedMissingMock {
+	for _, declared := range planned {
+		if configurationName(declared) == settings.SeedMissingMock {
 			continue
 		}
 
-		kept = append(kept, mock)
+		kept = append(kept, declared)
 	}
 
-	scaffold.Mocks = kept
-
-	return scaffold
+	return kept
 }

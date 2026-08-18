@@ -14,7 +14,7 @@ import (
 const m45GateRecipe = "gate-m45:"
 
 // minimumM45GateCases guards against a recipe edit that empties the gate.
-const minimumM45GateCases = 40
+const minimumM45GateCases = 45
 
 func TestTheM45GateNamesOnlyTestsThatExist(t *testing.T) {
 	t.Parallel()
@@ -82,6 +82,12 @@ func TestTheM45GateCoversEveryNamedRequirement(t *testing.T) {
 		"trailing arguments refused: todos":        "TestTodosRefusesArgumentsAfterTheModulePath",
 		"the end-of-MVP walkthrough executes":      "TestTheInstalledSkillsWalkthroughExecutes",
 		"the walkthrough is falsifiable":           "TestASeededWrongFlagInTheSkillTurnsTheGateRed",
+		"a refuted answer is rejected, not fatal":  "TestARefutedAnswerIsRejectedRatherThanAnOperationalFailure",
+		"the input-closure race at the probe":      "TestAClosureChangeAtTheProbeYieldsZeroWrites",
+		"a staged refusal costs no Terraform run":  "TestNoTerraformRunPrecedesAStagedGateRefusal",
+		"curate reachable through the CLI":         "TestCurateIsWiredThroughTheCommandLine",
+		"trailing arguments refused: curate":       "TestCurateRefusesArgumentsAfterTheModulePath",
+		"the mined rung fires when it is reached":  "TestAMinedValidationResolvesAnInputWithNoDefault",
 	}
 
 	assertGateCovers(t, "M4.5", m45GatedTests(t), required)

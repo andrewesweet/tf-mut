@@ -18,6 +18,7 @@ import (
 const (
 	untestedTodoFixture   = "untested-todo"
 	untestedSecretFixture = "untested-secret-diagnostic"
+	untestedMinedFixture  = "untested-mined"
 
 	// answeredCIDR is the value the mandatory end-to-end case answers with.
 	answeredCIDR = `"10.0.0.0/16"`
@@ -251,5 +252,99 @@ func answerArtefact(t *testing.T, path, value string) {
 
 	if err := os.WriteFile(path, []byte(replaced), 0o600); err != nil {
 		t.Fatalf("writing %s: %v", path, err)
+	}
+}
+
+// TestAMinedValidationResolvesAnInputWithNoDefault covers the middle rung of
+// the preference order, which the corpus measurement showed is reached rarely
+// and fires rarely — a rung nothing exercised would be a rung nobody could
+// tell was broken.
+func TestAMinedValidationResolvesAnInputWithNoDefault(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedMinedFixture)
+
+	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	if err != nil {
+		t.Fatalf("characterise: %v", err)
+	}
+
+	block := result.Characterisation
+	if block.OpenTodos() != 0 {
+		t.Fatalf("a minable constraint still produced a judgement point: %+v", block.Todos)
+	}
+
+	mined := false
+
+	for _, scenario := range block.Scenarios {
+		for _, input := range scenario.Inputs {
+			if input.Name != "tier" {
+				continue
+			}
+
+			if input.Provenance != report.FromValidation {
+				t.Fatalf("tier resolved by %s, want the validation it is named in",
+					input.Provenance)
+			}
+
+			if input.Expression != `"bronze"` {
+				t.Fatalf("mined %s, want the first legal value the constraint names",
+					input.Expression)
+			}
+
+			mined = true
+		}
+	}
+
+	if !mined {
+		t.Fatal("no scenario carried the mined assignment")
+	}
+
+	if !strings.Contains(block.Files[0].Content, `output.network == "bronze"`) {
+		t.Fatalf("the mined value was not characterised:\n%s", block.Files[0].Content)
+	}
+}
+
+// TestARefutedAnswerIsRejectedRatherThanAnOperationalFailure is the other half
+// of the verification loop's safety property: nothing an agent supplies is
+// trusted, and the failure mode of a wrong answer is a reported, attributed
+// finding rather than a corrupted suite — or a stack trace.
+func TestARefutedAnswerIsRejectedRatherThanAnOperationalFailure(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedTodoFixture)
+
+	config := characteriseConfig(t, module)
+	config.CharacteriseWrite = true
+
+	opened, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("characterise --write: %v", err)
+	}
+
+	answered := characteriseConfig(t, module)
+	answered.Answers = []string{opened.Characterisation.Todos[0].ID + `="not-a-cidr-block"`}
+
+	result, err := engine.Run(t.Context(), answered)
+	if err != nil {
+		t.Fatalf("a refuted answer must be a finding, not an operational failure: %v", err)
+	}
+
+	block := result.Characterisation
+	if len(block.Todos) != 1 || block.Todos[0].Status != report.TodoRejected {
+		t.Fatalf("the refuted answer was not rejected: %+v", block.Todos)
+	}
+
+	if block.Todos[0].Diagnostic == "" {
+		t.Fatal("the rejected answer carries no diagnostic to act on")
+	}
+
+	if block.Complete || len(block.Files) != 1 || block.Files[0].Executable {
+		t.Fatalf("a refuted answer produced executable content: %+v", block.Files)
+	}
+
+	if result.ExitCode(report.Gate{}) != report.ExitFindings { //nolint:exhaustruct // no gate is requested.
+		t.Fatalf("exit code = %d, want one while the judgement point still needs an answer",
+			result.ExitCode(report.Gate{})) //nolint:exhaustruct // no gate is requested.
 	}
 }

@@ -14,7 +14,7 @@ here rather than in a commit message.
 | M2a honesty | `just gate` | unchanged |
 | M3 offline | `just gate-m3` | unchanged |
 | M4 offline | `just gate-m4` | one substitution, below |
-| **M4.5 offline** | **`just gate-m45`** | 43 named cases, audited by name |
+| **M4.5 offline** | **`just gate-m45`** | 49 named cases, audited by name |
 | M4.5-0 measurement | `just measure-synthesis` | network-gated, publishes its own decision |
 
 The M4 gate's `TestACheckBlockInJSONRetainsTheFloor` is retired and
@@ -44,7 +44,8 @@ were run.
 4. **Terraform refuses an assert whose condition references nothing from the configuration**
    (`The condition expression must refer to at least one object from elsewhere in the
    configuration`). This shaped the curate fixture: an assertion with a genuinely empty kill
-   set has to read *something*, so the fixture's reads the test's own input.
+   set has to read *something*, so the fixture's assertion reads the test's own input rather
+   than anything the module produces.
 
 ## 3. The typed-fixture provider spike, concluded
 
@@ -75,10 +76,12 @@ direction and `--answer` stays a repeatable per-identifier flag.
 
 Two costs the number carried with it, both flagged for the next review:
 
-- **Validation mining fired zero times across the whole corpus.** 605 of 609 resolved inputs
-  came from the module's own default and 4 from typed synthesis. The design's unquantified
-  caveat is confirmed. Mining stays — it costs little and it is the only rung that reads a
-  constraint as a *value* — but no product claim may rest on it.
+- **Validation mining fired zero times across the whole corpus, and it was reached exactly
+  four times.** 605 of 609 resolved inputs came from the module's own default, so the
+  preference order short-circuits before mining for all but four. Mining works — it returns
+  `"bronze"` for `contains(["bronze","silver","gold"], var.tier)` — and public modules simply
+  default almost everything. The design's unquantified caveat is confirmed twice over. Mining
+  stays; no product claim may rest on it.
 - **Refusing `moved` costs one corpus module in ten.** `terraform-aws-modules/eks` v20.8.5 is
   not characterisable at all. The refusal is the C4 disposition of record and is not reversed
   here, under standing rule 2. The reviewer's attention is drawn to the asymmetry: `import`
@@ -88,12 +91,18 @@ Two costs the number carried with it, both flagged for the next review:
 
 ## 5. Measurements this slice produced about its own behaviour
 
-- **The until-dry loop converges in one round on every fixture tried, with zero new pins.**
-  This is not the loop failing: the harvest already pins every value the M4 rendering
-  contract can express at the chosen rung, so there is nothing left for the
-  survivor-suggestion path to add at the same rung. The loop's value is in modules whose
-  scenarios leave a branch unpinned, and in survivor deltas expressible where the harvested
-  value was not. `TestUntilDryConvergesWithoutWritingAByte` proves the loop runs against the
+- **The until-dry loop converges in one round on every fixture tried, with zero new pins, and
+  the reason is structural rather than incidental.** One rendering contract bounds both ends
+  of the loop: the harvest pins through `suggest.Express`, and the survivor-suggestion path
+  generates through `suggest.Express`. A value the harvest could not express is a value the
+  suggestion engine cannot express either, so at a fixed rung there is nothing for a second
+  pass to add. Measured on a `null_resource` whose `triggers.env` survives every mutant: the
+  mutation loop diagnoses it `no-assertion` and names the fix, and both ends of the
+  characterisation loop refuse it for the same reason — a nested map value has no dotted
+  spelling the payload path can tell apart from an object attribute. The loop's remaining
+  value is in modules whose scenarios leave a branch unpinned, and in deltas whose
+  *comparison* is expressible where the harvested *value* was not, such as the
+  `length(x) == 0` form. `TestUntilDryConvergesWithoutWritingAByte` proves the loop runs against the
   staged overlay — over a module with *no test directory at all*, so a baseline would refuse
   for want of run blocks if discovery had not consumed the overlay — and that the source tree
   is byte-identical afterwards.
@@ -111,6 +120,7 @@ Two costs the number carried with it, both flagged for the next review:
 | `check` and `removed` reach both inventories, both syntaxes | eight cases in `constructs_test.go` |
 | `moved`/`import` refused in both readers | `TestAMovedBlockIsRefusedInHCL`, `TestAnImportBlockIsRefusedInHCL`, `TestAMovedBlockInJSONRetainsTheFloor` |
 | the effective staged suite is what the gates judge | `TestAnUntestedAliasedProviderModuleCharacterisesWithNoOptIn` |
+| the gates decided before any Terraform execution | `TestNoTerraformRunPrecedesAStagedGateRefusal` |
 | a mock per provider *configuration* | `TestAMissingAliasMockRefusesBeforeExecution` |
 | effects gate unchanged and unfooled | `checkStagedSafety`, exercised by the provisioner fixtures |
 | distinct `state_key` per scenario | `TestScenariosCarryDistinctStateKeys` |
@@ -118,15 +128,19 @@ Two costs the number carried with it, both flagged for the next review:
 | input synthesis in the preference order | `TestTodosListsTheOpenJudgementPointsWithTheirEvidence`, the corpus measurement |
 | TODO material is a non-executable artefact class | `TestAnUnsynthesizableInputBecomesANonExecutableArtefact` |
 | `todos`, `--answer`, `--resume`, promotion | `TestAnAnsweredTodoIsPromotedAndTheSuiteIsGreen`, `TestTheTodoSurfacesAreWiredInBothArgumentOrders` |
+| a refuted answer is rejected, not fatal | `TestARefutedAnswerIsRejectedRatherThanAnOperationalFailure` |
+| the mined rung fires when it is reached | `TestAMinedValidationResolvesAnInputWithNoDefault` |
 | double-run volatility exclusion | `skipped-volatile` in `TestTheConfiguredRungPinsOnlyWhatTheConfigurationDetermined` |
 | pinning through the M4 renderer and sensitivity machinery | `TestASensitiveValueReachesNoGeneratedArtefact` |
 | redaction from the first failed attempt onwards | `TestASecretInAFailedAttemptReachesNoArtefact` |
 | the zero-output contract, both halves | `TestAZeroOutputModuleEscalatesAndSaysSo`, `TestARungThatPinsNothingIsNeverComplete` |
-| the write protocol and the input-closure digest | `TestAWrittenSuiteIsGreenAndRegistered`, `TestASecondWriteIsRefusedAsACollision`, `TestForceReplacesOnlyUnmodifiedGeneratedFiles` |
-| shell and file contract; post-path flags refused by name | `TestCharacteriseIsWiredThroughTheCommandLine`, `TestCharacteriseRefusesArgumentsAfterTheModulePath`, `TestTodosRefusesArgumentsAfterTheModulePath` |
+| the write protocol and the input-closure digest | `TestAWrittenSuiteIsGreenAndRegistered`, `TestASecondWriteIsRefusedAsACollision`, `TestForceReplacesOnlyUnmodifiedGeneratedFiles`, `TestAClosureChangeAtTheProbeYieldsZeroWrites` |
+| shell and file contract; post-path flags refused by name | `TestCharacteriseIsWiredThroughTheCommandLine`, `TestCharacteriseRefusesArgumentsAfterTheModulePath`, `TestTodosRefusesArgumentsAfterTheModulePath`, `TestCurateRefusesArgumentsAfterTheModulePath` |
+| `curate` reachable through the command line | `TestCurateIsWiredThroughTheCommandLine` |
 | the staged suite; converges without `--write` | `TestUntilDryConvergesWithoutWritingAByte` |
 | `--until-dry` ladder-respecting | `TestUntilDryRespectsTheGranularityLadder` |
 | `curate` refuses partial populations at configuration time | `TestCurateRefusesAPartialPopulationAtConfigurationTime` |
+| `curate` refuses an unobserved population | `checkPopulationObserved`, exercised through the same case set |
 | eligibility by provenance; report-only | `TestCurateReportsAnEmptyKillSetWithItsEvidence`, `TestCurateWritesNothing` |
 | kill-set participation measured | `TestOneMutantFailingTwoAssertionsAttributesBoth` |
 | `expect_failures` scaffolds non-executable | `TestUnassertableConstructsBecomeNonExecutableScaffolds` |
@@ -142,22 +156,60 @@ Three places. None of them is hidden behind a passing test.
    in the non-executable artefact, and can never become test content — which satisfies
    "unverified always equals non-executable" in the safe direction. What is missing is the
    other half: there is no surface that *answers* a scaffold and verifies its
-   `expect_failures` behaviour before promoting it. A TODO can be answered and promoted; a
-   scaffold cannot. This is the largest gap in the slice.
+   `expect_failures` behaviour before promoting it. A TODO can be answered, refuted or
+   promoted; a scaffold can only be emitted. The consequence for report-2.3.0 is that
+   `ScaffoldPromoted` is a documented value nothing currently produces — declared because the
+   spec's vocabulary is closed and normative, unreachable because this half is unbuilt. This
+   is the largest gap in the slice.
 2. **Assertion provenance is decided at file granularity.** The registry records a file's
    content digest, so "generated-unmodified" is a claim about the file rather than about each
    assertion in it. Editing one assertion reclassifies the whole file as
    `generated-edited` — the conservative direction, since it makes more assertions eligible
    for a *report* and none eligible for a write that does not exist. A per-assertion registry
-   would need per-assertion digests written at generation time.
-3. **The staged run's verdict cache is scoped to the staging root.** The M2 disposition asks
-   for staged bytes to enter the cache identity so that no verdict is reused across changed
-   staged content. What is implemented satisfies the safety property by construction — the
-   cache is disabled for staged rounds, so nothing is ever reused — and forgoes the speed a
-   staged-bytes key dimension would have bought. The property the disposition protects holds;
-   the optimisation it implies does not exist.
+   would need per-assertion digests written at generation time, and is a prerequisite for any
+   future `curate --apply`.
+3. **The staged run's verdict cache is disabled rather than keyed on staged bytes.** The M2
+   disposition asks for staged bytes to enter the cache identity so that no verdict is reused
+   across changed staged content. Note where the staged bytes already are: a staged round
+   points the whole pipeline at the staging root, so the sources the cache key hashes *are*
+   the staged bytes, and a cache enabled there would be keyed correctly without further work.
+   It is disabled because its directory is discarded with the round, which satisfies the
+   safety property by construction — nothing is ever reused — and forgoes only the speed.
 
-## 8. Open questions for M5
+## 8. What the two-axis review changed
+
+The change was reviewed along both axes before it landed, and eight findings were repaired
+rather than argued with. Four are worth naming because each was a contract the tests as
+written could not have caught:
+
+- **The gates ran after `terraform init`.** `warmUp` preceded `checkStagedSafety`, so a
+  refusal cost a provider download and a schema read — and the acceptance pair asserted only
+  the error text, never that nothing had executed. The gate is now decided from discovery
+  alone, before the work root exists, and `TestNoTerraformRunPrecedesAStagedGateRefusal`
+  asserts the invocation log the way the JSON floor's own case does.
+- **The write protocol's source leg was frozen.** `InputClosureDigest` hashed the source map
+  discovery captured once, so the exact defect M1 names — "sources can change after harvest
+  while the output stays identical" — was undetectable. Module sources are now re-read from
+  disk at every probe, and `TestAClosureChangeAtTheProbeYieldsZeroWrites` stages the race.
+- **A refuted answer was an operational failure.** `TodoRejected` was declared and
+  unreachable: a wrong answer aborted with a red scaffold instead of coming back as an
+  attributed finding. That inverted the safety property `agent-integration.md` §2.4 rests on.
+  A refuted answer is now rejected with its diagnostic, the artefact is rewritten, and the
+  exit code says work is outstanding.
+- **`curate` accepted two partial populations it should have refused.** A tier selection
+  narrows the operator population and was unchecked, and a population with timeouts or
+  execution errors leaves mutants *unobserved* — which is exactly when an assertion looks
+  like it senses nothing. Both now refuse, the second reusing the gate table's
+  unobserved-versus-absent distinction rather than restating it.
+
+Also repaired: the never-write contract's exception count and the registry's absence from any
+document; a generated file's header recording Terraform's version where it claimed the tool's;
+`curate`'s missing command-level cases; four separate identifier derivations collapsed into
+`characterise.Identify`; and the middle rung of the preference order, which the corpus
+measurement showed fires rarely and which nothing exercised until
+`TestAMinedValidationResolvesAnInputWithNoDefault`.
+
+## 9. Open questions for M5
 
 - Does scaffold promotion belong to characterise at all, or to `suggest`, which already owns
   a verify-then-write protocol? The two write protocols are now adjacent and differ.

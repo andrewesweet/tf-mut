@@ -164,15 +164,26 @@ type MockDefaults struct {
 	Defaults map[string]string
 }
 
-// identify derives a stable, content-derived identifier.
-func identify(prefix string, parts ...string) string {
+// Identify derives every stable, content-derived identifier this tool emits:
+// scenarios, pins, TODOs, scaffolds, curate findings and assertions alike.
+//
+// One function rather than one per entity, because the parts are joined with a
+// separator no identifier component can contain, and two call sites that
+// derived "the same" identity by different arithmetic would silently stop
+// agreeing about what is the same thing.
+func Identify(prefix string, parts ...string) string {
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
 
 	return prefix + hex.EncodeToString(sum[:])[:identifierLength]
 }
 
-// variableRoot is the traversal root every module input is read through.
-const variableRoot = "var"
+// variableRoot is the traversal root every module input is read through, and
+// variableTraversalParts is the length of `var.<name>`: the whole traversal an
+// input reference is, and nothing more.
+const (
+	variableRoot           = "var"
+	variableTraversalParts = 2
+)
 
 const (
 	identifierLength = 12
@@ -188,6 +199,13 @@ func Digest(content []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// PinID is a hash over the scenario, the address and the expression: the
+// identity report-2.3.0 documents, derived in one place so the harvest and the
+// until-dry loop cannot disagree about it.
+func PinID(scenario, address, expression string) string {
+	return Identify("pin-", scenario, address, expression)
+}
+
 // scenarioID is a hash over the module, the input assignment set and the
 // state key: two scenarios with the same inputs in the same module are the
 // same scenario, whatever they are named.
@@ -199,12 +217,7 @@ func scenarioID(moduleRel string, inputs []report.Input, stateKey string) string
 		parts = append(parts, input.Name+"="+input.Expression)
 	}
 
-	return identify("scn-", parts...)
-}
-
-// pinID is a hash over the scenario, the address and the expression.
-func pinID(scenario, address, expression string) string {
-	return identify("pin-", scenario, address, expression)
+	return Identify("scn-", parts...)
 }
 
 // GeneratedHeader is the comment every generated file carries.

@@ -8,7 +8,6 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/convert"
-	"github.com/zclconf/go-cty/cty/function"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/report"
@@ -150,7 +149,7 @@ func bind(candidate string, variable discovery.Block) (*hcl.EvalContext, bool) {
 		Variables: map[string]cty.Value{
 			variableRoot: cty.ObjectVal(map[string]cty.Value{variable.Name: value}),
 		},
-		Functions: validationFunctions(),
+		Functions: validationFunctionTable,
 	}, true
 }
 
@@ -334,19 +333,9 @@ func mineEquality(operation *hclsyntax.BinaryOpExpr, name string) []string {
 
 // readsVariable reports whether an expression is exactly `var.<name>`.
 func readsVariable(expr hclsyntax.Expression, name string) bool {
-	traversal, ok := expr.(*hclsyntax.ScopeTraversalExpr)
-	if !ok || len(traversal.Traversal) != addressWithKind {
-		return false
-	}
+	read, ok := variableName(expr)
 
-	root, ok := traversal.Traversal[0].(hcl.TraverseRoot)
-	if !ok || root.Name != variableRoot {
-		return false
-	}
-
-	attribute, ok := traversal.Traversal[1].(hcl.TraverseAttr)
-
-	return ok && attribute.Name == name
+	return ok && read == name
 }
 
 // renderValue renders a cty value back into Terraform syntax.
@@ -489,9 +478,4 @@ func optionalAttribute(expr hclsyntax.Expression) bool {
 	call, ok := expr.(*hclsyntax.FunctionCallExpr)
 
 	return ok && call.Name == "optional"
-}
-
-// validationFunctions is the evaluator's function table.
-func validationFunctions() map[string]function.Function {
-	return validationFunctionTable
 }
