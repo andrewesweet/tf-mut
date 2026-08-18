@@ -221,9 +221,13 @@ func collectFile(module *Module, providers map[string]bool, path string, body *h
 			collectCheckBlock(module, providers, path, relative, block)
 		case removedBlock:
 			collectRemovedBlock(module, providers, path, block)
-		case movedBlock, importBlock:
+		case importBlock:
 			return unmodelledConstruct(block.Type, relative, block.DefRange().Start)
 		default:
+			// `moved` lands here with every other block this walker has
+			// nothing to collect from: it names two addresses, carries no
+			// provider, no effect and no evaluation, so there is nothing for
+			// an inventory to miss. See constructs.go.
 		}
 	}
 

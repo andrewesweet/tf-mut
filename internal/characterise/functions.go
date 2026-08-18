@@ -21,7 +21,7 @@ import (
 //nolint:gochecknoglobals // an immutable function table.
 var validationFunctionTable = map[string]function.Function{
 	"contains":   stdlib.ContainsFunc,
-	"length":     stdlib.LengthFunc,
+	"length":     lengthFunction,
 	"regex":      stdlib.RegexFunc,
 	"regexall":   stdlib.RegexAllFunc,
 	"lower":      stdlib.LowerFunc,
@@ -32,6 +32,31 @@ var validationFunctionTable = map[string]function.Function{
 	"alltrue":    allTrueFunction,
 	"anytrue":    anyTrueFunction,
 }
+
+// lengthFunction is Terraform's `length`, which is two functions in cty's
+// standard library and one in Terraform's.
+//
+// `length(var.x) > n` over a *string* is among the commonest validation
+// idioms there is, and cty's `LengthFunc` accepts only collections: wiring it
+// straight through left every such condition undecidable, so every variable
+// constrained that way became a judgement point nobody needed to answer. The
+// failure was silent in exactly the way a wrong function table always is —
+// nothing errored, the tool simply refused to synthesise values it could have.
+//
+//nolint:gochecknoglobals // an immutable function value.
+var lengthFunction = function.New(&function.Spec{ //nolint:exhaustruct // the unset fields are cty's own defaults.
+	Params: []function.Parameter{{
+		Name: "value", Type: cty.DynamicPseudoType, AllowDynamicType: true,
+	}},
+	Type: function.StaticReturnType(cty.Number),
+	Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
+		if args[0].Type() == cty.String {
+			return stdlib.Strlen(args[0])
+		}
+
+		return stdlib.Length(args[0])
+	},
+})
 
 // canFunction is `can`, whose Terraform semantics fall out of evaluation
 // order: an argument that errors — a `regex` that did not match, an index that

@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/zclconf/go-cty/cty"
+
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/report"
@@ -343,9 +345,13 @@ func keyPin(
 	keys []string,
 	seen map[string]bool,
 ) []report.Pin {
+	// Rendered through the same value machinery every other literal goes
+	// through. A key is arbitrary text — `for_each` over a map accepts a
+	// quote, a backslash and a `${` alike — and re-quoting it by concatenation
+	// produces HCL that either does not parse or interpolates.
 	rendered := make([]string, 0, len(keys))
 	for _, key := range keys {
-		rendered = append(rendered, `"`+key+`"`)
+		rendered = append(rendered, renderValue(cty.StringVal(key)))
 	}
 
 	expression := "keys(" + address + ") == [" + strings.Join(rendered, ", ") + "]"

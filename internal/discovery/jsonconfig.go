@@ -221,7 +221,12 @@ func collectJSONBlock(
 		return collectJSONCheck(module, providers, path, block)
 	case removedBlock:
 		return collectJSONRemoved(module, providers, path, block)
-	case movedBlock, importBlock:
+	case movedBlock:
+		// Accepted and collected into nothing: see constructs.go. The block is
+		// still listed in the schema, so the file is read and its floor lifts
+		// rather than standing in for a reading nobody made.
+		return nil
+	case importBlock:
 		return unmodelledConstruct(block.Type, path, block.DefRange.Start)
 	default:
 		// Every remaining block type contributes references and graph nodes

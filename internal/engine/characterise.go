@@ -335,11 +335,20 @@ func pinnedCount(pins []report.Pin) int {
 // where one was supplied, and into an operational failure where none was.
 //
 // The distinction is the whole safety property `agent-integration.md` §2.4
-// rests on: a value somebody supplied is a hypothesis the tool tests, so a
-// wrong one comes back as a reported, attributed finding with the diagnostic
+// rests on: a value somebody supplied is a hypothesis the tool tests, so one
+// that does not survive comes back as a reported finding with the diagnostic
 // attached and the artefact rewritten. A failure with no answer in play is a
 // defect in the generator, and reporting that as a finding about the module
 // would be the tool blaming its own bug on its user.
+//
+// `rejected` means *not proven*, and deliberately not *proven wrong*. The
+// suite is one program: a run that fails with an answer in play may have
+// failed for a reason that has nothing to do with the answer, and no
+// attribution short of re-running each answer alone could tell the two apart.
+// Rejecting is the safe direction either way — promotion is earned by a green
+// run and this run was not green — and the diagnostic travels verbatim so the
+// reader can see what actually failed rather than take the status's word for
+// it.
 func rejectAnswers(
 	block report.Characterisation,
 	scaffold characterise.Scaffold,
@@ -353,7 +362,9 @@ func rejectAnswers(
 		}
 
 		block.Todos[index].Status = report.TodoRejected
-		block.Todos[index].Diagnostic = failure.Error()
+		block.Todos[index].Diagnostic = "the suite did not pass with this answer in play, so " +
+			"it could not be promoted; the failure may or may not be attributable to it: " +
+			failure.Error()
 		rejected = true
 	}
 

@@ -446,7 +446,6 @@ func scaffoldFor(t *testing.T, block *report.Characterisation, address string) s
 // deletion of assertions the tool wrote and the registry still vouches for.
 func TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
 	module := copyFixture(t, untestedBranchesFixture)
 
@@ -492,7 +491,6 @@ func TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions(t *testing.T) {
 // nothing may be written. Remove that verification and this test fails.
 func TestTheFinalPinSetIsVerifiedBeforeAnyWrite(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
 	module := copyFixture(t, untestedBranchesFixture)
 
@@ -582,7 +580,6 @@ func TestAScaffoldAnswerCannotInjectConfiguration(t *testing.T) {
 // this tool's own output; a file that merely shares the name is somebody's.
 func TestAForeignRegistryIsNeverReplaced(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
 	module := copyFixture(t, untestedBranchesFixture)
 	registry := filepath.Join(module, engine.RegistryName)

@@ -105,7 +105,16 @@ widened without amending this section.
    exception 1's own reason: they are contracts about documents and types, and the real
    binary cannot be driven into each of the fifteen shapes on demand. Every adapter outcome
    is still asserted through the engine seam (`internal/engine/suggest_test.go`).
-5. The apply protocol's preflight refusals that no engine-seam test can stage — a digest
+5. `internal/characterise`'s validation-function table (`functions_test.go`) is exercised
+   directly, for exception 1's own reason: it is a contract about *expressions* — eleven
+   Terraform function semantics — and driving the real binary into producing each on demand
+   is not possible. It earns the exception because a wrong entry is **silent**: a function
+   implemented incorrectly does not fail, it accepts a value the module rejects or refuses one
+   the module accepts, and the only symptom is a judgement point nobody needed to answer. The
+   case that proved the point found `length()` over a string — among the commonest validation
+   idioms there is — treated as undecidable, because cty's `LengthFunc` accepts only
+   collections. Every verdict the table leads to is still asserted through the engine seam.
+6. The apply protocol's preflight refusals that no engine-seam test can stage — a digest
    that went stale between verification and write (a concurrent-editor race), a target
    outside the closure, a file whose bytes stopped parsing — are exercised directly over
    `preflight` (`internal/engine/apply_internal_test.go`). Within one invocation

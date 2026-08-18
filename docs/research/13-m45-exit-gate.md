@@ -19,10 +19,12 @@ here rather than in a commit message.
 
 The M4 gate's check-block floor case is retired: the check block's file is now *read*, so a
 name asserting that the floor stays down for it would be a lie.
-`TestAMovedBlockInJSONIsRefusedByName` takes its place in the M4 gate — the same construct class, and a **stronger** claim than the one it replaces. The
-old case asserted that unreadable JSON leaves the floor down; the new one asserts that a
-construct this version cannot model is refused outright, with *both* safety opt-ins granted,
-so no flag combination can turn it into permission. A floor can be lifted; this cannot.
+`TestAMovedBlockInJSONIsReadRatherThanRefused` takes its place in the M4 gate — the same construct class, and a claim about *reading* rather than about the
+floor: the block is in the schema, the file is read, and the construct contributes nothing
+because there is nothing in it to contribute. A floor standing in for a reading nobody made is
+the shape issue #70 was about, and the JSON half of that issue is closed by reading rather
+than by refusing. `TestAnImportBlockInJSONIsRefusedByName` holds the refusal for the construct
+that earns one.
 
 (An earlier draft of this document and of the pull request named
 `TestAMovedBlockInJSONRetainsTheFloor` here. No such test was ever written — the case was
@@ -97,12 +99,12 @@ Two costs the number carried with it, both flagged for the next review:
   `"bronze"` for `contains(["bronze","silver","gold"], var.tier)` — and public modules simply
   default almost everything. The design's unquantified caveat is confirmed twice over. Mining
   stays; no product claim may rest on it.
-- **Refusing `moved` costs one corpus module in ten.** `terraform-aws-modules/eks` v20.8.5 is
-  not characterisable at all. The refusal is the C4 disposition of record and is not reversed
-  here, under standing rule 2. The reviewer's attention is drawn to the asymmetry: `import`
-  names a provider configuration and reads a real resource at plan time, which is the R2-10
-  fail-open shape, while `moved` is state bookkeeping with no provider, no effect and no
-  evaluation. The two were disposed of as one construct.
+- **Refusing `moved` cost one corpus module in ten — and the cost was larger than that
+  sentence says.** `terraform-aws-modules/eks` v20.8.5 declares `moved` blocks, and the
+  refusal lives in `parseModule`, which every command shares: the module was not merely
+  uncharacterisable, *no `tf-mut` command ran on it at all*, with no opt-in to proceed and no
+  such regression in M1–M4. The fourth adversarial review blocked on this and it is now
+  repaired: `moved` is read and contributes nothing, `import` keeps the refusal. See §12.
 
 ## 5. Measurements this slice produced about its own behaviour
 
@@ -133,7 +135,8 @@ Two costs the number carried with it, both flagged for the next review:
 | Normative behaviour (issue #71) | Proved by |
 | --- | --- |
 | `check` and `removed` reach both inventories, both syntaxes | eight cases in `constructs_test.go` |
-| `moved`/`import` refused in both readers, no opt-in overriding it | `TestAMovedBlockIsRefusedInHCL`, `TestAnImportBlockIsRefusedInHCL`, `TestAMovedBlockInJSONIsRefusedByName`, `TestAnImportBlockInJSONIsRefusedByName` |
+| `import` refused in both readers, no opt-in overriding it | `TestAnImportBlockIsRefusedInHCL`, `TestAnImportBlockInJSONIsRefusedByName` |
+| `moved` read rather than refused, in both readers | `TestAMovedBlockRunsLikeAnyOtherModule`, `TestAMovedBlockInJSONIsReadRatherThanRefused` |
 | the effective staged suite is what the gates judge | `TestAnUntestedAliasedProviderModuleCharacterisesWithNoOptIn` |
 | the gates decided before any Terraform execution | `TestNoTerraformRunPrecedesAStagedGateRefusal` |
 | a mock per provider *configuration* | `TestAMissingAliasMockRefusesBeforeExecution` |

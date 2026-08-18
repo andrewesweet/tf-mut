@@ -41,15 +41,20 @@ should be pinned, make the tool observe it.
    every iteration.
 3. **Answer them.** Read the constraint and produce a value that conforms.
    Either edit the `TFMUT_TODO` placeholder in the non-executable artefact and
-   run `tf-mut characterise --resume --write <module>`, or pass
+   run `tf-mut characterise --resume <module>`, or pass
    `--answer todo-<id>=<value>` for a scripted run. The tool re-plans your
-   answer and promotes it only once the suite it produces is green.
+   answer and promotes it only once the suite it produces is green. Do not
+   write yet: the suite is written once, at step 5, and a second write of the
+   same target is refused as a collision.
 4. **Close the gap.** `tf-mut characterise --until-dry --reporter json
    <module>` grades the scaffold and pins whatever its survivors still yield,
    at the granularity you chose and no higher. Read the convergence evidence:
    rounds, new pins per round, stop reason.
 5. **Write it.** `tf-mut characterise --write <module>` places the verified
-   suite. The suite is proven green in a sandbox before a byte is written.
+   suite — adding `--resume` if you answered a judgement point by editing the
+   artefact, so the answer travels with it. The suite is proven green in a
+   sandbox before a byte is written, and `--write` is the only step that
+   writes: everything before it changes nothing on disk.
 6. **Review the redundancy.** `tf-mut curate --reporter json <module>` reports
    assertions whose evidence says they sense nothing new. Read every finding
    against intent before acting on it; curate never deletes anything, and you

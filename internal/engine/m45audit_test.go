@@ -14,7 +14,7 @@ import (
 const m45GateRecipe = "gate-m45:"
 
 // minimumM45GateCases guards against a recipe edit that empties the gate.
-const minimumM45GateCases = 60
+const minimumM45GateCases = 62
 
 func TestTheM45GateNamesOnlyTestsThatExist(t *testing.T) {
 	t.Parallel()
@@ -49,7 +49,7 @@ func TestTheM45GateCoversEveryNamedRequirement(t *testing.T) {
 		"#70: JSON check-scoped provider":            "TestACheckScopedDataSourceInJSONReachesTheProviderInventory",
 		"#70: JSON removed effect":                   "TestARemovedBlockInJSONReachesTheEffectInventory",
 		"#70: JSON removed provider":                 "TestARemovedBlockInJSONReachesTheProviderInventory",
-		"moved is refused by name":                   "TestAMovedBlockIsRefusedInHCL",
+		"moved runs like any other module":           "TestAMovedBlockRunsLikeAnyOtherModule",
 		"import is refused by name":                  "TestAnImportBlockIsRefusedInHCL",
 		"the aliased-provider acceptance pair, a":    "TestAnUntestedAliasedProviderModuleCharacterisesWithNoOptIn",
 		"the aliased-provider acceptance pair, b":    "TestAMissingAliasMockRefusesBeforeExecution",
@@ -102,6 +102,7 @@ func TestTheM45GateCoversEveryNamedRequirement(t *testing.T) {
 		"a registry failure reports partial state":   "TestARegistryFailureReportsThePartialState",
 		"the rename window itself is checked":        "TestAClosureChangeInsideTheRenameWindowIsCaught",
 		"configuration_aliases are mocked and gated": "TestConfigurationAliasesAreMockedAndGated",
+		"the validation function table":              "TestTheValidationFunctionTable",
 	}
 
 	assertGateCovers(t, "M4.5", m45GatedTests(t), required)

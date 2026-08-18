@@ -727,7 +727,19 @@ func runTranscriptCommand(t *testing.T, command []string, module string) {
 		t.Fatalf("the installed walkthrough's %q exited %d: %s",
 			strings.Join(command, " "), code, stderr.String())
 	}
+
+	// A walkthrough every step of which reports *incomplete* is a walkthrough
+	// that parses and runs, not one that converges — and the loop's whole
+	// claim is that it converges. The write step is where the claim lands, so
+	// it is the step that has to come back clean.
+	if strings.Contains(strings.Join(command, " "), writeFlag) && code != report.ExitClean {
+		t.Fatalf("the installed walkthrough's %q exited %d: the loop it teaches does not "+
+			"converge on this module: %s", strings.Join(command, " "), code, stderr.String())
+	}
 }
+
+// writeFlag is the transcript step that has to succeed outright.
+const writeFlag = "--write"
 
 // substituteModule points a transcript line at the fixture.
 //

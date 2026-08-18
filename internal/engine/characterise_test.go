@@ -119,9 +119,8 @@ func TestAMissingAliasMockRefusesBeforeExecution(t *testing.T) {
 // module directory is byte-identical afterwards.
 func TestTheDefaultCharacterisationWritesNothing(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
-	module := copyFixture(t, untestedAliasesFixture)
+	module := copyFixture(t, untestedBranchesFixture)
 	before := treeDigest(t, module)
 
 	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
@@ -143,9 +142,8 @@ func TestTheDefaultCharacterisationWritesNothing(t *testing.T) {
 // records it, and the suite it wrote passes as an ordinary mutation baseline.
 func TestAWrittenSuiteIsGreenAndRegistered(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
-	module := copyFixture(t, untestedAliasesFixture)
+	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
@@ -160,7 +158,7 @@ func TestAWrittenSuiteIsGreenAndRegistered(t *testing.T) {
 		t.Fatalf("the generated suite is not at the documented path: %v", statErr)
 	}
 
-	if result.Characterisation.Write == nil || len(result.Characterisation.Write.Written) != 1 {
+	if result.Characterisation.Write == nil || len(result.Characterisation.Write.Written) == 0 {
 		t.Fatalf("the report does not record the write: %+v", result.Characterisation.Write)
 	}
 
@@ -184,9 +182,8 @@ func TestAWrittenSuiteIsGreenAndRegistered(t *testing.T) {
 // target path set.
 func TestASecondWriteIsRefusedAsACollision(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
-	module := copyFixture(t, untestedAliasesFixture)
+	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
@@ -210,9 +207,8 @@ func TestASecondWriteIsRefusedAsACollision(t *testing.T) {
 // touched, and nothing else.
 func TestForceReplacesOnlyUnmodifiedGeneratedFiles(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
-	module := copyFixture(t, untestedAliasesFixture)
+	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
@@ -246,9 +242,8 @@ func TestForceReplacesOnlyUnmodifiedGeneratedFiles(t *testing.T) {
 // pin a create.
 func TestScenariosCarryDistinctStateKeys(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
-	module := copyFixture(t, untestedAliasesFixture)
+	module := copyFixture(t, untestedBranchesFixture)
 
 	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
 	if err != nil {
@@ -588,9 +583,8 @@ func TestScenarioPinsAreInvariantUnderFileOrder(t *testing.T) {
 // rather than a file that was green for a module which no longer exists.
 func TestAClosureChangeAtTheProbeYieldsZeroWrites(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
-	module := copyFixture(t, untestedAliasesFixture)
+	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
@@ -646,9 +640,8 @@ func TestNoTerraformRunPrecedesAStagedGateRefusal(t *testing.T) {
 // recomputed at the probe, not replayed from what discovery found.
 func TestANewClosureFileAtTheProbeYieldsZeroWrites(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
-	module := copyFixture(t, untestedAliasesFixture)
+	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
@@ -755,7 +748,6 @@ func TestConfigurationAliasesAreMockedAndGated(t *testing.T) {
 // record of what changed it.
 func TestARegistryFailureReportsThePartialState(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
 	module := copyFixture(t, untestedBranchesFixture)
 
@@ -790,9 +782,8 @@ func TestARegistryFailureReportsThePartialState(t *testing.T) {
 // inside that window; a protocol that only checked before it would write.
 func TestAClosureChangeInsideTheRenameWindowIsCaught(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
-	module := copyFixture(t, untestedAliasesFixture)
+	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true

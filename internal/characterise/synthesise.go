@@ -63,10 +63,18 @@ func Synthesise(variable discovery.Block, sources map[string][]byte, answer stri
 		return accept(result, answer, variable, sources)
 	}
 
-	if _, declared := attributeOf(variable, "default"); declared {
-		result.Provenance = report.FromDefault
+	// A declared default is a *candidate*, not an exemption. The standard
+	// required-with-a-message idiom is `default = null` beside a validation
+	// that rejects null, and taking the default on trust there produces a
+	// scenario Terraform refuses at plan time and a report that blames the
+	// generator for it. If the module's own constraints reject its own
+	// default, the preference order carries on to the rungs below.
+	if attribute, declared := attributeOf(variable, "default"); declared {
+		if satisfiesOwnConstraints(variable, attribute) {
+			result.Provenance = report.FromDefault
 
-		return result
+			return result
+		}
 	}
 
 	for _, candidate := range mined(variable) {
@@ -151,6 +159,35 @@ func bind(candidate string, variable discovery.Block) (*hcl.EvalContext, bool) {
 		},
 		Functions: validationFunctionTable,
 	}, true
+}
+
+// satisfiesOwnConstraints reports whether a variable's declared default gets
+// past the variable's own validations.
+//
+// Undecidable is treated as satisfied, which is the direction that matters
+// here: a default is the module author's statement about the value, not the
+// tool's guess, so only a validation this evaluator can decide *and* which
+// says no is grounds for going past it.
+func satisfiesOwnConstraints(variable discovery.Block, attribute discovery.Attribute) bool {
+	value, diagnostics := attribute.Expr.Value(nil)
+	if diagnostics.HasErrors() || !value.IsKnown() {
+		return true
+	}
+
+	context := &hcl.EvalContext{
+		Variables: map[string]cty.Value{
+			variableRoot: cty.ObjectVal(map[string]cty.Value{variable.Name: value}),
+		},
+		Functions: validationFunctionTable,
+	}
+
+	for _, validation := range variable.Validations {
+		if holds, decidable := evaluate(validation, context); decidable && !holds {
+			return false
+		}
+	}
+
+	return true
 }
 
 // check evaluates a candidate against every validation the variable declares.
