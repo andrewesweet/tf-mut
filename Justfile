@@ -171,6 +171,13 @@ test-integration:
     mise exec -- gotestsum --format testname --raw-command -- \
       go test ./... -json -count=1 -tags=integration
 
+# Measure the synthesis rate over the pinned public-module corpus (M4.5-0).
+measure-synthesis:
+    test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
+    mkdir -p "{{ artifact_dir }}/measurement"
+    mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
+      -run '^TestTheSynthesisRateOverThePinnedCorpus$'
+
 # Run opt-in realistically sized performance benchmarks.
 test-performance:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"

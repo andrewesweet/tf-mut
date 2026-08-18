@@ -1,0 +1,65 @@
+{
+  "description": "The pinned public-module corpus of the M4.5 synthesis-rate measurement. Each entry names a GitHub source archive by tag and its SHA-256, so the measurement is reproducible and cannot silently drift onto a later release of the same module.",
+  "modules": [
+    {
+      "name": "terraform-aws-vpc",
+      "repository": "terraform-aws-modules/terraform-aws-vpc",
+      "tag": "v5.13.0",
+      "sha256": "3312ce64823c15efc9720b55da0d49f8e31f1365f215db50e21e5665c0ed841a"
+    },
+    {
+      "name": "terraform-aws-s3-bucket",
+      "repository": "terraform-aws-modules/terraform-aws-s3-bucket",
+      "tag": "v4.1.2",
+      "sha256": "1330d4d7f9db4f390ce677501334a396f102106b329935109a2a3f1c9ea2e6cd"
+    },
+    {
+      "name": "terraform-aws-security-group",
+      "repository": "terraform-aws-modules/terraform-aws-security-group",
+      "tag": "v5.1.2",
+      "sha256": "5bf87e6f1a5a44f5dc439a540576865e8efd0aea006326d83b1088e860a4a510"
+    },
+    {
+      "name": "terraform-aws-rds",
+      "repository": "terraform-aws-modules/terraform-aws-rds",
+      "tag": "v6.7.0",
+      "sha256": "aa400e3a01dfd308020445b9bcf7b7a4cf3065d5512a9b4211d87d1a7620363e"
+    },
+    {
+      "name": "terraform-aws-lambda",
+      "repository": "terraform-aws-modules/terraform-aws-lambda",
+      "tag": "v7.7.0",
+      "sha256": "3b75f4341e85a6a86b48129bf3ea0f11dd3027248b9678225b0127e505052628"
+    },
+    {
+      "name": "terraform-aws-eks",
+      "repository": "terraform-aws-modules/terraform-aws-eks",
+      "tag": "v20.8.5",
+      "sha256": "80a927441e7ffa161a8a2f8f9811156a01ad7b914b0ad74845bf3c5b11b56ec2"
+    },
+    {
+      "name": "terraform-aws-iam",
+      "repository": "terraform-aws-modules/terraform-aws-iam",
+      "tag": "v5.39.0",
+      "sha256": "d10f0b5fbed65394457e2b98387655b9e429ee4914299e7d1d9c0138f2b13a7f"
+    },
+    {
+      "name": "terraform-google-network",
+      "repository": "terraform-google-modules/terraform-google-network",
+      "tag": "v9.1.0",
+      "sha256": "09e569cf332f7173f47dae1a87c8b8d24b63f11c7b65d3485f27ac09b78dd566"
+    },
+    {
+      "name": "terraform-azurerm-naming",
+      "repository": "Azure/terraform-azurerm-naming",
+      "tag": "0.4.1",
+      "sha256": "028cd1501330cf795e9a914aedec1d576c718fb08061a0fd445f843b1ef18938"
+    },
+    {
+      "name": "terraform-null-label",
+      "repository": "cloudposse/terraform-null-label",
+      "tag": "0.25.0",
+      "sha256": "7d9944b52fedec3c82ae59e2cf36ddba8f5ea4ec95e70f99f4d18ec741d608dc"
+    }
+  ]
+}
