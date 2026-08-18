@@ -212,6 +212,14 @@ So: **M4.5 — `tf-mut characterise` (scaffold + pin + until-dry loop), `tf-mut 
 (minimality report)**. The incremental cost over M4 is input synthesis (§3.2) and the
 granularity ladder — the rest is sequencing existing parts.
 
+**Shipped.** Two claims in this document were measured during implementation and the
+measurements outrank the prose above. The minable-validation share is not merely
+unquantified: over the pinned public-module corpus, validation mining fired **zero** times,
+and 605 of 609 resolved inputs came from the module's own declared default
+(`docs/research/12-m45-synthesis-rate.md`). And the `configured` rung generates no
+schema-typed *collection* pin at all — the M4 rendering contract refuses them — so the ladder
+documents four measured skip classes instead (`docs/research/13-m45-exit-gate.md` §3).
+
 M4.5 also owns the work the M4 spec review's C4 relocated here:
 `StructurallyUnassertable` **skeleton generation**, which was removed from M4 because it
 has no proven delta and is unverifiable by construction. It is sequenced **behind the

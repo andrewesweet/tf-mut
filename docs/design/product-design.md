@@ -786,17 +786,21 @@ explanation quality, which changes no verdict.
 it depends on plan-diff analysis that M2 has to build anyway, and it is worth doing well rather
 than early.
 
-**M4.5 — Characterisation mode.** `tf-mut characterise` scaffolds a fully-mocked unit suite
-for an untested legacy module — mock blocks from provider schemas, inputs mined from variable
-validations, assertions pinned from harvested plan/state — then uses the mutation loop as the
-completeness oracle and kill-set analysis as the minimality oracle (`tf-mut curate`). Entirely
-deterministic; no LLM. Design: `characterisation.md`. Sequenced after M4 because it is M2 and
-M4 machinery pointed in the opposite direction: generation instead of grading.
+**M4.5 — Characterisation mode.** *Shipped.* `tf-mut characterise` scaffolds a fully-mocked
+unit suite for an untested legacy module — mock blocks from provider schemas, inputs resolved
+through the defaults → mined-validation → typed-synthesis preference order, assertions pinned
+from harvested state — then uses the mutation loop as the completeness oracle (`--until-dry`)
+and kill-set analysis as the minimality oracle (`tf-mut curate`). Entirely deterministic; no
+LLM. Design: `characterisation.md`. What implementing it measured, decided and left narrower
+than specified is in `docs/research/13-m45-exit-gate.md`; the corpus measurement that gated it
+is in `docs/research/12-m45-synthesis-rate.md`.
 
-**End-of-MVP gate — agent skills.** Two shipped skills plus `tf-mut skill install`: the
-mutation-loop skill lands with M4 (it needs `suggest` to be teachable), the characterisation
+**End-of-MVP gate — agent skills.** *Shipped.* Two skills plus `tf-mut skill install`: the
+mutation-loop skill landed with M4 (it needs `suggest` to be teachable), the characterisation
 skill with M4.5. MVP is not complete until a coding agent can drive both loops end-to-end from
-the shipped skills alone. Design: `agent-integration.md`. Post-MVP: empirical evaluation and
+the shipped skills alone, and the gate that decides it is falsifiable: both skills embed a
+machine-executable transcript the gate runner extracts from the *installed* file, and a seeded
+wrong flag in the skill text turns it red. Design: `agent-integration.md`. Post-MVP: empirical evaluation and
 optimisation of the skills themselves on a public legacy-module corpus.
 
 **M5 — Breadth.** Domain packs seeded from Checkov/tfsec rule catalogues, OpenTofu parity,

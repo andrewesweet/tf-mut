@@ -1,7 +1,7 @@
 # tf-mut — agent instructions
 
 Mutation testing and characterisation-test scaffolding for `terraform test`, optimised for
-fully-mocked unit tests. Milestones M1–M4 are implemented: `tf-mut run` and `tf-mut
+fully-mocked unit tests. Milestones M1–M4.5 are implemented: `tf-mut run` and `tf-mut
 preview` drive Tiers 0–3 end to end against real Terraform, every survivor carries one
 diagnosis from the fingerprint oracle, the attribute-level reference graph sharpens the
 oracle behind fail-closed adapters, `--since`, the verdict cache and the baseline gate table
@@ -10,8 +10,14 @@ mutation-testing-elements, HTML, JUnit, markdown) derive from one report value. 
 JSON safety floor and the discover-only JSON slice (`.tf.json`/`.tftest.json` feed the
 inventories and the graph, never the mutation surface), `tf-mut suggest` — verified
 suggested assertions behind three fail-closed adapters, applied under a snapshot-bound
-protocol — and `tf-mut skill install`. Later milestones are still specified in GitHub
-issues labelled `ready-for-agent`.
+protocol — and `tf-mut skill install`. M4.5 adds the generation direction: `tf-mut
+characterise` scaffolds, harvests, pins and verifies a first suite for a module that has
+none, with the safety gates judged against the effective staged suite; `tf-mut todos`,
+`--answer` and `--resume` drain the judgement points it refuses to guess at, through a
+non-executable artefact class that `terraform test` never reads; `--until-dry` closes the
+gap over a staged overlay that writes nothing; and `tf-mut curate` reports redundancy from
+authoritative populations only. Later milestones are still specified in GitHub issues
+labelled `ready-for-agent`.
 
 ## Reading order
 
@@ -21,7 +27,10 @@ issues labelled `ready-for-agent`.
 4. `docs/reviews/` — **all adversarial reviews and their dispositions. Read before changing
    any design decision**: many decisions exist specifically because a review refuted the
    obvious alternative, with experiments
-4a. `docs/reviews/2026-08-16-m2-implementation-review.md` and
+4a. `docs/research/12-m45-synthesis-rate.md` — the measurement that gated M4.5b, its
+   decision rule and the two costs it surfaced. `docs/research/13-m45-exit-gate.md` — what
+   implementing M4.5 measured, decided and deferred
+4b. `docs/reviews/2026-08-16-m2-implementation-review.md` and
    `docs/research/08-m2-exit-gate.md` — what implementing M2 measured, decided and deferred,
    the contract sweep from every normative behaviour to its test, and the reproduction map.
    **Read both before writing the next milestone spec**: they carry the measurements that
@@ -134,15 +143,18 @@ this repository contract.
 | `internal/mutation` | The operator catalogue and its applicability matrix. Tier 0 is applied through `hclwrite`; Tiers 1–3 rewrite byte ranges, so a mutant differs from the original only in the tokens its operator owns. Content-derived identifiers; deduplication; diffs |
 | `internal/fingerprint` | The oracle's arithmetic: canonical payload projection, the volatile mask, the masked delta. Decides what two runs can honestly be said to have in common, and never a verdict |
 | `internal/suggest` | The suggestion engine: the address, rendering and sensitivity adapters, the run-block patch writer, and the stable suggestion identity |
+| `internal/characterise` | The generation direction: the scaffold planner, the mock and scenario renderer, the input-synthesis preference pipeline with its static validation evaluator, the granularity ladder and the pinning stage. Pins go through `internal/suggest`'s adapters unchanged, so a value that is unrenderable for one is unrenderable for both |
 | `internal/skill` | The shipped agent skills and the `skill install` write protocol |
 | `internal/config` | `.tf-mut.hcl` and the inline suppression directives |
 | `internal/sandbox` | Closure-rooted materialisation, provider and remote-module sharing, fresh-inode writes |
 | `internal/tfexec` | The Terraform CLI: `version`, `init`, `validate`, `providers schema`, `fmt`, and the `test -json` stream |
 | `internal/report` | The report value, its state, diagnosis and metric definitions, and the terminal, JSON and SARIF renderings |
 
-The JSON reporter's contract is published at `docs/schema/report-2.2.0.json` and validated in
-the suite; `report-2.1.0.json`, `report-2.0.0.json` and `report-1.0.0.json` remain published
-for earlier consumers. Changing a field's name or meaning means a new schema version and a new file.
+The JSON reporter's contract is published at `docs/schema/report-2.3.0.json` and validated in
+the suite; `report-2.2.0.json`, `report-2.1.0.json`, `report-2.0.0.json` and
+`report-1.0.0.json` remain published for earlier consumers. The characterisation block's
+status vocabularies are closed: extending one is a minor schema version with the consumer
+contract documented, not a silently additive change. Changing a field's name or meaning means a new schema version and a new file.
 SARIF output is validated against the vendored `docs/schema/sarif-2.1.0.json`; the
 mutation-testing-elements adapter against the vendored
 `docs/schema/mutation-testing-report-2.0.0.json` (declared lossy — tf-mut's metrics are the
@@ -166,8 +178,11 @@ decompose, makes the comparison indeterminate rather than identical.
 `just gate` runs the M2a honesty gate — the reproductions the oracle has to survive —
 `just gate-m3` runs the M3 offline gates: graph soundness, the count levers and the gate
 table, and `just gate-m4` runs the M4 offline gates: the JSON safety floor, the
-suggestion-soundness gate, the apply protocol and the skill contract — each audited by name
-exactly as the honesty gate is. All are separate recipes from `just test` on purpose:
+suggestion-soundness gate, the apply protocol and the skill contract, and `just gate-m45`
+runs the M4.5 offline gates: the #70 collectors in both syntaxes, the scaffold-soundness
+gate, the TODO protocol, the until-dry loop, curate's population posture and the
+end-of-MVP walkthrough — each audited by name exactly as the honesty gate is.
+`just measure-synthesis` is the M4.5-0 corpus measurement, network-gated and separate. All are separate recipes from `just test` on purpose:
 operator and interface breadth must not be able to hide a failed oracle behind a large green
 checklist. Per gate, two tests keep the recipe honest by checking that every name in it
 resolves to a test that exists, and that every reproduction the spec requires is still

@@ -2,13 +2,18 @@
 
 Mutation testing for `terraform test`, designed for fully-mocked unit tests.
 
-> **Status: M2 complete — the honesty milestone.** `tf-mut run` and `tf-mut preview` drive
-> Tiers 0–3 against real Terraform, and every surviving mutant carries exactly one diagnosis:
-> whether the fix is an assertion, a mock default, a different input, or acceptance. The
-> fingerprint oracle behind that answer refuses the comfortable one — an unknown value anywhere
-> in the payload, or volatility it could not decompose, makes the comparison indeterminate
-> rather than identical. Configuration, reasoned suppression and SARIF ship with it. Suggested
-> assertions, the incremental speed levers and characterisation mode are later milestones.
+> **Status: M4.5 complete — the MVP scope.** `tf-mut run` and `tf-mut preview` drive Tiers 0–3
+> against real Terraform, and every surviving mutant carries exactly one diagnosis: whether the
+> fix is an assertion, a mock default, a different input, or acceptance. The fingerprint oracle
+> behind that answer refuses the comfortable one — an unknown value anywhere in the payload, or
+> volatility it could not decompose, makes the comparison indeterminate rather than identical.
+> `tf-mut suggest` generates and *verifies* the assertions that kill the survivors, and
+> `tf-mut characterise` points the same machinery the other way: it scaffolds, harvests, pins
+> and verifies a first suite for a module that has none, deterministically and with no language
+> model anywhere. `tf-mut todos` surfaces the judgement points it refuses to guess at,
+> `--until-dry` closes the measured gap, and `tf-mut curate` reports redundancy from
+> authoritative populations only. Both loops are drivable end to end from the shipped agent
+> skills.
 
 ## Bootstrap and build
 
