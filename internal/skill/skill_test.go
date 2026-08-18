@@ -21,18 +21,31 @@ const testVersion = "v9.9.9-test"
 func install(t *testing.T, root, agent, version string, force bool) skill.Result {
 	t.Helper()
 
-	result, err := skill.Install(root, agent, version, force)
+	results := installAll(t, root, agent, version, force)
+
+	return results[0]
+}
+
+// installAll returns every shipped skill's result, in install order.
+func installAll(t *testing.T, root, agent, version string, force bool) []skill.Result {
+	t.Helper()
+
+	results, err := skill.Install(root, agent, version, force)
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
 
-	return result
+	if len(results) != len(skill.Names()) {
+		t.Fatalf("installed %d skills, want %d", len(results), len(skill.Names()))
+	}
+
+	return results
 }
 
 func installedPath(t *testing.T, root, agent string) string {
 	t.Helper()
 
-	relative, err := skill.TargetPath(agent)
+	relative, err := skill.TargetPath(agent, skill.NameMutation)
 	if err != nil {
 		t.Fatalf("target path: %v", err)
 	}
@@ -182,7 +195,7 @@ func TestTheContentCarriesTheContractedRules(t *testing.T) {
 
 	// Markdown wraps at the column limit, so the verbatim quotes are checked
 	// over whitespace-normalised text.
-	content := strings.Join(strings.Fields(skill.Content()), " ")
+	content := strings.Join(strings.Fields(skill.Content(skill.NameMutation)), " ")
 
 	// The agent-integration contract, quoted verbatim by issue #65.
 	if !strings.Contains(content,
@@ -210,7 +223,7 @@ func TestTheContentCarriesTheContractedRules(t *testing.T) {
 func TestTheSkillFlagsAreWellFormed(t *testing.T) {
 	t.Parallel()
 
-	flags := regexp.MustCompile(`--[a-z][a-z-]*`).FindAllString(skill.Content(), -1)
+	flags := regexp.MustCompile(`--[a-z][a-z-]*`).FindAllString(skill.Content(skill.NameMutation), -1)
 	if len(flags) == 0 {
 		t.Fatal("the skill teaches no flags at all, which cannot be the loop")
 	}

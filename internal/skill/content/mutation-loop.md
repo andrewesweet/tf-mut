@@ -88,3 +88,15 @@ stay accepted and new ones fail the build.
 Never pass `--allow-real-infrastructure` or `--allow-unsandboxed-effects` on
 your own judgement: both gates refuse real risk and only the module's owner
 accepts it. If a run is refused, report the refusal verbatim.
+
+## Walkthrough
+
+The blocks below are executed in order, exactly as written, by this
+repository's end-of-MVP gate against a fixture module that already carries a
+suite. If you change a flag here and the gate stays green, the gate is not
+reading these instructions.
+
+```tf-mut-transcript
+run --no-cache --reporter json .
+suggest --dry-run --no-cache --reporter json .
+```

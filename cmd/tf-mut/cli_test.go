@@ -238,7 +238,7 @@ func writeFile(t *testing.T, path, content string) {
 func TestTheInstalledSkillReferencesOnlyCommandsAndFlagsTheBinaryHas(t *testing.T) {
 	t.Parallel()
 
-	content := skill.Content()
+	content := skill.Content(skill.NameMutation) + skill.Content(skill.NameCharacterise)
 
 	for _, flagName := range regexp.MustCompile(`--[a-z][a-z-]*`).FindAllString(content, -1) {
 		if !strings.Contains(usage, flagName) {
@@ -609,4 +609,173 @@ func TestTodosRefusesArgumentsAfterTheModulePath(t *testing.T) {
 			t.Fatalf("the refusal does not carry %q: %s", expected, stderr.String())
 		}
 	}
+}
+
+// transcriptFence marks the fenced blocks the end-of-MVP gate executes.
+const transcriptFence = "```tf-mut-transcript"
+
+// TestTheInstalledSkillsWalkthroughExecutes is the end-of-MVP gate, made
+// falsifiable (M4.5 spec review, M9).
+//
+// The commands are extracted from the *installed* file rather than from a
+// script kept beside it, and executed in order against a fixture module. A
+// hidden duplicate would prove the binary; reading the installed instructions
+// is the only way to prove the instructions.
+func TestTheInstalledSkillsWalkthroughExecutes(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if _, err := skill.Install(root, skill.AgentGeneric, "test", false); err != nil {
+		t.Fatalf("skill install: %v", err)
+	}
+
+	module := walkthroughFixture(t)
+
+	// The two loops in the order the MVP claim makes: the characterisation
+	// loop produces the suite, and the mutation loop grades the suite it
+	// produced. Both are driven from the installed files alone.
+	for _, name := range skillOrder() {
+		commands := transcriptOf(t, installedSkill(t, root, name))
+		if len(commands) == 0 {
+			t.Fatalf("the installed %s skill embeds no executable transcript", name)
+		}
+
+		for _, command := range commands {
+			runTranscriptCommand(t, command, module)
+		}
+	}
+}
+
+// TestASeededWrongFlagInTheSkillTurnsTheGateRed proves the oracle reads the
+// instructions: a flag this binary does not have, seeded into the installed
+// text, must make the walkthrough fail.
+func TestASeededWrongFlagInTheSkillTurnsTheGateRed(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if _, err := skill.Install(root, skill.AgentGeneric, "test", false); err != nil {
+		t.Fatalf("skill install: %v", err)
+	}
+
+	installed := installedSkill(t, root, skill.NameCharacterise)
+	seedWrongFlag(t, installed)
+
+	module := walkthroughFixture(t)
+	failed := false
+
+	for _, command := range transcriptOf(t, installed) {
+		stderr := bytes.Buffer{}
+		if run(append(command, module), "test", &bytes.Buffer{}, &stderr) == report.ExitOperational {
+			failed = true
+		}
+	}
+
+	if !failed {
+		t.Fatal("a seeded wrong flag left the walkthrough green, so the gate is not " +
+			"reading the installed instructions")
+	}
+}
+
+// skillOrder is the order the walkthrough drives the two loops in: the
+// characterisation loop writes the suite, and the mutation loop grades it.
+func skillOrder() []skill.Name {
+	return []skill.Name{skill.NameCharacterise, skill.NameMutation}
+}
+
+// runTranscriptCommand executes one transcript line against the fixture.
+func runTranscriptCommand(t *testing.T, command []string, module string) {
+	t.Helper()
+
+	stdout := bytes.Buffer{}
+	stderr := bytes.Buffer{}
+
+	// The transcript writes the module path as `.`; the fixture lives
+	// elsewhere, so the last argument is replaced rather than the working
+	// directory changed, which would not be safe under a parallel suite.
+	arguments := append(append([]string{}, command[:len(command)-1]...), module)
+
+	code := run(arguments, "test", &stdout, &stderr)
+	if code != report.ExitClean && code != report.ExitFindings {
+		t.Fatalf("the installed walkthrough's %q exited %d: %s",
+			strings.Join(command, " "), code, stderr.String())
+	}
+}
+
+// transcriptOf extracts the fenced transcript blocks from an installed skill,
+// in order.
+func transcriptOf(t *testing.T, path string) [][]string {
+	t.Helper()
+
+	commands := [][]string{}
+	content := readInstalled(t, path)
+	inside := false
+
+	for line := range strings.SplitSeq(content, "\n") {
+		switch {
+		case strings.HasPrefix(line, transcriptFence):
+			inside = true
+		case inside && strings.HasPrefix(line, "```"):
+			inside = false
+		case inside && strings.TrimSpace(line) != "":
+			commands = append(commands, strings.Fields(line))
+		default:
+		}
+	}
+
+	return commands
+}
+
+// readInstalled reads an installed skill file from the test's own root.
+func readInstalled(t *testing.T, path string) string {
+	t.Helper()
+
+	content, err := os.ReadFile(path) //nolint:gosec // a test-owned install root.
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+
+	return string(content)
+}
+
+func installedSkill(t *testing.T, root string, name skill.Name) string {
+	t.Helper()
+
+	relative, err := skill.TargetPath(skill.AgentGeneric, name)
+	if err != nil {
+		t.Fatalf("target path: %v", err)
+	}
+
+	return filepath.Join(root, relative)
+}
+
+// seedWrongFlag rewrites one flag in the installed text into one this binary
+// does not have.
+func seedWrongFlag(t *testing.T, path string) {
+	t.Helper()
+
+	content := readInstalled(t, path)
+
+	seeded := strings.Replace(content, "--until-dry", "--until-damp", 1)
+	if seeded == content {
+		t.Fatal("the installed skill carries no flag to seed")
+	}
+
+	if err := os.WriteFile(path, []byte(seeded), 0o600); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+}
+
+// walkthroughFixture is a module with no tests at all: the situation the
+// characterisation loop exists for.
+func walkthroughFixture(t *testing.T) string {
+	t.Helper()
+
+	module := t.TempDir()
+	writeFile(t, filepath.Join(module, "main.tf"),
+		"variable \"env\" {\n  type    = string\n  default = \"dev\"\n}\n\n"+
+			"resource \"terraform_data\" \"app\" {\n  input = \"app-${var.env}\"\n}\n\n"+
+			"output \"app\" {\n  value = terraform_data.app.output\n}\n\n"+
+			"output \"tier\" {\n  value = var.env == \"prod\" ? \"critical\" : \"standard\"\n}\n")
+
+	return module
 }

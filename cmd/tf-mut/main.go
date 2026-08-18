@@ -45,15 +45,14 @@ const (
 	usage = `usage: tf-mut <command> [flags] [PATH]
 
 Commands:
-  run       Mutate the module at PATH and report which resources are pseudo-tested
-  preview   List the mutants that would be generated, as diffs, executing nothing
-  suggest   Generate, verify and optionally apply the assertions that kill the survivors
-  characterise
-            Scaffold, harvest and pin a first test suite for a module that has none
-  todos     List the open judgement points characterisation refuses to guess at
-  curate    Report redundant assertions from a full, authoritative population
-  skill     Install the shipped agent skills (skill install [--agent claude|generic] [--path .])
-  version   Print the build version
+  run          Mutate the module at PATH and report which resources are pseudo-tested
+  preview      List the mutants that would be generated, as diffs, executing nothing
+  suggest      Generate, verify and optionally apply the assertions that kill the survivors
+  characterise Scaffold, harvest and pin a first test suite for a module that has none
+  todos        List the open judgement points characterisation refuses to guess at
+  curate       Report redundant assertions from a full, authoritative population
+  skill        Install the shipped agent skills (skill install [--agent claude|generic] [--path .])
+  version      Print the build version
 
 Flags for run, preview, suggest, characterise, todos and curate:
   --test-directory PATH        Test directory relative to the module (default "tests")
@@ -467,13 +466,15 @@ func skillInstall(args []string, buildVersion string, stdout, stderr io.Writer) 
 		return report.ExitOperational
 	}
 
-	result, err := skill.Install(*path, *agent, buildinfo.Resolve(buildVersion), *force)
+	results, err := skill.Install(*path, *agent, buildinfo.Resolve(buildVersion), *force)
 	if err != nil {
 		return fail(stderr, "tf-mut: "+err.Error())
 	}
 
-	if _, err := fmt.Fprintf(stdout, "%s: %s\n", result.Path, result.Outcome); err != nil {
-		return report.ExitOperational
+	for _, result := range results {
+		if _, err := fmt.Fprintf(stdout, "%s: %s\n", result.Path, result.Outcome); err != nil {
+			return report.ExitOperational
+		}
 	}
 
 	return exitSuccess
