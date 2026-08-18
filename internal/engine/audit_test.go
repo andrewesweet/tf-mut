@@ -17,6 +17,10 @@ import (
 const (
 	justfilePath = "Justfile"
 	gateRecipe   = "gate:"
+
+	// The two trees that hold this repository's Go sources.
+	internalTree = "internal"
+	commandTree  = "cmd"
 )
 
 // gateName matches one test name inside the recipe's -run pattern.
@@ -148,4 +152,108 @@ func testDeclarations(t *testing.T) map[string]bool {
 	}
 
 	return declared
+}
+
+// TestEveryTestNameADocumentClaimsExists closes the hole the M4.5 review found
+// in the gate-honesty pair.
+//
+// That pair checks that every name in a `just gate-*` recipe resolves to a
+// declared test, and that every required behaviour is named by one. Neither
+// direction sees a *document* naming a test nobody wrote — which is how
+// `TestAMovedBlockInJSONRetainsTheFloor` came to be cited in a pull request
+// and in an exit-gate document while existing nowhere in the tree. A claim
+// about evidence is worth exactly as much as the evidence, and a reader who
+// checks the claim finds nothing.
+//
+// The rule is deliberately weak: a `Test…` token in a document has to appear
+// somewhere in the Go sources. That admits type and field names — `TestSuite`,
+// `TestDirectory` — which documents legitimately mention, and rejects the one
+// thing worth rejecting, a name that exists only in prose.
+func TestEveryTestNameADocumentClaimsExists(t *testing.T) {
+	t.Parallel()
+
+	root, found := repositoryRoot(t)
+	if !found {
+		t.Fatal("repository root not found")
+	}
+
+	sources := goSources(t, root)
+
+	for _, document := range markdownDocuments(t, root) {
+		content, err := os.ReadFile(document) //nolint:gosec // a repository-owned path.
+		if err != nil {
+			t.Fatalf("reading %s: %v", document, err)
+		}
+
+		for _, name := range gateName().FindAllString(string(content), -1) {
+			if goConventionNames[name] {
+				continue
+			}
+
+			if !strings.Contains(sources, name) {
+				relative, _ := filepath.Rel(root, document)
+				t.Errorf("%s names %s, which appears in no Go source", relative, name)
+			}
+		}
+	}
+}
+
+// goConventionNames are Go's own, which a document may discuss without this
+// repository declaring them.
+//
+//nolint:gochecknoglobals // an immutable allow-list.
+var goConventionNames = map[string]bool{"TestMain": true}
+
+// goSources is every Go source in the tree, concatenated.
+func goSources(t *testing.T, root string) string {
+	t.Helper()
+
+	builder := strings.Builder{}
+
+	walk := func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".go") {
+			return err //nolint:wrapcheck // the walker's own error, returned unchanged.
+		}
+
+		content, readErr := os.ReadFile(path) //nolint:gosec // a repository-owned path.
+		if readErr != nil {
+			return readErr //nolint:wrapcheck // the walker's own error, returned unchanged.
+		}
+
+		builder.Write(content)
+
+		return nil
+	}
+
+	for _, tree := range []string{internalTree, commandTree} {
+		if err := filepath.WalkDir(filepath.Join(root, tree), walk); err != nil {
+			t.Fatalf("walking %s: %v", tree, err)
+		}
+	}
+
+	return builder.String()
+}
+
+// markdownDocuments lists the repository's own prose: the design record, the
+// research record and the agent contract.
+func markdownDocuments(t *testing.T, root string) []string {
+	t.Helper()
+
+	documents := []string{filepath.Join(root, "AGENTS.md"), filepath.Join(root, "README.md")}
+
+	walk := func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".md") {
+			return err //nolint:wrapcheck // the walker's own error, returned unchanged.
+		}
+
+		documents = append(documents, path)
+
+		return nil
+	}
+
+	if err := filepath.WalkDir(filepath.Join(root, "docs"), walk); err != nil {
+		t.Fatalf("walking docs: %v", err)
+	}
+
+	return documents
 }

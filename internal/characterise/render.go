@@ -62,6 +62,23 @@ func Render(
 	return []byte(builder.String())
 }
 
+// RenderMocks emits just the mock blocks of a scaffold.
+//
+// It exists so the staged provider gate can read the bytes the renderer
+// produces rather than the plan that produced them: what a scaffold *intends*
+// to mock is the set discovery found, and comparing that set with itself can
+// never separate them. The gate parses this instead.
+func RenderMocks(scaffold Scaffold) []byte {
+	builder := strings.Builder{}
+
+	for _, mock := range scaffold.Mocks {
+		builder.WriteString("\n")
+		renderMock(&builder, mock)
+	}
+
+	return []byte(builder.String())
+}
+
 func renderMock(builder *strings.Builder, mock Mock) {
 	builder.WriteString(`mock_provider "` + mock.Name + `" {`)
 

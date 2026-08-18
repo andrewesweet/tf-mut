@@ -69,6 +69,10 @@ var linkableSuffixes = []string{
 	".tfvars.json",
 }
 
+// ErrTargetExists reports a sandbox directory that is already there. The
+// target must be fresh: see Materialise.
+var ErrTargetExists = errors.New("sandbox target already exists")
+
 // Share describes the warm workspace a sandbox borrows from.
 type Share struct {
 	// DataDir is the warm module's .terraform directory.
@@ -108,6 +112,18 @@ type Sandbox struct {
 
 // Materialise builds the sandbox described by the specification.
 func Materialise(spec Spec) (Sandbox, error) {
+	// The precondition is enforced rather than described. Materialising twice
+	// into one directory leaves the second sandbox holding the first one's
+	// staged files on top of a tree the copy could only partly refresh, and
+	// the result is a working directory that resembles neither run. It cost a
+	// day of "the module has no output named tier" before it cost anything
+	// else, because the failure looks like a generator defect.
+	if _, err := os.Stat(spec.Target); err == nil {
+		return Sandbox{}, fmt.Errorf("%w: %s", ErrTargetExists, spec.Target)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return Sandbox{}, fmt.Errorf("inspecting %s: %w", spec.Target, err)
+	}
+
 	if err := os.MkdirAll(spec.Target, directoryMode); err != nil {
 		return Sandbox{}, fmt.Errorf("creating sandbox: %w", err)
 	}

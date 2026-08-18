@@ -648,7 +648,19 @@ func TestTheInstalledSkillsWalkthroughExecutes(t *testing.T) {
 
 // TestASeededWrongFlagInTheSkillTurnsTheGateRed proves the oracle reads the
 // instructions: a flag this binary does not have, seeded into the installed
-// text, must make the walkthrough fail.
+// text, must make the walkthrough fail — and fail *for that reason*.
+//
+// The test is built so that neutering the seed cannot leave it green. It runs
+// the transcript twice, over two modules: unseeded, where every command must
+// succeed, and seeded, where some command must be refused *by name*. A no-op
+// seed makes the second phase find no such refusal and fail; a refusal
+// arriving from any other operational path fails the name check.
+//
+// The first version of this test asserted only a non-zero exit code, and
+// appended the module path to a transcript line that already ended in `.` —
+// so the CLI refused two positional arguments and the test passed with the
+// seed removed entirely. The gate that made the walkthrough falsifiable was
+// itself unfalsifiable.
 func TestASeededWrongFlagInTheSkillTurnsTheGateRed(t *testing.T) {
 	t.Parallel()
 
@@ -658,23 +670,44 @@ func TestASeededWrongFlagInTheSkillTurnsTheGateRed(t *testing.T) {
 	}
 
 	installed := installedSkill(t, root, skill.NameCharacterise)
+
+	// Unseeded first, over one module in order — a seed proves nothing about a
+	// walkthrough that was already failing, and the transcript is a sequence:
+	// `characterise --write` produces the suite `curate` then grades.
+	clean := walkthroughFixture(t)
+	for _, command := range transcriptOf(t, installed) {
+		runTranscriptCommand(t, command, clean)
+	}
+
 	seedWrongFlag(t, installed)
 
-	module := walkthroughFixture(t)
-	failed := false
+	seeded := walkthroughFixture(t)
+	named := false
 
 	for _, command := range transcriptOf(t, installed) {
 		stderr := bytes.Buffer{}
-		if run(append(command, module), "test", &bytes.Buffer{}, &stderr) == report.ExitOperational {
-			failed = true
+
+		code := run(substituteModule(command, seeded), "test", &bytes.Buffer{}, &stderr)
+		if code != report.ExitOperational {
+			continue
+		}
+
+		// Go's flag package prints the single-dash form, so the assertion is
+		// on the flag's name rather than on the spelling the skill used.
+		if strings.Contains(stderr.String(), strings.TrimPrefix(seededFlag, "-")) {
+			named = true
 		}
 	}
 
-	if !failed {
-		t.Fatal("a seeded wrong flag left the walkthrough green, so the gate is not " +
-			"reading the installed instructions")
+	if !named {
+		t.Fatalf("no transcript command was refused for %s, so the gate is not reading "+
+			"the installed instructions", seededFlag)
 	}
 }
+
+// seededFlag is the flag this binary does not have, seeded into the installed
+// skill so the walkthrough has to notice it.
+const seededFlag = "--until-damp"
 
 // skillOrder is the order the walkthrough drives the two loops in: the
 // characterisation loop writes the suite, and the mutation loop grades it.
@@ -689,16 +722,22 @@ func runTranscriptCommand(t *testing.T, command []string, module string) {
 	stdout := bytes.Buffer{}
 	stderr := bytes.Buffer{}
 
-	// The transcript writes the module path as `.`; the fixture lives
-	// elsewhere, so the last argument is replaced rather than the working
-	// directory changed, which would not be safe under a parallel suite.
-	arguments := append(append([]string{}, command[:len(command)-1]...), module)
-
-	code := run(arguments, "test", &stdout, &stderr)
+	code := run(substituteModule(command, module), "test", &stdout, &stderr)
 	if code != report.ExitClean && code != report.ExitFindings {
 		t.Fatalf("the installed walkthrough's %q exited %d: %s",
 			strings.Join(command, " "), code, stderr.String())
 	}
+}
+
+// substituteModule points a transcript line at the fixture.
+//
+// The transcript writes the module path as `.`, and the fixture lives
+// elsewhere, so the last argument is *replaced* rather than appended — an
+// append produces two positional arguments, which the CLI refuses by name,
+// and a refusal that arrives whatever the command said is a refusal that
+// proves nothing.
+func substituteModule(command []string, module string) []string {
+	return append(append([]string{}, command[:len(command)-1]...), module)
 }
 
 // transcriptOf extracts the fenced transcript blocks from an installed skill,
@@ -748,16 +787,27 @@ func installedSkill(t *testing.T, root string, name skill.Name) string {
 	return filepath.Join(root, relative)
 }
 
-// seedWrongFlag rewrites one flag in the installed text into one this binary
-// does not have.
+// seedWrongFlag rewrites one flag of the installed *transcript* into one this
+// binary does not have.
+//
+// The transcript specifically, not the first match in the file: the skill's
+// prose names `--until-dry` several times before the fenced block does, so a
+// whole-file replace seeds a sentence the gate never executes and proves
+// nothing about the instructions it does.
 func seedWrongFlag(t *testing.T, path string) {
 	t.Helper()
 
 	content := readInstalled(t, path)
 
-	seeded := strings.Replace(content, "--until-dry", "--until-damp", 1)
+	fence := strings.Index(content, transcriptFence)
+	if fence < 0 {
+		t.Fatal("the installed skill embeds no transcript to seed")
+	}
+
+	seeded := content[:fence] +
+		strings.Replace(content[fence:], "--until-dry", seededFlag, 1)
 	if seeded == content {
-		t.Fatal("the installed skill carries no flag to seed")
+		t.Fatal("the installed transcript carries no flag to seed")
 	}
 
 	if err := os.WriteFile(path, []byte(seeded), 0o600); err != nil {

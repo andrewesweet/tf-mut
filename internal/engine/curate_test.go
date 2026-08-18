@@ -436,3 +436,85 @@ func scaffoldFor(t *testing.T, block *report.Characterisation, address string) s
 
 	return ""
 }
+
+// TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions is the eligibility
+// rule applied to every finding kind, not two of three.
+//
+// The until-dry loop adds each generated assertion *because* it kills
+// something nothing else kills, so curate has no power over that set — and the
+// direction the omission failed in was the dangerous one: recommending the
+// deletion of assertions the tool wrote and the registry still vouches for.
+func TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions(t *testing.T) {
+	t.Parallel()
+	requireProviderMirror(t)
+
+	module := copyFixture(t, untestedBranchesFixture)
+
+	generate := characteriseConfig(t, module)
+	generate.CharacteriseWrite = true
+
+	if _, err := engine.Run(t.Context(), generate); err != nil {
+		t.Fatalf("characterise --write: %v", err)
+	}
+
+	config := baseConfig(t, module)
+	config.Curate = true
+	config.NoCache = true
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("curate: %v", err)
+	}
+
+	// Every assertion in the module is one this tool wrote and nobody edited,
+	// so every finding kind has to stay silent — including cross-scenario
+	// redundancy, which the two generated scenarios would otherwise trip.
+	for _, finding := range result.Characterisation.Findings {
+		for _, class := range finding.Provenance {
+			if class == report.GeneratedUnmodified {
+				t.Fatalf("curate reported %s about an assertion it wrote and nobody edited: %+v",
+					finding.Kind, finding)
+			}
+		}
+	}
+}
+
+// TestTheFinalPinSetIsVerifiedBeforeAnyWrite is the write contract on the
+// loop's other exit, asserted by seeding a defect rather than by observing a
+// success.
+//
+// Each round proves the previous round's pins by baselining them at its start,
+// so on the `dry` exit everything written was baselined. On the `bounded` exit
+// there is no next round, and the pins the last round added would reach disk
+// verified only one suggestion at a time — evidence, not the claim the
+// contract makes. A pin nothing could have harvested is added to the final
+// set: the verification between the loop and the write has to catch it, and
+// nothing may be written. Remove that verification and this test fails.
+func TestTheFinalPinSetIsVerifiedBeforeAnyWrite(t *testing.T) {
+	t.Parallel()
+	requireProviderMirror(t)
+
+	module := copyFixture(t, untestedBranchesFixture)
+
+	config := characteriseConfig(t, module)
+	config.UntilDry = true
+	config.CharacteriseWrite = true
+	config.SeedUntilDryRounds = 1
+	config.SeedFinalPinDefect = true
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrScaffoldRed) {
+		t.Fatalf("error = %v, want the final verification to catch the seeded pin", err)
+	}
+
+	entries, readErr := os.ReadDir(filepath.Join(module, "tests"))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatalf("reading the test directory: %v", readErr)
+	}
+
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tftest.hcl") {
+			t.Fatalf("an unverified suite was written: %s", entry.Name())
+		}
+	}
+}

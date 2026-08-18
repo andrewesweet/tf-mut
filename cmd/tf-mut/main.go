@@ -468,14 +468,18 @@ func skillInstall(args []string, buildVersion string, stdout, stderr io.Writer) 
 	}
 
 	results, err := skill.Install(*path, *agent, buildinfo.Resolve(buildVersion), *force)
-	if err != nil {
-		return fail(stderr, "tf-mut: "+err.Error())
-	}
 
+	// What landed is printed whether or not the install completed: a partial
+	// install has already changed the caller's tree, and an error alone would
+	// not say which files it changed.
 	for _, result := range results {
-		if _, err := fmt.Fprintf(stdout, "%s: %s\n", result.Path, result.Outcome); err != nil {
+		if _, printErr := fmt.Fprintf(stdout, "%s: %s\n", result.Path, result.Outcome); printErr != nil {
 			return report.ExitOperational
 		}
+	}
+
+	if err != nil {
+		return fail(stderr, "tf-mut: "+err.Error())
 	}
 
 	return exitSuccess

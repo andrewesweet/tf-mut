@@ -36,8 +36,10 @@ const RegistryName = ".tf-mut-generated.json"
 // registryVersion is the registry's own format version.
 const registryVersion = "1.0.0"
 
-// generatedFileMode is the permission a generated file carries.
-const generatedFileMode = 0o600
+// seedFileMode is the permission the closure-race seam's own writes carry.
+// Generated files are written by sandbox.WriteFresh, which sets its own mode;
+// this constant belongs to the seam and to nothing else.
+const seedFileMode = 0o600
 
 // registry records what this tool generated, so that "generated-unmodified",
 // "generated-edited" and "pre-existing" are decided mechanically rather than
@@ -222,7 +224,7 @@ func seedClosureChange(configuration discovery.Configuration, settings Config) e
 		added := filepath.Join(configuration.ModuleDir,
 			filepath.FromSlash(settings.SeedClosureFile))
 		if err := os.WriteFile(added, []byte("# staged closure addition\n"),
-			generatedFileMode); err != nil {
+			seedFileMode); err != nil {
 			return fmt.Errorf("staging the closure addition: %w", err)
 		}
 	}
@@ -234,7 +236,7 @@ func seedClosureChange(configuration discovery.Configuration, settings Config) e
 	target := filepath.Join(configuration.ModuleDir, filepath.FromSlash(settings.SeedClosureChange))
 
 	//nolint:gosec // a seam control's own path, and a test-owned tree.
-	file, err := os.OpenFile(target, os.O_APPEND|os.O_WRONLY, generatedFileMode)
+	file, err := os.OpenFile(target, os.O_APPEND|os.O_WRONLY, seedFileMode)
 	if err != nil {
 		return fmt.Errorf("staging the closure change: %w", err)
 	}

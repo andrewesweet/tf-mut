@@ -54,14 +54,22 @@ func characteriseModule(
 		return report.Report{}, err
 	}
 
-	// The gates first, and nothing before them but the version check. The
-	// program they judge is the module sources plus the *planned* scaffold,
-	// and which provider configurations that scaffold plans a mock for is
-	// decided by discovery alone — so a refusal costs no `init`, no provider
-	// download and no schema read, exactly as it does for a mutation run.
-	planned := seedMissingMock(characterise.Configurations(configuration), settings)
+	// The gates first, and nothing before them but the version check.
+	//
+	// The program they judge is the module sources plus the effective staged
+	// suite, and the mock half of that suite needs no provider schema: a
+	// `mock_provider` block's name and alias come from discovery, and only the
+	// pinned defaults inside it come from a schema. So the mocks are rendered
+	// here, gated here, and enriched with defaults after the warm-up — and a
+	// refusal costs no `init`, no provider download and no schema read,
+	// exactly as it does for a mutation run.
+	//nolint:exhaustruct // only the mocks are read from this plan.
+	mockOptions := characterise.Options{TestDirRel: configuration.TestDirRelative()}
+	gated := characterise.Plan(configuration, tfexec.Schemas{}, mockOptions,
+		characterise.Configurations(configuration))
 
-	warnings, err := checkStagedSafety(configuration, planned, settings)
+	warnings, err := checkStagedSafety(configuration,
+		seedMissingMock(gated, settings), settings)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -85,7 +93,7 @@ func characteriseModule(
 			Version:    settings.toolVersion(),
 			Sources:    prepared.sources,
 			Answers:    answers,
-		}, planned), settings)
+		}, characterise.Configurations(configuration)), settings)
 
 	warnings = append(warnings, prepared.warnings...)
 
@@ -109,12 +117,34 @@ func characteriseModule(
 	if settings.UntilDry && block.Complete {
 		if err := untilDry(ctx, runner, configuration, settings, version,
 			&block, scaffold, workRoot); err != nil {
-			return report.Report{}, err
+			// `refused` is one of three published stop reasons, so the report
+			// that records it has to reach the caller rather than being
+			// discarded with the error.
+			block.Complete = false
+			result.Characterisation = &block
+			result.Warnings = append(result.Warnings, err.Error())
+			result.Metrics = report.ComputeMetrics(nil)
+
+			return result, nil
 		}
 
 		promoted, refusals := promoteScaffolds(ctx, runner, configuration,
 			prepared, &block, scaffold, answers, workRoot)
 		result.Warnings = append(result.Warnings, refusals...)
+
+		block.Pins = seedFinalPinDefect(block.Pins, settings)
+
+		// The loop proves each round's pins by baselining them at the start of
+		// the next one, which leaves the last round's pins unproven whenever
+		// it stopped because it ran out of rounds rather than because it went
+		// dry. One verification over the final set closes that: "the pinned
+		// suite is proven green before a byte is written" has to hold on both
+		// exits, and an individually verified suggestion is evidence rather
+		// than the same claim.
+		if err := verifyScaffold(ctx, runner, configuration, workRoot, prepared,
+			scaffold, block.Pins, settings, "verify-final"); err != nil {
+			return report.Report{}, err
+		}
 
 		files = append(append(pinnedFiles(scaffold, block.Pins), promoted...),
 			scaffoldArtefact(scaffold, &block)...)
@@ -185,7 +215,7 @@ func scaffoldSuite(
 	block.Files = entriesOf(files)
 
 	if err := verifyScaffold(ctx, runner, configuration, workRoot, prepared,
-		scaffold, block.Pins, settings); err != nil {
+		scaffold, block.Pins, settings, "verify"); err != nil {
 		return rejectAnswers(block, scaffold, err)
 	}
 
@@ -450,10 +480,11 @@ func verifyScaffold(
 	scaffold characterise.Scaffold,
 	pins []report.Pin,
 	settings Config,
+	name string,
 ) error {
 	staged := stagedScaffold(configuration, scaffold, pins, settings)
 
-	result, err := stagedRun(ctx, runner, configuration, workRoot, prepared, staged, "verify")
+	result, err := stagedRun(ctx, runner, configuration, workRoot, prepared, staged, name)
 	if err != nil {
 		return err
 	}
@@ -521,15 +552,25 @@ func stagedPath(configuration discovery.Configuration, moduleRelative string) st
 
 // checkStagedSafety applies both safety gates to the effective staged suite.
 //
-// The program under judgement is the module sources plus the planned scaffold,
-// because the unscaffolded module is not the thing that would execute — and
-// judging it would refuse exactly the untested modules characterisation exists
-// for. The provider gate requires a planned mock for every provider
-// *configuration*: Terraform matches mocks to configurations by alias, so one
-// mock per requirement leaves every alias reaching a real provider.
+// The program under judgement is the module sources plus the *rendered mocks*
+// of the scaffold, because the unscaffolded module is not the thing that would
+// execute — and judging it would refuse exactly the untested modules
+// characterisation exists for. The provider gate requires a mock for every
+// provider *configuration*: Terraform matches mocks to configurations by
+// alias, so one mock per requirement leaves every alias reaching a real
+// provider.
+//
+// Two limits, stated because this comment is what the next reader will trust.
+// The gate reads the rendered mocks and not the whole rendered suite, so it
+// checks the renderer against the plan rather than enumerating the
+// configurations Terraform will use independently — nothing here can see a
+// configuration `Configurations()` does not find. And a scenario's *answers*
+// reach the staged suite without passing a gate, which is safe only because
+// `characterise.Synthesise` constrains an answer to a constant expression:
+// widen that grammar and this comment stops being true.
 func checkStagedSafety(
 	configuration discovery.Configuration,
-	planned []discovery.ProviderAlias,
+	staged characterise.Scaffold,
 	settings Config,
 ) ([]string, error) {
 	warnings, err := floorOf(configuration).checkFloor(settings)
@@ -537,7 +578,12 @@ func checkStagedSafety(
 		return nil, err
 	}
 
-	if unmocked := unmockedConfigurations(configuration, planned); len(unmocked) > 0 {
+	unmocked, err := unmockedConfigurations(configuration, staged)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(unmocked) > 0 {
 		if !settings.AllowRealInfrastructure {
 			return nil, fmt.Errorf(
 				"%w: the staged suite plans no mock for provider configuration %s.%s\n"+
@@ -574,12 +620,24 @@ func checkStagedSafety(
 
 // unmockedConfigurations lists the provider configurations the staged suite
 // leaves without a mock.
+//
+// The mocked set is read back out of the *rendered* mock blocks, not out of
+// the plan that produced them. Comparing the configurations discovery found
+// against the configurations something intended to mock compares a set with
+// itself: no input can separate them, and the gate cannot fire. Comparing them
+// against what the renderer emitted catches a scaffold that plans a mock and
+// writes none, or writes it under the wrong alias.
 func unmockedConfigurations(
 	configuration discovery.Configuration,
-	planned []discovery.ProviderAlias,
-) []string {
+	staged characterise.Scaffold,
+) ([]string, error) {
+	rendered, err := discovery.MocksIn(characterise.RenderMocks(staged))
+	if err != nil {
+		return nil, err
+	}
+
 	mocked := map[discovery.ProviderAlias]bool{}
-	for _, declared := range planned {
+	for _, declared := range rendered {
 		mocked[declared] = true
 	}
 
@@ -595,7 +653,7 @@ func unmockedConfigurations(
 
 	slices.Sort(unmocked)
 
-	return unmocked
+	return unmocked, nil
 }
 
 // configurationName spells a provider configuration the way Terraform does.
@@ -622,6 +680,21 @@ func providersOf(configurations []string) []string {
 	return providers
 }
 
+// seedFinalPinDefect adds a pin nothing could have harvested, so the
+// verification between the loop and the write can be shown to be load-bearing.
+// It is a seam control and not a command-line flag.
+func seedFinalPinDefect(pins []report.Pin, settings Config) []report.Pin {
+	if !settings.SeedFinalPinDefect || len(pins) == 0 {
+		return pins
+	}
+
+	defect := pins[0]
+	defect.ID = characterise.PinID(defect.Scenario, defect.Address, "seeded")
+	defect.Expression = defect.Address + ` == "tf-mut-seeded-final-pin-defect"`
+
+	return append(slices.Clone(pins), defect)
+}
+
 // seedNoEscalation puts the ladder back where the caller asked for it, so the
 // zero-output contract's second half can be proven on its own. It is a seam
 // control and not a command-line flag.
@@ -637,23 +710,30 @@ func seedNoEscalation(scaffold characterise.Scaffold, settings Config) character
 	return scaffold
 }
 
-// seedMissingMock removes one planned provider configuration, so the staged
-// provider gate can be proven to refuse before execution. It is a seam control
-// and not a command-line flag.
-func seedMissingMock(planned []discovery.ProviderAlias, settings Config) []discovery.ProviderAlias {
+// seedMissingMock removes one mock from the scaffold the gate reads, so the
+// staged provider gate can be proven to refuse before execution.
+//
+// It removes the *rendered* mock rather than the planned configuration,
+// because the rendered mocks are what the gate parses: a seed that changed
+// only the plan would seed the side of the comparison the gate no longer
+// looks at. It is a seam control and not a command-line flag.
+func seedMissingMock(staged characterise.Scaffold, settings Config) characterise.Scaffold {
 	if settings.SeedMissingMock == "" {
-		return planned
+		return staged
 	}
 
-	kept := make([]discovery.ProviderAlias, 0, len(planned))
+	kept := make([]characterise.Mock, 0, len(staged.Mocks))
 
-	for _, declared := range planned {
-		if configurationName(declared) == settings.SeedMissingMock {
+	for _, mock := range staged.Mocks {
+		if configurationName(discovery.ProviderAlias{Name: mock.Name, Alias: mock.Alias}) ==
+			settings.SeedMissingMock {
 			continue
 		}
 
-		kept = append(kept, declared)
+		kept = append(kept, mock)
 	}
 
-	return kept
+	staged.Mocks = kept
+
+	return staged
 }

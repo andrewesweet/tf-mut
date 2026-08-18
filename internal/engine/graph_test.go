@@ -192,7 +192,7 @@ func TestNoUserInvocationExecutesTerraformGraph(t *testing.T) {
 	invocation := regexp.MustCompile(`"graph"`)
 
 	root := filepath.Join("..", "..")
-	for _, dir := range []string{"internal", "cmd"} {
+	for _, dir := range []string{internalTree, commandTree} {
 		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, entry os.DirEntry, err error) error {
 			if err != nil {
 				return err

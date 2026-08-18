@@ -207,6 +207,15 @@ type Config struct {
 	// have already been renamed, so a *partial* commit can be staged rather
 	// than a refused one. It is a seam control, not a command-line flag.
 	SeedClosureAfter int
+	// SeedUntilDryRounds bounds the until-dry loop, so the `bounded` exit —
+	// the loop stopping because it ran out of rounds rather than because it
+	// went dry — can be staged. It is a seam control, not a command-line flag.
+	SeedUntilDryRounds int
+	// SeedFinalPinDefect adds a knowingly false pin to the set the loop ends
+	// with, so the verification that stands between the loop and the write can
+	// be proven load-bearing rather than assumed. It is a seam control, not a
+	// command-line flag.
+	SeedFinalPinDefect bool
 	// SeedNoEscalation suppresses the zero-output auto-escalation, so the other
 	// half of the contract — a rung that pinned nothing may never report
 	// complete — can be proven on its own. It is a seam control, not a

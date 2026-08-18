@@ -228,3 +228,57 @@ func TestTheSkillFlagsAreWellFormed(t *testing.T) {
 		t.Fatal("the skill teaches no flags at all, which cannot be the loop")
 	}
 }
+
+// TestAPartialSkillInstallReportsWhatLanded is the same contract the
+// characterisation commit protocol keeps two packages over: either nothing
+// changed, or the caller is told what did.
+//
+// The installer had no partial state to report while it wrote one file. It
+// acquired one when it grew to two and did not acquire the reporting with it,
+// so a failure on the second skill returned an error and dropped the first
+// result — leaving the caller told the install failed, and not told that half
+// of it had succeeded.
+func TestAPartialSkillInstallReportsWhatLanded(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+
+	// The second skill's directory is occupied by a file, so its install
+	// fails while the first has already landed.
+	blocked, err := skill.TargetPath(skill.AgentClaude, skill.Names()[1])
+	if err != nil {
+		t.Fatalf("target path: %v", err)
+	}
+
+	occupied := filepath.Dir(filepath.Join(root, blocked))
+
+	if mkdirErr := os.MkdirAll(filepath.Dir(occupied), 0o750); mkdirErr != nil {
+		t.Fatalf("preparing the install root: %v", mkdirErr)
+	}
+
+	if writeErr := os.WriteFile(occupied, []byte("occupied"), 0o600); writeErr != nil {
+		t.Fatalf("blocking the second install: %v", writeErr)
+	}
+
+	results, err := skill.Install(root, skill.AgentClaude, testVersion, false)
+	if err == nil {
+		t.Fatal("the blocked install did not fail")
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("reported %d results, want the one that landed", len(results))
+	}
+
+	first, err := skill.TargetPath(skill.AgentClaude, skill.Names()[0])
+	if err != nil {
+		t.Fatalf("target path: %v", err)
+	}
+
+	if results[0].Path != first {
+		t.Fatalf("reported %s, want the file that is on disk", results[0].Path)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(root, first)); statErr != nil {
+		t.Fatalf("the reported file is not on disk: %v", statErr)
+	}
+}

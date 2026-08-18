@@ -38,6 +38,16 @@ const defaultRounds = 5
 // stagingRoot is the directory the staged suite is materialised into.
 const stagingRoot = "staged"
 
+// roundLimit is the loop's bound, which a seam control may lower so that the
+// `bounded` exit can be staged rather than argued about.
+func roundLimit(settings Config) int {
+	if settings.SeedUntilDryRounds > 0 {
+		return settings.SeedUntilDryRounds
+	}
+
+	return defaultRounds
+}
+
 // untilDry iterates the scaffold against the mutation loop until the survivors
 // stop yielding new assertions at the chosen granularity.
 func untilDry(
@@ -55,7 +65,7 @@ func untilDry(
 	}
 	block.Convergence = convergence
 
-	for round := range defaultRounds {
+	for round := range roundLimit(settings) {
 		// Every round stages the suite as it stands *now*. Building the files
 		// once before the loop would mean round N+1 grading round N-1's suite,
 		// treating the assertions round N added as merely known, and declaring
@@ -63,6 +73,10 @@ func untilDry(
 		added, err := oneRound(ctx, runner, configuration, settings, version, block, scaffold,
 			filepath.Join(workRoot, stagingRoot+"-"+strconv.Itoa(round)))
 		if err != nil {
+			// The stop reason is a published value of a closed vocabulary, so
+			// the report that carries it has to reach a reporter. The caller
+			// keeps the block and renders it; the loop's failure is a warning
+			// on a report rather than an error that discards one.
 			convergence.StopReason = "refused"
 
 			return err

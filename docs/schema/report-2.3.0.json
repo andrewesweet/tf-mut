@@ -1435,11 +1435,11 @@
         },
         "content": {
           "type": "string",
-          "description": "The file's bytes. Content travels in the report whenever a JSON reporter owns standard output."
+          "description": "The file's bytes as a report may publish them. Content travels in the report whenever a JSON reporter owns standard output. For a scenario with a sensitive input this is the *redacted* rendering: the assignment carries the withheld marker, because a secret may reach no report field."
         },
         "digest": {
           "type": "string",
-          "description": "The content digest the write protocol commits against."
+          "description": "The digest of the bytes that are written to disk, which the write protocol commits against. These are not always the bytes in `content`: for a scenario with a sensitive input the written file carries the value Terraform has to plan and `content` carries the withheld marker, so the two fields are deliberately not a pair. Verify a written file against this digest, never against `content`."
         },
         "executable": {
           "type": "boolean",

@@ -17,11 +17,18 @@ here rather than in a commit message.
 | **M4.5 offline** | **`just gate-m45`** | 55 named cases, audited by name |
 | M4.5-0 measurement | `just measure-synthesis` | network-gated, publishes its own decision |
 
-The M4 gate's `TestACheckBlockInJSONRetainsTheFloor` is retired and
-`TestAMovedBlockInJSONRetainsTheFloor` takes its place. The check block's file is now *read*,
-so the old name would be a lie; the protection it stood for — an unmodelled top-level JSON
-construct leaves the file unread and the floor down — is proved with a construct that is
-still unmodelled.
+The M4 gate's check-block floor case is retired: the check block's file is now *read*, so a
+name asserting that the floor stays down for it would be a lie.
+`TestAMovedBlockInJSONIsRefusedByName` takes its place in the M4 gate — the same construct class, and a **stronger** claim than the one it replaces. The
+old case asserted that unreadable JSON leaves the floor down; the new one asserts that a
+construct this version cannot model is refused outright, with *both* safety opt-ins granted,
+so no flag combination can turn it into permission. A floor can be lifted; this cannot.
+
+(An earlier draft of this document and of the pull request named
+`TestAMovedBlockInJSONRetainsTheFloor` here. No such test was ever written — the case was
+renamed to `…IsRefusedByName` when its claim strengthened, and the name in the prose was not.
+The gate-honesty pair cannot catch that: it checks that every name in the recipe resolves to a
+test, never that every name in a *document* does.)
 
 ## 2. Platform facts measured in this slice, not assumed
 

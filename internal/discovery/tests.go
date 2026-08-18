@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
@@ -411,4 +412,36 @@ func (c Configuration) LockFilePath() (string, bool) {
 	}
 
 	return path, true
+}
+
+// MocksIn reads the provider configurations a generated test file's
+// `mock_provider` blocks actually cover.
+//
+// It parses rendered bytes rather than trusting a plan that produced them,
+// which is what the staged provider gate needs: comparing the configurations
+// discovery found against the configurations something *intended* to mock is
+// comparing a set with itself, and can never separate them. Comparing them
+// against what the renderer emitted can.
+func MocksIn(source []byte) ([]ProviderAlias, error) {
+	file, diagnostics := hclsyntax.ParseConfig(source, "generated", hcl.InitialPos)
+	if diagnostics.HasErrors() {
+		return nil, fmt.Errorf("%w: generated: %s", ErrParse, diagnostics.Error())
+	}
+
+	body, ok := file.Body.(*hclsyntax.Body)
+	if !ok {
+		return nil, fmt.Errorf("%w: generated: unexpected body type", ErrParse)
+	}
+
+	mocks := []ProviderAlias{}
+
+	for _, block := range body.Blocks {
+		if block.Type != mockProvider || len(block.Labels) != 1 {
+			continue
+		}
+
+		mocks = append(mocks, mockedConfiguration(block))
+	}
+
+	return mocks, nil
 }

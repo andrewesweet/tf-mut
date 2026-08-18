@@ -40,12 +40,19 @@ func Names() []Name {
 }
 
 // bodyOf returns a skill's shipped body.
-func bodyOf(name Name) string {
-	if name == NameCharacterise {
-		return characterisationLoop
+//
+// Every name is listed. A default arm would install the mutation loop under
+// any future skill's name and no test would notice, which is the quiet kind
+// of wrong.
+func bodyOf(name Name) (string, bool) {
+	switch name {
+	case NameMutation:
+		return mutationLoop, true
+	case NameCharacterise:
+		return characterisationLoop, true
+	default:
+		return "", false
 	}
-
-	return mutationLoop
 }
 
 // The supported agent adapters. `generic` serves Cursor and every other
@@ -120,7 +127,10 @@ func Install(root, agent, version string, force bool) ([]Result, error) {
 	for _, name := range Names() {
 		result, err := installOne(root, agent, version, force, name)
 		if err != nil {
-			return nil, err
+			// The results so far travel with the failure: the files they name
+			// are already on disk, and an error alone would tell the caller
+			// the install failed without telling them half of it succeeded.
+			return results, err
 		}
 
 		results = append(results, result)
@@ -136,8 +146,14 @@ func installOne(root, agent, version string, force bool, name Name) (Result, err
 		return Result{}, err //nolint:exhaustruct // nothing was installed.
 	}
 
+	body, known := bodyOf(name)
+	if !known {
+		//nolint:exhaustruct // nothing was installed.
+		return Result{}, fmt.Errorf("%w: %q ships no content", ErrUnknownAgent, name)
+	}
+
 	target := filepath.Join(root, relative)
-	shipped := stamped(bodyOf(name), version)
+	shipped := stamped(body, version)
 
 	existing, err := os.ReadFile(target) //nolint:gosec // the caller-chosen install root.
 	outcome := OutcomeInstalled
@@ -257,5 +273,7 @@ func atomicInstall(target, content string) error {
 // skills reference only commands and flags the binary has, and that extract
 // the machine-executable transcript from the installed file.
 func Content(name Name) string {
-	return bodyOf(name)
+	body, _ := bodyOf(name)
+
+	return body
 }

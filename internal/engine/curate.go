@@ -68,8 +68,17 @@ func checkCuratePopulation(settings Config) error {
 		refusals = append(refusals, "an exclusion removes sites from the population")
 	}
 
+	// The rule is "exactly the default population", not "not narrowed": a tier
+	// selection and the generated-function opt-in both *change* it, and a
+	// finding drawn from a population the reader reshaped is a finding about a
+	// different program.
 	if settings.Tier != "" && settings.Tier != mutation.TierStandard {
-		refusals = append(refusals, "a tier selection narrows the operator population")
+		refusals = append(refusals, "a tier selection changes the operator population")
+	}
+
+	if settings.GeneratedFunctions {
+		refusals = append(refusals,
+			"--generated-functions changes the operator population")
 	}
 
 	if len(refusals) == 0 {
@@ -357,6 +366,15 @@ func crossScenarioFindings(
 	for outer, left := range assertions {
 		for _, right := range assertions[outer+1:] {
 			if left.Run == right.Run || len(killSets[left.ID]) == 0 {
+				continue
+			}
+
+			// The same eligibility rule the other two kinds obey. Without it
+			// curate recommends deleting the tool's own untouched generated
+			// assertions — the direction that does damage — and contradicts
+			// its own scoping, which is hand-written and edited assertions
+			// plus redundancy across scenarios.
+			if !eligible(provenance[left.ID]) || !eligible(provenance[right.ID]) {
 				continue
 			}
 
