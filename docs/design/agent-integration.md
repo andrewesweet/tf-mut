@@ -117,7 +117,7 @@ agent supplies decisions the same way a CI file would:
 | TODO answers | Edit the file (preferred), or `--answer todo-9f2a='10.0.0.0/16'` for scripted runs |
 | Granularity per run block | `--pin outputs\|counts\|configured`, overridable per run in `.tf-mut.hcl` |
 | Day-2 scenarios (C3) | An agent writes an ordinary second run block; the tool harvests and pins it like its own |
-| Prune approvals (D1) | `tf-mut curate --apply asrt-3c41,asrt-77b0` — explicit IDs only, no `--apply-all` |
+| Prune approvals (D1) | Deferred: M4.5's `curate` is report-only (M4.5 spec review, M6) — an agent acts on its findings by editing the test files directly. A `curate --apply` returns only if it earns its own recorded write exception with the full protocol; when it does, it is explicit IDs only, no `--apply-all` |
 | Discriminating inputs (D3) | An agent adds a run block with the proposed inputs; the tool reports whether it changed the fingerprint, i.e. whether the proposal actually discriminates |
 
 ### 2.4 The verification loop is the safety property
