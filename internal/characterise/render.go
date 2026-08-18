@@ -15,17 +15,24 @@ import (
 // and still yields the whole mocked state through `-verbose -json`. The same
 // renderer then produces the pinned file, so the bytes that were verified and
 // the bytes that are written are one sequence.
-func Render(scaffold Scaffold, scenario report.Scenario, pins []report.Pin) []byte {
+func Render(scaffold Scaffold, scenarios []report.Scenario, pins []report.Pin) []byte {
+	names := make([]string, 0, len(scenarios))
+	for _, scenario := range scenarios {
+		names = append(names, scenario.Name)
+	}
+
 	builder := strings.Builder{}
-	builder.WriteString(GeneratedHeader(scaffold.Options.Version, scenario.Name))
+	builder.WriteString(GeneratedHeader(scaffold.Options.Version, strings.Join(names, ", ")))
 
 	for _, mock := range scaffold.Mocks {
 		builder.WriteString("\n")
 		renderMock(&builder, mock)
 	}
 
-	builder.WriteString("\n")
-	renderRun(&builder, scenario, pins)
+	for _, scenario := range scenarios {
+		builder.WriteString("\n")
+		renderRun(&builder, scenario, pins)
+	}
 
 	return []byte(builder.String())
 }
@@ -118,7 +125,8 @@ func RenderArtefact(scaffold Scaffold, scenario report.Scenario, todos []report.
 	builder.WriteString(strings.Join([]string{
 		"#",
 		"# This file is NOT executable. `terraform test` never reads it.",
-		"# Answer each todo below by replacing TFMUT_TODO with a conforming value,",
+		"# Answer each todo below by replacing the placeholder value with one that",
+		"# conforms to the constraint quoted beside it,",
 		"# then run `tf-mut characterise --resume` to verify and promote it.",
 		"",
 	}, "\n"))

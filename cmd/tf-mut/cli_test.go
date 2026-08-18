@@ -398,7 +398,7 @@ func TestArgumentsAfterTheModulePathAreRefused(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
 	}
 
-	for _, expected := range []string{dryRunFlag, "before the module path"} {
+	for _, expected := range []string{dryRunFlag, beforeThePath} {
 		if !strings.Contains(stderr.String(), expected) {
 			t.Fatalf("the refusal does not carry %q: %s", expected, stderr.String())
 		}
@@ -479,7 +479,132 @@ func TestCharacteriseRefusesArgumentsAfterTheModulePath(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
 	}
 
-	for _, expected := range []string{"--write", "before the module path"} {
+	for _, expected := range []string{"--write", beforeThePath} {
+		if !strings.Contains(stderr.String(), expected) {
+			t.Fatalf("the refusal does not carry %q: %s", expected, stderr.String())
+		}
+	}
+}
+
+// TestTheTodoSurfacesAreWiredInBothArgumentOrders is the M4.5 spec's ninth
+// story made falsifiable: a wiring gap in a drain-todos loop is invisible
+// until an agent hits it, so each surface is asserted from the command line
+// with the module path both before and after the flags.
+// beforeThePath is the refusal every command gives for a flag after the path.
+const beforeThePath = "before the module path"
+
+func TestTheTodoSurfacesAreWiredInBothArgumentOrders(t *testing.T) {
+	t.Parallel()
+
+	for name, order := range map[string]bool{"flags first": false, "path first": true} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			module := todoFixture(t)
+
+			listed := decodeReport(t, mustRun(t, arguments(order, module,
+				todosCommand, reporterFlag, reporterJSON)))
+			if listed.Command != report.CommandTodos {
+				t.Fatalf("command = %s, want todos", listed.Command)
+			}
+
+			if listed.Characterisation.OpenTodos() != 1 {
+				t.Fatalf("listed %d open judgement points, want one",
+					listed.Characterisation.OpenTodos())
+			}
+
+			identifier := listed.Characterisation.Todos[0].ID
+
+			answered := decodeReport(t, mustRun(t, arguments(order, module,
+				characteriseCommand, "--answer", identifier+`="10.0.0.0/16"`,
+				reporterFlag, reporterJSON)))
+			if answered.Characterisation.OpenTodos() != 0 {
+				t.Fatalf("--answer left the judgement point open: %+v",
+					answered.Characterisation.Todos)
+			}
+
+			if !answered.Characterisation.Complete {
+				t.Fatal("the answered characterisation is incomplete")
+			}
+
+			resumed := decodeReport(t, mustRun(t, arguments(order, module,
+				characteriseCommand, "--resume", reporterFlag, reporterJSON)))
+			if resumed.Characterisation.OpenTodos() != 1 {
+				t.Fatal("--resume answered a judgement point nobody answered")
+			}
+		})
+	}
+}
+
+// arguments places the module path before or after the flags. Only one order
+// is legal — Go's flag parsing stops at the first non-flag argument — so the
+// path-first order asserts the refusal rather than the result.
+func arguments(pathFirst bool, module, command string, flags ...string) []string {
+	if pathFirst {
+		return append([]string{command, module}, flags...)
+	}
+
+	return append(append([]string{command}, flags...), module)
+}
+
+// mustRun executes the command line and fails on anything but a clean or
+// findings exit, returning standard output.
+func mustRun(t *testing.T, args []string) []byte {
+	t.Helper()
+
+	stdout := bytes.Buffer{}
+	stderr := bytes.Buffer{}
+
+	code := run(args, "test", &stdout, &stderr)
+
+	// The path-first order is refused by name, which is the shipped contract:
+	// the assertion is that the refusal happens, not that the run succeeds.
+	if len(args) > 1 && !strings.HasPrefix(args[1], "-") {
+		if code != report.ExitOperational ||
+			!strings.Contains(stderr.String(), beforeThePath) {
+			t.Fatalf("arguments after the module path were not refused: %d %s",
+				code, stderr.String())
+		}
+
+		t.SkipNow()
+	}
+
+	if code != report.ExitClean && code != report.ExitFindings {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+
+	return stdout.Bytes()
+}
+
+// todoFixture is a module whose one input carries a constraint no deterministic
+// pipeline can satisfy.
+func todoFixture(t *testing.T) string {
+	t.Helper()
+
+	module := t.TempDir()
+	writeFile(t, filepath.Join(module, "main.tf"),
+		"variable \"vpc_cidr\" {\n  type = string\n\n  validation {\n"+
+			"    condition     = can(cidrnetmask(var.vpc_cidr))\n"+
+			"    error_message = \"vpc_cidr must be a CIDR block\"\n  }\n}\n\n"+
+			"resource \"terraform_data\" \"network\" {\n  input = var.vpc_cidr\n}\n\n"+
+			"output \"network\" {\n  value = terraform_data.network.output\n}\n")
+
+	return module
+}
+
+// TestTodosRefusesArgumentsAfterTheModulePath keeps the round-3 ordering
+// repair asserted by name for the third new command.
+func TestTodosRefusesArgumentsAfterTheModulePath(t *testing.T) {
+	t.Parallel()
+
+	stderr := bytes.Buffer{}
+
+	code := run([]string{todosCommand, ".", "--resume"}, "test", &bytes.Buffer{}, &stderr)
+	if code != report.ExitOperational {
+		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
+	}
+
+	for _, expected := range []string{"--resume", beforeThePath} {
 		if !strings.Contains(stderr.String(), expected) {
 			t.Fatalf("the refusal does not carry %q: %s", expected, stderr.String())
 		}

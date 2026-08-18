@@ -31,7 +31,7 @@ func (c Configuration) ReferencedAttributes() []AttributeRef {
 
 	for _, module := range c.Modules {
 		for _, body := range module.Bodies {
-			walkExpressions(body, func(expr hclsyntax.Expression) {
+			WalkExpressions(body, func(expr hclsyntax.Expression) {
 				for _, traversal := range expr.Variables() {
 					if reference, ok := attributeRef(traversal); ok {
 						seen[reference] = true

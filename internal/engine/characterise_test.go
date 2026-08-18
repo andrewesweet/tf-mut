@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -22,6 +23,7 @@ const (
 	untestedAliasesFixture    = "untested-aliases"
 	untestedZeroOutputFixture = "untested-zero-output"
 	untestedSensitiveFixture  = "untested-sensitive"
+	untestedBranchesFixture   = "untested-branches"
 
 	rungOutputs = "outputs"
 )
@@ -494,5 +496,82 @@ func TestARealCharacterisationReportValidatesAgainstThePublishedSchema(t *testin
 				t.Fatalf("the real report does not validate:\n  %s", strings.Join(problems, "\n  "))
 			}
 		})
+	}
+}
+
+// TestBranchExpansionPinsBothSidesOfAConditional is the design's bounded
+// expansion: one scenario per flipped conditional, never the cross product.
+func TestBranchExpansionPinsBothSidesOfAConditional(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedBranchesFixture)
+
+	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	if err != nil {
+		t.Fatalf("characterise: %v", err)
+	}
+
+	block := result.Characterisation
+	if len(block.Scenarios) < 2 {
+		t.Fatalf("generated %d scenarios, want the default and its flip", len(block.Scenarios))
+	}
+
+	pinned := map[string]bool{}
+
+	for _, pin := range block.Pins {
+		if pin.Status == report.Pinned {
+			pinned[pin.Expression] = true
+		}
+	}
+
+	for _, wanted := range []string{
+		`output.tier == "standard"`, `output.tier == "critical"`,
+	} {
+		if !pinned[wanted] {
+			t.Fatalf("the expansion did not pin %q; pinned: %v", wanted, pinned)
+		}
+	}
+}
+
+// TestScenarioPinsAreInvariantUnderFileOrder is the scaffold-soundness gate's
+// reorder fixture. Generated scenarios carry distinct state keys precisely so
+// that no scenario can observe another's state, and the observable consequence
+// is that the pins do not depend on the order the runs are declared in.
+func TestScenarioPinsAreInvariantUnderFileOrder(t *testing.T) {
+	t.Parallel()
+
+	pins := map[string][]string{}
+
+	for _, order := range []string{"", "forward", "reverse"} {
+		module := copyFixture(t, untestedBranchesFixture)
+
+		config := characteriseConfig(t, module)
+		config.SeedSharedFileOrder = order
+
+		result, err := engine.Run(t.Context(), config)
+		if err != nil {
+			t.Fatalf("characterise (order %q): %v", order, err)
+		}
+
+		expressions := []string{}
+
+		for _, pin := range result.Characterisation.Pins {
+			if pin.Status == report.Pinned {
+				expressions = append(expressions, pin.Address+" => "+pin.Expression)
+			}
+		}
+
+		slices.Sort(expressions)
+
+		pins[order] = expressions
+	}
+
+	if !slices.Equal(pins[""], pins["forward"]) || !slices.Equal(pins["forward"], pins["reverse"]) {
+		t.Fatalf("the pins depend on file order:\n  per-file: %v\n  forward:  %v\n  reverse:  %v",
+			pins[""], pins["forward"], pins["reverse"])
+	}
+
+	if len(pins[""]) == 0 {
+		t.Fatal("the fixture pinned nothing, so the comparison proves nothing")
 	}
 }

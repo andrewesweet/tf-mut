@@ -464,7 +464,7 @@ func changes(delta fingerprint.Delta) []report.Change {
 // SensitiveWithheld is what a report carries in place of a sensitive value. It
 // is deliberately not a canonical rendering: every rendering of a string starts
 // with a quote, so nothing a module could hold can collide with it.
-const SensitiveWithheld = "(sensitive value withheld)"
+const SensitiveWithheld = report.SensitiveWithheld
 
 // withheld replaces a sensitive rendering, and leaves an absent one absent so
 // that "the path was not there" stays distinguishable from "it was withheld".

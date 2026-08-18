@@ -224,7 +224,7 @@ func newRun(path, relative string, block *hclsyntax.Block) RunBlock {
 // counts towards the multiplicity gate exactly as module references do.
 func collectTestReferences(suite *TestSuite, path string, body *hclsyntax.Body) {
 	holder := Module{References: suite.References}
-	walkExpressions(body, func(expr hclsyntax.Expression) {
+	WalkExpressions(body, func(expr hclsyntax.Expression) {
 		recordReference(&holder, path, expr)
 	})
 }

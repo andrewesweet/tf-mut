@@ -61,6 +61,22 @@ type Block struct {
 	HasForEach bool
 	// LocalsIndex identifies which locals block in the file declares a local.
 	LocalsIndex int
+	// Validations are the validation blocks a variable declares. They are the
+	// only place a module states, in machine-readable form, which values of an
+	// input it accepts — which makes them the one honest source a synthesised
+	// value can be mined from or checked against.
+	Validations []Validation
+}
+
+// Validation is one validation block on a variable declaration.
+type Validation struct {
+	// Condition is the expression that must hold.
+	Condition hclsyntax.Expression
+	// File is the declaring file's absolute path.
+	File string
+	// Range is the condition expression's source range, so the verbatim text
+	// can be quoted into a TODO rather than paraphrased.
+	Range hcl.Range
 }
 
 // VariableByName returns the module's variable declaration of that name.

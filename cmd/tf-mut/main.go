@@ -28,6 +28,7 @@ const (
 	previewCommand      = "preview"
 	suggestCommand      = "suggest"
 	characteriseCommand = "characterise"
+	todosCommand        = "todos"
 	skillCommand        = "skill"
 	versionCommand      = "version"
 	versionFlag         = "--version"
@@ -48,10 +49,11 @@ Commands:
   suggest   Generate, verify and optionally apply the assertions that kill the survivors
   characterise
             Scaffold, harvest and pin a first test suite for a module that has none
+  todos     List the open judgement points characterisation refuses to guess at
   skill     Install the shipped agent skills (skill install [--agent claude|generic] [--path .])
   version   Print the build version
 
-Flags for run, preview, suggest and characterise:
+Flags for run, preview, suggest, characterise and todos:
   --test-directory PATH        Test directory relative to the module (default "tests")
   --jobs N                     Mutants to execute concurrently (default: CPU count)
   --timeout-factor F           Multiple of the baseline run time (default 10)
@@ -84,6 +86,9 @@ Flags for characterise:
                                (default outputs; a module with no outputs escalates)
   --write                      Place the verified suite in the test directory
   --force                      Replace generated files nobody has edited
+  --answer todo-ID=VALUE       Answer one judgement point; repeatable
+  --resume                     Read answered judgement points from the edited
+                               artefact, re-synthesise, verify and promote
 
 Flags for suggest:
   --dry-run                    Print the candidate patches and verify nothing
@@ -114,7 +119,7 @@ func run(args []string, buildVersion string, stdout, stderr io.Writer) int {
 		}
 
 		return exitSuccess
-	case runCommand, previewCommand, suggestCommand, characteriseCommand:
+	case runCommand, previewCommand, suggestCommand, characteriseCommand, todosCommand:
 		return execute(args[0], args[1:], stdout, stderr)
 	case skillCommand:
 		return skillInstall(args[1:], buildVersion, stdout, stderr)
@@ -171,7 +176,19 @@ type flagValues struct {
 	dryRun, allVerified                      *bool
 	survivors, apply                         *string
 	pin                                      *string
-	write, force                             *bool
+	write, force, resume                     *bool
+	answers                                  *answerFlag
+}
+
+// answerFlag collects repeatable todo-<id>=<value> answers.
+type answerFlag []string
+
+func (*answerFlag) String() string { return "" }
+
+func (a *answerFlag) Set(value string) error {
+	*a = append(*a, value)
+
+	return nil
 }
 
 func declareFlags(set *flag.FlagSet) flagValues {
@@ -218,7 +235,17 @@ func declareFlags(set *flag.FlagSet) flagValues {
 		pin:         set.String("pin", "", "pinning granularity: outputs, counts or configured"),
 		write:       set.Bool("write", false, "place the verified suite in the test directory"),
 		force:       set.Bool("force", false, "replace generated files nobody has edited"),
+		resume: set.Bool("resume", false,
+			"read answered judgement points from the edited artefact and promote them"),
+		answers: declareAnswerFlag(set),
 	}
+}
+
+func declareAnswerFlag(set *flag.FlagSet) *answerFlag {
+	answers := &answerFlag{}
+	set.Var(answers, "answer", "answer one judgement point as todo-<id>=<value>; repeatable")
+
+	return answers
 }
 
 func declareOutputFlag(set *flag.FlagSet) *outputFlag {
@@ -332,6 +359,9 @@ func engineConfig(
 		PinRung:                 *values.pin,
 		CharacteriseWrite:       *values.write,
 		CharacteriseForce:       *values.force,
+		Todos:                   command == todosCommand,
+		Answers:                 *values.answers,
+		Resume:                  *values.resume,
 	}
 }
 

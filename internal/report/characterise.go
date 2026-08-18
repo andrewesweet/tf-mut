@@ -8,6 +8,11 @@ package report
 // documented — not a silently additive change, because a consumer switching
 // over a closed set breaks on a value it has never seen.
 
+// SensitiveWithheld is what every artefact carries in place of a value
+// Terraform marks sensitive: the report, the terminal, a generated file, a
+// TODO's constraint evidence and a failed attempt's diagnostic alike.
+const SensitiveWithheld = "(sensitive value withheld)"
+
 // PinStatus is the closed status vocabulary of a pin.
 type PinStatus string
 

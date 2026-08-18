@@ -43,6 +43,9 @@ const (
 	// switch over.
 	terraformBlock = "terraform"
 	countKeyword   = "count"
+
+	// validationBlock is the variable-level constraint block.
+	validationBlock = "validation"
 )
 
 func parseModule(parser *hclparse.Parser, current queued, options Options) (Module, []JSONFile, error) {
@@ -252,7 +255,33 @@ func newBlock(kind, path, relative string, block *hclsyntax.Block) Block {
 		}
 	}
 
+	if kind == variableBlock {
+		discovered.Validations = validationsOf(path, block)
+	}
+
 	return discovered
+}
+
+// validationsOf collects a variable's validation blocks in declaration order.
+func validationsOf(path string, block *hclsyntax.Block) []Validation {
+	validations := []Validation{}
+
+	for _, nested := range block.Body.Blocks {
+		if nested.Type != validationBlock {
+			continue
+		}
+
+		condition, found := nested.Body.Attributes["condition"]
+		if !found {
+			continue
+		}
+
+		validations = append(validations, Validation{
+			Condition: condition.Expr, File: path, Range: condition.Expr.Range(),
+		})
+	}
+
+	return validations
 }
 
 func localsFrom(path, relative string, block *hclsyntax.Block, index int) []Block {
@@ -406,7 +435,7 @@ func sortedKeys(set map[string]bool) []string {
 
 // collectReferences records every consumption of a resource address in the file.
 func collectReferences(module *Module, path string, body *hclsyntax.Body) {
-	walkExpressions(body, func(expr hclsyntax.Expression) {
+	WalkExpressions(body, func(expr hclsyntax.Expression) {
 		recordReference(module, path, expr)
 	})
 }
@@ -509,14 +538,14 @@ func classifyTraversal(traversal hcl.Traversal) (string, ReferenceForm, bool) {
 	}
 }
 
-// walkExpressions visits every expression in a body, including nested blocks.
-func walkExpressions(body *hclsyntax.Body, visit func(hclsyntax.Expression)) {
+// WalkExpressions visits every expression in a body, including nested blocks.
+func WalkExpressions(body *hclsyntax.Body, visit func(hclsyntax.Expression)) {
 	for _, attribute := range body.Attributes {
 		walkExpression(attribute.Expr, visit)
 	}
 
 	for _, block := range body.Blocks {
-		walkExpressions(block.Body, visit)
+		WalkExpressions(block.Body, visit)
 	}
 }
 

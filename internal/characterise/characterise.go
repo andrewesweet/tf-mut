@@ -106,6 +106,12 @@ type Options struct {
 	TestDirRel string
 	// Version is the tool version recorded in each generated file's header.
 	Version string
+	// Sources are the module files as discovery read them, keyed by absolute
+	// path, so a constraint can be quoted into a TODO verbatim.
+	Sources map[string][]byte
+	// Answers maps a TODO identifier to the value supplied for it, from the
+	// edited artefact or from --answer.
+	Answers map[string]string
 }
 
 // Scaffold is the planned suite: what would be written, and the entities the
@@ -164,6 +170,9 @@ func identify(prefix string, parts ...string) string {
 
 	return prefix + hex.EncodeToString(sum[:])[:identifierLength]
 }
+
+// variableRoot is the traversal root every module input is read through.
+const variableRoot = "var"
 
 const (
 	identifierLength = 12

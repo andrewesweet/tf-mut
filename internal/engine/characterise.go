@@ -61,10 +61,17 @@ func characteriseModule(
 		return report.Report{}, err
 	}
 
+	answers, err := collectAnswers(configuration, settings)
+	if err != nil {
+		return report.Report{}, err
+	}
+
 	scaffold := characterise.Plan(configuration, prepared.schemas, characterise.Options{
 		Rung:       rung,
 		TestDirRel: configuration.TestDirRelative(),
 		Version:    version.Terraform,
+		Sources:    prepared.sources,
+		Answers:    answers,
 	})
 
 	scaffold = seedMissingMock(seedNoEscalation(scaffold, settings), settings)
@@ -128,13 +135,13 @@ func scaffoldSuite(
 	// An open judgement point means nothing executable can be produced: the
 	// artefact is the editable surface, and promotion after verification is the
 	// only route from it into test content.
-	if len(scaffold.Todos) > 0 {
+	if openTodos(scaffold.Todos) > 0 {
 		block.Files = artefactFiles(scaffold)
 
 		return block, nil
 	}
 
-	harvest, err := harvestScaffold(ctx, runner, configuration, workRoot, prepared, scaffold)
+	harvest, err := harvestScaffold(ctx, runner, configuration, workRoot, prepared, scaffold, settings)
 	if err != nil {
 		return report.Characterisation{}, err
 	}
@@ -142,9 +149,14 @@ func scaffoldSuite(
 	block.Pins = characterise.Pin(scaffold, configuration, prepared.schemas, harvest)
 	block.Files = pinnedFiles(scaffold, block.Pins)
 
-	if err := verifyScaffold(ctx, runner, configuration, workRoot, prepared, block.Files); err != nil {
+	if err := verifyScaffold(ctx, runner, configuration, workRoot, prepared,
+		scaffold, block.Pins, settings); err != nil {
 		return report.Characterisation{}, err
 	}
+
+	// Promotion is what verification earns, and nothing else: an answer is
+	// promoted only once the suite it produced has been proven green.
+	promote(&block)
 
 	// A characterisation whose selected rung produced no pins may never report
 	// complete: green with nothing pinned is the false confidence the ladder's
@@ -152,6 +164,19 @@ func scaffoldSuite(
 	block.Complete = pinnedCount(block.Pins) > 0
 
 	return block, nil
+}
+
+// openTodos counts the judgement points still awaiting an answer.
+func openTodos(todos []report.Todo) int {
+	open := 0
+
+	for _, todo := range todos {
+		if todo.Status == report.TodoOpen {
+			open++
+		}
+	}
+
+	return open
 }
 
 func pinnedCount(pins []report.Pin) int {
@@ -190,7 +215,7 @@ func pinnedFiles(scaffold characterise.Scaffold, pins []report.Pin) []report.Gen
 	files := make([]report.GeneratedFile, 0, len(scaffold.Scenarios))
 
 	for _, scenario := range scaffold.Scenarios {
-		content := characterise.Render(scaffold, scenario, pins)
+		content := characterise.Render(scaffold, []report.Scenario{scenario}, pins)
 		files = append(files, report.GeneratedFile{
 			Path:       scenario.File,
 			Content:    string(content),
@@ -217,12 +242,9 @@ func harvestScaffold(
 	workRoot string,
 	prepared warm,
 	scaffold characterise.Scaffold,
+	settings Config,
 ) (characterise.Harvest, error) {
-	staged := map[string][]byte{}
-
-	for _, scenario := range scaffold.Scenarios {
-		staged[stagedPath(configuration, scenario.File)] = characterise.Render(scaffold, scenario, nil)
-	}
+	staged := stagedScaffold(configuration, scaffold, nil, settings)
 
 	first, err := stagedRun(ctx, runner, configuration, workRoot, prepared, staged, "harvest-1")
 	if err != nil {
@@ -251,6 +273,41 @@ func harvestScaffold(
 	}, nil
 }
 
+// stagedScaffold renders the overlay the sandbox materialises.
+//
+// One file per scenario is the naming contract. The shared-file orders are the
+// scaffold-soundness gate's, and they exist because file order is the one
+// thing that could make a generated scenario observe another scenario's state:
+// the pins have to be identical under both, which is what the distinct state
+// keys buy.
+func stagedScaffold(
+	configuration discovery.Configuration,
+	scaffold characterise.Scaffold,
+	pins []report.Pin,
+	settings Config,
+) map[string][]byte {
+	staged := map[string][]byte{}
+
+	if settings.SeedSharedFileOrder == "" {
+		for _, scenario := range scaffold.Scenarios {
+			staged[stagedPath(configuration, scenario.File)] = characterise.Render(scaffold, []report.Scenario{scenario}, pins)
+		}
+
+		return staged
+	}
+
+	ordered := slices.Clone(scaffold.Scenarios)
+	if settings.SeedSharedFileOrder == "reverse" {
+		slices.Reverse(ordered)
+	}
+
+	staged[stagedPath(configuration, characterise.ScenarioFile(
+		configuration.TestDirRelative(), "shared",
+	))] = characterise.Render(scaffold, ordered, pins)
+
+	return staged
+}
+
 // verifyScaffold proves the pinned suite passes before anything is written.
 func verifyScaffold(
 	ctx context.Context,
@@ -258,15 +315,11 @@ func verifyScaffold(
 	configuration discovery.Configuration,
 	workRoot string,
 	prepared warm,
-	files []report.GeneratedFile,
+	scaffold characterise.Scaffold,
+	pins []report.Pin,
+	settings Config,
 ) error {
-	staged := map[string][]byte{}
-
-	for _, file := range files {
-		if file.Executable {
-			staged[stagedPath(configuration, file.Path)] = []byte(file.Content)
-		}
-	}
+	staged := stagedScaffold(configuration, scaffold, pins, settings)
 
 	result, err := stagedRun(ctx, runner, configuration, workRoot, prepared, staged, "verify")
 	if err != nil {

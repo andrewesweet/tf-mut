@@ -171,6 +171,18 @@ type Config struct {
 	// staged suite, so the staged provider gate can be proven to refuse before
 	// execution. It is a seam control, not a command-line flag.
 	SeedMissingMock string
+	// Todos lists the open judgement points and runs no Terraform.
+	Todos bool
+	// Answers supplies TODO answers as todo-<id>=<value>.
+	Answers []string
+	// Resume reads answered TODOs from the edited non-executable artefact as
+	// well as from Answers, re-synthesises, verifies and promotes.
+	Resume bool
+	// SeedSharedFileOrder stages every generated scenario into one file, in
+	// the named order (forward or reverse), so the scaffold-soundness gate can
+	// prove the pins are identical whatever the file order. It is a seam
+	// control, not a command-line flag.
+	SeedSharedFileOrder string
 	// SeedNoEscalation suppresses the zero-output auto-escalation, so the other
 	// half of the contract — a rung that pinned nothing may never report
 	// complete — can be proven on its own. It is a seam control, not a
@@ -226,6 +238,10 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 	// Characterisation is the same machinery pointed the other way: it has no
 	// suite to baseline, no population to grade, and its safety gates are
 	// judged against the suite it plans rather than the one on disk.
+	if settings.Todos {
+		return listTodos(configuration, settings, version.Terraform)
+	}
+
 	if settings.Characterise {
 		return characteriseModule(ctx, runner, configuration, settings, version)
 	}
@@ -588,6 +604,8 @@ func shell(
 
 func commandName(settings Config) report.Command {
 	switch {
+	case settings.Todos:
+		return report.CommandTodos
 	case settings.Characterise:
 		return report.CommandCharacterise
 	case settings.Preview:
