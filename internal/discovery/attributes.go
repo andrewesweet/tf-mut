@@ -101,7 +101,28 @@ func attributeRef(traversal hcl.Traversal) (AttributeRef, bool) {
 		resourceType = typed.Name
 	}
 
-	attribute, ok := traversal[named+offset-1].(hcl.TraverseAttr)
+	// An instance index sits between the resource address and the attribute:
+	// `resource.items[0].id` and `resource.items["key"].id` name exactly the
+	// same attribute of the same type as `resource.items.id`. Reading the
+	// index position as the attribute dropped the reference entirely, so the
+	// computed value behind it received no deterministic mock default and every
+	// generated assertion that depended on one was flaky or absent — which
+	// happens precisely on the `count` and `for_each` resources whose instance
+	// identity the counts rung exists to pin.
+	position := named + offset - 1
+	for position < len(traversal) {
+		if _, indexed := traversal[position].(hcl.TraverseIndex); !indexed {
+			break
+		}
+
+		position++
+	}
+
+	if position >= len(traversal) {
+		return empty, false
+	}
+
+	attribute, ok := traversal[position].(hcl.TraverseAttr)
 	if !ok {
 		return empty, false
 	}

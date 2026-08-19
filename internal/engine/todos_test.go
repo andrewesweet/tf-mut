@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -417,4 +418,74 @@ func TestASensitiveAnswerIsVerifiedAndStillWithheld(t *testing.T) {
 	if !strings.Contains(written, "token = "+secret) {
 		t.Fatalf("the written suite does not carry the value Terraform has to plan:\n%s", written)
 	}
+}
+
+// TestNoReportFieldVariesWithTheSensitiveAnswer closes the disclosure the
+// withholding test could not see.
+//
+// A report that carries no plaintext can still disclose one. The generated
+// file's digest covered the *executable* bytes while its content field carried
+// the deterministic redacted template, which makes the pair an offline equality
+// oracle: substitute a candidate into the template, hash, compare. The
+// mandatory fixture's constraint admits `tok-[0-9a-f]{8}` — thirty-two bits.
+//
+// The property that closes it is stronger than "no plaintext": no published
+// field may vary with the secret at all. Two different valid answers must
+// produce byte-identical reports.
+func TestNoReportFieldVariesWithTheSensitiveAnswer(t *testing.T) {
+	t.Parallel()
+
+	rendered := map[string]string{}
+
+	for _, secret := range []string{`"tok-0123abcd"`, `"tok-fedc9876"`} {
+		module := copyFixture(t, untestedSensitiveAnswerFixture)
+
+		opened, err := engine.Run(t.Context(), characteriseConfig(t, module))
+		if err != nil {
+			t.Fatalf("characterise: %v", err)
+		}
+
+		answered := characteriseConfig(t, module)
+		answered.Answers = []string{opened.Characterisation.Todos[0].ID + "=" + secret}
+
+		result, err := engine.Run(t.Context(), answered)
+		if err != nil {
+			t.Fatalf("a sensitive answer must verify like any other: %v", err)
+		}
+
+		encoded := strings.Builder{}
+		if err := report.WriteJSON(&encoded, result); err != nil {
+			t.Fatalf("encoding: %v", err)
+		}
+
+		rendered[secret] = redactVolatile(encoded.String())
+	}
+
+	if rendered[`"tok-0123abcd"`] != rendered[`"tok-fedc9876"`] {
+		t.Fatal("a published field varies with the sensitive answer, so the report " +
+			"distinguishes secrets it is meant to withhold")
+	}
+}
+
+// redactVolatile removes the fields that differ between any two runs, so that
+// what is compared is the report's dependence on its inputs and not on the
+// clock or the filesystem.
+func redactVolatile(document string) string {
+	decoded := map[string]any{}
+	if json.Unmarshal([]byte(document), &decoded) != nil {
+		return document
+	}
+
+	for _, volatile := range []string{
+		"started_at", "finished_at", "duration_ms", "module", "closure_root",
+	} {
+		delete(decoded, volatile)
+	}
+
+	reduced, err := json.Marshal(decoded)
+	if err != nil {
+		return document
+	}
+
+	return string(reduced)
 }

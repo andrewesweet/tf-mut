@@ -42,6 +42,12 @@ var ErrCuratePopulation = errors.New(
 // first.
 const assertionFailure = "Test assertion failed"
 
+// ErrUntilDryPopulation reports a population the convergence loop will not
+// draw a conclusion from.
+var ErrUntilDryPopulation = errors.New(
+	"--until-dry requires a full, unsampled, unfiltered population",
+)
+
 // checkCuratePopulation refuses at configuration time, which is the point: a
 // refusal that arrived after the population ran would have cost the caller the
 // whole run to learn that its evidence is inadmissible.
@@ -50,6 +56,43 @@ func checkCuratePopulation(settings Config) error {
 		return nil
 	}
 
+	refusals := populationRefusals(settings)
+	if len(refusals) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%w: %s\n"+
+		"  A redundancy finding drawn from a partial population is a false finding,\n"+
+		"  and reporting it rather than acting on it would not make it true",
+		ErrCuratePopulation, strings.Join(refusals, "; "))
+}
+
+// checkUntilDryPopulation holds the same posture for convergence.
+//
+// "Dry" is a claim about a population: the survivors stopped yielding new
+// assertions. Under a count lever the loop grades a subset and the claim
+// becomes "the survivors *this sample* reached stopped yielding", which is a
+// different and much weaker statement — and the report hard-codes the
+// selection as full, so nothing downstream could tell the two apart.
+func checkUntilDryPopulation(settings Config) error {
+	if !settings.UntilDry {
+		return nil
+	}
+
+	refusals := populationRefusals(settings)
+	if len(refusals) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%w: %s\n"+
+		"  Convergence measured over part of the population is not convergence,\n"+
+		"  and the report cannot say which part it measured",
+		ErrUntilDryPopulation, strings.Join(refusals, "; "))
+}
+
+// populationRefusals names every reason this population is not the default
+// one, which is the standard both commands apply.
+func populationRefusals(settings Config) []string {
 	refusals := []string{}
 
 	if settings.Since != "" {
@@ -81,14 +124,7 @@ func checkCuratePopulation(settings Config) error {
 			"--generated-functions changes the operator population")
 	}
 
-	if len(refusals) == 0 {
-		return nil
-	}
-
-	return fmt.Errorf("%w: %s\n"+
-		"  A redundancy finding drawn from a partial population is a false finding,\n"+
-		"  and reporting it rather than acting on it would not make it true",
-		ErrCuratePopulation, strings.Join(refusals, "; "))
+	return refusals
 }
 
 // checkPopulationObserved refuses a population that did not fully execute.
@@ -150,17 +186,29 @@ func curateSuite(
 	killSets := attributeKills(result, assertions)
 	provenance := assertionProvenance(configuration, assertions)
 
+	// The rung is validated rather than copied through. `--pin` belongs to
+	// `characterise`, and an unvalidated value reached `characterisation.rung`,
+	// where report-2.3.0 admits only `outputs`, `counts` and `configured`: a
+	// published document invalid against its own schema, from a flag this
+	// command does not act on.
+	rung := characterise.RungOutputs
+
+	if settings.PinRung != "" {
+		parsed, err := characterise.ParseRung(settings.PinRung)
+		if err != nil {
+			return report.Report{}, err
+		}
+
+		rung = parsed
+	}
+
 	result.Command = report.CommandCurate
 	result.Characterisation = &report.Characterisation{ //nolint:exhaustruct // curate reports findings, not a scaffold.
-		Rung: settings.PinRung, Complete: true,
+		Rung: string(rung), Complete: true,
 		Scenarios: []report.Scenario{}, Pins: []report.Pin{},
 		Files:    []report.GeneratedFile{},
 		Findings: curateFindings(assertions, killSets, provenance),
 		Staged:   true,
-	}
-
-	if result.Characterisation.Rung == "" {
-		result.Characterisation.Rung = string(characterise.RungOutputs)
 	}
 
 	return result, nil
@@ -308,7 +356,12 @@ func curateFindings(
 
 		if len(killSets[declared.ID]) == 0 {
 			findings = append(findings, finding(report.EmptyKillSet,
-				[]assertion{declared}, provenance, nil,
+				// An empty slice, not nil: report-2.3.0 declares `mutants` an
+				// array, and a nil slice serialises as `null`. The kill set
+				// being empty is the whole finding, so this is the one path
+				// that reaches the schema with nothing to list — and the one
+				// that published an invalid document.
+				[]assertion{declared}, provenance, []string{},
 				"no mutant's death depended on this assertion: it senses nothing the "+
 					"current operator catalogue models"))
 

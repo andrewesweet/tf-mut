@@ -122,7 +122,13 @@ func planScenarios(
 
 	// A scenario is only worth expanding once every input resolves: with a
 	// judgement point open there is no executable scenario to vary.
-	if len(todos) == 0 {
+	//
+	// An *answered* point is resolved. `synthesiseInputs` keeps it in the slice
+	// so the report can show that promotion has not been earned yet, so testing
+	// the slice for emptiness would mean a module that needed one answer never
+	// generated a flipped scenario again — it would characterise the default
+	// branch only, and report complete having done so.
+	if unresolved(todos) == 0 {
 		for _, flipped := range flippedScenarios(root, inputs, options) {
 			scenarios = append(scenarios, flipped.scenario)
 			values[flipped.scenario.ID] = flipped.values
@@ -133,7 +139,11 @@ func planScenarios(
 }
 
 // newScenario names a harvest point and derives its identity.
-func newScenario(moduleRel, name string, inputs []report.Input, options Options) report.Scenario {
+func newScenario(
+	moduleRel, name string,
+	inputs []report.Input,
+	options Options,
+) report.Scenario {
 	scenario := report.Scenario{
 		ID:       "",
 		Name:     name,
@@ -144,6 +154,21 @@ func newScenario(moduleRel, name string, inputs []report.Input, options Options)
 	scenario.ID = scenarioID(moduleRel, inputs, scenario.StateKey)
 
 	return scenario
+}
+
+// unresolved counts the judgement points still standing between the scaffold
+// and an executable suite: one nobody has answered, and one whose answer did
+// not survive verification.
+func unresolved(todos []report.Todo) int {
+	count := 0
+
+	for _, todo := range todos {
+		if todo.Status == report.TodoOpen || todo.Status == report.TodoRejected {
+			count++
+		}
+	}
+
+	return count
 }
 
 // synthesiseInputs resolves the module's inputs in the design's preference

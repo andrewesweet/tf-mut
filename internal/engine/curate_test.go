@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"encoding/json"
 	"errors"
 	"maps"
 	"os"
@@ -597,5 +598,76 @@ func TestAForeignRegistryIsNeverReplaced(t *testing.T) {
 
 	if readFile(t, registry) != "{\"this\":\"is not a provenance registry\"}\n" {
 		t.Fatal("the foreign registry was overwritten")
+	}
+}
+
+// TestARealCurateReportValidatesAgainstThePublishedSchema extends the machine
+// contract to the command that was outside it.
+//
+// Every schema case ran over a `characterise` report, so the one place a
+// characterisation block is built by `curate` was never checked against
+// report-2.3.0 — and it published `"mutants": null` for an empty kill set,
+// where the schema declares an array. The finding kind whose whole content is
+// that the kill set is empty is the one that reached the schema invalid.
+func TestARealCurateReportValidatesAgainstThePublishedSchema(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, curateFixture)
+
+	config := baseConfig(t, module)
+	config.Curate = true
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("curate: %v", err)
+	}
+
+	schema := loadPublishedSchema(t)
+
+	builder := strings.Builder{}
+	if err := report.WriteJSON(&builder, result); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	document := any(nil)
+	if err := json.Unmarshal([]byte(builder.String()), &document); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+
+	if problems := validateAgainst(schema, schema, document, "$"); len(problems) > 0 {
+		t.Fatalf("the real curate report does not validate:\n  %s", strings.Join(problems, "\n  "))
+	}
+}
+
+// TestCurateHonoursTheGateFlagsItAccepts closes the exit-code gap.
+//
+// `curate` executes the full, unsampled population the population posture
+// exists to guarantee, and then returned before `--min-score` and
+// `--fail-on-new` were applied — because the branch was keyed on the report
+// carrying a characterisation block rather than on the command. A gate flag
+// accepted and not applied is the shape this file's own composition rule warns
+// about.
+func TestCurateHonoursTheGateFlagsItAccepts(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, curateFixture)
+
+	config := baseConfig(t, module)
+	config.Curate = true
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("curate: %v", err)
+	}
+
+	unreachable := 100.0
+
+	gate := report.Gate{ //nolint:exhaustruct // only the score gate is under test.
+		MinScore: unreachable, HasMinScore: true,
+	}
+
+	if code := result.ExitCode(gate); code != report.ExitFindings {
+		t.Fatalf("exit code = %d with an unreachable --min-score, want %d",
+			code, report.ExitFindings)
 	}
 }

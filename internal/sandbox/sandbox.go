@@ -76,12 +76,18 @@ var ErrTargetExists = errors.New("sandbox target already exists")
 // ErrEscapingPath reports a staged or mutated path that resolves outside the
 // sandbox it was to be written into.
 //
-// The keys of Staged and Mutations are relative paths built from
-// caller-controlled input — a `--test-directory` among them — and
-// `filepath.Join` *cleans* a `..` rather than refusing it, so a path that
-// climbs out of the sandbox arrives looking like an ordinary join. The whole
-// value of a sandbox is that everything written lands inside it, so a path
-// that would not is refused rather than cleaned.
+// The keys of Staged are relative paths built from caller-controlled input — a
+// `--test-directory` among them — and `filepath.Join` *cleans* a `..` rather
+// than refusing it, so a path that climbs out of the sandbox arrives looking
+// like an ordinary join. The whole value of a sandbox is that everything
+// written lands inside it, so a path that would not is refused rather than
+// cleaned.
+//
+// Mutations are deliberately not named here. Their keys are matched against
+// paths the source walk produced, so an escaping key never matches and is
+// dropped rather than refused; the guard that fires for them would have to
+// live where the map is built, not here. Claiming them would describe a
+// protection this call site does not provide.
 var ErrEscapingPath = errors.New("path resolves outside the sandbox")
 
 // Share describes the warm workspace a sandbox borrows from.

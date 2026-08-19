@@ -14,7 +14,7 @@ import (
 const m45GateRecipe = "gate-m45:"
 
 // minimumM45GateCases guards against a recipe edit that empties the gate.
-const minimumM45GateCases = 62
+const minimumM45GateCases = 71
 
 func TestTheM45GateNamesOnlyTestsThatExist(t *testing.T) {
 	t.Parallel()
@@ -103,6 +103,15 @@ func TestTheM45GateCoversEveryNamedRequirement(t *testing.T) {
 		"the rename window itself is checked":        "TestAClosureChangeInsideTheRenameWindowIsCaught",
 		"configuration_aliases are mocked and gated": "TestConfigurationAliasesAreMockedAndGated",
 		"the validation function table":              "TestTheValidationFunctionTable",
+		"the initial pin set is verified too":        "TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten",
+		"JSON variables reach the scaffold":          "TestAJSONDeclaredVariableReachesTheScaffold",
+		"for_each keys needing escapes":              "TestForEachKeysNeedingEscapesStillRenderAGreenSuite",
+		"until-dry refuses a narrowed population":    "TestUntilDryRefusesANarrowedPopulation",
+		"real curate reports validate against 2.3.0": "TestARealCurateReportValidatesAgainstThePublishedSchema",
+		"curate honours the gates it accepts":        "TestCurateHonoursTheGateFlagsItAccepts",
+		"no report field varies with the secret":     "TestNoReportFieldVariesWithTheSensitiveAnswer",
+		"characterisation flags are command-scoped":  "TestACharacterisationFlagIsRefusedByAGradingCommand",
+		"a reporter that carries nothing is refused": "TestAReporterThatCannotCarryACharacterisationIsRefused",
 	}
 
 	assertGateCovers(t, "M4.5", m45GatedTests(t), required)

@@ -20,11 +20,13 @@ import (
 // test suite at all — the situation the mode exists for.
 
 const (
-	untestedAliasesFixture    = "untested-aliases"
-	untestedZeroOutputFixture = "untested-zero-output"
-	untestedSensitiveFixture  = "untested-sensitive"
-	untestedBranchesFixture   = "untested-branches"
-	untestedAliasFixture      = "untested-configuration-aliases"
+	untestedAliasesFixture      = "untested-aliases"
+	untestedZeroOutputFixture   = "untested-zero-output"
+	untestedSensitiveFixture    = "untested-sensitive"
+	untestedJSONVariableFixture = "untested-json-variable"
+	untestedForEachKeysFixture  = "untested-foreach-keys"
+	untestedBranchesFixture     = "untested-branches"
+	untestedAliasFixture        = "untested-configuration-aliases"
 
 	// secondaryConfiguration is the alias the acceptance pair removes a mock
 	// for, in both fixtures that declare one.
@@ -175,6 +177,72 @@ func TestAWrittenSuiteIsGreenAndRegistered(t *testing.T) {
 
 	if len(graded.Mutants) == 0 {
 		t.Fatal("the generated suite graded no mutants")
+	}
+
+	// Graded is not the property issue #74 asks for. A suite whose every
+	// assertion was missing or tautological still grades a full population;
+	// what a characterisation has to prove is that mutating the behaviour it
+	// pinned is *caught*. Counting the deaths an assertion caused is the
+	// observable form of that at this seam — `KilledByError` is deliberately
+	// not accepted, because Terraform's own evaluation kills those with no
+	// assertion in play at all.
+	killed := 0
+
+	for _, mutant := range graded.Mutants {
+		if mutant.State == report.Killed {
+			killed++
+		}
+	}
+
+	if killed == 0 {
+		t.Fatalf("no mutant of the pinned behaviour was killed by an assertion: %d graded, "+
+			"states %v", len(graded.Mutants), statesOf(graded))
+	}
+}
+
+// statesOf summarises a graded population for a failure message.
+func statesOf(graded report.Report) map[report.State]int {
+	counts := map[report.State]int{}
+	for _, mutant := range graded.Mutants {
+		counts[mutant.State]++
+	}
+
+	return counts
+}
+
+// TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten holds the other
+// half of issue #74's acceptance pair: the verification between the harvest and
+// everything downstream of it.
+//
+// `SeedFinalPinDefect` proves the verifier after the until-dry loop. This one
+// proves the verifier before it — a separate call, on a path a run without
+// `--until-dry` takes, and one that a deletion would have left every test green
+// over.
+func TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedBranchesFixture)
+
+	config := characteriseConfig(t, module)
+	config.CharacteriseWrite = true
+	config.SeedInitialPinDefect = true
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrScaffoldRed) {
+		t.Fatalf("error = %v, want the harvested pin set refused as not green", err)
+	}
+
+	entries, readErr := os.ReadDir(filepath.Join(module, "tests"))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatalf("reading the test directory: %v", readErr)
+	}
+
+	if len(entries) > 0 {
+		t.Fatalf("a refused verification still wrote %d file(s)", len(entries))
+	}
+
+	if _, statErr := os.Stat(filepath.Join(module, engine.RegistryName)); statErr == nil {
+		t.Fatal("a refused verification still wrote the provenance registry")
 	}
 }
 
@@ -805,4 +873,98 @@ func TestAClosureChangeInsideTheRenameWindowIsCaught(t *testing.T) {
 			t.Fatalf("the aborted commit wrote %s", entry.Name())
 		}
 	}
+}
+
+// TestAJSONDeclaredVariableReachesTheScaffold holds the JSON half of the input
+// inventory.
+//
+// Terraform reads a `.tf.json` variable exactly as it reads a native one, so a
+// collector that only walked references left the pipeline with no variable to
+// resolve: the scaffold assigned nothing, raised no judgement point, and the
+// run died at plan time on "No value for required variable" — about a module
+// the tool had read.
+func TestAJSONDeclaredVariableReachesTheScaffold(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedJSONVariableFixture)
+
+	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	if err != nil {
+		t.Fatalf("characterise: %v", err)
+	}
+
+	block := result.Characterisation
+	if block == nil {
+		t.Fatal("no characterisation block")
+	}
+
+	if len(block.Todos) > 0 {
+		t.Fatalf("a JSON variable with a default became a judgement point: %+v", block.Todos)
+	}
+
+	if !block.Complete || pinCount(block) == 0 {
+		t.Fatalf("the JSON module pinned nothing: complete=%v pins=%d",
+			block.Complete, pinCount(block))
+	}
+}
+
+// TestForEachKeysNeedingEscapesStillRenderAGreenSuite holds the renderer's
+// escaping contract at the two places a key reaches the file.
+//
+// A legal `for_each` key can contain a quote, a backslash or an interpolation
+// marker, and the instance address built from one lands both in the assertion
+// condition and in the `error_message` beside it. Concatenating either produced
+// a file Terraform could not parse — surfacing as `ErrScaffoldRed`, which the
+// engine calls a generator defect, with nothing pointing at the key.
+func TestForEachKeysNeedingEscapesStillRenderAGreenSuite(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedForEachKeysFixture)
+
+	config := characteriseConfig(t, module)
+	config.PinRung = "counts"
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("characterise --pin counts: %v", err)
+	}
+
+	if result.Characterisation == nil || !result.Characterisation.Complete {
+		t.Fatalf("the suite did not verify green: %+v", result.Characterisation)
+	}
+}
+
+// TestUntilDryRefusesANarrowedPopulation holds convergence to the population
+// posture `curate` already holds.
+//
+// "Dry" is a claim about a population: under a count lever the loop grades a
+// subset, and the report hard-codes the selection as full, so nothing
+// downstream could tell a sampled convergence from an authoritative one.
+func TestUntilDryRefusesANarrowedPopulation(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedBranchesFixture)
+
+	config := characteriseConfig(t, module)
+	config.UntilDry = true
+	config.HasSample = true
+	config.SamplePercent = 1
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrUntilDryPopulation) {
+		t.Fatalf("error = %v, want the narrowed population refused before any work", err)
+	}
+}
+
+// pinCount counts the pins a block actually pinned.
+func pinCount(block *report.Characterisation) int {
+	count := 0
+
+	for _, pin := range block.Pins {
+		if pin.Status == report.Pinned {
+			count++
+		}
+	}
+
+	return count
 }

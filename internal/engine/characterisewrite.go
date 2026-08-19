@@ -117,12 +117,24 @@ func commitScaffold(
 		record.Partial = written
 		record.Refused = err.Error()
 
+		// The ledger has to describe the tree the tool actually left behind.
+		// Without this the files that did land are absent from the registry,
+		// and `checkTargets` then refuses to let `--force` replace them —
+		// "not in the provenance registry, so --force will not replace it" —
+		// so the tool's own output becomes indistinguishable from a user's and
+		// the only recovery is manual deletion. A registry write that fails on
+		// top of a failed commit changes nothing about the first failure, so
+		// its error is deliberately not allowed to displace it.
+		if len(written) > 0 {
+			_ = storeRegistry(configuration.ModuleDir, settings, block, files, inputDigest, existing)
+		}
+
 		return err
 	}
 
 	block.Staged = false
 
-	if err := storeRegistry(configuration.ModuleDir, settings, block, inputDigest, existing); err != nil {
+	if err := storeRegistry(configuration.ModuleDir, settings, block, files, inputDigest, existing); err != nil {
 		// Every generated file has already been renamed by this point, so a
 		// registry that will not store is a partial state and not a refusal:
 		// the caller's tree has changed and the record of what changed it has
@@ -259,6 +271,8 @@ func writeFiles(
 		}
 
 		if err := sandbox.WriteFreshChecked(target, "", file.bytes, commit); err != nil {
+			markWritten(block, written)
+
 			return written, err
 		}
 
@@ -390,11 +404,20 @@ func storeRegistry(
 	moduleDir string,
 	settings Config,
 	block *report.Characterisation,
+	files []generated,
 	inputDigest string,
 	existing registry,
 ) error {
 	if settings.SeedRegistryFailure {
 		return fmt.Errorf("%w: the provenance registry could not be stored", ErrWriteRefused)
+	}
+
+	// The digest the registry records is the *written* bytes', which is what
+	// `checkTargets` compares against the file on disk. The report's published
+	// digest covers the redacted view and would never match one.
+	written := map[string]string{}
+	for _, file := range files {
+		written[file.entry.Path] = file.digest
 	}
 
 	for _, file := range block.Files {
@@ -403,7 +426,7 @@ func storeRegistry(
 		}
 
 		existing.Files[file.Path] = registryFile{
-			Digest: file.Digest, InputDigest: inputDigest, Pins: pinsIn(block, file.Path),
+			Digest: written[file.Path], InputDigest: inputDigest, Pins: pinsIn(block, file.Path),
 		}
 	}
 
@@ -414,7 +437,23 @@ func storeRegistry(
 		return fmt.Errorf("encoding the provenance registry: %w", err)
 	}
 
-	return sandbox.WriteFresh(filepath.Join(moduleDir, RegistryName), "", append(content, '\n'))
+	// The registry goes through the same rename-window protocol as every other
+	// file in the target set. `checkRegistry` runs at the top of
+	// `commitScaffold`, so without this callback the window between "there is
+	// no registry here" and this write spans every generated file's write, and
+	// a registry created inside it by a concurrent invocation — or by a user —
+	// would be overwritten with no shape check at all.
+	//nolint:exhaustruct // the registry check reads the module directory and nothing else.
+	recheck := func() error {
+		if refusal := checkRegistry(discovery.Configuration{ModuleDir: moduleDir}); refusal != "" {
+			return fmt.Errorf("%w: %s", ErrWriteRefused, refusal)
+		}
+
+		return nil
+	}
+
+	return sandbox.WriteFreshChecked(filepath.Join(moduleDir, RegistryName), "",
+		append(content, '\n'), recheck)
 }
 
 // pinsIn lists the pins a generated file carries.

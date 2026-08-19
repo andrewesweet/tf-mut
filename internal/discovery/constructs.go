@@ -86,6 +86,18 @@ func collectCheckBlock(
 // the effect inventory, and the resource it names into the provider inventory:
 // destroying a resource runs its provider, whether or not the configuration
 // still declares the resource.
+//
+// One shape is deliberately outside that claim. `removed { from = module.x }`
+// names a module call rather than a resource, and the providers a destroyed
+// module used cannot be recovered from the address — the module is, by
+// construction, no longer declared. The provisioners inside such a block still
+// reach the effect inventory, so the effects gate holds; the provider
+// inventory records nothing, and `--allow-real-infrastructure` is what stands
+// between that gap and a real API call. The alternative, refusing the block,
+// was rejected for the reason the `moved` refusal was withdrawn: it would
+// stop `run`, `preview`, `suggest` and `curate` on every module carrying a
+// module removal, to close a gap the safety gate already fails closed on. The
+// limit is recorded in `docs/research/13-m45-exit-gate.md`.
 func collectRemovedBlock(
 	module *Module,
 	providers map[string]bool,

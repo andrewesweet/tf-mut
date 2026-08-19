@@ -528,7 +528,7 @@ func TestTheTodoSurfacesAreWiredInBothArgumentOrders(t *testing.T) {
 			}
 
 			resumed := decodeReport(t, mustRun(t, arguments(order, module,
-				characteriseCommand, "--resume", reporterFlag, reporterJSON)))
+				characteriseCommand, resumeFlag, reporterFlag, reporterJSON)))
 			if resumed.Characterisation.OpenTodos() != 1 {
 				t.Fatal("--resume answered a judgement point nobody answered")
 			}
@@ -599,12 +599,12 @@ func TestTodosRefusesArgumentsAfterTheModulePath(t *testing.T) {
 
 	stderr := bytes.Buffer{}
 
-	code := run([]string{todosCommand, ".", "--resume"}, "test", &bytes.Buffer{}, &stderr)
+	code := run([]string{todosCommand, ".", resumeFlag}, "test", &bytes.Buffer{}, &stderr)
 	if code != report.ExitOperational {
 		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
 	}
 
-	for _, expected := range []string{"--resume", beforeThePath} {
+	for _, expected := range []string{resumeFlag, beforeThePath} {
 		if !strings.Contains(stderr.String(), expected) {
 			t.Fatalf("the refusal does not carry %q: %s", expected, stderr.String())
 		}
@@ -740,6 +740,9 @@ func runTranscriptCommand(t *testing.T, command []string, module string) {
 
 // writeFlag is the transcript step that has to succeed outright.
 const writeFlag = "--write"
+
+// resumeFlag is the artefact-answer step's flag, spelled in three cases.
+const resumeFlag = "--resume"
 
 // substituteModule points a transcript line at the fixture.
 //
@@ -878,5 +881,79 @@ func TestCurateRefusesArgumentsAfterTheModulePath(t *testing.T) {
 		if !strings.Contains(stderr.String(), expected) {
 			t.Fatalf("the refusal does not carry %q: %s", expected, stderr.String())
 		}
+	}
+}
+
+// TestACharacterisationFlagIsRefusedByAGradingCommand keeps the flag surface
+// honest per command.
+//
+// `--write`, `--force`, `--pin`, `--until-dry`, `--answer` and `--resume` are
+// declared on the flag set every command shares, so `run`, `preview` and
+// `suggest` accepted and ignored them. Two of those name write behaviour and a
+// third is validated under `characterise` and was not under anything else.
+func TestACharacterisationFlagIsRefusedByAGradingCommand(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		command string
+		flag    string
+	}{
+		{runCommand, writeFlag},
+		{runCommand, "--force"},
+		{runCommand, "--pin=nonsense"},
+		{previewCommand, "--until-dry"},
+		{suggestCommand, resumeFlag},
+		{curateCommand, "--apply=sug-1"},
+		{curateCommand, "--until-dry"},
+		{todosCommand, writeFlag},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.command+testCase.flag, func(t *testing.T) {
+			t.Parallel()
+
+			stderr := bytes.Buffer{}
+
+			code := run([]string{testCase.command, testCase.flag, t.TempDir()},
+				"test", &bytes.Buffer{}, &stderr)
+			if code != report.ExitOperational {
+				t.Fatalf("exit code = %d, want %d: %s",
+					code, report.ExitOperational, stderr.String())
+			}
+
+			if !strings.Contains(stderr.String(), "not a "+testCase.command+" flag") {
+				t.Fatalf("the refusal does not name the command: %s", stderr.String())
+			}
+		})
+	}
+}
+
+// TestAReporterThatCannotCarryACharacterisationIsRefused closes the other half
+// of the same shape.
+//
+// The generated suite lives in `characterisation.files`, which the SARIF, MTE,
+// HTML, JUnit and Markdown adapters do not carry, so `characterise --reporter
+// markdown` wrote nothing, returned no suite and exited as though it had
+// succeeded.
+func TestAReporterThatCannotCarryACharacterisationIsRefused(t *testing.T) {
+	t.Parallel()
+
+	for _, reporter := range []string{"markdown", "sarif", "junit", "html", "mte"} {
+		t.Run(reporter, func(t *testing.T) {
+			t.Parallel()
+
+			stderr := bytes.Buffer{}
+
+			code := run([]string{characteriseCommand, "--reporter", reporter, t.TempDir()},
+				"test", &bytes.Buffer{}, &stderr)
+			if code != report.ExitOperational {
+				t.Fatalf("exit code = %d, want %d: %s",
+					code, report.ExitOperational, stderr.String())
+			}
+
+			if !strings.Contains(stderr.String(), "cannot carry a characterisation") {
+				t.Fatalf("the refusal does not say why: %s", stderr.String())
+			}
+		})
 	}
 }

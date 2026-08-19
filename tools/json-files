@@ -20,4 +20,5 @@ internal/engine/testdata/json-terraform-unmodelled/settings.tf.json
 internal/engine/testdata/json-test-mock/tests/unit.tftest.json
 internal/engine/testdata/json-unmodelled/future.tf.json
 internal/engine/testdata/suggest-json-target/tests/unit.tftest.json
+internal/engine/testdata/untested-json-variable/main.tf.json
 research/corpus/m45-synthesis.json

@@ -407,7 +407,62 @@ skipped, a function table green because nothing called it, a measurement true in
 that mis-stated its scope. The instruction that follows is narrower than "test the property" —
 **check what the green actually executed**, because a skip and a pass are the same colour.
 
-## 13. Open questions for M5
+## 13. What the fifth adversarial review changed
+
+The fifth pass reviewed the inline annotations of the previous four rounds point by point
+rather than only their summaries, and found that ten of the third round's sixteen threads,
+all eleven of the fourth round's, and eleven of the fifth's had been answered at the summary
+level and never individually. The disposition below is per finding.
+
+**The defect the repairs found.** The `for_each` key fixture added for the escaping finding
+turned up a second defect the previous round's repair had left: an instance address quotes a
+key the way HCL does, so a key containing `${` arrives spelled `$${`, and `strconv.Unquote`
+— which knows the backslash escapes the two languages share and not this one — returned it
+one escape too long. The renderer then correctly escaped it again and pinned
+`"dollar$$${brace"` for a key that is `dollar${brace`. The suite failed its own harvest,
+reported as a generator defect with nothing naming the key. Standing rule 2 again: the repair
+was reviewed, its fixture was not.
+
+**The one finding declined, and why.** Two findings pull in opposite directions. One asked
+for scenario and pin identity to be derived from the executable assignment, because two
+different sensitive answers collided into one identifier. The other observed that any
+published field varying with a withheld value is a disclosure — the redacted template is
+deterministic, so the value is recoverable by substitution over an answer space the mandatory
+fixture fixes at thirty-two bits. A digest is no defence at that size.
+
+The safety property wins. Provenance has a home that is not published: the module-local
+`.tf-mut-generated.json` records the digest of the written bytes, so two different answers
+produce two different registry records and the collision does not reach the place provenance
+is consumed. `TestNoReportFieldVariesWithTheSensitiveAnswer` states the property directly —
+two valid answers must produce byte-identical reports — and is the reason
+`generated_file.digest` now covers the reported bytes rather than the written ones. The
+schema says so.
+
+**Two findings deferred, with the reason recorded rather than the work.**
+
+- *The diagnostic-repair rung.* Issue #75's preference order is `default → validation mining
+  → typed synthesis → diagnostic-driven repair`, and the fourth rung is not built: the
+  pipeline returns a judgement point where it would begin. This is a whole rung, requiring a
+  real-plan seam inside synthesis and a bounded repair table over Terraform diagnostics, and
+  `docs/research/12-m45-synthesis-rate.md` measures the rung above it firing zero times
+  across the corpus. Shipping three rungs and a judgement point is the honest fail-closed
+  behaviour; shipping a fourth rung nothing measured would not be.
+- *The seam controls on the exported `engine.Config`.* Twenty-four `Seed*` fields are public,
+  and two of them write into the caller's tree. The never-write invariant is currently a
+  property of `Config` being zero-valued rather than a property of the code. An
+  `export_test.go` hook would make it structural again, and the change touches every gate
+  recipe and every seam test in the milestone. It belongs beside the shared-write-protocol
+  question below, not in a review round.
+
+**A limit now stated where it is true.** `removed { from = module.x }` names a module call
+rather than a resource, so the providers a destroyed module used cannot be recovered from the
+address: the provisioners inside it still reach the effect inventory, and the provider
+inventory records nothing. Refusing the block was rejected for the reason the `moved` refusal
+was withdrawn — it would stop every command on every module carrying a module removal, to
+close a gap `--allow-real-infrastructure` already fails closed on. The comment in
+`internal/discovery/constructs.go` now says so.
+
+## 14. Open questions for M5
 
 - Scaffold promotion and `suggest --apply` are now two verify-then-write protocols side by
   side, and they differ. Should they be one?
@@ -417,6 +472,11 @@ that mis-stated its scope. The instruction that follows is narrower than "test t
   the constraint go straight to the reader as a judgement point?
 - Per-assertion provenance would make `curate` sharper and is a prerequisite for any future
   `curate --apply`.
+- The `.tf.json` variable collector re-parses type constraints and validation conditions
+  into native syntax, because every reader downstream of discovery expects an
+  `hclsyntax.Expression`. A JSON declaration whose parts do not re-parse becomes a judgement
+  point, which is fail-closed but is not the same as reading it. Should `discovery.Attribute`
+  carry `hcl.Expression` instead?
 - Three write protocols now exist side by side — `suggest --apply`, the characterisation
   commit and `skill install` — and each has independently grown a pre-rename check and a
   partial-state report, twice by regression review. One shared protocol would be cheaper than

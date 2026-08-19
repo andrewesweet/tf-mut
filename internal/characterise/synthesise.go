@@ -77,11 +77,19 @@ func Synthesise(variable discovery.Block, sources map[string][]byte, answer stri
 		}
 	}
 
+	// Each failed attempt carries back the validation that actually rejected
+	// it. Discarding that and letting `gap` substitute the first declared
+	// validation quoted a constraint every attempted value passed — on the one
+	// surface whose whole worth is quoting the module's own words to the reader
+	// who has to satisfy them.
 	for _, candidate := range mined(variable) {
-		if attempt := check(result, candidate, report.FromValidation, variable, sources); attempt.Resolved() {
+		attempt := check(result, candidate, report.FromValidation, variable, sources)
+		if attempt.Resolved() {
 			return attempt
 		}
 
+		result.Constraint = attempt.Constraint
+		result.ConstraintRange = attempt.ConstraintRange
 		result.Attempted = append(result.Attempted, candidate)
 	}
 
@@ -92,10 +100,13 @@ func Synthesise(variable discovery.Block, sources map[string][]byte, answer stri
 				"version synthesises a value for")
 	}
 
-	if attempt := check(result, candidate, report.FromType, variable, sources); attempt.Resolved() {
+	attempt := check(result, candidate, report.FromType, variable, sources)
+	if attempt.Resolved() {
 		return attempt
 	}
 
+	result.Constraint = attempt.Constraint
+	result.ConstraintRange = attempt.ConstraintRange
 	result.Attempted = append(result.Attempted, candidate)
 
 	return gap(result, variable, sources,
@@ -343,9 +354,15 @@ func mineContains(call *hclsyntax.FunctionCallExpr, name string) []string {
 	return candidates
 }
 
-// mineEquality reads `var.x == "literal"` and the conjunctions around it.
+// mineEquality reads `var.x == "literal"` and the conjunctions and
+// disjunctions around it.
+//
+// The disjunction matters as much as the conjunction: `var.tier == "bronze" ||
+// var.tier == "gold"` is at least as common in the wild as the
+// `contains([...], var.tier)` spelling of the same constraint, and mining only
+// the conjunction saw the second and not the first.
 func mineEquality(operation *hclsyntax.BinaryOpExpr, name string) []string {
-	if operation.Op == hclsyntax.OpLogicalAnd {
+	if operation.Op == hclsyntax.OpLogicalAnd || operation.Op == hclsyntax.OpLogicalOr {
 		return append(mineExpression(operation.LHS, name), mineExpression(operation.RHS, name)...)
 	}
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
 
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
@@ -161,9 +162,16 @@ func renderRun(
 			continue
 		}
 
+		// The address goes through the value renderer rather than into a
+		// hand-built quoted string. A `for_each` instance address contains
+		// quotes of its own — `terraform_data.item["a"]` — and concatenating
+		// one into a literal produced a file Terraform could not parse, so
+		// every string-keyed instance was uncharacterisable at the configured
+		// rung while the assertion expression beside it was perfectly valid.
 		builder.WriteString("\n  assert {\n")
 		builder.WriteString("    condition     = " + pin.Expression + "\n")
-		builder.WriteString(`    error_message = "characterised ` + pin.Address + ` changed"` + "\n")
+		builder.WriteString("    error_message = " +
+			renderValue(cty.StringVal("characterised "+pin.Address+" changed")) + "\n")
 		builder.WriteString("  }\n")
 	}
 

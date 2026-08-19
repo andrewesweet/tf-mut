@@ -135,7 +135,7 @@ func jsonRun(path, relative string, block *hcl.Block) (RunBlock, error) {
 	run := RunBlock{
 		Name: block.Labels[0], File: path, Rel: relative, Command: CommandApply,
 		ModuleSource: "", Assertions: 0, DefRange: block.DefRange,
-		Variables: nil, HasPlanTarget: false, JSONDeclared: true,
+		Variables: nil, HasPlanTarget: false, JSONDeclared: true, Asserts: nil,
 	}
 
 	nested, rest, diagnostics := block.Body.PartialContent(jsonRunSchema)
@@ -170,6 +170,13 @@ func jsonRun(path, relative string, block *hcl.Block) (RunBlock, error) {
 		switch inner.Type {
 		case assertBlock:
 			run.Assertions++
+			// The assert blocks themselves, not only their count. `curate`
+			// walks `Asserts` to build its per-assertion inventory, so a JSON
+			// suite otherwise produced a baseline reporting assertions and a
+			// curate run reporting nothing about any of them — issue #77's
+			// per-assertion contract is about the effective suite, and
+			// Terraform reads both syntaxes into one.
+			run.Asserts = append(run.Asserts, jsonAssertBlock(path, inner))
 		case moduleBlock:
 			run.ModuleSource = jsonAttributeString(inner.Body, "source")
 		case planOptions:
@@ -181,6 +188,31 @@ func jsonRun(path, relative string, block *hcl.Block) (RunBlock, error) {
 	}
 
 	return run, nil
+}
+
+// jsonAssertBlock reads one JSON assert block into the same shape a native one
+// takes: the condition's range, which a failure diagnostic points at, and its
+// source verbatim, which a finding quotes.
+//
+// The source is recovered from the file rather than evaluated, because a
+// condition reads addresses that exist only at plan time. The interpolation
+// markers Terraform's JSON spelling wraps it in come off, so that the quoted
+// text reads as the assertion the author wrote.
+func jsonAssertBlock(path string, block *hcl.Block) AssertBlock {
+	attributes, diagnostics := block.Body.JustAttributes()
+	if diagnostics.HasErrors() {
+		return AssertBlock{Range: block.DefRange, Source: ""}
+	}
+
+	condition, found := attributes["condition"]
+	if !found {
+		return AssertBlock{Range: block.DefRange, Source: ""}
+	}
+
+	return AssertBlock{
+		Range:  condition.Expr.Range(),
+		Source: unwrapInterpolation(jsonSource(path, condition.Expr)),
+	}
 }
 
 // jsonAssertions lists the addresses a JSON run's assert conditions read.

@@ -38,6 +38,14 @@ driven through the engine seam by `tf-mut todos`.
 Measured: 9 modules. Executable default scenario with no answer: **9 of 9**. Refused: 1.
 **Median open judgement points per module: 0.**
 
+Both denominators, because the headline is computed over the subset the pipeline could
+read and the corpus that was pinned is larger: **9 of 9 readable, 9 of 10 pinned.** The
+decision rule below is stated over the median module and is unchanged by which
+denominator is used, but a rate quoted only over the subset that survived is the posture
+`checkCuratePopulation` refuses in `curate` — "a redundancy finding drawn from a partial
+population is a false finding" — and a measurement that holds its users to that standard
+publishes both numbers rather than the flattering one.
+
 ## The decision, applied
 
 The median corpus module yields an executable default scenario with no TODO answer, so the

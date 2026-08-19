@@ -82,12 +82,17 @@ nobody has.
 - **Day-2 scenarios.** A generated scenario characterises a create from empty
   state. Update and replace behaviour is invisible to it, and *which* input
   change models realistic drift is judgement. Write an ordinary `run` block
-  with the inputs you think matter; the tool harvests and pins it like its
-  own.
+  with the inputs you think matter, and assert in it yourself.
 - **Discriminating inputs.** When a survivor is diagnosed as unobservable
   under the current inputs, the gap is the *inputs*, not the assertions. Add
-  a run block with the inputs you think discriminate the behaviour, and let
-  the tool report whether the fingerprint actually changed.
+  a run block with the inputs you think discriminate the behaviour, then rerun
+  the loop and read whether the diagnosis changed.
+
+**A run block you write is executed, not harvested.** This version pins only
+the scenarios it planned: `tf-mut` maps a harvest back to a scenario by the
+name it generated, so a hand-written run contributes to the mutation grade and
+to `curate`'s evidence, and never to `characterisation.pins`. Assertions in it
+are yours to write and yours to maintain.
 
 ## What the tool refuses, and why you should not talk it round
 
@@ -98,11 +103,16 @@ nobody has.
   does not sever a `local-exec`, an `external` data source or a
   `terraform_remote_state` read. These execute for real under an apply-mode
   scenario.
-- **A partial population for `curate`.** A redundancy finding drawn from a
-  scoped or sampled run is a false finding.
+- **A partial population for `curate` or `--until-dry`.** A redundancy finding
+  or a convergence claim drawn from a scoped or sampled run is a false one.
+  This refusal has **no opt-in**: drop the count lever and run again.
 
-Each of those has an opt-in flag. Reach for one only when you have read what
-it permits and decided the risk is acceptable for this module — and say so.
+The first two have an opt-in flag — `--allow-real-infrastructure` and
+`--allow-unsandboxed-effects`. **Neither is yours to grant.** Report the
+refusal verbatim to the module owner, with what the flag would permit, and
+wait for their decision. These gates stand between a test run and a real API
+call or a real side effect on the machine it runs on, and an agent that talks
+itself round one has removed the only thing standing there.
 
 ## Walkthrough
 

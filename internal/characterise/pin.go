@@ -406,6 +406,19 @@ func instancesOf(payload fingerprint.Payload) map[string]map[string]bool {
 	return instances
 }
 
+// unescapeTemplate reverses HCL's template escapes, which an instance address
+// carries and Go's own unquoting knows nothing about.
+//
+// An address is quoted the way HCL quotes a string, so a key containing `${`
+// arrives spelled `$${`. `strconv.Unquote` handles the backslash escapes the
+// two languages share and leaves this one in place, so the key came back one
+// escape too long and the renderer — correctly — escaped it again, pinning
+// `"dollar$$${brace"` for a key that is `dollar${brace`. The suite then failed
+// its own harvest, reported as a generator defect with nothing naming the key.
+func unescapeTemplate(key string) string {
+	return strings.NewReplacer("$${", "${", "%%{", "%{").Replace(key)
+}
+
 // instanceKeys reads the for_each keys out of a collection's instance
 // addresses, sorted the way `keys` returns them.
 func instanceKeys(members map[string]bool) []string {
@@ -422,7 +435,7 @@ func instanceKeys(members map[string]bool) []string {
 			key = unquoted
 		}
 
-		keys = append(keys, key)
+		keys = append(keys, unescapeTemplate(key))
 	}
 
 	slices.Sort(keys)

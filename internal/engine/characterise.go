@@ -130,7 +130,14 @@ func characteriseModule(
 	// The until-dry loop grades what the scaffold pinned and pins whatever its
 	// survivors still yield, over the staged suite: nothing on disk changes
 	// until the caller asks for a write.
-	if settings.UntilDry && block.Complete {
+	// Gated on the judgement points, not on `Complete`. `Complete` is false for
+	// a scaffold that pinned nothing, and a zero-assertion scaffold is exactly
+	// the case issue #76's assertion-kills-only rule is about: the loop has to
+	// run over it and report what a suite that asserts nothing actually grades,
+	// rather than declining to produce a mutation population or any convergence
+	// evidence for it. What the loop genuinely cannot run over is a scaffold
+	// with an unresolved judgement point, because there is no executable suite.
+	if settings.UntilDry && unresolvedTodos(block.Todos) == 0 {
 		closed, refused, err := closeTheGap(ctx, runner, stage, &block, scaffold, answers)
 		if err != nil {
 			return report.Report{}, err
@@ -232,8 +239,17 @@ func closeTheGap(
 	// stop reason it records is one of three published values, so the report
 	// carrying it has to reach a reporter. The failure travels as a warning on
 	// a report the caller keeps.
-	//nolint:nilerr // the refusal is reported on the block, not discarded.
+	//
+	// Only a refusal, though. A staged suite that went red is a statement
+	// about the program under characterisation and belongs on the report; a
+	// Terraform crash, a staging failure or a mutation-engine failure is an
+	// operational failure, and turning one into a warning plus an incomplete
+	// report exits 1 where the published contract says 2.
 	if err := untilDry(ctx, runner, stage, block, scaffold); err != nil {
+		if !errors.Is(err, ErrBaselineRed) {
+			return nil, nil, err
+		}
+
 		block.Complete = false
 
 		return nil, []string{err.Error()}, nil
@@ -285,7 +301,10 @@ func scaffoldSuite(
 		return rejectAnswers(block, scaffold, err)
 	}
 
-	block.Pins = characterise.Pin(scaffold, stage.configuration, stage.prepared.schemas, harvest)
+	block.Pins = seedInitialPinDefect(
+		characterise.Pin(scaffold, stage.configuration, stage.prepared.schemas, harvest),
+		stage.settings,
+	)
 
 	files := pinnedFiles(scaffold, block.Pins)
 	block.Files = entriesOf(files)
@@ -317,6 +336,21 @@ func openTodos(todos []report.Todo) int {
 	}
 
 	return open
+}
+
+// unresolvedTodos counts the judgement points that still stand between the
+// scaffold and an executable suite: one nobody has answered, and one whose
+// answer did not survive verification.
+func unresolvedTodos(todos []report.Todo) int {
+	unresolved := 0
+
+	for _, todo := range todos {
+		if todo.Status == report.TodoOpen || todo.Status == report.TodoRejected {
+			unresolved++
+		}
+	}
+
+	return unresolved
 }
 
 func pinnedCount(pins []report.Pin) int {
@@ -354,6 +388,17 @@ func rejectAnswers(
 	scaffold characterise.Scaffold,
 	failure error,
 ) (report.Characterisation, []generated, error) {
+	// Only a red suite is evidence about an answer. `harvestScaffold` and
+	// `verifyScaffold` also propagate staging errors, runner errors and
+	// canonicalisation errors, and none of those says anything about the value
+	// somebody supplied: a Terraform crash during a run that happens to carry
+	// an answer is the same operational failure it would be with no answer in
+	// play, and reporting it as "your answer was refuted" both misattributes
+	// the cause and swallows an exit-2 condition into an exit-1 report.
+	if !errors.Is(failure, ErrScaffoldRed) {
+		return report.Characterisation{}, nil, failure //nolint:exhaustruct // nothing was produced.
+	}
+
 	rejected := false
 
 	for index, todo := range block.Todos {
@@ -407,20 +452,33 @@ func artefactFiles(scaffold characterise.Scaffold, todos []report.Todo) []genera
 type generated struct {
 	entry report.GeneratedFile
 	bytes []byte
+	// digest is the written bytes' digest, which the provenance registry
+	// records and the collision protocol compares against what is on disk. It
+	// is deliberately not published: see generatedFile.
+	digest string
 }
 
-// generatedFile is the one place a generated file's report entry is built, so
-// its digest is always the digest of the bytes that will be written.
+// generatedFile is the one place a generated file's report entry is built.
+//
+// The published digest covers the *reported* bytes, and the written bytes'
+// digest stays in the local write protocol. Publishing the executable digest
+// beside the redacted content made the report an offline equality oracle for
+// the secret it withheld: the template is deterministic, so a reader could
+// substitute candidate values into it and compare hashes until one matched.
+// The mandatory fixture's answer space is thirty-two bits. A report field that
+// varies with a value the report exists not to carry is a disclosure whatever
+// else it is useful for.
 func generatedFile(path string, written, reported []byte, executable bool) generated {
 	return generated{
 		entry: report.GeneratedFile{
 			Path:       path,
 			Content:    string(reported),
-			Digest:     characterise.Digest(written),
+			Digest:     characterise.Digest(reported),
 			Executable: executable,
 			Written:    false,
 		},
-		bytes: written,
+		bytes:  written,
+		digest: characterise.Digest(written),
 	}
 }
 
@@ -773,6 +831,22 @@ func seedFinalPinDefect(pins []report.Pin, settings Config) []report.Pin {
 	defect := pins[0]
 	defect.ID = characterise.PinID(defect.Scenario, defect.Address, "seeded")
 	defect.Expression = defect.Address + ` == "tf-mut-seeded-final-pin-defect"`
+
+	return append(slices.Clone(pins), defect)
+}
+
+// seedInitialPinDefect adds a pin nothing could have harvested to the harvested
+// set, so the verification between the harvest and everything downstream of it
+// can be shown to be load-bearing. It is a seam control and not a command-line
+// flag.
+func seedInitialPinDefect(pins []report.Pin, settings Config) []report.Pin {
+	if !settings.SeedInitialPinDefect || len(pins) == 0 {
+		return pins
+	}
+
+	defect := pins[0]
+	defect.ID = characterise.PinID(defect.Scenario, defect.Address, "seeded-initial")
+	defect.Expression = defect.Address + ` == "tf-mut-seeded-initial-pin-defect"`
 
 	return append(slices.Clone(pins), defect)
 }

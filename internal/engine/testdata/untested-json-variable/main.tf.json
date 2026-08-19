@@ -1,0 +1,20 @@
+{
+  "variable": {
+    "label": {
+      "type": "string",
+      "default": "unit"
+    }
+  },
+  "resource": {
+    "terraform_data": {
+      "anchor": {
+        "input": "${var.label}-anchor"
+      }
+    }
+  },
+  "output": {
+    "label": {
+      "value": "${terraform_data.anchor.output}"
+    }
+  }
+}
