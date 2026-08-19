@@ -480,8 +480,6 @@ prefix match folded the second block into the first.
 
 - Scaffold promotion and `suggest --apply` are now two verify-then-write protocols side by
   side, and they differ. Should they be one?
-- The `moved` refusal's measured cost. If the next review reverses it, the collector is
-  small: `moved` names two resource addresses and carries no provider and no effect.
 - Validation mining fired zero times over the corpus. Is the rung worth its code, or should
   the constraint go straight to the reader as a judgement point?
 - Per-assertion provenance would make `curate` sharper and is a prerequisite for any future
