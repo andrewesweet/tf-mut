@@ -101,7 +101,7 @@ func oneRound(
 	scaffold characterise.Scaffold,
 	target string,
 ) (int, error) {
-	staged, err := stageSuite(stage.configuration, scaffold, block, target)
+	staged, err := stageSuite(stage, scaffold, block, target)
 	if err != nil {
 		return 0, err
 	}
@@ -271,8 +271,14 @@ func recordScaffolds(block *report.Characterisation, result report.Report) {
 const scaffoldScenario = "scaffolds"
 
 // stageSuite materialises the closure plus the current generated suite.
+//
+// It borrows the warm workspace the run already built, the way `stagedRun`
+// does. Without that each round copied the whole closure by value and `mutate`
+// re-initialised from scratch — provider install and `providers schema`, five
+// times over at the default bound, against a real provider tree, inside a loop
+// the shipped skill tells agents to call routinely.
 func stageSuite(
-	configuration discovery.Configuration,
+	stage staging,
 	scaffold characterise.Scaffold,
 	block *report.Characterisation,
 	target string,
@@ -284,18 +290,20 @@ func stageSuite(
 
 	for _, file := range pinnedFiles(scaffold, block.Pins) {
 		if file.entry.Executable {
-			staged[stagedPath(configuration, file.entry.Path)] = file.bytes
+			staged[stagedPath(stage.configuration, file.entry.Path)] = file.bytes
 		}
 	}
 
 	return sandbox.Materialise(sandbox.Spec{
-		SourceRoot: configuration.ClosureRoot,
-		ModuleRel:  configuration.RootRelative(),
+		SourceRoot: stage.configuration.ClosureRoot,
+		ModuleRel:  stage.configuration.RootRelative(),
 		Target:     target,
 		Mutations:  nil,
 		Staged:     staged,
-		Share:      nil,
-		Hardlink:   false,
+		Share: &sandbox.Share{
+			DataDir: stage.prepared.dataDir, LockFile: stage.prepared.lockFile,
+		},
+		Hardlink: true,
 	})
 }
 
