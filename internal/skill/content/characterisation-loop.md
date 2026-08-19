@@ -127,3 +127,17 @@ characterise --until-dry --reporter json .
 characterise --write .
 curate --reporter json .
 ```
+
+Step 3 has its own block, executed against a module with an open judgement
+point, because a module that needs no answer cannot demonstrate answering one.
+`<todo-id>` is the identifier `tf-mut todos` printed on the line before, and
+the value is what this document's constraint table says to produce for
+`can(cidrnetmask(var.x))`. A scripted answer travels on every invocation that
+needs it, including the write.
+
+```tf-mut-transcript-todo
+characterise --reporter json .
+todos --reporter json .
+characterise --answer <todo-id>="10.0.0.0/16" --reporter json .
+characterise --answer <todo-id>="10.0.0.0/16" --write .
+```

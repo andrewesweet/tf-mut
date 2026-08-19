@@ -14,7 +14,7 @@ import (
 const m45GateRecipe = "gate-m45:"
 
 // minimumM45GateCases guards against a recipe edit that empties the gate.
-const minimumM45GateCases = 71
+const minimumM45GateCases = 73
 
 func TestTheM45GateNamesOnlyTestsThatExist(t *testing.T) {
 	t.Parallel()
@@ -112,6 +112,8 @@ func TestTheM45GateCoversEveryNamedRequirement(t *testing.T) {
 		"no report field varies with the secret":     "TestNoReportFieldVariesWithTheSensitiveAnswer",
 		"characterisation flags are command-scoped":  "TestACharacterisationFlagIsRefusedByAGradingCommand",
 		"a reporter that carries nothing is refused": "TestAReporterThatCannotCarryACharacterisationIsRefused",
+		"the walkthrough drains a judgement point":   "TestTheInstalledWalkthroughDrainsAJudgementPoint",
+		"that walkthrough is falsifiable too":        "TestASeededWrongFlagInTheJudgementPointWalkthroughTurnsItRed",
 	}
 
 	assertGateCovers(t, "M4.5", m45GatedTests(t), required)

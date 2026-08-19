@@ -612,7 +612,15 @@ func TestTodosRefusesArgumentsAfterTheModulePath(t *testing.T) {
 }
 
 // transcriptFence marks the fenced blocks the end-of-MVP gate executes.
-const transcriptFence = "```tf-mut-transcript"
+//
+// The fences are matched exactly rather than by prefix: `tf-mut-transcript` is
+// a prefix of `tf-mut-transcript-todo`, so a prefix match would fold the
+// judgement-point block into the main walkthrough and run it against a module
+// that has no judgement point to answer.
+const (
+	transcriptFence = "```tf-mut-transcript"
+	todoFence       = "```tf-mut-transcript-todo"
+)
 
 // TestTheInstalledSkillsWalkthroughExecutes is the end-of-MVP gate, made
 // falsifiable (M4.5 spec review, M9).
@@ -635,7 +643,7 @@ func TestTheInstalledSkillsWalkthroughExecutes(t *testing.T) {
 	// loop produces the suite, and the mutation loop grades the suite it
 	// produced. Both are driven from the installed files alone.
 	for _, name := range skillOrder() {
-		commands := transcriptOf(t, installedSkill(t, root, name))
+		commands := transcriptOf(t, installedSkill(t, root, name), transcriptFence)
 		if len(commands) == 0 {
 			t.Fatalf("the installed %s skill embeds no executable transcript", name)
 		}
@@ -675,16 +683,16 @@ func TestASeededWrongFlagInTheSkillTurnsTheGateRed(t *testing.T) {
 	// walkthrough that was already failing, and the transcript is a sequence:
 	// `characterise --write` produces the suite `curate` then grades.
 	clean := walkthroughFixture(t)
-	for _, command := range transcriptOf(t, installed) {
+	for _, command := range transcriptOf(t, installed, transcriptFence) {
 		runTranscriptCommand(t, command, clean)
 	}
 
-	seedWrongFlag(t, installed)
+	seedWrongFlag(t, installed, transcriptFence, "--until-dry", seededFlag)
 
 	seeded := walkthroughFixture(t)
 	named := false
 
-	for _, command := range transcriptOf(t, installed) {
+	for _, command := range transcriptOf(t, installed, transcriptFence) {
 		stderr := bytes.Buffer{}
 
 		code := run(substituteModule(command, seeded), "test", &bytes.Buffer{}, &stderr)
@@ -757,7 +765,7 @@ func substituteModule(command []string, module string) []string {
 
 // transcriptOf extracts the fenced transcript blocks from an installed skill,
 // in order.
-func transcriptOf(t *testing.T, path string) [][]string {
+func transcriptOf(t *testing.T, path, fence string) [][]string {
 	t.Helper()
 
 	commands := [][]string{}
@@ -766,7 +774,7 @@ func transcriptOf(t *testing.T, path string) [][]string {
 
 	for line := range strings.SplitSeq(content, "\n") {
 		switch {
-		case strings.HasPrefix(line, transcriptFence):
+		case strings.TrimSpace(line) == fence:
 			inside = true
 		case inside && strings.HasPrefix(line, "```"):
 			inside = false
@@ -809,23 +817,22 @@ func installedSkill(t *testing.T, root string, name skill.Name) string {
 // prose names `--until-dry` several times before the fenced block does, so a
 // whole-file replace seeds a sentence the gate never executes and proves
 // nothing about the instructions it does.
-func seedWrongFlag(t *testing.T, path string) {
+func seedWrongFlag(t *testing.T, path, fence, flag, seeded string) {
 	t.Helper()
 
 	content := readInstalled(t, path)
 
-	fence := strings.Index(content, transcriptFence)
-	if fence < 0 {
+	start := strings.Index(content, fence)
+	if start < 0 {
 		t.Fatal("the installed skill embeds no transcript to seed")
 	}
 
-	seeded := content[:fence] +
-		strings.Replace(content[fence:], "--until-dry", seededFlag, 1)
-	if seeded == content {
+	replaced := content[:start] + strings.Replace(content[start:], flag, seeded, 1)
+	if replaced == content {
 		t.Fatal("the installed transcript carries no flag to seed")
 	}
 
-	if err := os.WriteFile(path, []byte(seeded), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(replaced), 0o600); err != nil {
 		t.Fatalf("writing %s: %v", path, err)
 	}
 }
@@ -956,4 +963,197 @@ func TestAReporterThatCannotCarryACharacterisationIsRefused(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestTheInstalledWalkthroughDrainsAJudgementPoint executes the step of the
+// shipped loop that the main transcript cannot.
+//
+// Step 3 — answer a judgement point and re-plan — is the step the whole
+// characterisation loop turns on, and it was the one step of the documented
+// sequence that nothing executed: `--answer` takes a content-derived
+// identifier, which a static transcript cannot spell. The identifier is
+// resolved the way a reader resolves it, out of the `todos --reporter json`
+// output printed on the line before, so the instructions stay the thing under
+// test rather than a script kept beside them.
+func TestTheInstalledWalkthroughDrainsAJudgementPoint(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if _, err := skill.Install(root, skill.AgentGeneric, "test", false); err != nil {
+		t.Fatalf("skill install: %v", err)
+	}
+
+	commands := transcriptOf(t, installedSkill(t, root, skill.NameCharacterise), todoFence)
+	if len(commands) == 0 {
+		t.Fatal("the installed skill embeds no judgement-point transcript")
+	}
+
+	module := judgementPointFixture(t)
+	written := drainTranscript(t, commands, module)
+
+	if !written {
+		t.Fatal("the judgement-point walkthrough never reached a clean write, so the loop " +
+			"it teaches does not close on a module with an open judgement point")
+	}
+
+	target := filepath.Join(module, "tests", "characterise_defaults.tftest.hcl")
+	if _, err := os.Stat(target); err != nil {
+		t.Fatalf("the answered walkthrough wrote no suite: %v", err)
+	}
+}
+
+// TestASeededWrongFlagInTheJudgementPointWalkthroughTurnsItRed keeps the new
+// block as falsifiable as the one beside it: a flag this binary does not have,
+// seeded into the installed text, must make the walkthrough fail by name.
+func TestASeededWrongFlagInTheJudgementPointWalkthroughTurnsItRed(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if _, err := skill.Install(root, skill.AgentGeneric, "test", false); err != nil {
+		t.Fatalf("skill install: %v", err)
+	}
+
+	installed := installedSkill(t, root, skill.NameCharacterise)
+	seedWrongFlag(t, installed, todoFence, "--answer", seededAnswerFlag)
+
+	commands := transcriptOf(t, installed, todoFence)
+	module := judgementPointFixture(t)
+	named := false
+
+	for _, command := range commands {
+		stdout := bytes.Buffer{}
+		stderr := bytes.Buffer{}
+
+		code := run(substituteModule(command, module), "test", &stdout, &stderr)
+		if code == report.ExitOperational &&
+			strings.Contains(stderr.String(), strings.TrimPrefix(seededAnswerFlag, "-")) {
+			named = true
+		}
+	}
+
+	if !named {
+		t.Fatalf("no command of the judgement-point transcript was refused for %s, so the "+
+			"gate is not reading the installed instructions", seededAnswerFlag)
+	}
+}
+
+// seededAnswerFlag is the judgement-point block's equivalent of seededFlag.
+const seededAnswerFlag = "--anwser"
+
+// todoPlaceholder is what the transcript writes where the identifier goes.
+const todoPlaceholder = "<todo-id>"
+
+// drainTranscript runs the judgement-point transcript, resolving the
+// identifier out of the `todos` output as it goes, and reports whether the
+// write step came back clean.
+func drainTranscript(t *testing.T, commands [][]string, module string) bool {
+	t.Helper()
+
+	identifier := ""
+	written := false
+
+	for _, command := range commands {
+		resolved := substituteTodo(t, substituteModule(command, module), identifier)
+
+		stdout := bytes.Buffer{}
+		stderr := bytes.Buffer{}
+
+		code := run(resolved, "test", &stdout, &stderr)
+		if code != report.ExitClean && code != report.ExitFindings {
+			t.Fatalf("the installed walkthrough's %q exited %d: %s",
+				strings.Join(command, " "), code, stderr.String())
+		}
+
+		if identifier == "" {
+			identifier = firstTodoIdentifier(stdout.String())
+		}
+
+		if strings.Contains(strings.Join(command, " "), writeFlag) {
+			if code != report.ExitClean {
+				t.Fatalf("the walkthrough's write step exited %d: %s", code, stderr.String())
+			}
+
+			written = true
+		}
+	}
+
+	return written
+}
+
+// substituteTodo fills the identifier placeholder in, and refuses a command
+// that still carries one — an unresolved placeholder reaching the binary would
+// be refused for the wrong reason and prove nothing.
+func substituteTodo(t *testing.T, command []string, identifier string) []string {
+	t.Helper()
+
+	resolved := make([]string, 0, len(command))
+
+	for _, argument := range command {
+		if !strings.Contains(argument, todoPlaceholder) {
+			resolved = append(resolved, argument)
+
+			continue
+		}
+
+		if identifier == "" {
+			t.Fatalf("the transcript reads %s before any judgement point was reported",
+				todoPlaceholder)
+		}
+
+		resolved = append(resolved, strings.ReplaceAll(argument, todoPlaceholder, identifier))
+	}
+
+	return resolved
+}
+
+// reportedTodo is one judgement point as a JSON report publishes it.
+type reportedTodo struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}
+
+// reportedCharacterisation is the block the identifier is read out of.
+type reportedCharacterisation struct {
+	Todos []reportedTodo `json:"todos"`
+}
+
+// reportedRun is the reader's own view of a JSON report: exactly the two
+// fields resolving `<todo-id>` needs, decoded the way a caller of this tool
+// would decode them.
+type reportedRun struct {
+	Characterisation reportedCharacterisation `json:"characterisation"`
+}
+
+// firstTodoIdentifier reads the first open judgement point's identifier out of
+// a JSON report, or returns empty where the output carries none.
+func firstTodoIdentifier(document string) string {
+	decoded := reportedRun{Characterisation: reportedCharacterisation{Todos: nil}}
+
+	if json.Unmarshal([]byte(document), &decoded) != nil {
+		return ""
+	}
+
+	for _, todo := range decoded.Characterisation.Todos {
+		if todo.Status == "open" {
+			return todo.ID
+		}
+	}
+
+	return ""
+}
+
+// judgementPointFixture is a module the deterministic pipeline cannot resolve:
+// a required input whose constraint states a property rather than a value.
+func judgementPointFixture(t *testing.T) string {
+	t.Helper()
+
+	module := t.TempDir()
+	writeFile(t, filepath.Join(module, "main.tf"),
+		"variable \"vpc_cidr\" {\n  type = string\n\n  validation {\n"+
+			"    condition     = can(cidrnetmask(var.vpc_cidr))\n"+
+			"    error_message = \"vpc_cidr must be a CIDR block\"\n  }\n}\n\n"+
+			"resource \"terraform_data\" \"network\" {\n  input = var.vpc_cidr\n}\n\n"+
+			"output \"network\" {\n  value = terraform_data.network.output\n}\n")
+
+	return module
 }

@@ -462,6 +462,18 @@ was withdrawn — it would stop every command on every module carrying a module 
 close a gap `--allow-real-infrastructure` already fails closed on. The comment in
 `internal/discovery/constructs.go` now says so.
 
+**The one thread left open, and then closed.** The judgement-point step of the shipped loop —
+answer, re-plan, promote — was the one step of the documented sequence that nothing executed,
+because `--answer` takes a content-derived identifier a static transcript cannot spell. It is
+now a second fenced block, `tf-mut-transcript-todo`, run against a module with an open
+judgement point; the harness resolves `<todo-id>` out of the `todos --reporter json` output
+printed on the line before, exactly as a reader does. Both halves are falsifiable: neutering
+the seed turns `TestASeededWrongFlagInTheJudgementPointWalkthroughTurnsItRed` red, and
+changing the answer in the shipped document to a value the constraint rejects turns
+`TestTheInstalledWalkthroughDrainsAJudgementPoint` red. The fences are now matched exactly
+rather than by prefix, since `tf-mut-transcript` is a prefix of `tf-mut-transcript-todo` and a
+prefix match folded the second block into the first.
+
 ## 14. Open questions for M5
 
 - Scaffold promotion and `suggest --apply` are now two verify-then-write protocols side by
