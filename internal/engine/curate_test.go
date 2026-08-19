@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"encoding/json"
 	"errors"
 	"maps"
 	"os"
@@ -446,7 +447,6 @@ func scaffoldFor(t *testing.T, block *report.Characterisation, address string) s
 // deletion of assertions the tool wrote and the registry still vouches for.
 func TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
 	module := copyFixture(t, untestedBranchesFixture)
 
@@ -492,7 +492,6 @@ func TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions(t *testing.T) {
 // nothing may be written. Remove that verification and this test fails.
 func TestTheFinalPinSetIsVerifiedBeforeAnyWrite(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
 	module := copyFixture(t, untestedBranchesFixture)
 
@@ -516,5 +515,159 @@ func TestTheFinalPinSetIsVerifiedBeforeAnyWrite(t *testing.T) {
 		if strings.HasSuffix(entry.Name(), ".tftest.hcl") {
 			t.Fatalf("an unverified suite was written: %s", entry.Name())
 		}
+	}
+}
+
+// TestAScaffoldAnswerCannotInjectConfiguration is the answer grammar's real
+// boundary.
+//
+// A value goes through cty and comes back a literal, so it can only be a
+// constant. A *key* was taken as written and emitted as an HCL identifier, so
+// `{ "size = 0\n  injected" = 1 }` rendered two assignments — arbitrary
+// configuration smuggled in through a name, into a file the staged safety
+// check had already approved on the strength of answers being constants.
+func TestAScaffoldAnswerCannotInjectConfiguration(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, contractFixture)
+	removeTests(t, module)
+
+	config := characteriseConfig(t, module)
+	config.UntilDry = true
+
+	opened, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("characterise --until-dry: %v", err)
+	}
+
+	identifier := scaffoldFor(t, opened.Characterisation, "var.size.validation")
+
+	for name, answer := range map[string]string{
+		"an injected assignment": `{ "size = 0\n    injected" = 1 }`,
+		"an undeclared variable": `{ nonexistent = 1 }`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			refused := characteriseConfig(t, module)
+			refused.UntilDry = true
+			refused.Answers = []string{identifier + "=" + answer}
+
+			result, err := engine.Run(t.Context(), refused)
+			if err != nil {
+				t.Fatalf("characterise: %v", err)
+			}
+
+			for _, scaffold := range result.Characterisation.Scaffolds {
+				if scaffold.ID == identifier && scaffold.Status == report.ScaffoldPromoted {
+					t.Fatal("the refused answer promoted the scaffold")
+				}
+			}
+
+			for _, file := range result.Characterisation.Files {
+				if strings.Contains(file.Content, "injected") {
+					t.Fatalf("%s carries the injected assignment:\n%s", file.Path, file.Content)
+				}
+			}
+		})
+	}
+}
+
+// TestAForeignRegistryIsNeverReplaced is the collision protocol applied to the
+// provenance registry, which was excluded from the target set it belongs to.
+//
+// The registry cannot be proven by digest — a file cannot record its own
+// content hash — so it is proven by shape. `--force` is permission to replace
+// this tool's own output; a file that merely shares the name is somebody's.
+func TestAForeignRegistryIsNeverReplaced(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedBranchesFixture)
+	registry := filepath.Join(module, engine.RegistryName)
+
+	writeFile(t, registry, "{\"this\":\"is not a provenance registry\"}\n")
+
+	config := characteriseConfig(t, module)
+	config.CharacteriseWrite = true
+	config.CharacteriseForce = true
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrWriteRefused) {
+		t.Fatalf("error = %v, want a refusal of the foreign registry", err)
+	}
+
+	if readFile(t, registry) != "{\"this\":\"is not a provenance registry\"}\n" {
+		t.Fatal("the foreign registry was overwritten")
+	}
+}
+
+// TestARealCurateReportValidatesAgainstThePublishedSchema extends the machine
+// contract to the command that was outside it.
+//
+// Every schema case ran over a `characterise` report, so the one place a
+// characterisation block is built by `curate` was never checked against
+// report-2.3.0 — and it published `"mutants": null` for an empty kill set,
+// where the schema declares an array. The finding kind whose whole content is
+// that the kill set is empty is the one that reached the schema invalid.
+func TestARealCurateReportValidatesAgainstThePublishedSchema(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, curateFixture)
+
+	config := baseConfig(t, module)
+	config.Curate = true
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("curate: %v", err)
+	}
+
+	schema := loadPublishedSchema(t)
+
+	builder := strings.Builder{}
+	if err := report.WriteJSON(&builder, result); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	document := any(nil)
+	if err := json.Unmarshal([]byte(builder.String()), &document); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+
+	if problems := validateAgainst(schema, schema, document, "$"); len(problems) > 0 {
+		t.Fatalf("the real curate report does not validate:\n  %s", strings.Join(problems, "\n  "))
+	}
+}
+
+// TestCurateHonoursTheGateFlagsItAccepts closes the exit-code gap.
+//
+// `curate` executes the full, unsampled population the population posture
+// exists to guarantee, and then returned before `--min-score` and
+// `--fail-on-new` were applied — because the branch was keyed on the report
+// carrying a characterisation block rather than on the command. A gate flag
+// accepted and not applied is the shape this file's own composition rule warns
+// about.
+func TestCurateHonoursTheGateFlagsItAccepts(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, curateFixture)
+
+	config := baseConfig(t, module)
+	config.Curate = true
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("curate: %v", err)
+	}
+
+	unreachable := 100.0
+
+	gate := report.Gate{ //nolint:exhaustruct // only the score gate is under test.
+		MinScore: unreachable, HasMinScore: true,
+	}
+
+	if code := result.ExitCode(gate); code != report.ExitFindings {
+		t.Fatalf("exit code = %d with an unreachable --min-score, want %d",
+			code, report.ExitFindings)
 	}
 }

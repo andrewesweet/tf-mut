@@ -123,6 +123,14 @@ linters:
       - path: internal/engine/harness_test\.go
         linters:
           - nolintlint
+      # The validation-function table is a contract about expressions and is
+      # tested package-internally, which is AGENTS.md's fifth recorded testing
+      # exception. It needs the unexported evaluator it is a contract about;
+      # an external test package could only reach it by exporting the seam,
+      # which would widen the exception rather than honour it.
+      - path: internal/characterise/functions_test\.go
+        linters:
+          - testpackage
       # "TODO" is a domain noun in the characterisation vocabulary: a TODO is
       # the tool's name for a judgement point it refuses to guess at, with an
       # identifier, a status vocabulary and a command surface of its own.

@@ -20,10 +20,17 @@ import (
 // test suite at all — the situation the mode exists for.
 
 const (
-	untestedAliasesFixture    = "untested-aliases"
-	untestedZeroOutputFixture = "untested-zero-output"
-	untestedSensitiveFixture  = "untested-sensitive"
-	untestedBranchesFixture   = "untested-branches"
+	untestedAliasesFixture      = "untested-aliases"
+	untestedZeroOutputFixture   = "untested-zero-output"
+	untestedSensitiveFixture    = "untested-sensitive"
+	untestedJSONVariableFixture = "untested-json-variable"
+	untestedForEachKeysFixture  = "untested-foreach-keys"
+	untestedBranchesFixture     = "untested-branches"
+	untestedAliasFixture        = "untested-configuration-aliases"
+
+	// secondaryConfiguration is the alias the acceptance pair removes a mock
+	// for, in both fixtures that declare one.
+	secondaryConfiguration = "null.secondary"
 
 	rungOutputs = "outputs"
 )
@@ -93,14 +100,14 @@ func TestAMissingAliasMockRefusesBeforeExecution(t *testing.T) {
 	module := copyFixture(t, untestedAliasesFixture)
 
 	config := characteriseConfig(t, module)
-	config.SeedMissingMock = "null.secondary"
+	config.SeedMissingMock = secondaryConfiguration
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrRealInfrastructure) {
 		t.Fatalf("error = %v, want a refusal for the unmocked provider configuration", err)
 	}
 
-	if !strings.Contains(err.Error(), "null.secondary") {
+	if !strings.Contains(err.Error(), secondaryConfiguration) {
 		t.Fatalf("the refusal does not name the configuration: %v", err)
 	}
 
@@ -114,9 +121,8 @@ func TestAMissingAliasMockRefusesBeforeExecution(t *testing.T) {
 // module directory is byte-identical afterwards.
 func TestTheDefaultCharacterisationWritesNothing(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
-	module := copyFixture(t, untestedAliasesFixture)
+	module := copyFixture(t, untestedBranchesFixture)
 	before := treeDigest(t, module)
 
 	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
@@ -138,9 +144,8 @@ func TestTheDefaultCharacterisationWritesNothing(t *testing.T) {
 // records it, and the suite it wrote passes as an ordinary mutation baseline.
 func TestAWrittenSuiteIsGreenAndRegistered(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
-	module := copyFixture(t, untestedAliasesFixture)
+	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
@@ -155,7 +160,7 @@ func TestAWrittenSuiteIsGreenAndRegistered(t *testing.T) {
 		t.Fatalf("the generated suite is not at the documented path: %v", statErr)
 	}
 
-	if result.Characterisation.Write == nil || len(result.Characterisation.Write.Written) != 1 {
+	if result.Characterisation.Write == nil || len(result.Characterisation.Write.Written) == 0 {
 		t.Fatalf("the report does not record the write: %+v", result.Characterisation.Write)
 	}
 
@@ -173,15 +178,80 @@ func TestAWrittenSuiteIsGreenAndRegistered(t *testing.T) {
 	if len(graded.Mutants) == 0 {
 		t.Fatal("the generated suite graded no mutants")
 	}
+
+	// Graded is not the property issue #74 asks for. A suite whose every
+	// assertion was missing or tautological still grades a full population;
+	// what a characterisation has to prove is that mutating the behaviour it
+	// pinned is *caught*. Counting the deaths an assertion caused is the
+	// observable form of that at this seam — `KilledByError` is deliberately
+	// not accepted, because Terraform's own evaluation kills those with no
+	// assertion in play at all.
+	killed := 0
+
+	for _, mutant := range graded.Mutants {
+		if mutant.State == report.Killed {
+			killed++
+		}
+	}
+
+	if killed == 0 {
+		t.Fatalf("no mutant of the pinned behaviour was killed by an assertion: %d graded, "+
+			"states %v", len(graded.Mutants), statesOf(graded))
+	}
+}
+
+// statesOf summarises a graded population for a failure message.
+func statesOf(graded report.Report) map[report.State]int {
+	counts := map[report.State]int{}
+	for _, mutant := range graded.Mutants {
+		counts[mutant.State]++
+	}
+
+	return counts
+}
+
+// TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten holds the other
+// half of issue #74's acceptance pair: the verification between the harvest and
+// everything downstream of it.
+//
+// `SeedFinalPinDefect` proves the verifier after the until-dry loop. This one
+// proves the verifier before it — a separate call, on a path a run without
+// `--until-dry` takes, and one that a deletion would have left every test green
+// over.
+func TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedBranchesFixture)
+
+	config := characteriseConfig(t, module)
+	config.CharacteriseWrite = true
+	config.SeedInitialPinDefect = true
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrScaffoldRed) {
+		t.Fatalf("error = %v, want the harvested pin set refused as not green", err)
+	}
+
+	entries, readErr := os.ReadDir(filepath.Join(module, "tests"))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatalf("reading the test directory: %v", readErr)
+	}
+
+	if len(entries) > 0 {
+		t.Fatalf("a refused verification still wrote %d file(s)", len(entries))
+	}
+
+	if _, statErr := os.Stat(filepath.Join(module, engine.RegistryName)); statErr == nil {
+		t.Fatal("a refused verification still wrote the provenance registry")
+	}
 }
 
 // TestASecondWriteIsRefusedAsACollision holds the collision rule over the full
 // target path set.
 func TestASecondWriteIsRefusedAsACollision(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
-	module := copyFixture(t, untestedAliasesFixture)
+	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
@@ -205,9 +275,8 @@ func TestASecondWriteIsRefusedAsACollision(t *testing.T) {
 // touched, and nothing else.
 func TestForceReplacesOnlyUnmodifiedGeneratedFiles(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
-	module := copyFixture(t, untestedAliasesFixture)
+	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
@@ -241,9 +310,8 @@ func TestForceReplacesOnlyUnmodifiedGeneratedFiles(t *testing.T) {
 // pin a create.
 func TestScenariosCarryDistinctStateKeys(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
-	module := copyFixture(t, untestedAliasesFixture)
+	module := copyFixture(t, untestedBranchesFixture)
 
 	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
 	if err != nil {
@@ -583,9 +651,8 @@ func TestScenarioPinsAreInvariantUnderFileOrder(t *testing.T) {
 // rather than a file that was green for a module which no longer exists.
 func TestAClosureChangeAtTheProbeYieldsZeroWrites(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
-	module := copyFixture(t, untestedAliasesFixture)
+	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
@@ -621,7 +688,7 @@ func TestNoTerraformRunPrecedesAStagedGateRefusal(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "terraform-calls")
 
 	config := characteriseConfig(t, copyFixture(t, untestedAliasesFixture))
-	config.SeedMissingMock = "null.secondary"
+	config.SeedMissingMock = secondaryConfiguration
 	config.TerraformBinary = recordingTerraform(t, log)
 
 	if _, err := engine.Run(t.Context(), config); !errors.Is(err, engine.ErrRealInfrastructure) {
@@ -641,9 +708,8 @@ func TestNoTerraformRunPrecedesAStagedGateRefusal(t *testing.T) {
 // recomputed at the probe, not replayed from what discovery found.
 func TestANewClosureFileAtTheProbeYieldsZeroWrites(t *testing.T) {
 	t.Parallel()
-	requireProviderMirror(t)
 
-	module := copyFixture(t, untestedAliasesFixture)
+	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
@@ -706,4 +772,199 @@ func TestAPartialCommitReportsWhatItWrote(t *testing.T) {
 		t.Fatalf("exit code = %d, want an operational failure for a partial commit",
 			result.ExitCode(report.Gate{})) //nolint:exhaustruct // no gate is requested.
 	}
+}
+
+// TestConfigurationAliasesAreMockedAndGated is the reusable-module case: a
+// module that names its caller's provider configurations with
+// `configuration_aliases` and declares no `provider` block at all.
+//
+// A reader that collects only `provider` blocks sees no alias, so the scaffold
+// mocks none of them and — the part that matters — the gate that requires a
+// mock per provider configuration never learns the configuration is there. An
+// aliased resource then escapes mock coverage entirely.
+func TestConfigurationAliasesAreMockedAndGated(t *testing.T) {
+	t.Parallel()
+	requireProviderMirror(t)
+
+	module := copyFixture(t, untestedAliasFixture)
+
+	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	if err != nil {
+		t.Fatalf("characterise: %v", err)
+	}
+
+	content := result.Characterisation.Files[0].Content
+	for _, wanted := range []string{`alias = "primary"`, `alias = "secondary"`} {
+		if !strings.Contains(content, wanted) {
+			t.Fatalf("the scaffold mocks no %s configuration:\n%s", wanted, content)
+		}
+	}
+
+	// The gate has to see them too: a configuration nothing mocks must refuse
+	// before execution, exactly as a `provider`-block alias does.
+	seeded := characteriseConfig(t, module)
+	seeded.SeedMissingMock = secondaryConfiguration
+
+	if _, err := engine.Run(t.Context(), seeded); !errors.Is(err, engine.ErrRealInfrastructure) {
+		t.Fatalf("error = %v, want a refusal for the unmocked configuration alias", err)
+	}
+}
+
+// TestARegistryFailureReportsThePartialState is the write contract's last
+// gap: by the time the registry is stored, every generated test file has been
+// renamed, so a registry that will not store leaves a changed tree and no
+// record of what changed it.
+func TestARegistryFailureReportsThePartialState(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedBranchesFixture)
+
+	config := characteriseConfig(t, module)
+	config.CharacteriseWrite = true
+	config.SeedRegistryFailure = true
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("a partial commit must return its report: %v", err)
+	}
+
+	write := result.Characterisation.Write
+	if write == nil || len(write.Partial) == 0 {
+		t.Fatalf("the registry failure was not reported as a partial state: %+v", write)
+	}
+
+	for _, path := range write.Partial {
+		if _, statErr := os.Stat(filepath.Join(module, path)); statErr != nil {
+			t.Fatalf("%s is reported written but is not on disk: %v", path, statErr)
+		}
+	}
+}
+
+// TestAClosureChangeInsideTheRenameWindowIsCaught is the write protocol's
+// boundary, asserted where the boundary actually is.
+//
+// Creating, writing, closing and chmodding a temporary file takes real time. A
+// probe that ran before all of that has checked the closure before the window
+// rather than immediately before the rename, so a source edited while the
+// temporary file was being written still commits. The seam fires the change
+// inside that window; a protocol that only checked before it would write.
+func TestAClosureChangeInsideTheRenameWindowIsCaught(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedBranchesFixture)
+
+	config := characteriseConfig(t, module)
+	config.CharacteriseWrite = true
+	config.SeedClosureChange = mainFile
+	config.SeedRenameWindowChange = true
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrWriteRefused) {
+		t.Fatalf("error = %v, want a refusal of the change made inside the window", err)
+	}
+
+	entries, readErr := os.ReadDir(filepath.Join(module, "tests"))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatalf("reading the test directory: %v", readErr)
+	}
+
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tftest.hcl") {
+			t.Fatalf("the aborted commit wrote %s", entry.Name())
+		}
+	}
+}
+
+// TestAJSONDeclaredVariableReachesTheScaffold holds the JSON half of the input
+// inventory.
+//
+// Terraform reads a `.tf.json` variable exactly as it reads a native one, so a
+// collector that only walked references left the pipeline with no variable to
+// resolve: the scaffold assigned nothing, raised no judgement point, and the
+// run died at plan time on "No value for required variable" — about a module
+// the tool had read.
+func TestAJSONDeclaredVariableReachesTheScaffold(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedJSONVariableFixture)
+
+	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	if err != nil {
+		t.Fatalf("characterise: %v", err)
+	}
+
+	block := result.Characterisation
+	if block == nil {
+		t.Fatal("no characterisation block")
+	}
+
+	if len(block.Todos) > 0 {
+		t.Fatalf("a JSON variable with a default became a judgement point: %+v", block.Todos)
+	}
+
+	if !block.Complete || pinCount(block) == 0 {
+		t.Fatalf("the JSON module pinned nothing: complete=%v pins=%d",
+			block.Complete, pinCount(block))
+	}
+}
+
+// TestForEachKeysNeedingEscapesStillRenderAGreenSuite holds the renderer's
+// escaping contract at the two places a key reaches the file.
+//
+// A legal `for_each` key can contain a quote, a backslash or an interpolation
+// marker, and the instance address built from one lands both in the assertion
+// condition and in the `error_message` beside it. Concatenating either produced
+// a file Terraform could not parse — surfacing as `ErrScaffoldRed`, which the
+// engine calls a generator defect, with nothing pointing at the key.
+func TestForEachKeysNeedingEscapesStillRenderAGreenSuite(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedForEachKeysFixture)
+
+	config := characteriseConfig(t, module)
+	config.PinRung = "counts"
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("characterise --pin counts: %v", err)
+	}
+
+	if result.Characterisation == nil || !result.Characterisation.Complete {
+		t.Fatalf("the suite did not verify green: %+v", result.Characterisation)
+	}
+}
+
+// TestUntilDryRefusesANarrowedPopulation holds convergence to the population
+// posture `curate` already holds.
+//
+// "Dry" is a claim about a population: under a count lever the loop grades a
+// subset, and the report hard-codes the selection as full, so nothing
+// downstream could tell a sampled convergence from an authoritative one.
+func TestUntilDryRefusesANarrowedPopulation(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedBranchesFixture)
+
+	config := characteriseConfig(t, module)
+	config.UntilDry = true
+	config.HasSample = true
+	config.SamplePercent = 1
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrUntilDryPopulation) {
+		t.Fatalf("error = %v, want the narrowed population refused before any work", err)
+	}
+}
+
+// pinCount counts the pins a block actually pinned.
+func pinCount(block *report.Characterisation) int {
+	count := 0
+
+	for _, pin := range block.Pins {
+		if pin.Status == report.Pinned {
+			count++
+		}
+	}
+
+	return count
 }

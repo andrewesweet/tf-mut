@@ -219,6 +219,25 @@ func PinID(scenario, address, expression string) string {
 // scenarioID is a hash over the module, the input assignment set and the
 // state key: two scenarios with the same inputs in the same module are the
 // same scenario, whatever they are named.
+//
+// The assignment it hashes is the *reported* one, which for a sensitive input
+// is the withheld marker rather than the value. That is deliberate, and it is
+// the resolution of two review findings that pull opposite ways.
+//
+// One observed that two different sensitive answers therefore share a scenario
+// identifier and a pin identifier, and asked for the identity to be derived
+// from the executable assignment or its digest. The other observed that a
+// published field which varies with a withheld value is a disclosure: the
+// generated file's redacted template is deterministic, so anything derived
+// from the secret is an offline oracle over the answer space — thirty-two bits
+// in the fixture the milestone mandates. A digest is no defence at that size.
+//
+// The safety property wins, because provenance has a home that is not
+// published: `.tf-mut-generated.json` sits beside the file it describes, on
+// the caller's own disk, and records the digest of the written bytes. Two
+// different answers produce two different registry records there, so the
+// collision the first finding named does not reach the place provenance is
+// consumed — and no published field distinguishes one secret from another.
 func scenarioID(moduleRel string, inputs []report.Input, stateKey string) string {
 	parts := make([]string, 0, len(inputs)+partsBeforeInputs)
 	parts = append(parts, moduleRel, stateKey)

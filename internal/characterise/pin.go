@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/zclconf/go-cty/cty"
+
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/report"
@@ -343,9 +345,13 @@ func keyPin(
 	keys []string,
 	seen map[string]bool,
 ) []report.Pin {
+	// Rendered through the same value machinery every other literal goes
+	// through. A key is arbitrary text — `for_each` over a map accepts a
+	// quote, a backslash and a `${` alike — and re-quoting it by concatenation
+	// produces HCL that either does not parse or interpolates.
 	rendered := make([]string, 0, len(keys))
 	for _, key := range keys {
-		rendered = append(rendered, `"`+key+`"`)
+		rendered = append(rendered, renderValue(cty.StringVal(key)))
 	}
 
 	expression := "keys(" + address + ") == [" + strings.Join(rendered, ", ") + "]"
@@ -400,6 +406,19 @@ func instancesOf(payload fingerprint.Payload) map[string]map[string]bool {
 	return instances
 }
 
+// unescapeTemplate reverses HCL's template escapes, which an instance address
+// carries and Go's own unquoting knows nothing about.
+//
+// An address is quoted the way HCL quotes a string, so a key containing `${`
+// arrives spelled `$${`. `strconv.Unquote` handles the backslash escapes the
+// two languages share and leaves this one in place, so the key came back one
+// escape too long and the renderer — correctly — escaped it again, pinning
+// `"dollar$$${brace"` for a key that is `dollar${brace`. The suite then failed
+// its own harvest, reported as a generator defect with nothing naming the key.
+func unescapeTemplate(key string) string {
+	return strings.NewReplacer("$${", "${", "%%{", "%{").Replace(key)
+}
+
 // instanceKeys reads the for_each keys out of a collection's instance
 // addresses, sorted the way `keys` returns them.
 func instanceKeys(members map[string]bool) []string {
@@ -416,7 +435,7 @@ func instanceKeys(members map[string]bool) []string {
 			key = unquoted
 		}
 
-		keys = append(keys, key)
+		keys = append(keys, unescapeTemplate(key))
 	}
 
 	slices.Sort(keys)

@@ -108,3 +108,48 @@ func assertContent(t *testing.T, path string, want []byte) {
 		t.Fatalf("%s = %q, want %q", path, got, want)
 	}
 }
+
+// TestAStagedPathCannotEscapeTheSandbox is the write-escape the M4.5 review
+// found: the keys of Staged and Mutations are relative paths built from
+// caller-controlled input, and `filepath.Join` *cleans* a `..` rather than
+// refusing it. A `--test-directory` climbing out of the module wrote a
+// generated file into /tmp with no `--write` given at all.
+func TestAStagedPathCannotEscapeTheSandbox(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+
+	if err := os.MkdirAll(source, 0o750); err != nil {
+		t.Fatalf("creating the source: %v", err)
+	}
+
+	outside := filepath.Join(root, "escaped.tftest.hcl")
+
+	for name, relative := range map[string]string{
+		"a climbing path":  "../escaped.tftest.hcl",
+		"a buried climb":   "tests/../../escaped.tftest.hcl",
+		"an absolute path": outside,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := sandbox.Materialise(sandbox.Spec{
+				SourceRoot: source,
+				ModuleRel:  ".",
+				Target:     filepath.Join(t.TempDir(), "sandbox"),
+				Mutations:  nil,
+				Staged:     map[string][]byte{relative: []byte("# escaped\n")},
+				Share:      nil,
+				Hardlink:   false,
+			})
+			if !errors.Is(err, sandbox.ErrEscapingPath) {
+				t.Fatalf("error = %v, want a refusal of the escaping path", err)
+			}
+
+			if _, statErr := os.Stat(outside); statErr == nil {
+				t.Fatal("the escaping path was written outside the sandbox")
+			}
+		})
+	}
+}

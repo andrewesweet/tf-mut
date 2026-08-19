@@ -41,15 +41,20 @@ should be pinned, make the tool observe it.
    every iteration.
 3. **Answer them.** Read the constraint and produce a value that conforms.
    Either edit the `TFMUT_TODO` placeholder in the non-executable artefact and
-   run `tf-mut characterise --resume --write <module>`, or pass
+   run `tf-mut characterise --resume <module>`, or pass
    `--answer todo-<id>=<value>` for a scripted run. The tool re-plans your
-   answer and promotes it only once the suite it produces is green.
+   answer and promotes it only once the suite it produces is green. Do not
+   write yet: the suite is written once, at step 5, and a second write of the
+   same target is refused as a collision.
 4. **Close the gap.** `tf-mut characterise --until-dry --reporter json
    <module>` grades the scaffold and pins whatever its survivors still yield,
    at the granularity you chose and no higher. Read the convergence evidence:
    rounds, new pins per round, stop reason.
 5. **Write it.** `tf-mut characterise --write <module>` places the verified
-   suite. The suite is proven green in a sandbox before a byte is written.
+   suite — adding `--resume` if you answered a judgement point by editing the
+   artefact, so the answer travels with it. The suite is proven green in a
+   sandbox before a byte is written, and `--write` is the only step that
+   writes: everything before it changes nothing on disk.
 6. **Review the redundancy.** `tf-mut curate --reporter json <module>` reports
    assertions whose evidence says they sense nothing new. Read every finding
    against intent before acting on it; curate never deletes anything, and you
@@ -77,12 +82,17 @@ nobody has.
 - **Day-2 scenarios.** A generated scenario characterises a create from empty
   state. Update and replace behaviour is invisible to it, and *which* input
   change models realistic drift is judgement. Write an ordinary `run` block
-  with the inputs you think matter; the tool harvests and pins it like its
-  own.
+  with the inputs you think matter, and assert in it yourself.
 - **Discriminating inputs.** When a survivor is diagnosed as unobservable
   under the current inputs, the gap is the *inputs*, not the assertions. Add
-  a run block with the inputs you think discriminate the behaviour, and let
-  the tool report whether the fingerprint actually changed.
+  a run block with the inputs you think discriminate the behaviour, then rerun
+  the loop and read whether the diagnosis changed.
+
+**A run block you write is executed, not harvested.** This version pins only
+the scenarios it planned: `tf-mut` maps a harvest back to a scenario by the
+name it generated, so a hand-written run contributes to the mutation grade and
+to `curate`'s evidence, and never to `characterisation.pins`. Assertions in it
+are yours to write and yours to maintain.
 
 ## What the tool refuses, and why you should not talk it round
 
@@ -93,11 +103,16 @@ nobody has.
   does not sever a `local-exec`, an `external` data source or a
   `terraform_remote_state` read. These execute for real under an apply-mode
   scenario.
-- **A partial population for `curate`.** A redundancy finding drawn from a
-  scoped or sampled run is a false finding.
+- **A partial population for `curate` or `--until-dry`.** A redundancy finding
+  or a convergence claim drawn from a scoped or sampled run is a false one.
+  This refusal has **no opt-in**: drop the count lever and run again.
 
-Each of those has an opt-in flag. Reach for one only when you have read what
-it permits and decided the risk is acceptable for this module — and say so.
+The first two have an opt-in flag — `--allow-real-infrastructure` and
+`--allow-unsandboxed-effects`. **Neither is yours to grant.** Report the
+refusal verbatim to the module owner, with what the flag would permit, and
+wait for their decision. These gates stand between a test run and a real API
+call or a real side effect on the machine it runs on, and an agent that talks
+itself round one has removed the only thing standing there.
 
 ## Walkthrough
 
@@ -111,4 +126,18 @@ todos --reporter json .
 characterise --until-dry --reporter json .
 characterise --write .
 curate --reporter json .
+```
+
+Step 3 has its own block, executed against a module with an open judgement
+point, because a module that needs no answer cannot demonstrate answering one.
+`<todo-id>` is the identifier `tf-mut todos` printed on the line before, and
+the value is what this document's constraint table says to produce for
+`can(cidrnetmask(var.x))`. A scripted answer travels on every invocation that
+needs it, including the write.
+
+```tf-mut-transcript-todo
+characterise --reporter json .
+todos --reporter json .
+characterise --answer <todo-id>="10.0.0.0/16" --reporter json .
+characterise --answer <todo-id>="10.0.0.0/16" --write .
 ```

@@ -190,6 +190,26 @@ func InputClosureDigest(
 		return "", err
 	}
 
+	// The lock the *module* carries, not the warmed copy the run initialised
+	// from. `prepared.lockFile` lives in the sandbox and cannot change while a
+	// scaffold is being verified, so hashing it proves nothing about the tree
+	// this commit is about to write into. Editing the module's own
+	// `.terraform.lock.hcl` selects different provider versions, which is
+	// exactly the kind of change the probe exists to refuse a stale write over.
+	if path, found := live.LockFilePath(); found {
+		content, err := os.ReadFile(path) //nolint:gosec // discovery-owned path.
+		if err != nil {
+			return "", err
+		}
+
+		write("live-lock", "", hashBytes(content))
+	}
+
+	// The resolved configuration is part of the snapshot contract: the same
+	// sources under a different test selection or exclusion set are a
+	// different program, and the suite was proven green under this one.
+	write("config", "", resolvedConfiguration(settings))
+
 	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 

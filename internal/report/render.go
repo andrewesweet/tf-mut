@@ -30,6 +30,27 @@ type Gate struct {
 	FailOnNew bool
 }
 
+// characterisationExit applies the generation direction's own contract.
+func (r Report) characterisationExit() int {
+	// A commit that changed the tree and then stopped is an operational
+	// failure, whatever the scaffold itself reported: the caller has a
+	// half-written suite and has to act before anything else is true.
+	if write := r.Characterisation.Write; write != nil && len(write.Partial) > 0 {
+		return ExitOperational
+	}
+
+	// Incompleteness is a user-action state like any other: a rung that
+	// pinned nothing has produced a suite nobody should trust, and exit 0
+	// is reserved for output that is complete.
+	if !r.Characterisation.Complete ||
+		r.Characterisation.OpenTodos() > 0 ||
+		len(r.Characterisation.Findings) > 0 {
+		return ExitFindings
+	}
+
+	return ExitClean
+}
+
 // ExitCode applies the gate to the report. Requested gates compose: where
 // both --min-score and --fail-on-new are given, both must pass.
 func (r Report) ExitCode(gate Gate) int {
@@ -45,24 +66,19 @@ func (r Report) ExitCode(gate Gate) int {
 	// rather than about a score: zero once the suite is complete, one while a
 	// judgement point is still open or a curate finding is still unread, and
 	// two only for an operational failure.
-	if r.Characterisation != nil {
-		// A commit that changed the tree and then stopped is an operational
-		// failure, whatever the scaffold itself reported: the caller has a
-		// half-written suite and has to act before anything else is true.
-		if write := r.Characterisation.Write; write != nil && len(write.Partial) > 0 {
-			return ExitOperational
-		}
+	if r.Characterisation != nil && r.Command != CommandCurate {
+		return r.characterisationExit()
+	}
 
-		// Incompleteness is a user-action state like any other: a rung that
-		// pinned nothing has produced a suite nobody should trust, and exit 0
-		// is reserved for output that is complete.
-		if !r.Characterisation.Complete ||
-			r.Characterisation.OpenTodos() > 0 ||
-			len(r.Characterisation.Findings) > 0 {
-			return ExitFindings
-		}
-
-		return ExitClean
+	// `curate` carries a characterisation block and is nonetheless an ordinary
+	// grading command: it executes a full, unsampled population — the posture
+	// `checkCuratePopulation` enforces precisely so the numbers are worth
+	// gating on — so `--min-score` and `--fail-on-new` compose for it exactly
+	// as they do everywhere else. Keying the branch above on the block rather
+	// than on the command meant `tf-mut curate --min-score 80` exited 0 on a
+	// module scoring 10.
+	if r.Command == CommandCurate && len(r.Characterisation.Findings) > 0 {
+		return ExitFindings
 	}
 
 	// `suggest` has its own contract: zero once all the requested work has
@@ -525,13 +541,31 @@ func writeCharacterisation(builder *strings.Builder, value Report) {
 			"tf-mut characterise --resume\n", open)
 	}
 
+	// Incompleteness has three causes and the report already knows which one
+	// applies. Naming the granularity unconditionally told a reader with an
+	// open judgement point — two lines after being told to answer it — that
+	// their rung pinned nothing, which is false and points at the wrong remedy.
 	if !block.Complete {
-		builder.WriteString("  incomplete   the selected granularity produced no pins\n")
+		builder.WriteString("  incomplete   " + incompleteReason(block) + "\n")
 	}
 
 	writeCurateFindings(builder, block)
 	writeGeneratedFiles(builder, block)
 	writeWarnings(builder, value.Warnings)
+}
+
+// incompleteReason names the cause the block records, rather than the one
+// cause that happened to be written down first.
+func incompleteReason(block *Characterisation) string {
+	if block.OpenTodos() > 0 {
+		return "a judgement point is still open"
+	}
+
+	if block.Convergence != nil && block.Convergence.StopReason == "refused" {
+		return "the until-dry loop was refused: see the warning below"
+	}
+
+	return "the selected granularity produced no pins"
 }
 
 func writePinCounts(builder *strings.Builder, block *Characterisation) {

@@ -177,27 +177,35 @@ func TestARemovedBlockInJSONReachesTheProviderInventory(t *testing.T) {
 	}
 }
 
-// TestAMovedBlockIsRefusedInHCL and its import twin hold the other half of the
-// C4 disposition: the two constructs that stay uncollected are refused by name
-// rather than skipped in silence, which is what kept `check` invisible for a
-// whole milestone.
-func TestAMovedBlockIsRefusedInHCL(t *testing.T) {
+// TestAMovedBlockRunsLikeAnyOtherModule is the C4 disposition split in two.
+//
+// `moved` names two addresses and carries no provider, no effect and no
+// evaluation: it rewrites state bookkeeping at plan time, so there is nothing
+// for an inventory to miss and nothing for a gate to fail open on. Refusing it
+// bought no safety and cost *every* command on every module with a refactoring
+// in its history — not just characterisation, which is what the measurement
+// recorded. `import` keeps the refusal, because it names a provider
+// configuration and reads a real resource at plan time.
+func TestAMovedBlockRunsLikeAnyOtherModule(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, contractFixture)
 	writeFile(t, filepath.Join(module, "moves.tf"),
-		"moved {\n  from = terraform_data.old\n  to   = terraform_data.anchor\n}\n")
+		"moved {\n  from = terraform_data.old\n  to   = terraform_data.first\n}\n")
 
-	_, err := engine.Run(t.Context(), baseConfig(t, module))
-	if !errors.Is(err, discovery.ErrUnmodelledConstruct) {
-		t.Fatalf("error = %v, want a refusal naming the construct this version does not model", err)
+	result, err := engine.Run(t.Context(), baseConfig(t, module))
+	if err != nil {
+		t.Fatalf("a moved block must not stop a run: %v", err)
 	}
 
-	if !strings.Contains(err.Error(), "moved") || !strings.Contains(err.Error(), "moves.tf") {
-		t.Fatalf("the refusal names neither the construct nor its file: %v", err)
+	if len(result.Mutants) == 0 {
+		t.Fatal("the module graded no mutants")
 	}
 }
 
+// TestAnImportBlockIsRefusedInHCL keeps the refusal where it earns its cost:
+// an import block names a provider configuration and Terraform reads the real
+// resource at plan time, which is the R2-10 fail-open shape.
 func TestAnImportBlockIsRefusedInHCL(t *testing.T) {
 	t.Parallel()
 
@@ -215,33 +223,26 @@ func TestAnImportBlockIsRefusedInHCL(t *testing.T) {
 	}
 }
 
-// TestAMovedBlockInJSONIsRefusedByName is the other half of the C4 disposition
-// in the syntax that has a floor.
+// TestAMovedBlockInJSONIsReadRatherThanRefused is the same split in the syntax
+// that has a floor.
 //
-// Leaving the construct out of the schema would only leave the file *unread*,
-// and a floor is one opt-in away from being lifted: grant
-// --allow-real-infrastructure and --allow-unsandboxed-effects and the run
-// proceeds with the construct represented nowhere. A refusal is not
-// overridable, which is what a construct this version cannot model needs — so
-// the refusal is asserted with both opt-ins granted.
-func TestAMovedBlockInJSONIsRefusedByName(t *testing.T) {
+// The block stays in the JSON schema so the file is *read* — a floor standing
+// in for a reading nobody made is the shape issue #70 was about — and
+// contributes nothing, because there is nothing in it to contribute.
+func TestAMovedBlockInJSONIsReadRatherThanRefused(t *testing.T) {
 	t.Parallel()
 
-	module := copyFixture(t, jsonProviderFixture)
+	module := copyFixture(t, contractFixture)
 	writeFile(t, filepath.Join(module, "moves.tf.json"),
-		`{"moved":[{"from":"${terraform_data.old}","to":"${terraform_data.anchor}"}]}`+"\n")
+		`{"moved":[{"from":"terraform_data.old","to":"terraform_data.first"}]}`+"\n")
 
-	config := baseConfig(t, module)
-	config.AllowRealInfrastructure = true
-	config.AllowUnsandboxedEffects = true
-
-	_, err := engine.Run(t.Context(), config)
-	if !errors.Is(err, discovery.ErrUnmodelledConstruct) {
-		t.Fatalf("error = %v, want a refusal no opt-in can override", err)
+	result, err := engine.Run(t.Context(), baseConfig(t, module))
+	if err != nil {
+		t.Fatalf("a JSON moved block must not stop a run: %v", err)
 	}
 
-	if !strings.Contains(err.Error(), "moves.tf.json") {
-		t.Fatalf("the refusal does not name the file: %v", err)
+	if len(result.Mutants) == 0 {
+		t.Fatal("the module graded no mutants")
 	}
 }
 

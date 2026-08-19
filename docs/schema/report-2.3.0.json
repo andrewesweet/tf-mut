@@ -1439,7 +1439,7 @@
         },
         "digest": {
           "type": "string",
-          "description": "The digest of the bytes that are written to disk, which the write protocol commits against. These are not always the bytes in `content`: for a scenario with a sensitive input the written file carries the value Terraform has to plan and `content` carries the withheld marker, so the two fields are deliberately not a pair. Verify a written file against this digest, never against `content`."
+          "description": "The digest of the bytes in `content`, and therefore of the *redacted* rendering wherever a scenario assigns a sensitive input. It is deliberately not the digest of the file on disk: `content` is a deterministic template, so publishing a digest of the executable bytes beside it would let a reader recover a withheld value by substituting candidates and comparing hashes. The digest of the written bytes is recorded in the module-local provenance registry (`.tf-mut-generated.json`), which is where the write protocol commits against it."
         },
         "executable": {
           "type": "boolean",

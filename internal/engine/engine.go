@@ -216,6 +216,22 @@ type Config struct {
 	// be proven load-bearing rather than assumed. It is a seam control, not a
 	// command-line flag.
 	SeedFinalPinDefect bool
+	// SeedInitialPinDefect does the same for the *first* verification, the one
+	// between the harvest and everything downstream of it. The two verifiers
+	// are separate code paths and only the later one had a seam, so deleting
+	// the earlier one left the suite green. It is a seam control, not a
+	// command-line flag.
+	SeedInitialPinDefect bool
+	// SeedRenameWindowChange fires the seeded closure change inside the rename
+	// window rather than before it — after the temporary file has been
+	// created, written, closed and chmodded — so a probe that ran only before
+	// that window can be shown to miss it. It is a seam control, not a
+	// command-line flag.
+	SeedRenameWindowChange bool
+	// SeedRegistryFailure makes the provenance registry fail to store, so the
+	// one window in which every generated file has already been renamed can be
+	// staged. It is a seam control, not a command-line flag.
+	SeedRegistryFailure bool
 	// SeedNoEscalation suppresses the zero-output auto-escalation, so the other
 	// half of the contract — a rung that pinned nothing may never report
 	// complete — can be proven on its own. It is a seam control, not a
@@ -505,6 +521,10 @@ func finalise(settings Config, configured config.File) (Config, error) {
 	}
 
 	if err := checkCuratePopulation(settings); err != nil {
+		return Config{}, err
+	}
+
+	if err := checkUntilDryPopulation(settings); err != nil {
 		return Config{}, err
 	}
 

@@ -18,6 +18,23 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
+// staging is what every staged run needs: the closure to materialise, the
+// settings that shape it, the warm workspace it borrows from, and the root to
+// build under.
+//
+// One value rather than four parameters: the four travelled together through
+// six functions, and threading a fifth past them is what pushed one signature
+// over the argument limit.
+type staging struct {
+	configuration discovery.Configuration
+	settings      Config
+	prepared      warm
+	workRoot      string
+	// terraform is the version gate's result, carried so that a staged round
+	// can drive the mutation pipeline without checking the binary again.
+	terraform tfexec.Version
+}
+
 // ErrScaffoldRed reports a generated suite that did not pass in the sandbox.
 //
 // It is an operational failure and never a result: the whole point of
@@ -44,12 +61,7 @@ func characteriseModule(
 	settings Config,
 	version tfexec.Version,
 ) (report.Report, error) {
-	rung, err := characterise.ParseRung(settings.PinRung)
-	if err != nil {
-		return report.Report{}, err
-	}
-
-	answers, err := collectAnswers(configuration, settings)
+	rung, answers, err := characteriseInputs(configuration, settings)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -105,8 +117,12 @@ func characteriseModule(
 	// the same shape for every command.
 	result.Selection = report.Selection{Mode: scopeLabel(true), Ref: "", ForcedFull: ""}
 
-	block, files, err := scaffoldSuite(ctx, runner, configuration, settings,
-		workRoot, prepared, scaffold)
+	stage := staging{
+		configuration: configuration, settings: settings,
+		prepared: prepared, workRoot: workRoot, terraform: version,
+	}
+
+	block, files, err := scaffoldSuite(ctx, runner, stage, scaffold)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -114,78 +130,154 @@ func characteriseModule(
 	// The until-dry loop grades what the scaffold pinned and pins whatever its
 	// survivors still yield, over the staged suite: nothing on disk changes
 	// until the caller asks for a write.
-	if settings.UntilDry && block.Complete {
-		if err := untilDry(ctx, runner, configuration, settings, version,
-			&block, scaffold, workRoot); err != nil {
-			// `refused` is one of three published stop reasons, so the report
-			// that records it has to reach the caller rather than being
-			// discarded with the error.
-			block.Complete = false
+	// Gated on the judgement points, not on `Complete`. `Complete` is false for
+	// a scaffold that pinned nothing, and a zero-assertion scaffold is exactly
+	// the case issue #76's assertion-kills-only rule is about: the loop has to
+	// run over it and report what a suite that asserts nothing actually grades,
+	// rather than declining to produce a mutation population or any convergence
+	// evidence for it. What the loop genuinely cannot run over is a scaffold
+	// with an unresolved judgement point, because there is no executable suite.
+	if settings.UntilDry && unresolvedTodos(block.Todos) == 0 {
+		closed, refused, err := closeTheGap(ctx, runner, stage, &block, scaffold, answers)
+		if err != nil {
+			return report.Report{}, err
+		}
+
+		result.Warnings = append(result.Warnings, refused...)
+
+		if !block.Complete {
+			// The loop was refused. `refused` is one of three published stop
+			// reasons, so the report that records it reaches the caller rather
+			// than being discarded with an error.
 			result.Characterisation = &block
-			result.Warnings = append(result.Warnings, err.Error())
 			result.Metrics = report.ComputeMetrics(nil)
 
 			return result, nil
 		}
 
-		promoted, refusals := promoteScaffolds(ctx, runner, configuration,
-			prepared, &block, scaffold, answers, workRoot)
-		result.Warnings = append(result.Warnings, refusals...)
-
-		block.Pins = seedFinalPinDefect(block.Pins, settings)
-
-		// The loop proves each round's pins by baselining them at the start of
-		// the next one, which leaves the last round's pins unproven whenever
-		// it stopped because it ran out of rounds rather than because it went
-		// dry. One verification over the final set closes that: "the pinned
-		// suite is proven green before a byte is written" has to hold on both
-		// exits, and an individually verified suggestion is evidence rather
-		// than the same claim.
-		if err := verifyScaffold(ctx, runner, configuration, workRoot, prepared,
-			scaffold, block.Pins, settings, "verify-final"); err != nil {
-			return report.Report{}, err
-		}
-
-		files = append(append(pinnedFiles(scaffold, block.Pins), promoted...),
-			scaffoldArtefact(scaffold, &block)...)
+		files = closed
 		block.Files = entriesOf(files)
 	}
 
 	result.Characterisation = &block
 	result.Metrics = report.ComputeMetrics(nil)
 
-	if settings.CharacteriseWrite {
-		if err := commitScaffold(configuration, settings, prepared, &block, files); err != nil {
-			// The report travels with the failure. A commit that renamed one
-			// file and then aborted has left the caller a partial state, and
-			// an error alone would not say which files moved.
-			if block.Write == nil || len(block.Write.Partial) == 0 {
-				return report.Report{}, err
-			}
-
-			result.Warnings = append(result.Warnings, err.Error())
-
-			return result, nil
-		}
+	if err := commit(stage, &block, files, &result); err != nil {
+		return report.Report{}, err
 	}
 
 	return result, nil
+}
+
+// commit performs the write, where one was asked for, and keeps the report
+// when the write left a partial state behind.
+//
+// A refusal before any rename leaves nothing on disk and is an error. A
+// failure after the first rename has changed the caller's tree, and an error
+// alone would not say which files moved.
+func commit(
+	stage staging,
+	block *report.Characterisation,
+	files []generated,
+	result *report.Report,
+) error {
+	if !stage.settings.CharacteriseWrite {
+		return nil
+	}
+
+	err := commitScaffold(stage.configuration, stage.settings, stage.prepared, block, files)
+	if err == nil {
+		return nil
+	}
+
+	if block.Write == nil || len(block.Write.Partial) == 0 {
+		return err
+	}
+
+	result.Warnings = append(result.Warnings, err.Error())
+
+	return nil
+}
+
+// characteriseInputs resolves the two caller choices every characterisation
+// starts from: the granularity, and the answers in force.
+func characteriseInputs(
+	configuration discovery.Configuration,
+	settings Config,
+) (characterise.Rung, map[string]string, error) {
+	rung, err := characterise.ParseRung(settings.PinRung)
+	if err != nil {
+		return "", nil, err
+	}
+
+	answers, err := collectAnswers(configuration, settings)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return rung, answers, nil
+}
+
+// closeTheGap runs the until-dry loop, promotes what the answers earned, and
+// proves the pin set the loop ended with before any of it can be written.
+//
+// The final verification is the point. Each round proves the previous round's
+// pins by baselining them at its start, so the last round's pins are unproven
+// whenever the loop stopped because it ran out of rounds rather than because
+// it went dry — and "the pinned suite is proven green before a byte is
+// written" has to hold on both exits. An individually verified suggestion is
+// evidence, not the same claim.
+func closeTheGap(
+	ctx context.Context,
+	runner tfexec.Runner,
+	stage staging,
+	block *report.Characterisation,
+	scaffold characterise.Scaffold,
+	answers map[string]string,
+) ([]generated, []string, error) {
+	// A refused loop is a *reported* outcome and not a swallowed error: the
+	// stop reason it records is one of three published values, so the report
+	// carrying it has to reach a reporter. The failure travels as a warning on
+	// a report the caller keeps.
+	//
+	// Only a refusal, though. A staged suite that went red is a statement
+	// about the program under characterisation and belongs on the report; a
+	// Terraform crash, a staging failure or a mutation-engine failure is an
+	// operational failure, and turning one into a warning plus an incomplete
+	// report exits 1 where the published contract says 2.
+	if err := untilDry(ctx, runner, stage, block, scaffold); err != nil {
+		if !errors.Is(err, ErrBaselineRed) {
+			return nil, nil, err
+		}
+
+		block.Complete = false
+
+		return nil, []string{err.Error()}, nil
+	}
+
+	promoted, refusals := promoteScaffolds(ctx, runner, stage, block, scaffold, answers)
+
+	block.Pins = seedFinalPinDefect(block.Pins, stage.settings)
+
+	if err := verifyScaffold(ctx, runner, stage, scaffold, block.Pins, "verify-final"); err != nil {
+		return nil, nil, err
+	}
+
+	return append(append(pinnedFiles(scaffold, block.Pins), promoted...),
+		scaffoldArtefact(scaffold, block)...), refusals, nil
 }
 
 // scaffoldSuite harvests, pins and verifies the planned scaffold.
 func scaffoldSuite(
 	ctx context.Context,
 	runner tfexec.Runner,
-	configuration discovery.Configuration,
-	settings Config,
-	workRoot string,
-	prepared warm,
+	stage staging,
 	scaffold characterise.Scaffold,
 ) (report.Characterisation, []generated, error) {
 	block := report.Characterisation{ //nolint:exhaustruct // filled in below, stage by stage.
 		Rung: string(scaffold.Rung), Complete: false,
 		Scenarios: scaffold.Scenarios, Pins: []report.Pin{}, Todos: scaffold.Todos,
-		Files: []report.GeneratedFile{}, Staged: !settings.CharacteriseWrite,
+		Files: []report.GeneratedFile{}, Staged: !stage.settings.CharacteriseWrite,
 	}
 
 	if scaffold.Requested != scaffold.Rung {
@@ -204,18 +296,20 @@ func scaffoldSuite(
 		return block, files, nil
 	}
 
-	harvest, err := harvestScaffold(ctx, runner, configuration, workRoot, prepared, scaffold, settings)
+	harvest, err := harvestScaffold(ctx, runner, stage, scaffold)
 	if err != nil {
 		return rejectAnswers(block, scaffold, err)
 	}
 
-	block.Pins = characterise.Pin(scaffold, configuration, prepared.schemas, harvest)
+	block.Pins = seedInitialPinDefect(
+		characterise.Pin(scaffold, stage.configuration, stage.prepared.schemas, harvest),
+		stage.settings,
+	)
 
 	files := pinnedFiles(scaffold, block.Pins)
 	block.Files = entriesOf(files)
 
-	if err := verifyScaffold(ctx, runner, configuration, workRoot, prepared,
-		scaffold, block.Pins, settings, "verify"); err != nil {
+	if err := verifyScaffold(ctx, runner, stage, scaffold, block.Pins, "verify"); err != nil {
 		return rejectAnswers(block, scaffold, err)
 	}
 
@@ -244,6 +338,21 @@ func openTodos(todos []report.Todo) int {
 	return open
 }
 
+// unresolvedTodos counts the judgement points that still stand between the
+// scaffold and an executable suite: one nobody has answered, and one whose
+// answer did not survive verification.
+func unresolvedTodos(todos []report.Todo) int {
+	unresolved := 0
+
+	for _, todo := range todos {
+		if todo.Status == report.TodoOpen || todo.Status == report.TodoRejected {
+			unresolved++
+		}
+	}
+
+	return unresolved
+}
+
 func pinnedCount(pins []report.Pin) int {
 	count := 0
 
@@ -260,16 +369,36 @@ func pinnedCount(pins []report.Pin) int {
 // where one was supplied, and into an operational failure where none was.
 //
 // The distinction is the whole safety property `agent-integration.md` §2.4
-// rests on: a value somebody supplied is a hypothesis the tool tests, so a
-// wrong one comes back as a reported, attributed finding with the diagnostic
+// rests on: a value somebody supplied is a hypothesis the tool tests, so one
+// that does not survive comes back as a reported finding with the diagnostic
 // attached and the artefact rewritten. A failure with no answer in play is a
 // defect in the generator, and reporting that as a finding about the module
 // would be the tool blaming its own bug on its user.
+//
+// `rejected` means *not proven*, and deliberately not *proven wrong*. The
+// suite is one program: a run that fails with an answer in play may have
+// failed for a reason that has nothing to do with the answer, and no
+// attribution short of re-running each answer alone could tell the two apart.
+// Rejecting is the safe direction either way — promotion is earned by a green
+// run and this run was not green — and the diagnostic travels verbatim so the
+// reader can see what actually failed rather than take the status's word for
+// it.
 func rejectAnswers(
 	block report.Characterisation,
 	scaffold characterise.Scaffold,
 	failure error,
 ) (report.Characterisation, []generated, error) {
+	// Only a red suite is evidence about an answer. `harvestScaffold` and
+	// `verifyScaffold` also propagate staging errors, runner errors and
+	// canonicalisation errors, and none of those says anything about the value
+	// somebody supplied: a Terraform crash during a run that happens to carry
+	// an answer is the same operational failure it would be with no answer in
+	// play, and reporting it as "your answer was refuted" both misattributes
+	// the cause and swallows an exit-2 condition into an exit-1 report.
+	if !errors.Is(failure, ErrScaffoldRed) {
+		return report.Characterisation{}, nil, failure //nolint:exhaustruct // nothing was produced.
+	}
+
 	rejected := false
 
 	for index, todo := range block.Todos {
@@ -278,7 +407,9 @@ func rejectAnswers(
 		}
 
 		block.Todos[index].Status = report.TodoRejected
-		block.Todos[index].Diagnostic = failure.Error()
+		block.Todos[index].Diagnostic = "the suite did not pass with this answer in play, so " +
+			"it could not be promoted; the failure may or may not be attributable to it: " +
+			failure.Error()
 		rejected = true
 	}
 
@@ -321,20 +452,33 @@ func artefactFiles(scaffold characterise.Scaffold, todos []report.Todo) []genera
 type generated struct {
 	entry report.GeneratedFile
 	bytes []byte
+	// digest is the written bytes' digest, which the provenance registry
+	// records and the collision protocol compares against what is on disk. It
+	// is deliberately not published: see generatedFile.
+	digest string
 }
 
-// generatedFile is the one place a generated file's report entry is built, so
-// its digest is always the digest of the bytes that will be written.
+// generatedFile is the one place a generated file's report entry is built.
+//
+// The published digest covers the *reported* bytes, and the written bytes'
+// digest stays in the local write protocol. Publishing the executable digest
+// beside the redacted content made the report an offline equality oracle for
+// the secret it withheld: the template is deterministic, so a reader could
+// substitute candidate values into it and compare hashes until one matched.
+// The mandatory fixture's answer space is thirty-two bits. A report field that
+// varies with a value the report exists not to carry is a disclosure whatever
+// else it is useful for.
 func generatedFile(path string, written, reported []byte, executable bool) generated {
 	return generated{
 		entry: report.GeneratedFile{
 			Path:       path,
 			Content:    string(reported),
-			Digest:     characterise.Digest(written),
+			Digest:     characterise.Digest(reported),
 			Executable: executable,
 			Written:    false,
 		},
-		bytes: written,
+		bytes:  written,
+		digest: characterise.Digest(written),
 	}
 }
 
@@ -398,20 +542,17 @@ func pinnedFiles(scaffold characterise.Scaffold, pins []report.Pin) []generated 
 func harvestScaffold(
 	ctx context.Context,
 	runner tfexec.Runner,
-	configuration discovery.Configuration,
-	workRoot string,
-	prepared warm,
+	stage staging,
 	scaffold characterise.Scaffold,
-	settings Config,
 ) (characterise.Harvest, error) {
-	staged := stagedScaffold(configuration, scaffold, nil, settings)
+	staged := stagedScaffold(stage.configuration, scaffold, nil, stage.settings)
 
-	first, err := stagedRun(ctx, runner, configuration, workRoot, prepared, staged, "harvest-1")
+	first, err := stagedRun(ctx, runner, stage, staged, "harvest-1")
 	if err != nil {
 		return characterise.Harvest{}, err
 	}
 
-	second, err := stagedRun(ctx, runner, configuration, workRoot, prepared, staged, "harvest-2")
+	second, err := stagedRun(ctx, runner, stage, staged, "harvest-2")
 	if err != nil {
 		return characterise.Harvest{}, err
 	}
@@ -429,7 +570,9 @@ func harvestScaffold(
 	return characterise.Harvest{
 		Payloads: firstPayloads,
 		Mask: fingerprint.Derive(firstPayloads, secondPayloads).
-			Merge(staticMask(configuration.ScanVolatility(prepared.sources), firstPayloads)),
+			Merge(staticMask(
+				stage.configuration.ScanVolatility(stage.prepared.sources), firstPayloads,
+			)),
 	}, nil
 }
 
@@ -474,17 +617,14 @@ func stagedScaffold(
 func verifyScaffold(
 	ctx context.Context,
 	runner tfexec.Runner,
-	configuration discovery.Configuration,
-	workRoot string,
-	prepared warm,
+	stage staging,
 	scaffold characterise.Scaffold,
 	pins []report.Pin,
-	settings Config,
 	name string,
 ) error {
-	staged := stagedScaffold(configuration, scaffold, pins, settings)
+	staged := stagedScaffold(stage.configuration, scaffold, pins, stage.settings)
 
-	result, err := stagedRun(ctx, runner, configuration, workRoot, prepared, staged, name)
+	result, err := stagedRun(ctx, runner, stage, staged, name)
 	if err != nil {
 		return err
 	}
@@ -512,27 +652,27 @@ func verifyScaffold(
 func stagedRun(
 	ctx context.Context,
 	runner tfexec.Runner,
-	configuration discovery.Configuration,
-	workRoot string,
-	prepared warm,
+	stage staging,
 	staged map[string][]byte,
 	name string,
 ) (tfexec.TestResult, error) {
 	built, err := sandbox.Materialise(sandbox.Spec{
-		SourceRoot: configuration.ClosureRoot,
-		ModuleRel:  configuration.RootRelative(),
-		Target:     filepath.Join(workRoot, name),
+		SourceRoot: stage.configuration.ClosureRoot,
+		ModuleRel:  stage.configuration.RootRelative(),
+		Target:     filepath.Join(stage.workRoot, name),
 		Mutations:  nil,
 		Staged:     staged,
-		Share:      &sandbox.Share{DataDir: prepared.dataDir, LockFile: prepared.lockFile},
-		Hardlink:   true,
+		Share: &sandbox.Share{
+			DataDir: stage.prepared.dataDir, LockFile: stage.prepared.lockFile,
+		},
+		Hardlink: true,
 	})
 	if err != nil {
 		return tfexec.TestResult{}, err //nolint:exhaustruct // nothing ran.
 	}
 
 	return runner.Test(ctx, built.ModuleDir, tfexec.TestOptions{
-		TestDirectory: configuration.TestDirRelative(),
+		TestDirectory: stage.configuration.TestDirRelative(),
 		Filters:       nil,
 		Verbose:       true,
 		Timeout:       0,
@@ -691,6 +831,22 @@ func seedFinalPinDefect(pins []report.Pin, settings Config) []report.Pin {
 	defect := pins[0]
 	defect.ID = characterise.PinID(defect.Scenario, defect.Address, "seeded")
 	defect.Expression = defect.Address + ` == "tf-mut-seeded-final-pin-defect"`
+
+	return append(slices.Clone(pins), defect)
+}
+
+// seedInitialPinDefect adds a pin nothing could have harvested to the harvested
+// set, so the verification between the harvest and everything downstream of it
+// can be shown to be load-bearing. It is a seam control and not a command-line
+// flag.
+func seedInitialPinDefect(pins []report.Pin, settings Config) []report.Pin {
+	if !settings.SeedInitialPinDefect || len(pins) == 0 {
+		return pins
+	}
+
+	defect := pins[0]
+	defect.ID = characterise.PinID(defect.Scenario, defect.Address, "seeded-initial")
+	defect.Expression = defect.Address + ` == "tf-mut-seeded-initial-pin-defect"`
 
 	return append(slices.Clone(pins), defect)
 }

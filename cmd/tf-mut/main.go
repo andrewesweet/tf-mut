@@ -34,6 +34,12 @@ const (
 	versionCommand      = "version"
 	versionFlag         = "--version"
 
+	// The flags that belong to one command rather than to all of them, named
+	// because the scoping table and the declaration both spell them.
+	pinFlag        = "pin"
+	answerFlagName = "answer"
+	resumeFlagName = "resume"
+
 	reporterTerminal = "terminal"
 	reporterJSON     = "json"
 	reporterSARIF    = "sarif"
@@ -302,6 +308,14 @@ func parse(command, buildVersion string, args []string, stderr io.Writer) (optio
 		}
 	})
 
+	if err := refuseInapplicableFlags(command, given); err != nil {
+		return options{}, err
+	}
+
+	if err := refuseUncarryingReporter(command, *values.reporter); err != nil {
+		return options{}, err
+	}
+
 	return options{
 		config: engineConfig(command, buildVersion, values, moduleDir, given, requested, sampled),
 		gate: report.Gate{
@@ -314,6 +328,82 @@ func parse(command, buildVersion string, args []string, stderr io.Writer) (optio
 		sarifPath: *values.sarifPath,
 		reporters: append(configured, *values.outputs...),
 	}, nil
+}
+
+// errInapplicableFlag reports a flag the named command does not act on.
+var errInapplicableFlag = errors.New("flag does not apply to this command")
+
+// errUncarryingReporter reports a reporter that cannot carry what the command
+// produces.
+var errUncarryingReporter = errors.New(
+	"reporter cannot carry a characterisation: use --reporter json or terminal",
+)
+
+// commandFlags names the flags each command acts on, for the flags that belong
+// to one command and are declared on the set every command shares.
+//
+// A flag accepted and ignored is worse than one refused: `--write` and
+// `--force` both name write behaviour and were silently no-ops under `run`,
+// `--apply` let a caller request a destructive action from `curate` and
+// receive an ordinary report, and `--pin nonsense` was validated under
+// `characterise` and accepted under everything else. This repository already
+// refuses misapplied flags elsewhere; the table makes the two agree.
+//
+//nolint:gochecknoglobals // an immutable table.
+var commandFlags = map[string]map[string]bool{
+	characteriseCommand: {
+		"write": true, "force": true, pinFlag: true,
+		"until-dry": true, answerFlagName: true, resumeFlagName: true,
+	},
+	todosCommand: {pinFlag: true, answerFlagName: true, resumeFlagName: true},
+	suggestCommand: {
+		"apply": true, "all-verified": true, "survivor": true, "dry-run": true,
+	},
+}
+
+// scopedFlags is every flag that belongs to some command rather than to all of
+// them. A flag outside this set applies everywhere and is never refused.
+//
+//nolint:gochecknoglobals // an immutable set.
+var scopedFlags = map[string]bool{
+	"write": true, "force": true, pinFlag: true, "until-dry": true,
+	answerFlagName: true, resumeFlagName: true, "apply": true, "all-verified": true,
+	"survivor": true, "dry-run": true,
+}
+
+func refuseInapplicableFlags(command string, given []string) error {
+	acted := commandFlags[command]
+
+	for _, name := range given {
+		if scopedFlags[name] && !acted[name] {
+			return fmt.Errorf("%w: --%s is not a %s flag", errInapplicableFlag, name, command)
+		}
+	}
+
+	return nil
+}
+
+// refuseUncarryingReporter keeps the characterisation commands to the two
+// reporters that publish what they produce.
+//
+// The generated suite lives in `Characterisation.Files`, which the SARIF, MTE,
+// HTML, JUnit and Markdown adapters do not carry: `characterise --reporter
+// markdown` wrote nothing, returned no suite, and exited as though it had
+// succeeded. Refusing is the honest half of the choice — teaching five
+// adapters to carry a generated suite is a schema decision, not a flag one.
+func refuseUncarryingReporter(command, reporter string) error {
+	switch command {
+	case characteriseCommand, todosCommand, curateCommand:
+	default:
+		return nil
+	}
+
+	if reporter == reporterTerminal || reporter == reporterJSON {
+		return nil
+	}
+
+	return fmt.Errorf("%w: %s does not carry one, and %s produces one",
+		errUncarryingReporter, reporter, command)
 }
 
 // engineConfig maps the parsed flags onto the engine's one input value.

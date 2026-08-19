@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
 )
 
 // effectDataSources are data sources whose read executes an unsandboxed effect.
@@ -215,14 +216,18 @@ func collectFile(module *Module, providers map[string]bool, path string, body *h
 		case "provider":
 			collectProviderBlock(module, block)
 		case terraformBlock:
-			collectRequiredProviders(providers, block)
+			collectRequiredProviders(module, providers, block)
 		case checkBlock:
 			collectCheckBlock(module, providers, path, relative, block)
 		case removedBlock:
 			collectRemovedBlock(module, providers, path, block)
-		case movedBlock, importBlock:
+		case importBlock:
 			return unmodelledConstruct(block.Type, relative, block.DefRange().Start)
 		default:
+			// `moved` lands here with every other block this walker has
+			// nothing to collect from: it names two addresses, carries no
+			// provider, no effect and no evaluation, so there is nothing for
+			// an inventory to miss. See constructs.go.
 		}
 	}
 
@@ -391,15 +396,110 @@ func collectEffects(module *Module, discovered Block, block *hclsyntax.Block) {
 	}
 }
 
-func collectRequiredProviders(providers map[string]bool, block *hclsyntax.Block) {
+func collectRequiredProviders(
+	module *Module,
+	providers map[string]bool,
+	block *hclsyntax.Block,
+) {
 	for _, nested := range block.Body.Blocks {
 		if nested.Type != requiredProviders {
 			continue
 		}
 
-		for name := range nested.Body.Attributes {
+		for name, attribute := range nested.Body.Attributes {
 			providers[name] = true
+
+			module.ProviderAliases = append(module.ProviderAliases,
+				configurationAliases(name, attribute.Expr)...)
 		}
+	}
+}
+
+// configurationAliases reads the alias configurations a requirement declares.
+//
+// A reusable module names the provider configurations its caller must pass in
+// with `configuration_aliases`, and normally contains no `provider` block at
+// all. Reading only `provider` blocks therefore misses every alias of exactly
+// the modules characterisation exists for — the generated suite mocks none of
+// them, and the gate that requires a mock per configuration never learns the
+// configuration is there.
+func configurationAliases(name string, expr hclsyntax.Expression) []ProviderAlias {
+	object, ok := expr.(*hclsyntax.ObjectConsExpr)
+	if !ok {
+		return nil
+	}
+
+	aliases := []ProviderAlias{}
+
+	for _, item := range object.Items {
+		if key, named := objectKeyName(item.KeyExpr); !named || key != configurationAliasesKey {
+			continue
+		}
+
+		tuple, listed := item.ValueExpr.(*hclsyntax.TupleConsExpr)
+		if !listed {
+			continue
+		}
+
+		for _, element := range tuple.Exprs {
+			if alias, read := aliasOf(name, element); read {
+				aliases = append(aliases, alias)
+			}
+		}
+	}
+
+	return aliases
+}
+
+// configurationAliasesKey is the requirement argument that names them.
+const configurationAliasesKey = "configuration_aliases"
+
+// aliasOf reads `<provider>.<alias>` out of a configuration-alias entry.
+//
+// The traversal is read through `hcl.AbsTraversalForExpr` rather than by type
+// assertion: inside an object-cons value `null.primary` parses as a
+// *relative* traversal, not a scoped one, and a type switch on the scoped form
+// alone silently matches nothing — which is how the whole construct went
+// uncollected in the first place.
+func aliasOf(name string, expr hclsyntax.Expression) (ProviderAlias, bool) {
+	empty := ProviderAlias{Name: "", Alias: ""}
+
+	traversal, diagnostics := hcl.AbsTraversalForExpr(expr)
+	if diagnostics.HasErrors() || len(traversal) != addressParts {
+		return empty, false
+	}
+
+	root, ok := traversal[0].(hcl.TraverseRoot)
+	if !ok || root.Name != name {
+		return empty, false
+	}
+
+	attribute, ok := traversal[1].(hcl.TraverseAttr)
+	if !ok {
+		return empty, false
+	}
+
+	return ProviderAlias{Name: name, Alias: attribute.Name}, true
+}
+
+// objectKeyName reads an object key that is a bare name or a quoted one.
+func objectKeyName(expr hclsyntax.Expression) (string, bool) {
+	if wrapped, ok := expr.(*hclsyntax.ObjectConsKeyExpr); ok {
+		expr = wrapped.Wrapped
+	}
+
+	switch typed := expr.(type) {
+	case *hclsyntax.ScopeTraversalExpr:
+		return typed.Traversal.RootName(), true
+	case *hclsyntax.TemplateExpr:
+		value, diagnostics := typed.Value(nil)
+		if diagnostics.HasErrors() || value.Type() != cty.String {
+			return "", false
+		}
+
+		return value.AsString(), true
+	default:
+		return "", false
 	}
 }
 

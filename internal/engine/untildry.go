@@ -53,25 +53,22 @@ func roundLimit(settings Config) int {
 func untilDry(
 	ctx context.Context,
 	runner tfexec.Runner,
-	configuration discovery.Configuration,
-	settings Config,
-	version tfexec.Version,
+	stage staging,
 	block *report.Characterisation,
 	scaffold characterise.Scaffold,
-	workRoot string,
 ) error {
 	convergence := &report.Convergence{
 		Rounds: 0, NewPinsPerRound: []int{}, StopReason: "bounded",
 	}
 	block.Convergence = convergence
 
-	for round := range roundLimit(settings) {
+	for round := range roundLimit(stage.settings) {
 		// Every round stages the suite as it stands *now*. Building the files
 		// once before the loop would mean round N+1 grading round N-1's suite,
 		// treating the assertions round N added as merely known, and declaring
 		// the run dry without ever having executed them.
-		added, err := oneRound(ctx, runner, configuration, settings, version, block, scaffold,
-			filepath.Join(workRoot, stagingRoot+"-"+strconv.Itoa(round)))
+		added, err := oneRound(ctx, runner, stage, block, scaffold,
+			filepath.Join(stage.workRoot, stagingRoot+"-"+strconv.Itoa(round)))
 		if err != nil {
 			// The stop reason is a published value of a closed vocabulary, so
 			// the report that carries it has to reach a reporter. The caller
@@ -99,19 +96,17 @@ func untilDry(
 func oneRound(
 	ctx context.Context,
 	runner tfexec.Runner,
-	configuration discovery.Configuration,
-	settings Config,
-	version tfexec.Version,
+	stage staging,
 	block *report.Characterisation,
 	scaffold characterise.Scaffold,
 	target string,
 ) (int, error) {
-	staged, err := stageSuite(configuration, scaffold, block, target)
+	staged, err := stageSuite(stage, scaffold, block, target)
 	if err != nil {
 		return 0, err
 	}
 
-	graded := settings
+	graded := stage.settings
 	graded.Characterise = false
 	graded.UntilDry = false
 	graded.CharacteriseWrite = false
@@ -124,12 +119,14 @@ func oneRound(
 	// it could never be reused anyway; disabling it says that outright rather
 	// than leaving a cache directory in a directory that is about to vanish.
 	stagedConfiguration, err := discovery.DiscoverWith(staged.ModuleDir,
-		settings.TestDirectory, discovery.Options{SkipJSON: settings.DisableJSONReading})
+		stage.settings.TestDirectory,
+		discovery.Options{SkipJSON: stage.settings.DisableJSONReading})
 	if err != nil {
 		return 0, err
 	}
 
-	result, err := mutate(ctx, runner, stagedConfiguration, graded, version, staged.ModuleDir)
+	result, err := mutate(ctx, runner, stagedConfiguration, graded,
+		stage.terraform, staged.ModuleDir)
 	if err != nil {
 		return 0, err
 	}
@@ -151,12 +148,10 @@ func oneRound(
 func promoteScaffolds(
 	ctx context.Context,
 	runner tfexec.Runner,
-	configuration discovery.Configuration,
-	prepared warm,
+	stage staging,
 	block *report.Characterisation,
 	scaffold characterise.Scaffold,
 	answers map[string]string,
-	workRoot string,
 ) ([]generated, []string) {
 	promoted := []generated{}
 	warnings := []string{}
@@ -167,8 +162,8 @@ func promoteScaffolds(
 			continue
 		}
 
-		file, refusal := verifyScaffoldAnswer(ctx, runner, configuration, prepared,
-			scaffold, entry, answer, filepath.Join(workRoot, "scaffold-"+entry.ID))
+		file, refusal := verifyScaffoldAnswer(ctx, runner, stage, scaffold, entry, answer,
+			filepath.Join(stage.workRoot, "scaffold-"+entry.ID))
 		if refusal != "" {
 			warnings = append(warnings, "scaffold "+entry.ID+" was not promoted: "+refusal)
 
@@ -187,8 +182,7 @@ func promoteScaffolds(
 func verifyScaffoldAnswer(
 	ctx context.Context,
 	runner tfexec.Runner,
-	configuration discovery.Configuration,
-	prepared warm,
+	stage staging,
 	scaffold characterise.Scaffold,
 	entry report.Scaffold,
 	answer, target string,
@@ -202,14 +196,27 @@ func verifyScaffoldAnswer(
 
 	variables, parsed := characterise.AnsweredVariables(answer)
 	if !parsed {
-		return empty, "the answer is not an object of constant input assignments"
+		return empty, "the answer is not an object of constant assignments to legal " +
+			"variable names"
+	}
+
+	// Every name has to be an input the module declares. A legal identifier is
+	// not enough on its own: an answer naming something the module has no
+	// variable for would render a run block Terraform refuses, and the point
+	// of checking here is that the refusal names the answer rather than the
+	// generated file.
+	if undeclared := undeclaredInputs(stage.configuration, variables); undeclared != "" {
+		return empty, "the answer names " + undeclared + ", which the module does not declare"
 	}
 
 	content := characterise.RenderExpectFailures(scaffold, entry, checkable, variables)
 	path := characterise.ScaffoldFile(scaffold.Options.TestDirRel, entry.ID)
 
-	result, err := stagedRun(ctx, runner, configuration, target, prepared,
-		map[string][]byte{stagedPath(configuration, path): content}, "verify")
+	scoped := stage
+	scoped.workRoot = target
+
+	result, err := stagedRun(ctx, runner, scoped,
+		map[string][]byte{stagedPath(stage.configuration, path): content}, "verify")
 	if err != nil {
 		return empty, err.Error()
 	}
@@ -264,8 +271,14 @@ func recordScaffolds(block *report.Characterisation, result report.Report) {
 const scaffoldScenario = "scaffolds"
 
 // stageSuite materialises the closure plus the current generated suite.
+//
+// It borrows the warm workspace the run already built, the way `stagedRun`
+// does. Without that each round copied the whole closure by value and `mutate`
+// re-initialised from scratch — provider install and `providers schema`, five
+// times over at the default bound, against a real provider tree, inside a loop
+// the shipped skill tells agents to call routinely.
 func stageSuite(
-	configuration discovery.Configuration,
+	stage staging,
 	scaffold characterise.Scaffold,
 	block *report.Characterisation,
 	target string,
@@ -277,18 +290,20 @@ func stageSuite(
 
 	for _, file := range pinnedFiles(scaffold, block.Pins) {
 		if file.entry.Executable {
-			staged[stagedPath(configuration, file.entry.Path)] = file.bytes
+			staged[stagedPath(stage.configuration, file.entry.Path)] = file.bytes
 		}
 	}
 
 	return sandbox.Materialise(sandbox.Spec{
-		SourceRoot: configuration.ClosureRoot,
-		ModuleRel:  configuration.RootRelative(),
+		SourceRoot: stage.configuration.ClosureRoot,
+		ModuleRel:  stage.configuration.RootRelative(),
 		Target:     target,
 		Mutations:  nil,
 		Staged:     staged,
-		Share:      nil,
-		Hardlink:   false,
+		Share: &sandbox.Share{
+			DataDir: stage.prepared.dataDir, LockFile: stage.prepared.lockFile,
+		},
+		Hardlink: true,
 	})
 }
 
@@ -362,6 +377,40 @@ func scenarioForRun(block *report.Characterisation, run string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// undeclaredInputs names the first assignment whose variable the module does
+// not declare, or empty where every one of them is real.
+func undeclaredInputs(
+	configuration discovery.Configuration,
+	variables map[string]string,
+) string {
+	declared := map[string]bool{}
+
+	for _, module := range configuration.Modules {
+		if module.Dir != configuration.ModuleDir {
+			continue
+		}
+
+		for _, variable := range module.Variables {
+			declared[variable.Name] = true
+		}
+	}
+
+	names := make([]string, 0, len(variables))
+	for name := range variables {
+		names = append(names, name)
+	}
+
+	slices.Sort(names)
+
+	for _, name := range names {
+		if !declared[name] {
+			return name
+		}
+	}
+
+	return ""
 }
 
 // rungOfExpression classifies a generated assertion by the ladder level it

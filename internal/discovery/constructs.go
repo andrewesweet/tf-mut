@@ -15,9 +15,23 @@ import (
 // `terraform test`, and a `removed` block carries destroy-time provisioners
 // and names the resource whose provider would run the destroy. Both were
 // skipped by the native-syntax walker and left unread by the JSON reader, so
-// their content reached Terraform and neither safety gate. `moved` and
-// `import` stay uncollected — but refused by name rather than in silence,
-// because silence is what kept `check` invisible for a milestone.
+// their content reached Terraform and neither safety gate.
+//
+// `import` is refused by name. It names a provider configuration outright and
+// Terraform *reads the real resource* at plan time, which is the R2-10
+// fail-open shape: a construct this version cannot model that reaches real
+// infrastructure is exactly what a refusal is for, and no opt-in may override
+// it.
+//
+// `moved` is accepted and contributes nothing, which is the whole truth about
+// it: it names two addresses, carries no provider, no effect and no
+// evaluation, and rewrites state bookkeeping at plan time. There is nothing
+// for an inventory to miss and nothing for a gate to fail open on. The M4.5
+// spec review disposed of the two constructs as one and this splits them,
+// because refusing `moved` bought no safety and cost every command on every
+// module with a refactoring in its history — measured at one public corpus
+// module in ten, and the cost is not "not characterisable" but "no `tf-mut`
+// command runs at all".
 
 const (
 	removedBlock  = "removed"
@@ -72,6 +86,18 @@ func collectCheckBlock(
 // the effect inventory, and the resource it names into the provider inventory:
 // destroying a resource runs its provider, whether or not the configuration
 // still declares the resource.
+//
+// One shape is deliberately outside that claim. `removed { from = module.x }`
+// names a module call rather than a resource, and the providers a destroyed
+// module used cannot be recovered from the address — the module is, by
+// construction, no longer declared. The provisioners inside such a block still
+// reach the effect inventory, so the effects gate holds; the provider
+// inventory records nothing, and `--allow-real-infrastructure` is what stands
+// between that gap and a real API call. The alternative, refusing the block,
+// was rejected for the reason the `moved` refusal was withdrawn: it would
+// stop `run`, `preview`, `suggest` and `curate` on every module carrying a
+// module removal, to close a gap the safety gate already fails closed on. The
+// limit is recorded in `docs/research/13-m45-exit-gate.md`.
 func collectRemovedBlock(
 	module *Module,
 	providers map[string]bool,

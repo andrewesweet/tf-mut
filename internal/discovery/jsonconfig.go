@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	stdjson "encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/hcl/v2/json"
 )
 
@@ -215,13 +218,20 @@ func collectJSONBlock(
 		return collectJSONProvider(module, path, block)
 	case outputBlock, localsBlock:
 		return collectJSONExpansion(module, path, block)
+	case variableBlock:
+		return collectJSONVariable(module, path, relative, block)
 	case moduleBlock:
 		return collectJSONModuleCall(module, path, block)
 	case checkBlock:
 		return collectJSONCheck(module, providers, path, block)
 	case removedBlock:
 		return collectJSONRemoved(module, providers, path, block)
-	case movedBlock, importBlock:
+	case movedBlock:
+		// Accepted and collected into nothing: see constructs.go. The block is
+		// still listed in the schema, so the file is read and its floor lifts
+		// rather than standing in for a reading nobody made.
+		return nil
+	case importBlock:
 		return unmodelledConstruct(block.Type, path, block.DefRange.Start)
 	default:
 		// Every remaining block type contributes references and graph nodes
@@ -394,6 +404,196 @@ func collectJSONModuleCall(module *Module, path string, block *hcl.Block) error 
 
 // collectJSONExpansion records what a JSON-declared output or locals block
 // observes, so the assertion closure can follow a delta through it.
+// jsonVariableSchema is a variable declaration's body in JSON.
+//
+//nolint:gochecknoglobals // an immutable schema.
+var jsonVariableSchema = &hcl.BodySchema{
+	Attributes: []hcl.AttributeSchema{
+		{Name: typeLabel, Required: false},
+		{Name: "default", Required: false},
+		{Name: "description", Required: false},
+		{Name: "sensitive", Required: false},
+		{Name: "ephemeral", Required: false},
+		{Name: "nullable", Required: false},
+	},
+	Blocks: []hcl.BlockHeaderSchema{
+		{Type: validationBlock, LabelNames: nil},
+	},
+}
+
+// collectJSONVariable puts a JSON-declared input into the same inventory a
+// native one lands in.
+//
+// Terraform reads `.tf.json` variables exactly as it reads native ones, so a
+// collector that only walked their references left `Module.Variables` empty for
+// a JSON module: characterisation then synthesised no assignment and raised no
+// judgement point, and the run died at plan time on "No value for required
+// variable" — a module the tool had read, and said nothing about.
+//
+// The conversion is a re-parse, because the rest of the tool reads native
+// syntax trees. A JSON type constraint is a *string* holding native type
+// syntax ("list(string)"), and a JSON validation condition is a string holding
+// a template around one. Anything that does not re-parse is left off the block
+// rather than guessed at, and the variable then reaches the reader as a
+// judgement point — the fail-closed direction, and the one the design already
+// reserves for a value the tool will not invent.
+func collectJSONVariable(module *Module, path, relative string, block *hcl.Block) error {
+	if len(block.Labels) != 1 {
+		return nil
+	}
+
+	content, _, diagnostics := block.Body.PartialContent(jsonVariableSchema)
+	if diagnostics.HasErrors() {
+		return fmt.Errorf("%w: %s: %s", ErrParse, path, diagnostics.Error())
+	}
+
+	discovered := Block{ //nolint:exhaustruct // a variable carries no type, address parts or meta-arguments.
+		Kind:      variableBlock,
+		Name:      block.Labels[0],
+		Address:   variableBlock + "." + block.Labels[0],
+		File:      path,
+		ModuleRel: relative,
+		DefRange:  block.DefRange,
+	}
+
+	for name, attribute := range content.Attributes {
+		expr, ok := nativeExpression(name, attribute.Expr)
+		if !ok {
+			continue
+		}
+
+		discovered.Attributes = append(discovered.Attributes, Attribute{
+			Name: name, Range: attribute.Range, Expr: expr,
+		})
+	}
+
+	slices.SortFunc(discovered.Attributes, func(left, right Attribute) int {
+		return strings.Compare(left.Name, right.Name)
+	})
+
+	discovered.Validations = jsonValidations(path, content.Blocks)
+	module.Variables = append(module.Variables, discovered)
+
+	return collectJSONReferences(module, path, block.Body)
+}
+
+// nativeExpression re-parses one JSON-declared variable argument as native
+// syntax, which is what every reader downstream of discovery expects.
+//
+// `type` is the special case: Terraform spells a JSON type constraint as a
+// string containing native type syntax, so the string's *contents* are the
+// expression. Every other argument is an ordinary JSON literal, and JSON
+// literal syntax is a subset of HCL expression syntax, so its own source text
+// parses unchanged.
+func nativeExpression(name string, expr hcl.Expression) (hclsyntax.Expression, bool) {
+	var source string
+
+	if name == typeLabel {
+		source = jsonLiteralString(expr)
+	} else {
+		value, diagnostics := expr.Value(nil)
+		if diagnostics.HasErrors() || !value.IsWhollyKnown() {
+			return nil, false
+		}
+
+		source = strings.TrimSpace(string(hclwrite.TokensForValue(value).Bytes()))
+	}
+
+	if source == "" {
+		return nil, false
+	}
+
+	return parseNative(source, expr.Range())
+}
+
+// jsonValidations converts a JSON variable's validation blocks, in declaration
+// order, dropping any whose condition does not re-parse.
+func jsonValidations(path string, blocks hcl.Blocks) []Validation {
+	validations := []Validation{}
+
+	for _, nested := range blocks {
+		if nested.Type != validationBlock {
+			continue
+		}
+
+		attributes, diagnostics := nested.Body.JustAttributes()
+		if diagnostics.HasErrors() {
+			continue
+		}
+
+		condition, found := attributes["condition"]
+		if !found {
+			continue
+		}
+
+		// A JSON condition is a template around the expression — Terraform's
+		// own `"${var.x != null}"` spelling — so the interpolation markers come
+		// off before the contents are parsed as an expression.
+		expr, ok := parseNative(unwrapInterpolation(jsonSource(path, condition.Expr)),
+			condition.Expr.Range())
+		if !ok {
+			continue
+		}
+
+		validations = append(validations, Validation{
+			Condition: expr, File: path, Range: condition.Expr.Range(),
+		})
+	}
+
+	return validations
+}
+
+// jsonSource recovers a JSON string attribute's contents without evaluating
+// it, which a condition reading `var.x` could never survive.
+func jsonSource(path string, expr hcl.Expression) string {
+	source, err := os.ReadFile(path) //nolint:gosec // module paths come from discovery.
+	if err != nil {
+		return ""
+	}
+
+	span := expr.Range()
+	if span.Start.Byte < 0 || span.End.Byte > len(source) || span.Start.Byte >= span.End.Byte {
+		return ""
+	}
+
+	quoted := string(source[span.Start.Byte:span.End.Byte])
+
+	unquoted := ""
+	if stdjson.Unmarshal([]byte(quoted), &unquoted) != nil {
+		return ""
+	}
+
+	return unquoted
+}
+
+// unwrapInterpolation strips a template that wraps one expression and nothing
+// else. A condition spelled any other way is left alone and will not parse,
+// which is the outcome an unmodelled spelling should have.
+func unwrapInterpolation(source string) string {
+	trimmed := strings.TrimSpace(source)
+	if !strings.HasPrefix(trimmed, "${") || !strings.HasSuffix(trimmed, "}") {
+		return trimmed
+	}
+
+	inner := trimmed[len("${") : len(trimmed)-1]
+	if strings.Contains(inner, "${") {
+		return trimmed
+	}
+
+	return inner
+}
+
+// parseNative parses native expression syntax at the JSON source's position, so
+// that a diagnostic still points at the file the reader is looking at.
+func parseNative(source string, span hcl.Range) (hclsyntax.Expression, bool) {
+	expr, diagnostics := hclsyntax.ParseExpression([]byte(source), span.Filename, span.Start)
+	if diagnostics.HasErrors() {
+		return nil, false
+	}
+
+	return expr, true
+}
+
 func collectJSONExpansion(module *Module, path string, block *hcl.Block) error {
 	attributes, diagnostics := block.Body.JustAttributes()
 	if diagnostics.HasErrors() {

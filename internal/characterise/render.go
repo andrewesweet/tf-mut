@@ -8,6 +8,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
 
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
@@ -161,9 +162,16 @@ func renderRun(
 			continue
 		}
 
+		// The address goes through the value renderer rather than into a
+		// hand-built quoted string. A `for_each` instance address contains
+		// quotes of its own — `terraform_data.item["a"]` — and concatenating
+		// one into a literal produced a file Terraform could not parse, so
+		// every string-keyed instance was uncharacterisable at the configured
+		// rung while the assertion expression beside it was perfectly valid.
 		builder.WriteString("\n  assert {\n")
 		builder.WriteString("    condition     = " + pin.Expression + "\n")
-		builder.WriteString(`    error_message = "characterised ` + pin.Address + ` changed"` + "\n")
+		builder.WriteString("    error_message = " +
+			renderValue(cty.StringVal("characterised "+pin.Address+" changed")) + "\n")
 		builder.WriteString("  }\n")
 	}
 
@@ -341,6 +349,15 @@ const checkableParts = 2
 
 // AnsweredVariables reads a scaffold answer — an object expression naming the
 // inputs that make the construct fail — into per-variable assignments.
+//
+// Both halves are constrained, and the key half is the one that matters. A
+// value goes through `cty` and is rendered back as a literal, so it cannot be
+// anything but a constant. A key was previously taken as written and emitted
+// as an HCL identifier, so `{ "size = 0\n  injected" = 1 }` rendered *two*
+// assignments — arbitrary configuration smuggled in through a name. A key is
+// now required to be a legal Terraform identifier and nothing else, which is
+// the only shape a variable name can take; the caller checks separately that
+// the module actually declares it.
 func AnsweredVariables(answer string) (map[string]string, bool) {
 	expr, diagnostics := hclsyntax.ParseExpression([]byte(answer), "answer", hcl.InitialPos)
 	if diagnostics.HasErrors() {
@@ -356,7 +373,7 @@ func AnsweredVariables(answer string) (map[string]string, bool) {
 
 	for _, item := range object.Items {
 		name, named := objectKey(item.KeyExpr)
-		if !named {
+		if !named || !hclsyntax.ValidIdentifier(name) {
 			return nil, false
 		}
 

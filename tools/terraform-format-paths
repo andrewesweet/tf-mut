@@ -137,6 +137,8 @@ internal/engine/testdata/unmocked/main.tf
 internal/engine/testdata/unmocked/tests/unit.tftest.hcl
 internal/engine/testdata/untested-aliases/main.tf
 internal/engine/testdata/untested-branches/main.tf
+internal/engine/testdata/untested-configuration-aliases/main.tf
+internal/engine/testdata/untested-foreach-keys/main.tf
 internal/engine/testdata/untested-mined/main.tf
 internal/engine/testdata/untested-secret-diagnostic/main.tf
 internal/engine/testdata/untested-sensitive-answer/main.tf
