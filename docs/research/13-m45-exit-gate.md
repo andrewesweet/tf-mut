@@ -438,16 +438,18 @@ two valid answers must produce byte-identical reports — and is the reason
 `generated_file.digest` now covers the reported bytes rather than the written ones. The
 schema says so.
 
-**Two findings deferred, with the reason recorded rather than the work.**
+**Two findings deferred, with the reason recorded rather than the work.** Both are filed —
+issue #82 and issue #83 — so that neither depends on the next spec author reading this
+section.
 
-- *The diagnostic-repair rung.* Issue #75's preference order is `default → validation mining
+- *The diagnostic-repair rung* (issue #82). Issue #75's preference order is `default → validation mining
   → typed synthesis → diagnostic-driven repair`, and the fourth rung is not built: the
   pipeline returns a judgement point where it would begin. This is a whole rung, requiring a
   real-plan seam inside synthesis and a bounded repair table over Terraform diagnostics, and
   `docs/research/12-m45-synthesis-rate.md` measures the rung above it firing zero times
   across the corpus. Shipping three rungs and a judgement point is the honest fail-closed
   behaviour; shipping a fourth rung nothing measured would not be.
-- *The seam controls on the exported `engine.Config`.* Twenty-four `Seed*` fields are public,
+- *The seam controls on the exported `engine.Config`* (issue #83). Twenty-four `Seed*` fields are public,
   and two of them write into the caller's tree. The never-write invariant is currently a
   property of `Config` being zero-valued rather than a property of the code. An
   `export_test.go` hook would make it structural again, and the change touches every gate
