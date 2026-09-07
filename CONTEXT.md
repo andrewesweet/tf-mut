@@ -7,6 +7,14 @@ application layer that coordinates them; `cmd/tf-mut` is an adapter. `internal/c
 
 ## Bounded contexts
 
+The six-context table and dependency direction below are the target architecture
+specified by #86, not a claim that the current packages already satisfy every
+boundary. `internal/oracle` does not exist yet, and verdict extraction is pending
+#101–#103. Supporting-context migrations and dependency enforcement remain pending
+in #89, #105–#109 and #113; #91 is the separately recorded narrow
+filesystem-primitive exception. Until those tickets land, current imports and
+ownership remain as implemented while this document states the normative direction.
+
 | Context | Kind | Packages | Owns |
 | --- | --- | --- | --- |
 | Oracle / Verdict | Core | `internal/fingerprint`, `internal/oracle` | observation, mask, delta, comparison certainty, mutant outcome, diagnosis, scored population, metrics |
@@ -16,7 +24,7 @@ application layer that coordinates them; `cmd/tf-mut` is an adapter. `internal/c
 | Terraform Boundary | Generic / ACL | `internal/discovery`, `internal/tfexec`, `internal/sandbox` | HCL and JSON discovery, canonical configuration snapshot, Terraform process and result translation, sandbox materialisation |
 | Publication | Generic / ACL | `internal/report`, `internal/skill` | versioned report DTOs, schema mapping, the seven renderings, shipped agent documents |
 
-## Dependency direction
+## Dependency direction (target)
 
 Core and supporting contexts, and every Terraform Boundary package, do not import
 Publication (`internal/report`), the CLI, or a renderer. `internal/report` is the
@@ -36,8 +44,11 @@ currently declared by `internal/report`; they are not invitations to add aliases
 ### Oracle / Verdict
 
 - **Observation:** the canonical Terraform payload captured for comparison.
-- **Mask:** the paths excluded because the baseline proved them volatile or because
-  the contract cannot observe them.
+- **Mask:** a component-granular record of volatility discovered by baseline evidence
+  or static scan: volatile components are removed before comparison while stable
+  template components remain observable. If volatility cannot be decomposed
+  soundly, the path is recorded as undecidable and the comparison is indeterminate,
+  not treated as an excluded whole value.
 - **Delta:** the masked observable difference between baseline and mutant.
 - **Comparison certainty:** the oracle's proof status for equality or difference,
   including the fail-closed indeterminate cases.
@@ -80,10 +91,17 @@ currently declared by `internal/report`; they are not invitations to add aliases
 
 ### Characterisation
 
+- **Pin:** one harvested value for a scenario and Terraform address, rendered as
+  an assertion at the selected granularity or recorded with a closed reason for
+  skipping it; skipped pins carry no executable expression.
+- **Scaffold promotion:** the transition of non-executable scaffold material into
+  test content after its answers and generated behaviour have been verified green.
 - **Pin status:** `pinned`, `skipped-sensitive`, `skipped-unrenderable`,
   `skipped-volatile`, and `skipped-mock-invented`.
 - **TODO status:** `open`, `answered`, `promoted`, and `rejected`.
 - **Scaffold status:** `scaffolded` and `promoted`.
+- **Curation finding:** an evidence-bearing report of redundant or ineffective
+  assertions over an authoritative, fully observed population.
 - **Curate finding kind:** `empty-kill-set`, `subsumed`, and
   `cross-scenario-redundant`.
 - **Assertion provenance:** `generated-unmodified`, `generated-edited`, and
@@ -109,6 +127,9 @@ currently declared by `internal/report`; they are not invitations to add aliases
 
 ### Publication
 
+- **Schema mapping:** a renderer's projection from the authoritative report value
+  into a versioned external schema or interoperability dialect; mappings may be
+  explicitly lossy, while tf-mut's report metrics remain authoritative.
 - **Report DTO:** the versioned value returned by the engine and consumed by
   renderers. Its current schema version is `2.3.0`.
 - **Command:** a report-producing invocation: `run`, `preview`, `suggest`,
