@@ -253,6 +253,115 @@ func TestTheInstalledSkillReferencesOnlyCommandsAndFlagsTheBinaryHas(t *testing.
 	}
 }
 
+// TestTheDocumentedVocabularyMatchesTheBinary keeps the current user-facing
+// vocabulary tied to the command and report contracts. It is intentionally a
+// token check: the repository has historical and planned prose, so parsing
+// natural language would make this guard both brittle and dishonest.
+func TestTheDocumentedVocabularyMatchesTheBinary(t *testing.T) {
+	t.Parallel()
+
+	readme := readDocument(t, "../../README.md")
+	productDesign := readDocument(t, "../../docs/design/product-design.md")
+	agentIntegration := readDocument(t, "../../docs/design/agent-integration.md")
+	characterisation := readDocument(t, "../../docs/design/characterisation.md")
+	hclToolingResearch := readDocument(t, "../../docs/research/03-hcl2-tooling.md")
+	m2ExitGate := readDocument(t, "../../docs/research/08-m2-exit-gate.md")
+	agents := readDocument(t, "../../AGENTS.md")
+
+	containsToken(t, readme, "unknown value in the mutation's forward cone", "README forward-cone rule")
+	containsToken(t, readme, "M2 whole-payload rule as the floor", "README unknown floor")
+	containsToken(t, readme, "wherever a mapping", "README unknown floor scope")
+	containsToken(t, readme, "AGENTS.md#conventions", "README never-write contract")
+	containsToken(t, productDesign, "The measured execution levers are the two-phase split and lazy\nvalidation", "product-design execution levers")
+	containsToken(t, productDesign, "Run-block file splitting is dropped", "product-design dropped split")
+	containsToken(t, productDesign, "7.8×", "product-design split measurement")
+	containsToken(t, characterisation, "specified but not implemented", "characterisation fourth rung status")
+	containsToken(t, characterisation, "github.com/andrewesweet/tf-mut/issues/82", "characterisation fourth rung issue")
+	containsToken(t, hclToolingResearch, "Historical M2 prescription, withdrawn in M3", "HCL tooling historical annotation")
+	containsToken(t, m2ExitGate, "Historical M2 vocabulary", "M2 exit-gate historical annotation")
+	containsToken(t, readme,
+		"| `--reporter terminal\\|json\\|sarif\\|mte\\|html\\|junit\\|markdown` | Output format (`mte` is Mutation Testing Elements) |",
+		"README reporter row")
+	containsToken(t, readme,
+		"| [`docs/schema/report-2.3.0.json`](docs/schema/report-2.3.0.json) | The versioned JSON report schema the `json` reporter emits, including characterisation |",
+		"README emitted schema row")
+	if strings.Contains(readme,
+		"| [`docs/schema/report-2.1.0.json`](docs/schema/report-2.1.0.json) | The versioned JSON report schema the `json` reporter emits |") {
+		t.Fatal("README still claims the json reporter emits schema 2.1.0")
+	}
+
+	for _, reporter := range []string{
+		reporterTerminal, reporterJSON, reporterSARIF, reporterMTE,
+		reporterHTML, reporterJUnit, reporterMarkdown,
+	} {
+		containsToken(t, usage, reporter, "binary usage")
+	}
+
+	for _, command := range []string{
+		runCommand, previewCommand, suggestCommand, characteriseCommand,
+		todosCommand, curateCommand, skillCommand, versionCommand,
+	} {
+		containsToken(t, usage, command, "binary command list")
+		containsToken(t, readme, "tf-mut "+command, "README command list")
+	}
+
+	for _, flag := range []string{
+		reporterFlag, "--test-directory", "--allow-real-infrastructure",
+		"--allow-unsandboxed-effects", "--until-dry", "--answer", "--resume",
+	} {
+		containsToken(t, usage, flag, "binary flag list")
+	}
+
+	if strings.Contains(agentIntegration, "--format json") {
+		t.Fatal("agent-integration teaches the flag --format json, which the binary does not have")
+	}
+	if strings.Count(agentIntegration, "--reporter json") != 2 {
+		t.Fatalf("agent-integration contains %d --reporter json examples, want 2", strings.Count(agentIntegration, "--reporter json"))
+	}
+
+	for _, state := range []report.State{
+		report.Invalid, report.Killed, report.KilledByError, report.Timeout,
+		report.Survived, report.StructurallyUnassertable, report.Unobservable,
+		report.NoCoverage, report.Ignored, report.Pending,
+	} {
+		containsToken(t, productDesign, string(state), "product-design state vocabulary")
+	}
+
+	for _, diagnosis := range []report.Diagnosis{
+		report.IndeterminateUnknownValues, report.IndeterminateVolatility,
+		report.MockMasked, report.WeakAssertion, report.NoAssertion, report.Unasserted,
+	} {
+		containsToken(t, productDesign, string(diagnosis), "product-design diagnosis vocabulary")
+	}
+
+	containsToken(t, readme, report.SchemaVersion, "README schema version")
+	for _, exception := range []string{
+		".tf-mut-cache/", ".tf-mut-baseline.json", "suggest --apply", "skill install",
+		"characterise --write", ".tf-mut-generated.json",
+	} {
+		containsToken(t, agents, exception, "AGENTS.md never-write exceptions")
+	}
+}
+
+func readDocument(t *testing.T, path string) string {
+	t.Helper()
+
+	content, err := os.ReadFile(path) //nolint:gosec // test-selected repository document.
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+
+	return string(content)
+}
+
+func containsToken(t *testing.T, content, token, source string) {
+	t.Helper()
+
+	if !strings.Contains(content, token) {
+		t.Errorf("%s does not contain %q", source, token)
+	}
+}
+
 func TestSkillInstallIsWiredThroughTheCommandLine(t *testing.T) {
 	t.Parallel()
 

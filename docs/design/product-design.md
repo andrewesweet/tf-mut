@@ -46,12 +46,14 @@ small-schema lever and test selection is the only one that matters on real modul
 The product stance follows from engineering around that, not from ignoring it:
 
 **tf-mut is a fast, local, credential-free correctness tool for module authors.** For the
-inner loop — `--since` runs over changed lines, smoke tier, run-block-selected execution —
-it targets seconds-to-a-minute even on real-provider modules. Full `standard` sweeps of a
-large module are minutes-to-hours and are scheduled work, and the tool says so up front
-rather than pretending otherwise. Three design decisions make the inner loop achievable:
-two-phase execution (§3 — Execute), run-block-level test selection (§3 — Schedule), and
-selective validation (§3 — Execute).
+inner loop — `--since` runs over changed lines and smoke-tier selection — it targets
+seconds-to-a-minute even on real-provider modules. Full `standard` sweeps of a large module
+are minutes-to-hours and are scheduled work, and the tool says so up front rather than
+pretending otherwise. The measured execution levers are the two-phase split and lazy
+validation: `terraform validate` runs only after a phase-one `error` result, and phase two
+re-runs only non-killed mutants with `-verbose -json`. Run-block file splitting is dropped:
+it costs **7.8×** on an eight-run suite and saves at most **3%** under perfect selection
+(`../research/07-m2-cost-model.md`).
 
 ### Scope
 
@@ -324,6 +326,7 @@ fail one run and error another; changing file order must not change the verdict)
 | 7 | `Unobservable` | Fingerprint identical, the construct projects, **and no unknown value lies in the mutation's forward cone** (M3a delivered the path-scoped upgrade of the M2-spec-review C2 rule: unknowns are judged by whether the mutation can reach them, under the fail-closed address adapters, and the whole-payload test remains the floor wherever a mapping fails). A mutant whose cone reaches nothing observable at all — no resource, data source, output, check or contract construct — is classified statically, guarded by the structural-state precedence | **Excluded** |
 | 8 | `NoCoverage` | No run block instantiates the mutated block (assigned statically, before execution) | Denominator (reported separately) |
 | — | `Ignored` | Suppressed by config, comment or baseline | **Excluded** |
+| — | `Pending` | Generated but not executed, as in a preview | Not scored |
 
 **Implemented, with two readings settled by reproduction** (M2 implementation review, M2-1 and
 M2-2). The unknown rule gates *equality claims*, not difference claims: a survivor with a proven
