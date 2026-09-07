@@ -297,20 +297,24 @@ func readVocabularyDocuments(t *testing.T) vocabularyDocuments {
 func assertDocumentRepairs(t *testing.T, documents vocabularyDocuments) {
 	t.Helper()
 
+	productOpening := documentSlice(t, documents.productDesign,
+		"The product stance follows from engineering around that, not from ignoring it:",
+		"\n\n### Scope", "product-design opening")
+
 	containsToken(t, documents.readme, "unknown value in the mutation's forward cone", "README forward-cone rule")
 	containsToken(t, documents.readme, "M2 whole-payload rule as the floor", "README unknown floor")
 	containsToken(t, documents.readme, "wherever a mapping", "README unknown floor scope")
 	containsToken(t, documents.readme, "AGENTS.md#conventions", "README never-write contract")
-	containsToken(t, documents.productDesign,
+	containsToken(t, productOpening,
 		"`terraform validate` runs only after a run-level error", "product-design validation rule")
-	containsToken(t, documents.productDesign,
+	containsToken(t, productOpening,
 		"phase two runs only\nfor phase-one survivors", "product-design phase-two rule")
-	containsToken(t, documents.productDesign, "Run-block file splitting is dropped", "product-design dropped split")
-	containsToken(t, documents.productDesign, "7.8×", "product-design split measurement")
-	containsToken(t, documents.productDesign,
+	containsToken(t, productOpening, "Run-block file splitting is dropped", "product-design dropped split")
+	containsToken(t, productOpening, "7.8×", "product-design split measurement")
+	containsToken(t, productOpening,
 		"M1 population of 40 mutants\nand eight run blocks", "product-design split population")
-	containsToken(t, documents.productDesign, "3.8 s out of 128 s, or 3%", "product-design split ceiling")
-	containsToken(t, documents.productDesign,
+	containsToken(t, productOpening, "3.8 s out of 128 s, or 3%", "product-design split ceiling")
+	containsToken(t, productOpening,
 		"[measured cost model](../research/07-m2-cost-model.md)", "product-design split source")
 	containsToken(t, documents.characterisation,
 		"specified but not implemented", "characterisation fourth rung status")
