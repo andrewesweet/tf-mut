@@ -50,10 +50,11 @@ inner loop — `--since` runs over changed lines and smoke-tier selection — it
 seconds-to-a-minute even on real-provider modules. Full `standard` sweeps of a large module
 are minutes-to-hours and are scheduled work, and the tool says so up front rather than
 pretending otherwise. The measured execution levers are the two-phase split and lazy
-validation: `terraform validate` runs only after a phase-one `error` result, and phase two
-re-runs only non-killed mutants with `-verbose -json`. Run-block file splitting is dropped:
-it costs **7.8×** on an eight-run suite and saves at most **3%** under perfect selection
-(`../research/07-m2-cost-model.md`).
+validation: `terraform validate` runs only after a run-level error, and phase two runs only
+for phase-one survivors. Run-block file splitting is dropped: it costs **7.8×** on an
+eight-run suite. Its ceiling under perfect selection across the M1 population of 40 mutants
+and eight run blocks is **3.8 s out of 128 s, or 3%**
+([measured cost model](../research/07-m2-cost-model.md)).
 
 ### Scope
 
