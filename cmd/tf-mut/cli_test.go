@@ -473,6 +473,8 @@ func assertNeverWriteExceptions(t *testing.T, readme, agents string) {
 
 	containsToken(t, readme, "the five recorded tool-owned write exceptions",
 		"README never-write exception count")
+	containsToken(t, agents, "Five recorded\n  exceptions",
+		"AGENTS.md never-write exception count")
 	for _, exception := range []struct {
 		name   string
 		tokens []string
