@@ -266,6 +266,7 @@ func TestTheDocumentedVocabularyMatchesTheBinary(t *testing.T) {
 	characterisation := readDocument(t, "../../docs/design/characterisation.md")
 	hclToolingResearch := readDocument(t, "../../docs/research/03-hcl2-tooling.md")
 	m2ExitGate := readDocument(t, "../../docs/research/08-m2-exit-gate.md")
+	m45ExitGate := readDocument(t, "../../docs/research/13-m45-exit-gate.md")
 	agents := readDocument(t, "../../AGENTS.md")
 
 	containsToken(t, readme, "unknown value in the mutation's forward cone", "README forward-cone rule")
@@ -282,7 +283,14 @@ func TestTheDocumentedVocabularyMatchesTheBinary(t *testing.T) {
 	containsToken(t, characterisation, "specified but not implemented", "characterisation fourth rung status")
 	containsToken(t, characterisation, "github.com/andrewesweet/tf-mut/issues/82", "characterisation fourth rung issue")
 	containsToken(t, hclToolingResearch, "Historical M2 prescription, withdrawn in M3", "HCL tooling historical annotation")
+	containsToken(t, hclToolingResearch, "issues/50", "HCL tooling withdrawal issue")
+	containsToken(t, hclToolingResearch, "09-m3-real-provider-gate.md", "HCL tooling withdrawal evidence")
 	containsToken(t, m2ExitGate, "Historical M2 vocabulary", "M2 exit-gate historical annotation")
+	containsToken(t, m2ExitGate, "issues/50", "M2 exit-gate withdrawal issue")
+	containsToken(t, m2ExitGate, "09-m3-real-provider-gate.md", "M2 exit-gate withdrawal evidence")
+	if strings.Contains(m45ExitGate, "The `moved` refusal's measured cost") {
+		t.Fatal("M4.5 exit gate still asks the stale moved-refusal question")
+	}
 	containsToken(t, readme,
 		"| `--reporter terminal\\|json\\|sarif\\|mte\\|html\\|junit\\|markdown` | Output format (`mte` is Mutation Testing Elements) |",
 		"README reporter row")
