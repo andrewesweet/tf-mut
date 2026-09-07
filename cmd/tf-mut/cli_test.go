@@ -384,7 +384,7 @@ func assertReportVocabulary(t *testing.T, productDesign string) {
 		"\n\n**Implemented, with two readings settled by reproduction**",
 		"product-design state table")
 	documentedStates := captureVocabulary(t, stateTable, "product-design state table",
-		"(?m)^\\| (?:[1-8]|—) \\| `([^`]+)` \\|")
+		"(?m)^\\| (?:[1-9][0-9]*|—) \\| `([^`]+)` \\|")
 	assertVocabularyEquals(t, "product-design state table", documentedStates, []string{
 		string(report.Invalid), string(report.Killed), string(report.KilledByError),
 		string(report.Timeout), string(report.Survived), string(report.StructurallyUnassertable),
