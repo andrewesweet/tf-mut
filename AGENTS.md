@@ -23,23 +23,24 @@ labelled `ready-for-agent`.
 
 1. `README.md` — problem, verified findings, document map
 2. `CONTEXT.md` — bounded contexts, dependency direction, and the owned glossary
-3. `docs/research/05-go-build-chain.md` — accepted local/CI build-chain contract
-4. `docs/design/product-design.md` — architecture, mutant states, metrics, CLI, roadmap
-5. `docs/reviews/` — **all adversarial reviews and their dispositions. Read before changing
+3. `docs/adr/` — accepted architectural decisions; read records relevant to the change
+4. `docs/research/05-go-build-chain.md` — accepted local/CI build-chain contract
+5. `docs/design/product-design.md` — architecture, mutant states, metrics, CLI, roadmap
+6. `docs/reviews/` — **all adversarial reviews and their dispositions. Read before changing
    any design decision**: many decisions exist specifically because a review refuted the
    obvious alternative, with experiments
-5a. `docs/research/12-m45-synthesis-rate.md` — the measurement that gated M4.5b, its
+6a. `docs/research/12-m45-synthesis-rate.md` — the measurement that gated M4.5b, its
    decision rule and the two costs it surfaced. `docs/research/13-m45-exit-gate.md` — what
    implementing M4.5 measured, decided and deferred
-5b. `docs/reviews/2026-08-16-m2-implementation-review.md` and
+6b. `docs/reviews/2026-08-16-m2-implementation-review.md` and
    `docs/research/08-m2-exit-gate.md` — what implementing M2 measured, decided and deferred,
    the contract sweep from every normative behaviour to its test, and the reproduction map.
    **Read both before writing the next milestone spec**: they carry the measurements that
    outrank the design prose, and the open questions the next spec has to dispose of. M1's
    equivalents (`2026-08-16-m1-implementation-review.md`, `docs/research/06-m1-exit-gate.md`)
    remain the record for the Tier 0 loop
-5. `docs/design/mutation-operators.md`, `characterisation.md`, `agent-integration.md`
-6. `docs/research/01–04` — the verified factual base ([verified] = established by running
+7. `docs/design/mutation-operators.md`, `characterisation.md`, `agent-integration.md`
+8. `docs/research/01–04` — the verified factual base ([verified] = established by running
    Terraform v1.15.8, not by reading documentation)
 
 ## Precedence on conflict

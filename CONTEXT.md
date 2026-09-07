@@ -36,6 +36,14 @@ explicit exception, not a dependency from the report DTO leaf. Publication other
 does not import a domain context. The application layer may import every context and
 performs the projections between context values and report DTOs.
 
+## Architecture decisions
+
+The rationale for the target boundaries and future migrations is recorded in
+[ADR-0001](docs/adr/0001-package-group-contexts-and-lint-enforced-dependencies.md),
+[ADR-0002](docs/adr/0002-closed-constructors-and-report-projection.md),
+[ADR-0003](docs/adr/0003-synchronous-immutable-result-facts.md), and
+[ADR-0004](docs/adr/0004-expression-boundary-and-atomic-replacement.md).
+
 ## Glossary
 
 Each entry names its owning context. Wire spellings below are the closed values
