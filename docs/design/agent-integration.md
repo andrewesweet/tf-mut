@@ -74,7 +74,8 @@ affordance below degrades to a human running the same commands.
 
 ### 2.1 Machine-readable everything
 
-- Every command takes `--reporter json` with a **versioned schema** (`"schema_version"` in every
+- The six report-producing commands — `run`, `preview`, `suggest`, `characterise`, `todos`, and
+  `curate` — take `--reporter json` with a **versioned schema** (`"schema_version"` in every
   document). Exit codes are stable and documented.
 - Every entity has a **stable, content-derived ID**: mutants (`mut-<hash>`), TODOs
   (`todo-<hash>`), assertions (`asrt-<hash>`), run blocks. IDs survive re-runs and unrelated
