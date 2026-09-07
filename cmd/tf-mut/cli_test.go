@@ -260,98 +260,172 @@ func TestTheInstalledSkillReferencesOnlyCommandsAndFlagsTheBinaryHas(t *testing.
 func TestTheDocumentedVocabularyMatchesTheBinary(t *testing.T) {
 	t.Parallel()
 
-	readme := readDocument(t, "../../README.md")
-	productDesign := readDocument(t, "../../docs/design/product-design.md")
-	agentIntegration := readDocument(t, "../../docs/design/agent-integration.md")
-	characterisation := readDocument(t, "../../docs/design/characterisation.md")
-	hclToolingResearch := readDocument(t, "../../docs/research/03-hcl2-tooling.md")
-	m2ExitGate := readDocument(t, "../../docs/research/08-m2-exit-gate.md")
-	m45ExitGate := readDocument(t, "../../docs/research/13-m45-exit-gate.md")
-	agents := readDocument(t, "../../AGENTS.md")
+	documents := readVocabularyDocuments(t)
+	assertDocumentRepairs(t, documents)
+	assertReadmeVocabulary(t, documents.readme)
+	assertAgentIntegrationVocabulary(t, documents.agentIntegration)
+	assertReportVocabulary(t, documents.productDesign)
+	assertNeverWriteExceptions(t, documents.agents)
+}
 
-	containsToken(t, readme, "unknown value in the mutation's forward cone", "README forward-cone rule")
-	containsToken(t, readme, "M2 whole-payload rule as the floor", "README unknown floor")
-	containsToken(t, readme, "wherever a mapping", "README unknown floor scope")
-	containsToken(t, readme, "AGENTS.md#conventions", "README never-write contract")
-	containsToken(t, productDesign, "`terraform validate` runs only after a run-level error", "product-design validation rule")
-	containsToken(t, productDesign, "phase two runs only\nfor phase-one survivors", "product-design phase-two rule")
-	containsToken(t, productDesign, "Run-block file splitting is dropped", "product-design dropped split")
-	containsToken(t, productDesign, "7.8×", "product-design split measurement")
-	containsToken(t, productDesign, "M1 population of 40 mutants\nand eight run blocks", "product-design split population")
-	containsToken(t, productDesign, "3.8 s out of 128 s, or 3%", "product-design split ceiling")
-	containsToken(t, productDesign, "[measured cost model](../research/07-m2-cost-model.md)", "product-design split source")
-	containsToken(t, characterisation, "specified but not implemented", "characterisation fourth rung status")
-	containsToken(t, characterisation, "github.com/andrewesweet/tf-mut/issues/82", "characterisation fourth rung issue")
-	containsToken(t, hclToolingResearch, "Historical M2 prescription, withdrawn in M3", "HCL tooling historical annotation")
-	containsToken(t, hclToolingResearch, "issues/50", "HCL tooling withdrawal issue")
-	containsToken(t, hclToolingResearch, "09-m3-real-provider-gate.md", "HCL tooling withdrawal evidence")
-	containsToken(t, m2ExitGate, "Historical M2 vocabulary", "M2 exit-gate historical annotation")
-	containsToken(t, m2ExitGate, "issues/50", "M2 exit-gate withdrawal issue")
-	containsToken(t, m2ExitGate, "09-m3-real-provider-gate.md", "M2 exit-gate withdrawal evidence")
-	if strings.Contains(m45ExitGate, "The `moved` refusal's measured cost") {
+type vocabularyDocuments struct {
+	readme             string
+	productDesign      string
+	agentIntegration   string
+	characterisation   string
+	hclToolingResearch string
+	m2ExitGate         string
+	m45ExitGate        string
+	agents             string
+}
+
+func readVocabularyDocuments(t *testing.T) vocabularyDocuments {
+	t.Helper()
+
+	return vocabularyDocuments{
+		readme:             readDocument(t, "../../README.md"),
+		productDesign:      readDocument(t, "../../docs/design/product-design.md"),
+		agentIntegration:   readDocument(t, "../../docs/design/agent-integration.md"),
+		characterisation:   readDocument(t, "../../docs/design/characterisation.md"),
+		hclToolingResearch: readDocument(t, "../../docs/research/03-hcl2-tooling.md"),
+		m2ExitGate:         readDocument(t, "../../docs/research/08-m2-exit-gate.md"),
+		m45ExitGate:        readDocument(t, "../../docs/research/13-m45-exit-gate.md"),
+		agents:             readDocument(t, "../../AGENTS.md"),
+	}
+}
+
+func assertDocumentRepairs(t *testing.T, documents vocabularyDocuments) {
+	t.Helper()
+
+	containsToken(t, documents.readme, "unknown value in the mutation's forward cone", "README forward-cone rule")
+	containsToken(t, documents.readme, "M2 whole-payload rule as the floor", "README unknown floor")
+	containsToken(t, documents.readme, "wherever a mapping", "README unknown floor scope")
+	containsToken(t, documents.readme, "AGENTS.md#conventions", "README never-write contract")
+	containsToken(t, documents.productDesign,
+		"`terraform validate` runs only after a run-level error", "product-design validation rule")
+	containsToken(t, documents.productDesign,
+		"phase two runs only\nfor phase-one survivors", "product-design phase-two rule")
+	containsToken(t, documents.productDesign, "Run-block file splitting is dropped", "product-design dropped split")
+	containsToken(t, documents.productDesign, "7.8×", "product-design split measurement")
+	containsToken(t, documents.productDesign,
+		"M1 population of 40 mutants\nand eight run blocks", "product-design split population")
+	containsToken(t, documents.productDesign, "3.8 s out of 128 s, or 3%", "product-design split ceiling")
+	containsToken(t, documents.productDesign,
+		"[measured cost model](../research/07-m2-cost-model.md)", "product-design split source")
+	containsToken(t, documents.characterisation,
+		"specified but not implemented", "characterisation fourth rung status")
+	containsToken(t, documents.characterisation,
+		"github.com/andrewesweet/tf-mut/issues/82", "characterisation fourth rung issue")
+	containsToken(t, documents.hclToolingResearch,
+		"Historical M2 prescription, withdrawn in M3", "HCL tooling historical annotation")
+	containsToken(t, documents.hclToolingResearch, "issues/50", "HCL tooling withdrawal issue")
+	containsToken(t, documents.hclToolingResearch,
+		"09-m3-real-provider-gate.md", "HCL tooling withdrawal evidence")
+	containsToken(t, documents.m2ExitGate, "Historical M2 vocabulary", "M2 exit-gate historical annotation")
+	containsToken(t, documents.m2ExitGate, "issues/50", "M2 exit-gate withdrawal issue")
+	containsToken(t, documents.m2ExitGate, "09-m3-real-provider-gate.md", "M2 exit-gate withdrawal evidence")
+	if strings.Contains(documents.m45ExitGate, "The `moved` refusal's measured cost") {
 		t.Fatal("M4.5 exit gate still asks the stale moved-refusal question")
 	}
-	containsToken(t, readme,
-		"| `--reporter terminal\\|json\\|sarif\\|mte\\|html\\|junit\\|markdown` | Output format (`mte` is Mutation Testing Elements) |",
-		"README reporter row")
-	containsToken(t, readme,
-		"| [`docs/schema/report-2.3.0.json`](docs/schema/report-2.3.0.json) | The versioned JSON report schema the `json` reporter emits, including characterisation |",
-		"README emitted schema row")
-	if strings.Contains(readme,
-		"| [`docs/schema/report-2.1.0.json`](docs/schema/report-2.1.0.json) | The versioned JSON report schema the `json` reporter emits |") {
-		t.Fatal("README still claims the json reporter emits schema 2.1.0")
-	}
+}
 
-	for _, reporter := range []string{
+func assertReadmeVocabulary(t *testing.T, readme string) {
+	t.Helper()
+
+	schemaPath := "docs/schema/report-" + report.SchemaVersion + ".json"
+	schemaRow := "| [`" + schemaPath + "`](" + schemaPath +
+		") | The versioned JSON report schema the `json` reporter emits, including characterisation |"
+	containsToken(t, readme, schemaRow, "README emitted schema row")
+
+	reporterPattern := "(?m)^\\| `--reporter ([^`]+)` \\| " +
+		"Output format \\(`mte` is ([^)]+)\\) \\|$"
+	reporterRow := regexp.MustCompile(reporterPattern).FindStringSubmatch(readme)
+	if reporterRow == nil {
+		t.Fatal("README has no current reporter row")
+	}
+	assertVocabularyEquals(t, "README reporter row", strings.Split(reporterRow[1], `\|`), []string{
 		reporterTerminal, reporterJSON, reporterSARIF, reporterMTE,
 		reporterHTML, reporterJUnit, reporterMarkdown,
-	} {
-		containsToken(t, usage, reporter, "binary usage")
+	})
+	if reporterRow[2] != "Mutation Testing Elements" {
+		t.Errorf("README calls mte %q, want Mutation Testing Elements", reporterRow[2])
 	}
 
-	for _, command := range []string{
-		runCommand, previewCommand, suggestCommand, characteriseCommand,
-		todosCommand, curateCommand, skillCommand, versionCommand,
-	} {
-		containsToken(t, usage, command, "binary command list")
-		containsToken(t, readme, "tf-mut "+command, "README command list")
-	}
+	usageCommands := captureVocabulary(t, usage, "binary command list", `(?m)^  ([a-z]+) +[^\n]+$`)
+	readmeCommands := captureVocabulary(t, readme, "README command examples", `(?m)^tf-mut ([a-z]+)(?: +[^\n]*)?$`)
+	assertVocabularyEquals(t, "README command examples", readmeCommands, usageCommands)
 
-	for _, flag := range []string{
-		reporterFlag, "--test-directory", "--allow-real-infrastructure",
-		"--allow-unsandboxed-effects", "--until-dry", "--answer", "--resume",
-	} {
-		containsToken(t, usage, flag, "binary flag list")
-	}
+	usageFlags := captureVocabulary(t, usage, "binary flag list", `(?m)^  (--[a-z][a-z-]*)`)
+	readmeFlags := captureVocabulary(t, readme, "README flag table", "(?m)^\\| `(--[a-z][a-z-]*)(?: [^`]*)?` \\|")
+	assertVocabularyKnown(t, "README flag table", readmeFlags, usageFlags)
 
-	if strings.Contains(agentIntegration, "--format json") {
-		t.Fatal("agent-integration teaches the flag --format json, which the binary does not have")
+	staleSchemaRow := "| [`docs/schema/report-2.1.0.json`](docs/schema/report-2.1.0.json) | " +
+		"The versioned JSON report schema the `json` reporter emits |"
+	if strings.Contains(readme, staleSchemaRow) {
+		t.Fatal("README still claims the json reporter emits schema 2.1.0")
 	}
-	if strings.Count(agentIntegration, "--reporter json") != 2 {
-		t.Fatalf("agent-integration contains %d --reporter json examples, want 2", strings.Count(agentIntegration, "--reporter json"))
-	}
+}
 
-	for _, state := range []report.State{
-		report.Invalid, report.Killed, report.KilledByError, report.Timeout,
-		report.Survived, report.StructurallyUnassertable, report.Unobservable,
-		report.NoCoverage, report.Ignored, report.Pending,
-	} {
-		containsToken(t, productDesign, string(state), "product-design state vocabulary")
-	}
+func assertAgentIntegrationVocabulary(t *testing.T, agentIntegration string) {
+	t.Helper()
 
-	for _, diagnosis := range []report.Diagnosis{
-		report.IndeterminateUnknownValues, report.IndeterminateVolatility,
-		report.MockMasked, report.WeakAssertion, report.NoAssertion, report.Unasserted,
-	} {
-		containsToken(t, productDesign, string(diagnosis), "product-design diagnosis vocabulary")
-	}
+	usageFlags := captureVocabulary(t, usage, "binary flag list", `(?m)^  (--[a-z][a-z-]*)`)
+	assertReporterExample(t, agentIntegration, "agent-integration machine-readable rule",
+		"Every command takes `(--[a-z][a-z-]*) ([a-z-]+)`", usageFlags)
+	assertReporterExample(t, agentIntegration, "agent-integration TODO example",
+		"`tf-mut todos (--[a-z][a-z-]*) ([a-z-]+)` lists every open TODO", usageFlags)
+}
 
-	containsToken(t, readme, report.SchemaVersion, "README schema version")
-	for _, exception := range []string{
-		".tf-mut-cache/", ".tf-mut-baseline.json", "suggest --apply", "skill install",
-		"characterise --write", ".tf-mut-generated.json",
+func assertReportVocabulary(t *testing.T, productDesign string) {
+	t.Helper()
+
+	stateTable := documentSlice(t, productDesign,
+		"| Precedence | State | Assigned when | Counts toward score? |",
+		"\n\n**Implemented, with two readings settled by reproduction**",
+		"product-design state table")
+	documentedStates := captureVocabulary(t, stateTable, "product-design state table",
+		"(?m)^\\| (?:[1-8]|—) \\| `([^`]+)` \\|")
+	assertVocabularyEquals(t, "product-design state table", documentedStates, []string{
+		string(report.Invalid), string(report.Killed), string(report.KilledByError),
+		string(report.Timeout), string(report.Survived), string(report.StructurallyUnassertable),
+		string(report.Unobservable), string(report.NoCoverage), string(report.Ignored),
+		string(report.Pending),
+	})
+
+	diagnosisTable := documentSlice(t, productDesign,
+		"| Diagnosis | Meaning | Fix |",
+		"\n\nDiagnoses belong to survivors and to nothing else.",
+		"product-design diagnosis table")
+	documentedDiagnoses := captureVocabulary(t, diagnosisTable, "product-design diagnosis table",
+		"(?m)^\\| `([^`]+)` \\|")
+	assertVocabularyEquals(t, "product-design diagnosis table", documentedDiagnoses, []string{
+		string(report.IndeterminateUnknownValues), string(report.IndeterminateVolatility),
+		string(report.WeakAssertion), string(report.NoAssertion), string(report.Unasserted),
+	})
+
+	// MockMasked remains a report constant only for old schema compatibility. It
+	// is withdrawn vocabulary, so it must not re-enter the current diagnosis table.
+	//nolint:staticcheck // Deprecated name is exactly what the historical contract must retain.
+	withdrawnDiagnosis := "Withdrawn in M3: `" + string(report.MockMasked) + "`"
+	containsToken(t, productDesign, withdrawnDiagnosis, "product-design withdrawn diagnosis")
+}
+
+func assertNeverWriteExceptions(t *testing.T, agents string) {
+	t.Helper()
+
+	for _, exception := range []struct {
+		name   string
+		tokens []string
+	}{
+		{name: "verdict cache", tokens: []string{".tf-mut-cache/"}},
+		{name: "acceptance list", tokens: []string{".tf-mut-baseline.json"}},
+		{name: "suggestion apply", tokens: []string{"suggest --apply"}},
+		{name: "skill install", tokens: []string{"skill install"}},
+		{name: "generated suite", tokens: []string{"characterise --write", ".tf-mut-generated.json"}},
 	} {
-		containsToken(t, agents, exception, "AGENTS.md never-write exceptions")
+		for _, token := range exception.tokens {
+			containsToken(t, agents, token, "AGENTS.md "+exception.name+" never-write exception")
+		}
 	}
 }
 
@@ -372,6 +446,73 @@ func containsToken(t *testing.T, content, token, source string) {
 	if !strings.Contains(content, token) {
 		t.Errorf("%s does not contain %q", source, token)
 	}
+}
+
+func captureVocabulary(t *testing.T, content, source, pattern string) []string {
+	t.Helper()
+
+	matches := regexp.MustCompile(pattern).FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		t.Fatalf("%s has no vocabulary entries", source)
+	}
+
+	entries := make([]string, 0, len(matches))
+	for _, match := range matches {
+		entries = append(entries, match[1])
+	}
+
+	return entries
+}
+
+func assertVocabularyEquals(t *testing.T, source string, documented, authoritative []string) {
+	t.Helper()
+
+	if strings.Join(documented, "\x00") != strings.Join(authoritative, "\x00") {
+		t.Errorf("%s vocabulary = %q, want %q", source, documented, authoritative)
+	}
+}
+
+func assertVocabularyKnown(t *testing.T, source string, documented, authoritative []string) {
+	t.Helper()
+
+	known := make(map[string]bool, len(authoritative))
+	for _, name := range authoritative {
+		known[name] = true
+	}
+	for _, name := range documented {
+		if !known[name] {
+			t.Errorf("%s documents unknown name %q", source, name)
+		}
+	}
+}
+
+func assertReporterExample(t *testing.T, content, source, pattern string, usageFlags []string) {
+	t.Helper()
+
+	match := regexp.MustCompile(pattern).FindStringSubmatch(content)
+	if match == nil {
+		t.Fatalf("%s is absent", source)
+	}
+	assertVocabularyKnown(t, source+" flag", []string{match[1]}, usageFlags)
+	assertVocabularyKnown(t, source+" reporter", []string{match[2]}, []string{
+		reporterTerminal, reporterJSON, reporterSARIF, reporterMTE,
+		reporterHTML, reporterJUnit, reporterMarkdown,
+	})
+}
+
+func documentSlice(t *testing.T, content, start, end, source string) string {
+	t.Helper()
+
+	_, after, found := strings.Cut(content, start)
+	if !found {
+		t.Fatalf("%s start is absent", source)
+	}
+	slice, _, found := strings.Cut(after, end)
+	if !found {
+		t.Fatalf("%s end is absent", source)
+	}
+
+	return slice
 }
 
 func TestSkillInstallIsWiredThroughTheCommandLine(t *testing.T) {
