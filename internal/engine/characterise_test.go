@@ -56,7 +56,7 @@ func TestAnUntestedAliasedProviderModuleCharacterisesWithNoOptIn(t *testing.T) {
 
 	module := copyFixture(t, untestedAliasesFixture)
 
-	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	result, err := engine.Run(t.Context(), characteriseRequest(t, module))
 	if err != nil {
 		t.Fatalf("characterise: %v", err)
 	}

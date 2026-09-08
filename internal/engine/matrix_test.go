@@ -346,8 +346,7 @@ func TestAResourceNoOperatorCanMutateIsWarnedAbout(t *testing.T) {
 func preview(t *testing.T, module string, only []string) report.Report {
 	t.Helper()
 
-	config := baseConfig(t, module)
-	config.Preview = true
+	config := previewRequest(t, module)
 	config.IncludeOperators = only
 
 	result, err := engine.Run(t.Context(), config)

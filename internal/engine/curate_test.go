@@ -149,10 +149,7 @@ func TestCurateReportsAnEmptyKillSetWithItsEvidence(t *testing.T) {
 
 	module := copyFixture(t, curateFixture)
 
-	config := baseConfig(t, module)
-	config.Curate = true
-
-	result, err := engine.Run(t.Context(), config)
+	result, err := engine.Run(t.Context(), curateRequest(t, module))
 	if err != nil {
 		t.Fatalf("curate: %v", err)
 	}

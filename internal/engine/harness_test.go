@@ -73,9 +73,45 @@ func baseConfig(t *testing.T, moduleDir string) engine.Config {
 func runRequest(t *testing.T, moduleDir string) engine.RunRequest {
 	t.Helper()
 
+	return engine.RunRequest{Common: commonRequest(t, moduleDir)}
+}
+
+func previewRequest(t *testing.T, moduleDir string) engine.PreviewRequest {
+	t.Helper()
+
+	return engine.PreviewRequest{Common: commonRequest(t, moduleDir)}
+}
+
+func suggestRequest(t *testing.T, moduleDir string) engine.SuggestRequest {
+	t.Helper()
+
+	return engine.SuggestRequest{Common: commonRequest(t, moduleDir)}
+}
+
+func characteriseRequest(t *testing.T, moduleDir string) engine.CharacteriseRequest {
+	t.Helper()
+
+	return engine.CharacteriseRequest{Common: commonRequest(t, moduleDir)}
+}
+
+func todosRequest(t *testing.T, moduleDir string) engine.TodosRequest {
+	t.Helper()
+
+	return engine.TodosRequest{Common: commonRequest(t, moduleDir)}
+}
+
+func curateRequest(t *testing.T, moduleDir string) engine.CurateRequest {
+	t.Helper()
+
+	return engine.CurateRequest{Common: commonRequest(t, moduleDir)}
+}
+
+func commonRequest(t *testing.T, moduleDir string) engine.Common {
+	t.Helper()
+
 	settings := baseConfig(t, moduleDir)
 
-	return engine.RunRequest{Common: engine.Common{
+	return engine.Common{
 		ModuleDir:               settings.ModuleDir,
 		TestDirectory:           settings.TestDirectory,
 		Jobs:                    settings.Jobs,
@@ -86,7 +122,7 @@ func runRequest(t *testing.T, moduleDir string) engine.RunRequest {
 		TerraformBinary:         settings.TerraformBinary,
 		Env:                     settings.Env,
 		WorkDir:                 settings.WorkDir,
-	}}
+	}
 }
 
 // terraformEnv points Terraform at the repository's offline provider mirror

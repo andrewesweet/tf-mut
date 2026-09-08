@@ -48,10 +48,10 @@ func dryRunConfig(t *testing.T, module string) engine.Config {
 	return config
 }
 
-func runSuggest(t *testing.T, config engine.Config) report.Report {
+func runSuggest(t *testing.T, request engine.Request) report.Report {
 	t.Helper()
 
-	result, err := engine.Run(t.Context(), config)
+	result, err := engine.Run(t.Context(), request)
 	if err != nil {
 		t.Fatalf("suggest: %v", err)
 	}
@@ -62,7 +62,9 @@ func runSuggest(t *testing.T, config engine.Config) report.Report {
 func TestSuggestGeneratesTheAssertionThatWouldHaveKilledASurvivor(t *testing.T) {
 	t.Parallel()
 
-	result := runSuggest(t, dryRunConfig(t, copyFixture(t, suggestBasicFixture)))
+	request := suggestRequest(t, copyFixture(t, suggestBasicFixture))
+	request.DryRun = true
+	result := runSuggest(t, request)
 
 	candidates := withStatus(result, report.SuggestionCandidate)
 	if len(candidates) == 0 {
