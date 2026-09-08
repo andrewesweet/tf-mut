@@ -1,6 +1,9 @@
 package engine_test
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -47,6 +50,73 @@ func TestTheHonestyGateNamesOnlyTestsThatExist(t *testing.T) {
 	for _, name := range named {
 		if !declared[name] {
 			t.Fatalf("the gate names %s, which no test declares", name)
+		}
+	}
+}
+
+func TestExportedEngineTypesDeclareNoSeamControls(t *testing.T) {
+	t.Parallel()
+
+	root, found := repositoryRoot(t)
+	if !found {
+		t.Fatal("repository root not found")
+	}
+
+	engineDir := filepath.Join(root, internalTree, "engine")
+	fset := token.NewFileSet()
+	if err := filepath.WalkDir(engineDir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+
+		file, parseErr := parser.ParseFile(fset, path, nil, 0)
+		if parseErr != nil {
+			return parseErr
+		}
+		auditExportedEngineTypes(t, fset, file)
+		return nil
+	}); err != nil {
+		t.Fatalf("auditing exported engine types in %s: %v", engineDir, err)
+	}
+}
+
+func auditExportedEngineTypes(t *testing.T, fset *token.FileSet, file *ast.File) {
+	t.Helper()
+
+	for _, declaration := range file.Decls {
+		general, ok := declaration.(*ast.GenDecl)
+		if !ok || general.Tok != token.TYPE {
+			continue
+		}
+		for _, specification := range general.Specs {
+			typeSpec, ok := specification.(*ast.TypeSpec)
+			if ok {
+				auditExportedEngineType(t, fset, typeSpec)
+			}
+		}
+	}
+}
+
+func auditExportedEngineType(t *testing.T, fset *token.FileSet, typeSpec *ast.TypeSpec) {
+	t.Helper()
+
+	if !ast.IsExported(typeSpec.Name.Name) {
+		return
+	}
+	structure, ok := typeSpec.Type.(*ast.StructType)
+	if !ok {
+		return
+	}
+	for _, field := range structure.Fields.List {
+		for _, name := range field.Names {
+			if strings.HasPrefix(name.Name, "Seed") || strings.HasPrefix(name.Name, "Disable") {
+				position := fset.Position(name.Pos())
+				t.Errorf("exported engine type %s declares seam field %s at %s:%d",
+					typeSpec.Name.Name, name.Name, position.Filename, position.Line)
+			}
 		}
 	}
 }
