@@ -2,18 +2,17 @@ package engine
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 )
 
-var characteriseWriteSeedMu sync.Mutex
-
 // SetCharacteriseWriteSeeds exposes only the five characterisation-write
-// controls to the external test package. The module filter keeps unrelated
-// parallel engine-seam tests on the inert defaults; the lock serialises the
-// tests that mutate these package-level hooks.
+// controls to the external test package. Its callers are deliberately
+// sequential: the hooks are package globals, so their complete lifetime must
+// not overlap any other engine-seam test.
+//
+//nolint:revive // the test-only setter intentionally wires five independent controls.
 func SetCharacteriseWriteSeeds(
 	t *testing.T,
 	moduleDir, closureChange, closureFile string,
@@ -21,9 +20,6 @@ func SetCharacteriseWriteSeeds(
 	renameWindowChange, registryFailure bool,
 ) {
 	t.Helper()
-	characteriseWriteSeedMu.Lock()
-	t.Cleanup(characteriseWriteSeedMu.Unlock)
-
 	seedClosureChange = func(configuration discovery.Configuration, _ string) error {
 		if configuration.ModuleDir != moduleDir || closureChange == "" {
 			return nil

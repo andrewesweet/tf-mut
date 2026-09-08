@@ -649,9 +649,9 @@ func TestScenarioPinsAreInvariantUnderFileOrder(t *testing.T) {
 // other, so the commit step re-checks the input-closure digest immediately
 // before every rename; a closure that moved in between must yield zero writes
 // rather than a file that was green for a module which no longer exists.
+//
+//nolint:paralleltest // owns package-global characterisation hooks for its lifetime.
 func TestAClosureChangeAtTheProbeYieldsZeroWrites(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
@@ -706,9 +706,9 @@ func TestNoTerraformRunPrecedesAStagedGateRefusal(t *testing.T) {
 // race, and the half a digest fed from a captured path list cannot see: the
 // closure gained a file rather than changing one. Membership has to be
 // recomputed at the probe, not replayed from what discovery found.
+//
+//nolint:paralleltest // owns package-global characterisation hooks for its lifetime.
 func TestANewClosureFileAtTheProbeYieldsZeroWrites(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
@@ -736,9 +736,9 @@ func TestANewClosureFileAtTheProbeYieldsZeroWrites(t *testing.T) {
 // either zero writes or an explicit partial state. A commit that renamed one
 // file and then aborted has changed the caller's tree, and an error with no
 // report would leave them to work out what moved.
+//
+//nolint:paralleltest // owns package-global characterisation hooks for its lifetime.
 func TestAPartialCommitReportsWhatItWrote(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
@@ -813,9 +813,9 @@ func TestConfigurationAliasesAreMockedAndGated(t *testing.T) {
 // gap: by the time the registry is stored, every generated test file has been
 // renamed, so a registry that will not store leaves a changed tree and no
 // record of what changed it.
+//
+//nolint:paralleltest // owns package-global characterisation hooks for its lifetime.
 func TestARegistryFailureReportsThePartialState(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
@@ -847,9 +847,9 @@ func TestARegistryFailureReportsThePartialState(t *testing.T) {
 // rather than immediately before the rename, so a source edited while the
 // temporary file was being written still commits. The seam fires the change
 // inside that window; a protocol that only checked before it would write.
+//
+//nolint:paralleltest // owns package-global characterisation hooks for its lifetime.
 func TestAClosureChangeInsideTheRenameWindowIsCaught(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)

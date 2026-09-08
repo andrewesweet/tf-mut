@@ -46,11 +46,16 @@ const insideTheWindow = 2
 const seedFileMode = 0o600
 
 var (
-	seedClosureChange      = func(discovery.Configuration, string) error { return nil }
-	seedClosureFile        = func(discovery.Configuration, string) error { return nil }
-	seedClosureAfter       = func(discovery.Configuration, int) error { return nil }
+	//nolint:gochecknoglobals // test seam, inert outside the suite.
+	seedClosureChange = func(discovery.Configuration, string) error { return nil }
+	//nolint:gochecknoglobals // test seam, inert outside the suite.
+	seedClosureFile = func(discovery.Configuration, string) error { return nil }
+	//nolint:gochecknoglobals // test seam, inert outside the suite.
+	seedClosureAfter = func(discovery.Configuration, int) error { return nil }
+	//nolint:gochecknoglobals // test seam, inert outside the suite.
 	seedRenameWindowChange = func(discovery.Configuration, int) error { return nil }
-	seedRegistryFailure    = func(string) error { return nil }
+	//nolint:gochecknoglobals // test seam, inert outside the suite.
+	seedRegistryFailure = func(string) error { return nil }
 )
 
 // registry records what this tool generated, so that "generated-unmodified",
@@ -134,7 +139,7 @@ func commitScaffold(
 		// top of a failed commit changes nothing about the first failure, so
 		// its error is deliberately not allowed to displace it.
 		if len(written) > 0 {
-			_ = storeRegistry(configuration.ModuleDir, settings, block, files, inputDigest, existing)
+			_ = storeRegistry(configuration.ModuleDir, block, files, inputDigest, existing)
 		}
 
 		return err
@@ -142,7 +147,7 @@ func commitScaffold(
 
 	block.Staged = false
 
-	if err := storeRegistry(configuration.ModuleDir, settings, block, files, inputDigest, existing); err != nil {
+	if err := storeRegistry(configuration.ModuleDir, block, files, inputDigest, existing); err != nil {
 		// Every generated file has already been renamed by this point, so a
 		// registry that will not store is a partial state and not a refusal:
 		// the caller's tree has changed and the record of what changed it has
@@ -402,7 +407,6 @@ func loadRegistry(moduleDir string) registry {
 // writes recorded.
 func storeRegistry(
 	moduleDir string,
-	settings Config,
 	block *report.Characterisation,
 	files []generated,
 	inputDigest string,
