@@ -45,6 +45,14 @@ const insideTheWindow = 2
 // this constant belongs to the seam and to nothing else.
 const seedFileMode = 0o600
 
+var (
+	seedClosureChange      = func(discovery.Configuration, string) error { return nil }
+	seedClosureFile        = func(discovery.Configuration, string) error { return nil }
+	seedClosureAfter       = func(discovery.Configuration, int) error { return nil }
+	seedRenameWindowChange = func(discovery.Configuration, int) error { return nil }
+	seedRegistryFailure    = func(string) error { return nil }
+)
+
 // registry records what this tool generated, so that "generated-unmodified",
 // "generated-edited" and "pre-existing" are decided mechanically rather than
 // guessed at.
@@ -238,10 +246,8 @@ func writeFiles(
 	written := []string{}
 
 	for _, file := range files {
-		if len(written) == settings.SeedClosureAfter && !settings.SeedRenameWindowChange {
-			if err := seedClosureChange(configuration, settings); err != nil {
-				return written, err
-			}
+		if err := seedClosureAfter(configuration, len(written)); err != nil {
+			return written, err
 		}
 
 		target := filepath.Join(configuration.ModuleDir, filepath.FromSlash(file.entry.Path))
@@ -257,10 +263,8 @@ func writeFiles(
 		commit := func() error {
 			calls++
 
-			if settings.SeedRenameWindowChange && calls == insideTheWindow {
-				if err := seedClosureChange(configuration, settings); err != nil {
-					return err
-				}
+			if err := seedRenameWindowChange(configuration, calls); err != nil {
+				return err
 			}
 
 			return recheckWrite(configuration, settings, prepared, inputDigest, targets, file.entry)
@@ -332,21 +336,17 @@ func recheckWrite(
 // seedClosureChange stages the race the commit step exists to close: a source
 // file that moved between the verification that made the scaffold green and
 // the rename that would install it. It fires once, before the first rename.
-func seedClosureChange(configuration discovery.Configuration, settings Config) error {
-	if settings.SeedClosureFile != "" {
-		added := filepath.Join(configuration.ModuleDir,
-			filepath.FromSlash(settings.SeedClosureFile))
-		if err := os.WriteFile(added, []byte("# staged closure addition\n"),
-			seedFileMode); err != nil {
-			return fmt.Errorf("staging the closure addition: %w", err)
-		}
+func stageClosureFile(configuration discovery.Configuration, path string) error {
+	added := filepath.Join(configuration.ModuleDir, filepath.FromSlash(path))
+	if err := os.WriteFile(added, []byte("# staged closure addition\n"), seedFileMode); err != nil {
+		return fmt.Errorf("staging the closure addition: %w", err)
 	}
 
-	if settings.SeedClosureChange == "" {
-		return nil
-	}
+	return nil
+}
 
-	target := filepath.Join(configuration.ModuleDir, filepath.FromSlash(settings.SeedClosureChange))
+func stageClosureChange(configuration discovery.Configuration, path string) error {
+	target := filepath.Join(configuration.ModuleDir, filepath.FromSlash(path))
 
 	//nolint:gosec // a seam control's own path, and a test-owned tree.
 	file, err := os.OpenFile(target, os.O_APPEND|os.O_WRONLY, seedFileMode)
@@ -408,8 +408,8 @@ func storeRegistry(
 	inputDigest string,
 	existing registry,
 ) error {
-	if settings.SeedRegistryFailure {
-		return fmt.Errorf("%w: the provenance registry could not be stored", ErrWriteRefused)
+	if err := seedRegistryFailure(moduleDir); err != nil {
+		return err
 	}
 
 	// The digest the registry records is the *written* bytes', which is what

@@ -656,7 +656,7 @@ func TestAClosureChangeAtTheProbeYieldsZeroWrites(t *testing.T) {
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
-	config.SeedClosureChange = mainFile
+	engine.SetCharacteriseWriteSeeds(t, module, mainFile, "", 0, false, false)
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrWriteRefused) {
@@ -713,7 +713,7 @@ func TestANewClosureFileAtTheProbeYieldsZeroWrites(t *testing.T) {
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
-	config.SeedClosureFile = "added.tf"
+	engine.SetCharacteriseWriteSeeds(t, module, "", "added.tf", 0, false, false)
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrWriteRefused) {
@@ -745,8 +745,7 @@ func TestAPartialCommitReportsWhatItWrote(t *testing.T) {
 	config.CharacteriseWrite = true
 	// The closure grows between the first rename and the second, so the first
 	// file lands and the second is refused.
-	config.SeedClosureFile = "added.tf"
-	config.SeedClosureAfter = 1
+	engine.SetCharacteriseWriteSeeds(t, module, "", "added.tf", 1, false, false)
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {
@@ -821,7 +820,7 @@ func TestARegistryFailureReportsThePartialState(t *testing.T) {
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
-	config.SeedRegistryFailure = true
+	engine.SetCharacteriseWriteSeeds(t, module, "", "", 0, false, true)
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {
@@ -855,8 +854,7 @@ func TestAClosureChangeInsideTheRenameWindowIsCaught(t *testing.T) {
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
-	config.SeedClosureChange = mainFile
-	config.SeedRenameWindowChange = true
+	engine.SetCharacteriseWriteSeeds(t, module, mainFile, "", 0, true, false)
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrWriteRefused) {
