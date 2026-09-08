@@ -625,7 +625,6 @@ var seedSharedFileOrder = func(discovery.Configuration) string { return "" }
 // thing that could make a generated scenario observe another scenario's state:
 // the pins have to be identical under both, which is what the distinct state
 // keys buy.
-//
 func stagedScaffold(
 	configuration discovery.Configuration,
 	scaffold characterise.Scaffold,
