@@ -99,9 +99,9 @@ func TestOwnResourceUnknownsStayInCone(t *testing.T) {
 // the same module classified with the shortcut and with it disabled reaches
 // identical verdicts, and the shortcut's mutants demonstrably skipped
 // execution.
+//
+//nolint:paralleltest // owns package-global static-shortcut hook for its lifetime.
 func TestStaticUnobservableEqualsTheExecutedVerdict(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, "static-unobservable")
 
 	static, err := engine.Run(t.Context(), baseConfig(t, module))
@@ -109,10 +109,9 @@ func TestStaticUnobservableEqualsTheExecutedVerdict(t *testing.T) {
 		t.Fatalf("static run: %v", err)
 	}
 
-	control := baseConfig(t, module)
-	control.DisableStaticShortcuts = true
+	engine.SetStaticShortcutsDisabled(t, module)
 
-	executed, err := engine.Run(t.Context(), control)
+	executed, err := engine.Run(t.Context(), baseConfig(t, module))
 	if err != nil {
 		t.Fatalf("control run: %v", err)
 	}
@@ -159,9 +158,9 @@ func TestStaticUnobservableEqualsTheExecutedVerdict(t *testing.T) {
 // structural guard: validations, preconditions, postconditions and checks are
 // StructurallyUnassertable or killable, never statically Unobservable, and
 // the shortcut must not move a single verdict in the M2 contract fixture.
+//
+//nolint:paralleltest // owns package-global static-shortcut hook for its lifetime.
 func TestTheContractFixtureClassifiesIdenticallyUnderTheShortcut(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, "contract")
 
 	static, err := engine.Run(t.Context(), baseConfig(t, module))
@@ -169,10 +168,9 @@ func TestTheContractFixtureClassifiesIdenticallyUnderTheShortcut(t *testing.T) {
 		t.Fatalf("static run: %v", err)
 	}
 
-	control := baseConfig(t, module)
-	control.DisableStaticShortcuts = true
+	engine.SetStaticShortcutsDisabled(t, module)
 
-	executed, err := engine.Run(t.Context(), control)
+	executed, err := engine.Run(t.Context(), baseConfig(t, module))
 	if err != nil {
 		t.Fatalf("control run: %v", err)
 	}

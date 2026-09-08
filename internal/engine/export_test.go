@@ -11,6 +11,18 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/suggest"
 )
 
+// SetStaticShortcutsDisabled makes one module classify every mutant by execution.
+// Its callers are sequential for the hook's complete lifetime.
+func SetStaticShortcutsDisabled(t *testing.T, moduleDir string) {
+	t.Helper()
+	disableStaticShortcuts = func(settings Config) bool {
+		return settings.ModuleDir == moduleDir
+	}
+	t.Cleanup(func() {
+		disableStaticShortcuts = func(Config) bool { return false }
+	})
+}
+
 // SetSuggestionDefectSeed makes suggestion generation emit one known defect
 // for one module. Its callers are sequential for the hook's complete lifetime.
 func SetSuggestionDefectSeed(t *testing.T, moduleDir string, defect suggest.Defect) {

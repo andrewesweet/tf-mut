@@ -129,11 +129,8 @@ type Config struct {
 	// FN-FAMILY-SWAP joins the population. Never part of standard until the
 	// published admission measurement, in a separate change.
 	GeneratedFunctions bool
-	// DisableStaticShortcuts turns the static pre-classifications off — the
-	// static Unobservable shortcut and the conditional-instantiation
-	// NoCoverage evaluator — so a control run can prove each shortcut equal
-	// to the executed verdict. It is a seam control, not a command-line flag.
-	DisableStaticShortcuts bool
+	// staticShortcutsDisabled records the invocation-local JSON safety floor.
+	staticShortcutsDisabled bool
 	// DisableJSONReading leaves every JSON-syntax file in the closure unread,
 	// so a control run can prove the safety floor holds for content the tool
 	// has not read. It is a seam control, not a command-line flag.
@@ -180,6 +177,9 @@ type Config struct {
 	// well as from Answers, re-synthesises, verifies and promotes.
 	Resume bool
 }
+
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var disableStaticShortcuts = func(Config) bool { return false }
 
 // Operational failures. Every one of them aborts the run: none of them can be
 // reported as a mutant verdict without misleading the reader.
@@ -365,7 +365,7 @@ func applyFloor(
 ) (Config, []string) {
 	floor := floorOf(configuration)
 	if floor.active() {
-		settings.DisableStaticShortcuts = true
+		settings.staticShortcutsDisabled = true
 		warnings = append(warnings, floor.degradation())
 	}
 
@@ -671,6 +671,7 @@ func describe(
 ) []report.Mutant {
 	exercised := configuration.ExercisedModules()
 	described := make([]report.Mutant, 0, len(generated))
+	shortcutsDisabled := settings.staticShortcutsDisabled || disableStaticShortcuts(settings)
 
 	for _, mutant := range generated {
 		state := report.Pending
@@ -680,14 +681,14 @@ func describe(
 		switch {
 		case !exercised[mutant.ModuleRel]:
 			state = report.NoCoverage
-		case !settings.Preview && !settings.DisableStaticShortcuts &&
+		case !settings.Preview && !shortcutsDisabled &&
 			conditionallyUncovered(configuration, graph, settings, mutant):
 			// The finer conditional-instantiation claim (M3a.3): the mutated
 			// multiplicity expression is statically zero under every relevant
 			// run. Module-level NoCoverage above remains the strict subset.
 			state = report.NoCoverage
 			verdict = conditionalNoCoverageVerdict()
-		case !settings.Preview && !settings.DisableStaticShortcuts &&
+		case !settings.Preview && !shortcutsDisabled &&
 			staticallyUnobservable(graph, mutant):
 			// A preview keeps Pending — the documented preview contract — so
 			// the shortcut fires only where execution would otherwise run.
