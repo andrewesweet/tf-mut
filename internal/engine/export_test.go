@@ -33,7 +33,7 @@ func SetCharacteriseWriteSeeds(
 		return stageClosureFile(configuration, closureFile)
 	}
 	seedClosureAfter = func(configuration discovery.Configuration, written int) error {
-		if configuration.ModuleDir != moduleDir || written != closureAfter {
+		if configuration.ModuleDir != moduleDir || written != closureAfter || renameWindowChange {
 			return nil
 		}
 		if closureFile != "" {
