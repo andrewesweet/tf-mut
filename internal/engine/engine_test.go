@@ -273,8 +273,7 @@ func TestPreviewExecutesNothing(t *testing.T) {
 	module := copyFixture(t, "skeleton")
 	before := treeDigest(t, module)
 
-	config := baseConfig(t, module)
-	config.Preview = true
+	config := previewRequest(t, module)
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {

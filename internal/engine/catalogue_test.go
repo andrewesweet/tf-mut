@@ -41,8 +41,7 @@ func TestIndexedConsumerNeverGetsAnInstanceSetDeletion(t *testing.T) {
 
 	module := copyFixture(t, "count-indexed")
 
-	config := baseConfig(t, module)
-	config.Preview = true
+	config := previewRequest(t, module)
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {
@@ -92,8 +91,7 @@ func TestRequiredArgumentsAreNeverDeleted(t *testing.T) {
 
 	module := copyFixture(t, "count-tolerant")
 
-	config := baseConfig(t, module)
-	config.Preview = true
+	config := previewRequest(t, module)
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {

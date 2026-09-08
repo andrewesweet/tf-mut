@@ -212,8 +212,7 @@ func TestPreviewIsNeverRefusedBecauseItExecutesNothing(t *testing.T) {
 	module := copyFixture(t, "provisioner")
 	marker := filepath.Join(t.TempDir(), "provisioner-ran")
 
-	config := baseConfig(t, module)
-	config.Preview = true
+	config := previewRequest(t, module)
 	config.Env = append(config.Env, "TF_MUT_MARKER="+marker)
 
 	result, err := engine.Run(t.Context(), config)

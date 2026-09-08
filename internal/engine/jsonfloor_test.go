@@ -21,10 +21,11 @@ import (
 // issue #57's two original reproductions.
 //
 // The claim under test is what happens while the content is *unread*, so
-// `floorConfig` activates the module-scoped unread-JSON test hook for every
-// case, over the same fixtures the M4c slice reads in `jsonslice_test.go`. The two
-// files together are the floor and its lift: `floorConfig` proves the refusal
-// is decided from unreadness, and the slice proves it is decided from content.
+// `floorConfig` and `floorPreviewRequest` activate the module-scoped
+// unread-JSON test hook for every case, over the same fixtures the M4c slice
+// reads in `jsonslice_test.go`. The two files together are the floor and its
+// lift: the floor's tests prove the refusal is decided from unreadness, and
+// the slice proves it is decided from content.
 //
 // The claim under test is a refusal, so these run without the provider mirror:
 // nothing executes.
@@ -37,6 +38,16 @@ func floorConfig(t *testing.T, fixture string) engine.Config {
 	engine.SetJSONReadingDisabled(t, config.ModuleDir)
 
 	return config
+}
+
+// floorPreviewRequest is a preview whose JSON content is deliberately left unread.
+func floorPreviewRequest(t *testing.T, fixture string) engine.PreviewRequest {
+	t.Helper()
+
+	request := previewRequest(t, copyFixture(t, fixture))
+	engine.SetJSONReadingDisabled(t, request.ModuleDir)
+
+	return request
 }
 
 const (
@@ -262,8 +273,7 @@ func TestAuthorisingBothGatesStillReportsTheUnreadJSON(t *testing.T) {
 
 //nolint:paralleltest // owns package-global JSON-reading hook for its lifetime.
 func TestAPreviewIsNeverRefusedByTheFloor(t *testing.T) {
-	config := floorConfig(t, jsonProvisionerFixture)
-	config.Preview = true
+	config := floorPreviewRequest(t, jsonProvisionerFixture)
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {

@@ -85,8 +85,7 @@ func TestEveryEnabledOperatorHasAGenerationSite(t *testing.T) {
 	// The generated catalogue's site lives in the families fixture and fires
 	// only behind its opt-in (M3e): the default populations above must never
 	// carry it, so its site is witnessed by an opted-in preview.
-	optedIn := baseConfig(t, copyFixture(t, "families"))
-	optedIn.Preview = true
+	optedIn := previewRequest(t, copyFixture(t, "families"))
 	optedIn.GeneratedFunctions = true
 
 	familyResult, err := engine.Run(t.Context(), optedIn)

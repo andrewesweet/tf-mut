@@ -14,14 +14,14 @@ import (
 // The apply protocol (M4b.2): snapshot-bound, path-safe, atomic. Every case
 // here is one row of the C6 disposition's contract.
 
-// applyAllConfig is a suggest run that applies every verified suggestion.
-func applyAllConfig(t *testing.T, module string) engine.Config {
+// applyAllRequest is a suggest run that applies every verified suggestion.
+func applyAllRequest(t *testing.T, module string) engine.SuggestRequest {
 	t.Helper()
 
-	config := suggestConfig(t, module)
-	config.ApplyAll = true
+	request := suggestRequest(t, module)
+	request.ApplyAll = true
 
-	return config
+	return request
 }
 
 func TestACleanApplyWritesAtomicallyAndTheMutantsDie(t *testing.T) {
@@ -34,7 +34,7 @@ func TestACleanApplyWritesAtomicallyAndTheMutantsDie(t *testing.T) {
 		t.Fatalf("setting a recognisable mode: %v", err)
 	}
 
-	result := runSuggest(t, applyAllConfig(t, module))
+	result := runSuggest(t, applyAllRequest(t, module))
 
 	if result.Apply == nil || result.Apply.Aborted != "" {
 		t.Fatalf("apply did not complete: %+v", result.Apply)
@@ -81,7 +81,7 @@ func TestAnEditBetweenVerificationAndApplyAbortsWithZeroWrites(t *testing.T) {
 	target := filepath.Join(module, "tests", "unit.tftest.hcl")
 
 	// Verify first, then edit, then try to apply the stale suggestion by ID.
-	verified := runSuggest(t, suggestConfig(t, module))
+	verified := runSuggest(t, suggestRequest(t, module))
 
 	verifiedSuggestions := withStatus(verified, report.SuggestionVerified)
 
@@ -123,7 +123,7 @@ func TestApplyRefusesANonVerifiedSelection(t *testing.T) {
 	// guarantees one.
 	module := copyFixture(t, suggestBasicFixture)
 
-	config := suggestConfig(t, module)
+	config := suggestRequest(t, module)
 	engine.SetSuggestionDefectSeed(t, config.ModuleDir, suggest.DefectVacuous)
 	config.ApplyAll = false
 
@@ -134,7 +134,7 @@ func TestApplyRefusesANonVerifiedSelection(t *testing.T) {
 		t.Fatal("the seeded defect produced no refuted suggestion")
 	}
 
-	applying := suggestConfig(t, module)
+	applying := suggestRequest(t, module)
 	applying.Apply = []string{refuted[0].ID}
 
 	before := treeDigest(t, module)
@@ -161,7 +161,7 @@ func TestApplyRefusesAnUnknownSuggestionIdentifier(t *testing.T) {
 	module := copyFixture(t, suggestBasicFixture)
 	before := treeDigest(t, module)
 
-	config := suggestConfig(t, module)
+	config := suggestRequest(t, module)
 	config.Apply = []string{"ffffffffffff"}
 
 	result := runSuggest(t, config)
@@ -190,7 +190,7 @@ func TestASymlinkedTargetAbortsBeforeAnyWrite(t *testing.T) {
 		t.Fatalf("symlinking the target: %v", err)
 	}
 
-	result := runSuggest(t, applyAllConfig(t, module))
+	result := runSuggest(t, applyAllRequest(t, module))
 	if result.Apply == nil || !strings.Contains(result.Apply.Aborted, "symbolic link") {
 		t.Fatalf("a symlinked target was not refused: %+v", result.Apply)
 	}
@@ -210,7 +210,7 @@ func TestAJSONTestFileIsNeverWrittenByApply(t *testing.T) {
 	module := copyFixture(t, suggestJSONFixture)
 	before := treeDigest(t, module)
 
-	result := runSuggest(t, applyAllConfig(t, module))
+	result := runSuggest(t, applyAllRequest(t, module))
 
 	// Every suggestion is skipped-unsupported-target, so nothing is verified
 	// and --all-verified selects nothing: a no-op apply, and no JSON write.
@@ -234,7 +234,7 @@ func TestAMultiFileApplyReportsAPartialFailureExplicitly(t *testing.T) {
 	// arrive between the preflight and the second write: a read-only parent
 	// directory does exactly that. `root.tftest.hcl` sorts before
 	// `tests/unit.tftest.hcl`, so locking `tests/` fails the second write.
-	verified := runSuggest(t, suggestConfig(t, module))
+	verified := runSuggest(t, suggestRequest(t, module))
 	if len(withStatus(verified, report.SuggestionVerified)) < 2 {
 		t.Fatalf("want verified suggestions in two files, got %s",
 			suggest.Statuses(verified.Suggestions))
@@ -247,7 +247,7 @@ func TestAMultiFileApplyReportsAPartialFailureExplicitly(t *testing.T) {
 
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o750) }) //nolint:gosec // restoring the fixture mode.
 
-	result := runSuggest(t, applyAllConfig(t, module))
+	result := runSuggest(t, applyAllRequest(t, module))
 	if result.Apply == nil || result.Apply.Aborted == "" {
 		t.Fatalf("the induced failure was not reported: %+v", result.Apply)
 	}
@@ -273,7 +273,7 @@ func TestApplyIsTheThirdWriteExceptionAndTouchesOnlyItsTargets(t *testing.T) {
 	module := copyFixture(t, suggestBasicFixture)
 	before := treeDigest(t, module)
 
-	result := runSuggest(t, applyAllConfig(t, module))
+	result := runSuggest(t, applyAllRequest(t, module))
 	if result.Apply == nil || result.Apply.Aborted != "" {
 		t.Fatalf("apply did not complete: %+v", result.Apply)
 	}
@@ -306,7 +306,7 @@ func TestTheReportedPatchIsTheBytesApplyWrites(t *testing.T) {
 
 	module := copyFixture(t, suggestBasicFixture)
 
-	result := runSuggest(t, applyAllConfig(t, module))
+	result := runSuggest(t, applyAllRequest(t, module))
 	if result.Apply == nil || result.Apply.Aborted != "" {
 		t.Fatalf("apply did not complete: %+v", result.Apply)
 	}

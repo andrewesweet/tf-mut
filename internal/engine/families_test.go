@@ -22,8 +22,7 @@ const generatedOperator = "FN-FAMILY-SWAP"
 func familiesPreview(t *testing.T, generated bool) report.Report {
 	t.Helper()
 
-	config := baseConfig(t, copyFixture(t, "families"))
-	config.Preview = true
+	config := previewRequest(t, copyFixture(t, "families"))
 	config.GeneratedFunctions = generated
 
 	result, err := engine.Run(t.Context(), config)
