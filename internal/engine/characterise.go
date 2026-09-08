@@ -81,7 +81,7 @@ func characteriseModule(
 		characterise.Configurations(configuration))
 
 	warnings, err := checkStagedSafety(configuration,
-		seedMissingMock(gated, settings), settings)
+		seedMissingMock(configuration, gated), settings)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -866,30 +866,13 @@ func seedNoEscalation(scaffold characterise.Scaffold, settings Config) character
 	return scaffold
 }
 
-// seedMissingMock removes one mock from the scaffold the gate reads, so the
-// staged provider gate can be proven to refuse before execution.
+// seedMissingMock is an inert test hook beside the staged provider gate it
+// drives. Tests replace it with the rendered-mock removal needed to prove the
+// gate refuses before execution.
 //
-// It removes the *rendered* mock rather than the planned configuration,
-// because the rendered mocks are what the gate parses: a seed that changed
-// only the plan would seed the side of the comparison the gate no longer
-// looks at. It is a seam control and not a command-line flag.
-func seedMissingMock(staged characterise.Scaffold, settings Config) characterise.Scaffold {
-	if settings.SeedMissingMock == "" {
-		return staged
-	}
-
-	kept := make([]characterise.Mock, 0, len(staged.Mocks))
-
-	for _, mock := range staged.Mocks {
-		if configurationName(discovery.ProviderAlias{Name: mock.Name, Alias: mock.Alias}) ==
-			settings.SeedMissingMock {
-			continue
-		}
-
-		kept = append(kept, mock)
-	}
-
-	staged.Mocks = kept
-
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedMissingMock = func(_ discovery.Configuration,
+	staged characterise.Scaffold,
+) characterise.Scaffold {
 	return staged
 }

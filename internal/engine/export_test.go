@@ -2,10 +2,40 @@ package engine
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 
+	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 )
+
+// SetMissingMockSeed removes one rendered provider-configuration mock for one
+// module. Its callers are sequential for the hook's complete lifetime.
+func SetMissingMockSeed(t *testing.T, moduleDir, missingConfiguration string) {
+	t.Helper()
+	seedMissingMock = func(configuration discovery.Configuration,
+		staged characterise.Scaffold,
+	) characterise.Scaffold {
+		if configuration.ModuleDir != moduleDir || missingConfiguration == "" {
+			return staged
+		}
+
+		kept := slices.DeleteFunc(slices.Clone(staged.Mocks), func(mock characterise.Mock) bool {
+			return configurationName(discovery.ProviderAlias{Name: mock.Name, Alias: mock.Alias}) ==
+				missingConfiguration
+		})
+		staged.Mocks = kept
+
+		return staged
+	}
+	t.Cleanup(func() {
+		seedMissingMock = func(_ discovery.Configuration,
+			staged characterise.Scaffold,
+		) characterise.Scaffold {
+			return staged
+		}
+	})
+}
 
 // SetCharacteriseWriteSeeds exposes only the five characterisation-write
 // controls to the external test package. Its callers are deliberately

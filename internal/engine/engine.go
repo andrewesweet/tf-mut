@@ -172,10 +172,6 @@ type Config struct {
 	// CharacteriseForce replaces target files, and only those the provenance
 	// registry marks generated-and-unmodified.
 	CharacteriseForce bool
-	// SeedMissingMock removes one planned provider-configuration mock from the
-	// staged suite, so the staged provider gate can be proven to refuse before
-	// execution. It is a seam control, not a command-line flag.
-	SeedMissingMock string
 	// Todos lists the open judgement points and runs no Terraform.
 	Todos bool
 	// Curate reports redundancy over an authoritative population.

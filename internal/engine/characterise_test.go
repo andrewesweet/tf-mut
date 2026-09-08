@@ -93,14 +93,15 @@ func TestAnUntestedAliasedProviderModuleCharacterisesWithNoOptIn(t *testing.T) {
 // staged provider gate is decided per provider *configuration*, so removing one
 // generated alias mock refuses, and refuses before Terraform evaluates
 // anything.
+//
+//nolint:paralleltest // owns package-global characterisation hook for its lifetime.
 func TestAMissingAliasMockRefusesBeforeExecution(t *testing.T) {
-	t.Parallel()
 	requireProviderMirror(t)
 
 	module := copyFixture(t, untestedAliasesFixture)
 
 	config := characteriseConfig(t, module)
-	config.SeedMissingMock = secondaryConfiguration
+	engine.SetMissingMockSeed(t, module, secondaryConfiguration)
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrRealInfrastructure) {
@@ -682,13 +683,13 @@ func TestAClosureChangeAtTheProbeYieldsZeroWrites(t *testing.T) {
 // TestNoTerraformRunPrecedesAStagedGateRefusal holds the pre-execution
 // guarantee for the new command: the gates are decided from discovery alone,
 // so a refusal costs no init, no provider download and no schema read.
+//
+//nolint:paralleltest // owns package-global characterisation hook for its lifetime.
 func TestNoTerraformRunPrecedesAStagedGateRefusal(t *testing.T) {
-	t.Parallel()
-
 	log := filepath.Join(t.TempDir(), "terraform-calls")
 
 	config := characteriseConfig(t, copyFixture(t, untestedAliasesFixture))
-	config.SeedMissingMock = secondaryConfiguration
+	engine.SetMissingMockSeed(t, config.ModuleDir, secondaryConfiguration)
 	config.TerraformBinary = recordingTerraform(t, log)
 
 	if _, err := engine.Run(t.Context(), config); !errors.Is(err, engine.ErrRealInfrastructure) {
@@ -781,8 +782,9 @@ func TestAPartialCommitReportsWhatItWrote(t *testing.T) {
 // mocks none of them and — the part that matters — the gate that requires a
 // mock per provider configuration never learns the configuration is there. An
 // aliased resource then escapes mock coverage entirely.
+//
+//nolint:paralleltest // owns package-global characterisation hook for its lifetime.
 func TestConfigurationAliasesAreMockedAndGated(t *testing.T) {
-	t.Parallel()
 	requireProviderMirror(t)
 
 	module := copyFixture(t, untestedAliasFixture)
@@ -802,7 +804,7 @@ func TestConfigurationAliasesAreMockedAndGated(t *testing.T) {
 	// The gate has to see them too: a configuration nothing mocks must refuse
 	// before execution, exactly as a `provider`-block alias does.
 	seeded := characteriseConfig(t, module)
-	seeded.SeedMissingMock = secondaryConfiguration
+	engine.SetMissingMockSeed(t, module, secondaryConfiguration)
 
 	if _, err := engine.Run(t.Context(), seeded); !errors.Is(err, engine.ErrRealInfrastructure) {
 		t.Fatalf("error = %v, want a refusal for the unmocked configuration alias", err)
