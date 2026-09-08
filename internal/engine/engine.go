@@ -131,10 +131,6 @@ type Config struct {
 	GeneratedFunctions bool
 	// staticShortcutsDisabled records the invocation-local JSON safety floor.
 	staticShortcutsDisabled bool
-	// DisableJSONReading leaves every JSON-syntax file in the closure unread,
-	// so a control run can prove the safety floor holds for content the tool
-	// has not read. It is a seam control, not a command-line flag.
-	DisableJSONReading bool
 	// Suggest generates, and unless SuggestDryRun is set verifies, the
 	// assertion that would have killed each provable survivor.
 	Suggest bool
@@ -181,6 +177,9 @@ type Config struct {
 //nolint:gochecknoglobals // test seam, inert outside the suite.
 var disableStaticShortcuts = func(Config) bool { return false }
 
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var disableJSONReading = func(Config) bool { return false }
+
 // Operational failures. Every one of them aborts the run: none of them can be
 // reported as a mutant verdict without misleading the reader.
 var (
@@ -219,7 +218,7 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 	// absent or broken would break the loop over a check it never needed.
 	if settings.Todos {
 		listed, listErr := discovery.DiscoverWith(moduleDir, settings.TestDirectory,
-			discovery.Options{SkipJSON: settings.DisableJSONReading})
+			discovery.Options{SkipJSON: disableJSONReading(settings)})
 		if listErr != nil {
 			return report.Report{}, listErr
 		}
@@ -235,7 +234,7 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 	}
 
 	configuration, err := discovery.DiscoverWith(moduleDir, settings.TestDirectory,
-		discovery.Options{SkipJSON: settings.DisableJSONReading})
+		discovery.Options{SkipJSON: disableJSONReading(settings)})
 	if err != nil {
 		return report.Report{}, err
 	}

@@ -123,7 +123,7 @@ func oneRound(
 	// than leaving a cache directory in a directory that is about to vanish.
 	stagedConfiguration, err := discovery.DiscoverWith(staged.ModuleDir,
 		stage.settings.TestDirectory,
-		discovery.Options{SkipJSON: stage.settings.DisableJSONReading})
+		discovery.Options{SkipJSON: disableJSONReading(stage.settings)})
 	if err != nil {
 		return 0, err
 	}

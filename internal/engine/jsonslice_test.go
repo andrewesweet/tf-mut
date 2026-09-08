@@ -213,15 +213,15 @@ func TestNoJSONFileIsEverAMutationSite(t *testing.T) {
 // TestAJSONPopulationIsUnchangedByReadingIt keeps the discover-only promise
 // honest at the population level: reading JSON may change verdicts through the
 // graph and the inventories, and must never add or remove a mutant.
+//
+//nolint:paralleltest // owns package-global JSON-reading hook for its lifetime.
 func TestAJSONPopulationIsUnchangedByReadingIt(t *testing.T) {
-	t.Parallel()
-
 	read := baseConfig(t, copyFixture(t, jsonMixedFixture))
 	read.Preview = true
 
 	unread := baseConfig(t, copyFixture(t, jsonMixedFixture))
 	unread.Preview = true
-	unread.DisableJSONReading = true
+	engine.SetJSONReadingDisabled(t, unread.ModuleDir)
 
 	withJSON, err := engine.Run(t.Context(), read)
 	if err != nil {

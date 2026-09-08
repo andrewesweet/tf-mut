@@ -23,6 +23,18 @@ func SetStaticShortcutsDisabled(t *testing.T, moduleDir string) {
 	})
 }
 
+// SetJSONReadingDisabled leaves JSON-syntax files unread for one module.
+// Its callers are sequential for the hook's complete lifetime.
+func SetJSONReadingDisabled(t *testing.T, moduleDir string) {
+	t.Helper()
+	disableJSONReading = func(settings Config) bool {
+		return settings.ModuleDir == moduleDir
+	}
+	t.Cleanup(func() {
+		disableJSONReading = func(Config) bool { return false }
+	})
+}
+
 // SetSuggestionDefectSeed makes suggestion generation emit one known defect
 // for one module. Its callers are sequential for the hook's complete lifetime.
 func SetSuggestionDefectSeed(t *testing.T, moduleDir string, defect suggest.Defect) {

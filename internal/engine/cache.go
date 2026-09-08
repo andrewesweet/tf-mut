@@ -172,7 +172,7 @@ func InputClosureDigest(
 	// `.tftest.hcl`, `.tf.json` or `.tftest.json` file added since. Membership
 	// has to be recomputed, not replayed.
 	live, err := discovery.DiscoverWith(configuration.ModuleDir, settings.TestDirectory,
-		discovery.Options{SkipJSON: settings.DisableJSONReading})
+		discovery.Options{SkipJSON: disableJSONReading(settings)})
 	if err != nil {
 		return "", err
 	}
