@@ -184,10 +184,6 @@ type Config struct {
 	// Resume reads answered TODOs from the edited non-executable artefact as
 	// well as from Answers, re-synthesises, verifies and promotes.
 	Resume bool
-	// SeedUntilDryRounds bounds the until-dry loop, so the `bounded` exit —
-	// the loop stopping because it ran out of rounds rather than because it
-	// went dry — can be staged. It is a seam control, not a command-line flag.
-	SeedUntilDryRounds int
 }
 
 // Operational failures. Every one of them aborts the run: none of them can be

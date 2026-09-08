@@ -60,6 +60,22 @@ func SetFinalPinDefectSeed(t *testing.T, moduleDir string) {
 	})
 }
 
+// SetUntilDryRounds bounds the until-dry loop for one module. Its callers are
+// sequential for the hook's complete lifetime.
+func SetUntilDryRounds(t *testing.T, moduleDir string, rounds int) {
+	t.Helper()
+	seedUntilDryRounds = func(settings Config) int {
+		if settings.ModuleDir != moduleDir {
+			return 0
+		}
+
+		return rounds
+	}
+	t.Cleanup(func() {
+		seedUntilDryRounds = func(Config) int { return 0 }
+	})
+}
+
 // SetInitialPinDefectSeed adds one knowingly false pin for one module. Its caller
 // is sequential for the hook's complete lifetime.
 func SetInitialPinDefectSeed(t *testing.T, moduleDir string) {
