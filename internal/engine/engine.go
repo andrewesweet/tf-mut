@@ -172,10 +172,6 @@ type Config struct {
 	// CharacteriseForce replaces target files, and only those the provenance
 	// registry marks generated-and-unmodified.
 	CharacteriseForce bool
-	// SeedMissingMock removes one planned provider-configuration mock from the
-	// staged suite, so the staged provider gate can be proven to refuse before
-	// execution. It is a seam control, not a command-line flag.
-	SeedMissingMock string
 	// Todos lists the open judgement points and runs no Terraform.
 	Todos bool
 	// Curate reports redundancy over an authoritative population.
@@ -188,31 +184,10 @@ type Config struct {
 	// Resume reads answered TODOs from the edited non-executable artefact as
 	// well as from Answers, re-synthesises, verifies and promotes.
 	Resume bool
-	// SeedSharedFileOrder stages every generated scenario into one file, in
-	// the named order (forward or reverse), so the scaffold-soundness gate can
-	// prove the pins are identical whatever the file order. It is a seam
-	// control, not a command-line flag.
-	SeedSharedFileOrder string
 	// SeedUntilDryRounds bounds the until-dry loop, so the `bounded` exit —
 	// the loop stopping because it ran out of rounds rather than because it
 	// went dry — can be staged. It is a seam control, not a command-line flag.
 	SeedUntilDryRounds int
-	// SeedFinalPinDefect adds a knowingly false pin to the set the loop ends
-	// with, so the verification that stands between the loop and the write can
-	// be proven load-bearing rather than assumed. It is a seam control, not a
-	// command-line flag.
-	SeedFinalPinDefect bool
-	// SeedInitialPinDefect does the same for the *first* verification, the one
-	// between the harvest and everything downstream of it. The two verifiers
-	// are separate code paths and only the later one had a seam, so deleting
-	// the earlier one left the suite green. It is a seam control, not a
-	// command-line flag.
-	SeedInitialPinDefect bool
-	// SeedNoEscalation suppresses the zero-output auto-escalation, so the other
-	// half of the contract — a rung that pinned nothing may never report
-	// complete — can be proven on its own. It is a seam control, not a
-	// command-line flag.
-	SeedNoEscalation bool
 }
 
 // Operational failures. Every one of them aborts the run: none of them can be

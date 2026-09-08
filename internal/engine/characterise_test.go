@@ -26,6 +26,7 @@ const (
 	untestedJSONVariableFixture = "untested-json-variable"
 	untestedForEachKeysFixture  = "untested-foreach-keys"
 	untestedBranchesFixture     = "untested-branches"
+	untestedPersistentFixture   = "untested-lifecycle-persistence"
 	untestedAliasFixture        = "untested-configuration-aliases"
 
 	// secondaryConfiguration is the alias the acceptance pair removes a mock
@@ -93,14 +94,15 @@ func TestAnUntestedAliasedProviderModuleCharacterisesWithNoOptIn(t *testing.T) {
 // staged provider gate is decided per provider *configuration*, so removing one
 // generated alias mock refuses, and refuses before Terraform evaluates
 // anything.
+//
+//nolint:paralleltest // owns package-global characterisation hook for its lifetime.
 func TestAMissingAliasMockRefusesBeforeExecution(t *testing.T) {
-	t.Parallel()
 	requireProviderMirror(t)
 
 	module := copyFixture(t, untestedAliasesFixture)
 
 	config := characteriseConfig(t, module)
-	config.SeedMissingMock = secondaryConfiguration
+	engine.SetMissingMockSeed(t, module, secondaryConfiguration)
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrRealInfrastructure) {
@@ -214,18 +216,18 @@ func statesOf(graded report.Report) map[report.State]int {
 // half of issue #74's acceptance pair: the verification between the harvest and
 // everything downstream of it.
 //
-// `SeedFinalPinDefect` proves the verifier after the until-dry loop. This one
+// The final-pin defect hook proves the verifier after the until-dry loop. This one
 // proves the verifier before it — a separate call, on a path a run without
 // `--until-dry` takes, and one that a deletion would have left every test green
 // over.
+//
+//nolint:paralleltest // owns package-global characterisation hook for its lifetime.
 func TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
-	config.SeedInitialPinDefect = true
+	engine.SetInitialPinDefectSeed(t, module)
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrScaffoldRed) {
@@ -393,14 +395,14 @@ func TestAZeroOutputModuleEscalatesAndSaysSo(t *testing.T) {
 // TestARungThatPinsNothingIsNeverComplete holds the other half of the same
 // contract: green with nothing pinned may not be reported as a finished
 // characterisation, whatever rung produced it.
+//
+//nolint:paralleltest // owns package-global characterisation hook for its lifetime.
 func TestARungThatPinsNothingIsNeverComplete(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, untestedZeroOutputFixture)
 
 	config := characteriseConfig(t, module)
 	config.PinRung = rungOutputs
-	config.SeedNoEscalation = true
+	engine.SetNoEscalationSeed(t, module)
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {
@@ -605,33 +607,23 @@ func TestBranchExpansionPinsBothSidesOfAConditional(t *testing.T) {
 // reorder fixture. Generated scenarios carry distinct state keys precisely so
 // that no scenario can observe another's state, and the observable consequence
 // is that the pins do not depend on the order the runs are declared in.
+//
+//nolint:paralleltest // owns package-global shared-file-order hook for its lifetime.
 func TestScenarioPinsAreInvariantUnderFileOrder(t *testing.T) {
-	t.Parallel()
-
 	pins := map[string][]string{}
 
 	for _, order := range []string{"", "forward", "reverse"} {
-		module := copyFixture(t, untestedBranchesFixture)
+		module := copyFixture(t, untestedPersistentFixture)
 
 		config := characteriseConfig(t, module)
-		config.SeedSharedFileOrder = order
+		engine.SetSharedFileOrderSeed(t, module, order)
 
 		result, err := engine.Run(t.Context(), config)
 		if err != nil {
 			t.Fatalf("characterise (order %q): %v", order, err)
 		}
 
-		expressions := []string{}
-
-		for _, pin := range result.Characterisation.Pins {
-			if pin.Status == report.Pinned {
-				expressions = append(expressions, pin.Address+" => "+pin.Expression)
-			}
-		}
-
-		slices.Sort(expressions)
-
-		pins[order] = expressions
+		pins[order] = scenarioPinTuples(t, order, result.Characterisation)
 	}
 
 	if !slices.Equal(pins[""], pins["forward"]) || !slices.Equal(pins["forward"], pins["reverse"]) {
@@ -642,6 +634,53 @@ func TestScenarioPinsAreInvariantUnderFileOrder(t *testing.T) {
 	if len(pins[""]) == 0 {
 		t.Fatal("the fixture pinned nothing, so the comparison proves nothing")
 	}
+
+	for _, order := range []string{"forward", "reverse"} {
+		if len(pins[order]) == 0 {
+			t.Fatalf("the fixture pinned nothing for order %q, so the comparison proves nothing", order)
+		}
+	}
+}
+
+func scenarioPinTuples(t *testing.T, order string, block *report.Characterisation) []string {
+	t.Helper()
+
+	scenarioNames := map[string]string{}
+	hasDefault := false
+	hasFlip := false
+
+	for _, scenario := range block.Scenarios {
+		scenarioNames[scenario.ID] = scenario.Name
+		hasDefault = hasDefault || scenario.Name == "defaults"
+		hasFlip = hasFlip || strings.HasPrefix(scenario.Name, "flip_")
+	}
+
+	if !hasDefault {
+		t.Fatalf("characterise (order %q) has no default scenario: %v", order, scenarioNames)
+	}
+
+	if !hasFlip {
+		t.Fatalf("characterise (order %q) has no flipped scenario: %v", order, scenarioNames)
+	}
+
+	tuples := []string{}
+
+	for _, pin := range block.Pins {
+		if pin.Status != report.Pinned {
+			continue
+		}
+
+		scenario, found := scenarioNames[pin.Scenario]
+		if !found {
+			t.Fatalf("pin %s has unknown scenario %q", pin.ID, pin.Scenario)
+		}
+
+		tuples = append(tuples, scenario+" => "+pin.Address+" => "+pin.Expression)
+	}
+
+	slices.Sort(tuples)
+
+	return tuples
 }
 
 // TestAClosureChangeAtTheProbeYieldsZeroWrites is the M1 disposition's race
@@ -682,13 +721,13 @@ func TestAClosureChangeAtTheProbeYieldsZeroWrites(t *testing.T) {
 // TestNoTerraformRunPrecedesAStagedGateRefusal holds the pre-execution
 // guarantee for the new command: the gates are decided from discovery alone,
 // so a refusal costs no init, no provider download and no schema read.
+//
+//nolint:paralleltest // owns package-global characterisation hook for its lifetime.
 func TestNoTerraformRunPrecedesAStagedGateRefusal(t *testing.T) {
-	t.Parallel()
-
 	log := filepath.Join(t.TempDir(), "terraform-calls")
 
 	config := characteriseConfig(t, copyFixture(t, untestedAliasesFixture))
-	config.SeedMissingMock = secondaryConfiguration
+	engine.SetMissingMockSeed(t, config.ModuleDir, secondaryConfiguration)
 	config.TerraformBinary = recordingTerraform(t, log)
 
 	if _, err := engine.Run(t.Context(), config); !errors.Is(err, engine.ErrRealInfrastructure) {
@@ -781,8 +820,9 @@ func TestAPartialCommitReportsWhatItWrote(t *testing.T) {
 // mocks none of them and — the part that matters — the gate that requires a
 // mock per provider configuration never learns the configuration is there. An
 // aliased resource then escapes mock coverage entirely.
+//
+//nolint:paralleltest // owns package-global characterisation hook for its lifetime.
 func TestConfigurationAliasesAreMockedAndGated(t *testing.T) {
-	t.Parallel()
 	requireProviderMirror(t)
 
 	module := copyFixture(t, untestedAliasFixture)
@@ -802,7 +842,7 @@ func TestConfigurationAliasesAreMockedAndGated(t *testing.T) {
 	// The gate has to see them too: a configuration nothing mocks must refuse
 	// before execution, exactly as a `provider`-block alias does.
 	seeded := characteriseConfig(t, module)
-	seeded.SeedMissingMock = secondaryConfiguration
+	engine.SetMissingMockSeed(t, module, secondaryConfiguration)
 
 	if _, err := engine.Run(t.Context(), seeded); !errors.Is(err, engine.ErrRealInfrastructure) {
 		t.Fatalf("error = %v, want a refusal for the unmocked configuration alias", err)

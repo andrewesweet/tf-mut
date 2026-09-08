@@ -46,6 +46,17 @@ var ErrScaffoldRed = errors.New("the generated suite is not green")
 // ErrWriteRefused reports a write the protocol would not perform.
 var ErrWriteRefused = errors.New("refusing to write the generated suite")
 
+// seedMissingMock is an inert test hook beside the staged provider gate it
+// drives. Tests replace it with the rendered-mock removal needed to prove the
+// gate refuses before execution.
+//
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedMissingMock = func(_ discovery.Configuration,
+	staged characterise.Scaffold,
+) characterise.Scaffold {
+	return staged
+}
+
 // characterise scaffolds, harvests, pins and verifies a suite for a module.
 //
 // The order is the contract. The safety gates are evaluated against the
@@ -81,7 +92,7 @@ func characteriseModule(
 		characterise.Configurations(configuration))
 
 	warnings, err := checkStagedSafety(configuration,
-		seedMissingMock(gated, settings), settings)
+		seedMissingMock(configuration, gated), settings)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -98,14 +109,14 @@ func characteriseModule(
 		return report.Report{}, err
 	}
 
-	scaffold := seedNoEscalation(characterise.Plan(configuration, prepared.schemas,
+	scaffold := seedNoEscalation(configuration, characterise.Plan(configuration, prepared.schemas,
 		characterise.Options{
 			Rung:       rung,
 			TestDirRel: configuration.TestDirRelative(),
 			Version:    settings.toolVersion(),
 			Sources:    prepared.sources,
 			Answers:    answers,
-		}, characterise.Configurations(configuration)), settings)
+		}, characterise.Configurations(configuration)))
 
 	warnings = append(warnings, prepared.warnings...)
 
@@ -169,6 +180,16 @@ func characteriseModule(
 	return result, nil
 }
 
+// seedNoEscalation is an inert test hook beside the escalation it suppresses.
+// Tests replace it to prove that a rung which pins nothing is never complete.
+//
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedNoEscalation = func(_ discovery.Configuration,
+	scaffold characterise.Scaffold,
+) characterise.Scaffold {
+	return scaffold
+}
+
 // commit performs the write, where one was asked for, and keeps the report
 // when the write left a partial state behind.
 //
@@ -218,6 +239,14 @@ func characteriseInputs(
 	return rung, answers, nil
 }
 
+// seedFinalPinDefect is an inert test hook beside the final verifier it drives.
+// Tests replace it with the false pin needed to prove the verifier is load-bearing.
+//
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedFinalPinDefect = func(_ discovery.Configuration, pins []report.Pin) []report.Pin {
+	return pins
+}
+
 // closeTheGap runs the until-dry loop, promotes what the answers earned, and
 // proves the pin set the loop ended with before any of it can be written.
 //
@@ -257,7 +286,7 @@ func closeTheGap(
 
 	promoted, refusals := promoteScaffolds(ctx, runner, stage, block, scaffold, answers)
 
-	block.Pins = seedFinalPinDefect(block.Pins, stage.settings)
+	block.Pins = seedFinalPinDefect(stage.configuration, block.Pins)
 
 	if err := verifyScaffold(ctx, runner, stage, scaffold, block.Pins, "verify-final"); err != nil {
 		return nil, nil, err
@@ -265,6 +294,14 @@ func closeTheGap(
 
 	return append(append(pinnedFiles(scaffold, block.Pins), promoted...),
 		scaffoldArtefact(scaffold, block)...), refusals, nil
+}
+
+// seedInitialPinDefect is an inert test hook beside the initial verifier it drives.
+// Tests replace it with the false pin needed to prove the verifier is load-bearing.
+//
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedInitialPinDefect = func(_ discovery.Configuration, pins []report.Pin) []report.Pin {
+	return pins
 }
 
 // scaffoldSuite harvests, pins and verifies the planned scaffold.
@@ -302,8 +339,8 @@ func scaffoldSuite(
 	}
 
 	block.Pins = seedInitialPinDefect(
+		stage.configuration,
 		characterise.Pin(scaffold, stage.configuration, stage.prepared.schemas, harvest),
-		stage.settings,
 	)
 
 	files := pinnedFiles(scaffold, block.Pins)
@@ -545,7 +582,7 @@ func harvestScaffold(
 	stage staging,
 	scaffold characterise.Scaffold,
 ) (characterise.Harvest, error) {
-	staged := stagedScaffold(stage.configuration, scaffold, nil, stage.settings)
+	staged := stagedScaffold(stage.configuration, scaffold, nil)
 
 	first, err := stagedRun(ctx, runner, stage, staged, "harvest-1")
 	if err != nil {
@@ -576,6 +613,11 @@ func harvestScaffold(
 	}, nil
 }
 
+// seedSharedFileOrder exposes shared-file staging only to test order invariance.
+//
+//nolint:gochecknoglobals // inert test hook; external tests own it sequentially.
+var seedSharedFileOrder = func(discovery.Configuration) string { return "" }
+
 // stagedScaffold renders the overlay the sandbox materialises.
 //
 // One file per scenario is the naming contract. The shared-file orders are the
@@ -587,11 +629,11 @@ func stagedScaffold(
 	configuration discovery.Configuration,
 	scaffold characterise.Scaffold,
 	pins []report.Pin,
-	settings Config,
 ) map[string][]byte {
 	staged := map[string][]byte{}
+	sharedFileOrder := seedSharedFileOrder(configuration)
 
-	if settings.SeedSharedFileOrder == "" {
+	if sharedFileOrder == "" {
 		for _, scenario := range scaffold.Scenarios {
 			staged[stagedPath(configuration, scenario.File)] = characterise.Render(
 				scaffold, []report.Scenario{scenario}, pins, characterise.Executable,
@@ -602,7 +644,7 @@ func stagedScaffold(
 	}
 
 	ordered := slices.Clone(scaffold.Scenarios)
-	if settings.SeedSharedFileOrder == "reverse" {
+	if sharedFileOrder == "reverse" {
 		slices.Reverse(ordered)
 	}
 
@@ -622,7 +664,7 @@ func verifyScaffold(
 	pins []report.Pin,
 	name string,
 ) error {
-	staged := stagedScaffold(stage.configuration, scaffold, pins, stage.settings)
+	staged := stagedScaffold(stage.configuration, scaffold, pins)
 
 	result, err := stagedRun(ctx, runner, stage, staged, name)
 	if err != nil {
@@ -818,78 +860,4 @@ func providersOf(configurations []string) []string {
 	}
 
 	return providers
-}
-
-// seedFinalPinDefect adds a pin nothing could have harvested, so the
-// verification between the loop and the write can be shown to be load-bearing.
-// It is a seam control and not a command-line flag.
-func seedFinalPinDefect(pins []report.Pin, settings Config) []report.Pin {
-	if !settings.SeedFinalPinDefect || len(pins) == 0 {
-		return pins
-	}
-
-	defect := pins[0]
-	defect.ID = characterise.PinID(defect.Scenario, defect.Address, "seeded")
-	defect.Expression = defect.Address + ` == "tf-mut-seeded-final-pin-defect"`
-
-	return append(slices.Clone(pins), defect)
-}
-
-// seedInitialPinDefect adds a pin nothing could have harvested to the harvested
-// set, so the verification between the harvest and everything downstream of it
-// can be shown to be load-bearing. It is a seam control and not a command-line
-// flag.
-func seedInitialPinDefect(pins []report.Pin, settings Config) []report.Pin {
-	if !settings.SeedInitialPinDefect || len(pins) == 0 {
-		return pins
-	}
-
-	defect := pins[0]
-	defect.ID = characterise.PinID(defect.Scenario, defect.Address, "seeded-initial")
-	defect.Expression = defect.Address + ` == "tf-mut-seeded-initial-pin-defect"`
-
-	return append(slices.Clone(pins), defect)
-}
-
-// seedNoEscalation puts the ladder back where the caller asked for it, so the
-// zero-output contract's second half can be proven on its own. It is a seam
-// control and not a command-line flag.
-func seedNoEscalation(scaffold characterise.Scaffold, settings Config) characterise.Scaffold {
-	if !settings.SeedNoEscalation {
-		return scaffold
-	}
-
-	scaffold.Rung = scaffold.Requested
-	scaffold.Escalated = false
-	scaffold.EscalationReason = ""
-
-	return scaffold
-}
-
-// seedMissingMock removes one mock from the scaffold the gate reads, so the
-// staged provider gate can be proven to refuse before execution.
-//
-// It removes the *rendered* mock rather than the planned configuration,
-// because the rendered mocks are what the gate parses: a seed that changed
-// only the plan would seed the side of the comparison the gate no longer
-// looks at. It is a seam control and not a command-line flag.
-func seedMissingMock(staged characterise.Scaffold, settings Config) characterise.Scaffold {
-	if settings.SeedMissingMock == "" {
-		return staged
-	}
-
-	kept := make([]characterise.Mock, 0, len(staged.Mocks))
-
-	for _, mock := range staged.Mocks {
-		if configurationName(discovery.ProviderAlias{Name: mock.Name, Alias: mock.Alias}) ==
-			settings.SeedMissingMock {
-			continue
-		}
-
-		kept = append(kept, mock)
-	}
-
-	staged.Mocks = kept
-
-	return staged
 }
