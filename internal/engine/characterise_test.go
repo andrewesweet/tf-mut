@@ -26,6 +26,7 @@ const (
 	untestedJSONVariableFixture = "untested-json-variable"
 	untestedForEachKeysFixture  = "untested-foreach-keys"
 	untestedBranchesFixture     = "untested-branches"
+	untestedPersistentFixture   = "untested-lifecycle-persistence"
 	untestedAliasFixture        = "untested-configuration-aliases"
 
 	// secondaryConfiguration is the alias the acceptance pair removes a mock
@@ -612,7 +613,7 @@ func TestScenarioPinsAreInvariantUnderFileOrder(t *testing.T) {
 	pins := map[string][]string{}
 
 	for _, order := range []string{"", "forward", "reverse"} {
-		module := copyFixture(t, untestedBranchesFixture)
+		module := copyFixture(t, untestedPersistentFixture)
 
 		config := characteriseConfig(t, module)
 		engine.SetSharedFileOrderSeed(t, module, order)
@@ -622,17 +623,7 @@ func TestScenarioPinsAreInvariantUnderFileOrder(t *testing.T) {
 			t.Fatalf("characterise (order %q): %v", order, err)
 		}
 
-		expressions := []string{}
-
-		for _, pin := range result.Characterisation.Pins {
-			if pin.Status == report.Pinned {
-				expressions = append(expressions, pin.Address+" => "+pin.Expression)
-			}
-		}
-
-		slices.Sort(expressions)
-
-		pins[order] = expressions
+		pins[order] = scenarioPinTuples(t, order, result.Characterisation)
 	}
 
 	if !slices.Equal(pins[""], pins["forward"]) || !slices.Equal(pins["forward"], pins["reverse"]) {
@@ -643,6 +634,53 @@ func TestScenarioPinsAreInvariantUnderFileOrder(t *testing.T) {
 	if len(pins[""]) == 0 {
 		t.Fatal("the fixture pinned nothing, so the comparison proves nothing")
 	}
+
+	for _, order := range []string{"forward", "reverse"} {
+		if len(pins[order]) == 0 {
+			t.Fatalf("the fixture pinned nothing for order %q, so the comparison proves nothing", order)
+		}
+	}
+}
+
+func scenarioPinTuples(t *testing.T, order string, block *report.Characterisation) []string {
+	t.Helper()
+
+	scenarioNames := map[string]string{}
+	hasDefault := false
+	hasFlip := false
+
+	for _, scenario := range block.Scenarios {
+		scenarioNames[scenario.ID] = scenario.Name
+		hasDefault = hasDefault || scenario.Name == "defaults"
+		hasFlip = hasFlip || strings.HasPrefix(scenario.Name, "flip_")
+	}
+
+	if !hasDefault {
+		t.Fatalf("characterise (order %q) has no default scenario: %v", order, scenarioNames)
+	}
+
+	if !hasFlip {
+		t.Fatalf("characterise (order %q) has no flipped scenario: %v", order, scenarioNames)
+	}
+
+	tuples := []string{}
+
+	for _, pin := range block.Pins {
+		if pin.Status != report.Pinned {
+			continue
+		}
+
+		scenario, found := scenarioNames[pin.Scenario]
+		if !found {
+			t.Fatalf("pin %s has unknown scenario %q", pin.ID, pin.Scenario)
+		}
+
+		tuples = append(tuples, scenario+" => "+pin.Address+" => "+pin.Expression)
+	}
+
+	slices.Sort(tuples)
+
+	return tuples
 }
 
 // TestAClosureChangeAtTheProbeYieldsZeroWrites is the M1 disposition's race
