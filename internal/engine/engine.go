@@ -193,11 +193,6 @@ type Config struct {
 	// the loop stopping because it ran out of rounds rather than because it
 	// went dry — can be staged. It is a seam control, not a command-line flag.
 	SeedUntilDryRounds int
-	// SeedNoEscalation suppresses the zero-output auto-escalation, so the other
-	// half of the contract — a rung that pinned nothing may never report
-	// complete — can be proven on its own. It is a seam control, not a
-	// command-line flag.
-	SeedNoEscalation bool
 }
 
 // Operational failures. Every one of them aborts the run: none of them can be

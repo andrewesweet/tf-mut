@@ -98,14 +98,14 @@ func characteriseModule(
 		return report.Report{}, err
 	}
 
-	scaffold := seedNoEscalation(characterise.Plan(configuration, prepared.schemas,
+	scaffold := seedNoEscalation(configuration, characterise.Plan(configuration, prepared.schemas,
 		characterise.Options{
 			Rung:       rung,
 			TestDirRel: configuration.TestDirRelative(),
 			Version:    settings.toolVersion(),
 			Sources:    prepared.sources,
 			Answers:    answers,
-		}, characterise.Configurations(configuration)), settings)
+		}, characterise.Configurations(configuration)))
 
 	warnings = append(warnings, prepared.warnings...)
 
@@ -836,18 +836,13 @@ var seedInitialPinDefect = func(_ discovery.Configuration, pins []report.Pin) []
 	return pins
 }
 
-// seedNoEscalation puts the ladder back where the caller asked for it, so the
-// zero-output contract's second half can be proven on its own. It is a seam
-// control and not a command-line flag.
-func seedNoEscalation(scaffold characterise.Scaffold, settings Config) characterise.Scaffold {
-	if !settings.SeedNoEscalation {
-		return scaffold
-	}
-
-	scaffold.Rung = scaffold.Requested
-	scaffold.Escalated = false
-	scaffold.EscalationReason = ""
-
+// seedNoEscalation is an inert test hook beside the escalation it suppresses.
+// Tests replace it to prove that a rung which pins nothing is never complete.
+//
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedNoEscalation = func(_ discovery.Configuration,
+	scaffold characterise.Scaffold,
+) characterise.Scaffold {
 	return scaffold
 }
 

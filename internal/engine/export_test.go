@@ -82,6 +82,32 @@ func SetInitialPinDefectSeed(t *testing.T, moduleDir string) {
 	})
 }
 
+// SetNoEscalationSeed suppresses escalation for one module. Its caller is
+// sequential for the hook's complete lifetime.
+func SetNoEscalationSeed(t *testing.T, moduleDir string) {
+	t.Helper()
+	seedNoEscalation = func(configuration discovery.Configuration,
+		scaffold characterise.Scaffold,
+	) characterise.Scaffold {
+		if configuration.ModuleDir != moduleDir {
+			return scaffold
+		}
+
+		scaffold.Rung = scaffold.Requested
+		scaffold.Escalated = false
+		scaffold.EscalationReason = ""
+
+		return scaffold
+	}
+	t.Cleanup(func() {
+		seedNoEscalation = func(_ discovery.Configuration,
+			scaffold characterise.Scaffold,
+		) characterise.Scaffold {
+			return scaffold
+		}
+	})
+}
+
 // SetCharacteriseWriteSeeds exposes only the five characterisation-write
 // controls to the external test package. Its callers are deliberately
 // sequential: the hooks are package globals, so their complete lifetime must

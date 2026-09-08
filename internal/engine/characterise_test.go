@@ -394,14 +394,14 @@ func TestAZeroOutputModuleEscalatesAndSaysSo(t *testing.T) {
 // TestARungThatPinsNothingIsNeverComplete holds the other half of the same
 // contract: green with nothing pinned may not be reported as a finished
 // characterisation, whatever rung produced it.
+//
+//nolint:paralleltest // owns package-global characterisation hook for its lifetime.
 func TestARungThatPinsNothingIsNeverComplete(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, untestedZeroOutputFixture)
 
 	config := characteriseConfig(t, module)
 	config.PinRung = rungOutputs
-	config.SeedNoEscalation = true
+	engine.SetNoEscalationSeed(t, module)
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {
