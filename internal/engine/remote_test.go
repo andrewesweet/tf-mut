@@ -75,7 +75,8 @@ output "name" {
 
 	git(t, origin, "init", "--quiet")
 	git(t, origin, "add", ".")
-	git(t, origin, "-c", "user.email=tests@example.invalid", "-c", "user.name=tf-mut tests",
+	git(t, origin, "-c", "maintenance.auto=false",
+		"-c", "user.email=tests@example.invalid", "-c", "user.name=tf-mut tests",
 		"commit", "--quiet", "-m", "child module")
 
 	return origin
