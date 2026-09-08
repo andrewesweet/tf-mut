@@ -70,6 +70,63 @@ func baseConfig(t *testing.T, moduleDir string) engine.Config {
 	}
 }
 
+func runRequest(t *testing.T, moduleDir string) engine.RunRequest {
+	t.Helper()
+
+	return engine.RunRequest{Common: commonRequest(t, moduleDir)}
+}
+
+func previewRequest(t *testing.T, moduleDir string) engine.PreviewRequest {
+	t.Helper()
+
+	return engine.PreviewRequest{Common: commonRequest(t, moduleDir)}
+}
+
+func suggestRequest(t *testing.T, moduleDir string) engine.SuggestRequest {
+	t.Helper()
+
+	return engine.SuggestRequest{Common: commonRequest(t, moduleDir)}
+}
+
+func characteriseRequest(t *testing.T, moduleDir string) engine.CharacteriseRequest {
+	t.Helper()
+
+	return engine.CharacteriseRequest{Common: commonRequest(t, moduleDir)}
+}
+
+func todosRequest(t *testing.T, moduleDir string) engine.TodosRequest {
+	t.Helper()
+
+	return engine.TodosRequest{Common: commonRequest(t, moduleDir)}
+}
+
+func curateRequest(t *testing.T, moduleDir string) engine.CurateRequest {
+	t.Helper()
+
+	return engine.CurateRequest{Common: commonRequest(t, moduleDir)}
+}
+
+func commonRequest(t *testing.T, moduleDir string) engine.Common {
+	t.Helper()
+
+	settings := baseConfig(t, moduleDir)
+
+	return engine.Common{
+		ModuleDir:               settings.ModuleDir,
+		TestDirectory:           settings.TestDirectory,
+		Jobs:                    settings.Jobs,
+		TimeoutFactor:           settings.TimeoutFactor,
+		TimeoutFloor:            settings.TimeoutFloor,
+		AllowRealInfrastructure: settings.AllowRealInfrastructure,
+		AllowUnsandboxedEffects: settings.AllowUnsandboxedEffects,
+		TerraformBinary:         settings.TerraformBinary,
+		Env:                     settings.Env,
+		WorkDir:                 settings.WorkDir,
+		ToolVersion:             settings.ToolVersion,
+		SetFlags:                settings.SetFlags,
+	}
+}
+
 // terraformEnv points Terraform at the repository's offline provider mirror
 // when one has been installed, and keeps it from phoning home.
 func terraformEnv(t *testing.T) []string {

@@ -17,7 +17,8 @@ func TestRunReportsKilledAndSurvivedOutputs(t *testing.T) {
 	module := copyFixture(t, "skeleton")
 	before := treeDigest(t, module)
 
-	result, err := engine.Run(t.Context(), baseConfig(t, module))
+	request := runRequest(t, module)
+	result, err := engine.Run(t.Context(), &request)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -37,12 +38,34 @@ func TestRunReportsKilledAndSurvivedOutputs(t *testing.T) {
 	assertTreeUnchanged(t, module, before)
 }
 
+func TestRunRefusesNilRequests(t *testing.T) {
+	t.Parallel()
+
+	assertRefused := func(name string, request engine.Request) {
+		t.Helper()
+
+		if _, err := engine.Run(t.Context(), request); err == nil {
+			t.Fatalf("%s request returned no error", name)
+		}
+	}
+
+	assertRefused("nil interface", nil)
+	assertRefused("Config pointer", (*engine.Config)(nil))
+	assertRefused("RunRequest pointer", (*engine.RunRequest)(nil))
+	assertRefused("PreviewRequest pointer", (*engine.PreviewRequest)(nil))
+	assertRefused("SuggestRequest pointer", (*engine.SuggestRequest)(nil))
+	assertRefused("CharacteriseRequest pointer", (*engine.CharacteriseRequest)(nil))
+	assertRefused("TodosRequest pointer", (*engine.TodosRequest)(nil))
+	assertRefused("CurateRequest pointer", (*engine.CurateRequest)(nil))
+}
+
 func TestSurvivorsExitNonZeroAndCleanRunsExitZero(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, "skeleton")
 
-	result, err := engine.Run(t.Context(), baseConfig(t, module))
+	config := baseConfig(t, module)
+	result, err := engine.Run(t.Context(), &config)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}

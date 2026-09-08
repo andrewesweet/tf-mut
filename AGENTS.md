@@ -149,7 +149,7 @@ this repository contract.
 
 | Package | Responsibility |
 | --- | --- |
-| `internal/engine` | The seam. `Run(ctx, Config) (Report, error)` — version gate, safety gates, baseline, generation, execution, classification, findings |
+| `internal/engine` | The seam. `Run(ctx, Request) (Report, error)` — legacy `Config` remains compatible during this expansion; version gate, safety gates, baseline, generation, execution, classification, findings |
 | `internal/discovery` | `hclsyntax` parsing of modules and `.tftest.hcl` files; the `..`-closure; provider and effect inventories; reference forms |
 | `internal/mutation` | The operator catalogue and its applicability matrix. Tier 0 is applied through `hclwrite`; Tiers 1–3 rewrite byte ranges, so a mutant differs from the original only in the tokens its operator owns. Content-derived identifiers; deduplication; diffs |
 | `internal/fingerprint` | The oracle's arithmetic: canonical payload projection, the volatile mask, the masked delta. Decides what two runs can honestly be said to have in common, and never a verdict |

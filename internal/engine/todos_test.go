@@ -161,11 +161,8 @@ func TestTodosListsTheOpenJudgementPointsWithTheirEvidence(t *testing.T) {
 
 	module := copyFixture(t, untestedTodoFixture)
 
-	config := characteriseConfig(t, module)
-	config.Characterise = false
-	config.Todos = true
-
-	result, err := engine.Run(t.Context(), config)
+	request := todosRequest(t, module)
+	result, err := engine.Run(t.Context(), &request)
 	if err != nil {
 		t.Fatalf("todos: %v", err)
 	}
