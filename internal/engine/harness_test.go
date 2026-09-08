@@ -122,6 +122,8 @@ func commonRequest(t *testing.T, moduleDir string) engine.Common {
 		TerraformBinary:         settings.TerraformBinary,
 		Env:                     settings.Env,
 		WorkDir:                 settings.WorkDir,
+		ToolVersion:             settings.ToolVersion,
+		SetFlags:                settings.SetFlags,
 	}
 }
 
