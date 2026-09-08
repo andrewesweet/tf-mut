@@ -1,6 +1,9 @@
 package engine_test
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -48,6 +51,102 @@ func TestTheHonestyGateNamesOnlyTestsThatExist(t *testing.T) {
 		if !declared[name] {
 			t.Fatalf("the gate names %s, which no test declares", name)
 		}
+	}
+}
+
+func TestExportedEngineTypesDeclareNoSeamControls(t *testing.T) {
+	t.Parallel()
+
+	root, found := repositoryRoot(t)
+	if !found {
+		t.Fatal("repository root not found")
+	}
+
+	engineDir := filepath.Join(root, internalTree, "engine")
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir(engineDir)
+	if err != nil {
+		t.Fatalf("reading exported engine sources in %s: %v", engineDir, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+
+		path := filepath.Join(engineDir, entry.Name())
+		file, parseErr := parser.ParseFile(fset, path, nil, 0)
+		if parseErr != nil {
+			t.Fatalf("parsing %s: %v", path, parseErr)
+		}
+		if file.Name.Name != "engine" {
+			continue
+		}
+		auditExportedEngineTypes(t, fset, file)
+	}
+}
+
+func auditExportedEngineTypes(t *testing.T, fset *token.FileSet, file *ast.File) {
+	t.Helper()
+
+	for _, declaration := range file.Decls {
+		general, ok := declaration.(*ast.GenDecl)
+		if !ok || general.Tok != token.TYPE {
+			continue
+		}
+		for _, specification := range general.Specs {
+			typeSpec, ok := specification.(*ast.TypeSpec)
+			if ok {
+				auditExportedEngineType(t, fset, typeSpec)
+			}
+		}
+	}
+}
+
+func auditExportedEngineType(t *testing.T, fset *token.FileSet, typeSpec *ast.TypeSpec) {
+	t.Helper()
+
+	if !ast.IsExported(typeSpec.Name.Name) {
+		return
+	}
+	structure, ok := typeSpec.Type.(*ast.StructType)
+	if !ok {
+		return
+	}
+	for _, field := range structure.Fields.List {
+		names := field.Names
+		if len(names) == 0 {
+			if name := embeddedFieldName(field.Type); name != "" {
+				names = []*ast.Ident{{Name: name, NamePos: field.Type.Pos()}}
+			}
+		}
+		for _, name := range names {
+			if isSeamControl(name.Name) {
+				position := fset.Position(field.Pos())
+				t.Errorf("exported engine type %s declares seam field %s at %s:%d",
+					typeSpec.Name.Name, name.Name, position.Filename, position.Line)
+			}
+		}
+	}
+}
+
+func isSeamControl(name string) bool {
+	return strings.HasPrefix(name, "Seed") || strings.HasPrefix(name, "Disable")
+}
+
+func embeddedFieldName(expression ast.Expr) string {
+	switch expression := expression.(type) {
+	case *ast.Ident:
+		return expression.Name
+	case *ast.StarExpr:
+		return embeddedFieldName(expression.X)
+	case *ast.SelectorExpr:
+		return expression.Sel.Name
+	case *ast.IndexExpr:
+		return embeddedFieldName(expression.X)
+	case *ast.IndexListExpr:
+		return embeddedFieldName(expression.X)
+	default:
+		return ""
 	}
 }
 
