@@ -74,7 +74,8 @@ affordance below degrades to a human running the same commands.
 
 ### 2.1 Machine-readable everything
 
-- Every command takes `--format json` with a **versioned schema** (`"schema_version"` in every
+- The six report-producing commands — `run`, `preview`, `suggest`, `characterise`, `todos`, and
+  `curate` — take `--reporter json` with a **versioned schema** (`"schema_version"` in every
   document). Exit codes are stable and documented.
 - Every entity has a **stable, content-derived ID**: mutants (`mut-<hash>`), TODOs
   (`todo-<hash>`), assertions (`asrt-<hash>`), run blocks. IDs survive re-runs and unrelated
@@ -99,7 +100,7 @@ run "characterise_defaults" {
 }
 ```
 
-`tf-mut todos --format json` lists every open TODO with its full evidence bundle: the
+`tf-mut todos --reporter json` lists every open TODO with its full evidence bundle: the
 constraint expression verbatim, its source range, the diagnostic from the last attempt, the
 values already tried, and — where mining partially succeeded — the candidates considered. The
 agent's move is ordinary file editing: replace the placeholder, re-run
