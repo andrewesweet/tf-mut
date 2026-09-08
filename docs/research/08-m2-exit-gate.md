@@ -141,6 +141,10 @@ with no test here is a gap; the two rows that have one are named in *What is not
 
 ### Survivor diagnoses
 
+> Historical M2 vocabulary: `mock-masked` was withdrawn in M3. See [issue #50](https://github.com/andrewesweet/tf-mut/issues/50)
+> and [`docs/research/09-m3-real-provider-gate.md`](09-m3-real-provider-gate.md); the table below
+> is preserved as an M2 exit-gate record, not a current prescription.
+
 | Diagnosis | Proven by |
 | --- | --- |
 | `indeterminate-unknown-values` | `TestUnknownRefinementSurvivesRatherThanBeingExcluded` |

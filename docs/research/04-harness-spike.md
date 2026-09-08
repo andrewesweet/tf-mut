@@ -144,6 +144,11 @@ attribute whose value differs between two identical runs is volatile by definiti
 masked out of every subsequent fingerprint. No knowledge of provider schemas or mock internals
 is required.
 
+> **Historical harness conclusion, withdrawn in M3:** the paragraph below is retained as
+> evidence, not current guidance. Its `MockMasked` diagnosis was refuted by
+> [issue #50](https://github.com/andrewesweet/tf-mut/issues/50); see the measured
+> [prove-or-withdraw result](09-m3-real-provider-gate.md#debt-one-mock-masked-withdrawn).
+
 The same volatile-attribute set is independently useful: it is exactly the set of attributes
 the mock generated rather than the configuration determined. A mutant whose only plan
 difference falls inside that set cannot be asserted on, which is precisely the `MockMasked`

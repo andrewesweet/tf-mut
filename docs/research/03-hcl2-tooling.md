@@ -117,6 +117,11 @@ covered by tests. Removing an `optional()` default is a cheap, high-yield mutati
 
 ## 4. Interaction with mocked providers
 
+> Historical M2 prescription, withdrawn in M3: this section's `mock-masked` diagnosis is
+> retained as evidence, not current guidance. See [issue #50](https://github.com/andrewesweet/tf-mut/issues/50)
+> and [`docs/research/09-m3-real-provider-gate.md`](09-m3-real-provider-gate.md) for the
+> prove-or-withdraw result.
+
 Because the brief targets fully-mocked unit tests, one property of mocking shapes operator
 selection heavily.
 

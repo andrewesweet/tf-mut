@@ -4,9 +4,11 @@ Mutation testing for `terraform test`, designed for fully-mocked unit tests.
 
 > **Status: M4.5 complete — the MVP scope.** `tf-mut run` and `tf-mut preview` drive Tiers 0–3
 > against real Terraform, and every surviving mutant carries exactly one diagnosis: whether the
-> fix is an assertion, a mock default, a different input, or acceptance. The fingerprint oracle
-> behind that answer refuses the comfortable one — an unknown value anywhere in the payload, or
-> volatility it could not decompose, makes the comparison indeterminate rather than identical.
+> fix is an assertion, a mock default, a different input, or acceptance. The oracle never claims
+> an equality it cannot prove: an unknown value in the mutation's forward cone — judged under the
+> fail-closed address adapters, with the M2 whole-payload rule as the floor wherever a mapping
+> fails — or volatility it could not decompose, makes the comparison indeterminate rather than
+> identical.
 > `tf-mut suggest` generates and *verifies* the assertions that kill the survivors, and
 > `tf-mut characterise` points the same machinery the other way: it scaffolds, harvests, pins
 > and verifies a first suite for a module that has none, deterministically and with no language
@@ -38,6 +40,12 @@ every language it supports here (Go and GitHub Actions) in GitHub's code-scannin
 ```bash
 tf-mut run     [flags] [PATH]   # mutate the module and report pseudo-tested resources
 tf-mut preview [flags] [PATH]   # list the mutants as diffs, executing nothing
+tf-mut suggest [flags] [PATH]   # generate and verify assertions for survivors
+tf-mut characterise [flags] [PATH] # scaffold and verify a first suite
+tf-mut todos   [flags] [PATH]   # list open characterisation judgement points
+tf-mut curate  [flags] [PATH]   # report redundant assertions
+tf-mut skill install [flags]     # install the shipped agent skills
+tf-mut version                   # print the build version
 ```
 
 | Flag | Purpose |
@@ -49,10 +57,11 @@ tf-mut preview [flags] [PATH]   # list the mutants as diffs, executing nothing
 | `--allow-incomplete-score` | Let a timeout-affected score satisfy `--min-score` |
 | `--allow-real-infrastructure` | Required when any provider is unmocked |
 | `--allow-unsandboxed-effects` | Required for apply-mode provisioners and unsevered data sources |
-| `--reporter terminal\|json` | Output format |
+| `--reporter terminal\|json\|sarif\|mte\|html\|junit\|markdown` | Output format (`mte` is Mutation Testing Elements) |
 
 Exit codes: `0` ran clean, `1` findings (survivors, or a score below `--min-score`), `2`
-operational failure. The source tree of the module under test is never written to.
+operational failure. The source tree of the module under test is never written to, except for
+the five recorded tool-owned write exceptions listed in the [AGENTS.md conventions](AGENTS.md#conventions).
 
 ## The problem
 
@@ -103,7 +112,8 @@ work. An independent adversarial review drove these corrections — see
 | [`docs/research/07-m2-cost-model.md`](docs/research/07-m2-cost-model.md) | What M2's planned speed levers actually buy, measured — and why run-block splitting was dropped |
 | [`docs/research/08-m2-exit-gate.md`](docs/research/08-m2-exit-gate.md) | The honesty gate, the contract sweep from every normative behaviour to its test, and M2's measurements |
 | [`docs/schema/report-1.0.0.json`](docs/schema/report-1.0.0.json) | The M1 JSON report schema, still published for consumers that read it |
-| [`docs/schema/report-2.1.0.json`](docs/schema/report-2.1.0.json) | The versioned JSON report schema the `json` reporter emits |
+| [`docs/schema/report-2.1.0.json`](docs/schema/report-2.1.0.json) | The M3 JSON report schema, still published for earlier consumers |
+| [`docs/schema/report-2.3.0.json`](docs/schema/report-2.3.0.json) | The versioned JSON report schema the `json` reporter emits, including characterisation |
 | [`docs/research/09-m3-real-provider-gate.md`](docs/research/09-m3-real-provider-gate.md) | The M3 inner-loop measurement, both real-provider debts settled, the M3e admission evidence |
 | [`docs/research/10-m3-exit-gate.md`](docs/research/10-m3-exit-gate.md) | The M3 exit-gate map: every normative behaviour to its test |
 | [`docs/schema/sarif-2.1.0.json`](docs/schema/sarif-2.1.0.json) | The published SARIF schema the `sarif` reporter's output is validated against |

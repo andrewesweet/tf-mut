@@ -86,12 +86,13 @@ Run blocks need variable values. In order of preference:
 3. **Type-driven synthesis** — `string` → `"tfmut-placeholder"`, `number` → `1`, `bool` →
    `true`, collections → one synthesised element, objects → recursively synthesised with
    `optional()` attributes omitted.
-4. **Diagnostic-driven repair** — if a synthesised value fails at plan time (`cidrsubnet`
-   needs a real CIDR), `validate -json` / the run error carries a source range and summary;
-   a small table of repairs for common function domains (CIDR-shaped, ARN-shaped, region-
-   shaped strings) handles the bulk. What remains is emitted as an explicit TODO placeholder
-   in the generated test with the diagnostic attached — the tool marks the ~20% it cannot
-   solve rather than guessing.
+4. **Diagnostic-driven repair — specified but not implemented** ([#82](https://github.com/andrewesweet/tf-mut/issues/82))
+   — if a synthesised value fails at plan time (`cidrsubnet` needs a real CIDR),
+   `validate -json` / the run error carries a source range and summary; a small table of
+   repairs for common function domains (CIDR-shaped, ARN-shaped, region-shaped strings)
+   would handle the bulk. The shipped pipeline stops at an explicit TODO placeholder with
+   the diagnostic attached rather than guessing. This is a record repair only; no decision
+   about building the rung or changing the preference order is made here.
 
 ### 3.3 Harvest
 
