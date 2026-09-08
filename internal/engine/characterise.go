@@ -257,7 +257,7 @@ func closeTheGap(
 
 	promoted, refusals := promoteScaffolds(ctx, runner, stage, block, scaffold, answers)
 
-	block.Pins = seedFinalPinDefect(block.Pins, stage.settings)
+	block.Pins = seedFinalPinDefect(stage.configuration, block.Pins)
 
 	if err := verifyScaffold(ctx, runner, stage, scaffold, block.Pins, "verify-final"); err != nil {
 		return nil, nil, err
@@ -820,19 +820,12 @@ func providersOf(configurations []string) []string {
 	return providers
 }
 
-// seedFinalPinDefect adds a pin nothing could have harvested, so the
-// verification between the loop and the write can be shown to be load-bearing.
-// It is a seam control and not a command-line flag.
-func seedFinalPinDefect(pins []report.Pin, settings Config) []report.Pin {
-	if !settings.SeedFinalPinDefect || len(pins) == 0 {
-		return pins
-	}
-
-	defect := pins[0]
-	defect.ID = characterise.PinID(defect.Scenario, defect.Address, "seeded")
-	defect.Expression = defect.Address + ` == "tf-mut-seeded-final-pin-defect"`
-
-	return append(slices.Clone(pins), defect)
+// seedFinalPinDefect is an inert test hook beside the final verifier it drives.
+// Tests replace it with the false pin needed to prove the verifier is load-bearing.
+//
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedFinalPinDefect = func(_ discovery.Configuration, pins []report.Pin) []report.Pin {
+	return pins
 }
 
 // seedInitialPinDefect adds a pin nothing could have harvested to the harvested

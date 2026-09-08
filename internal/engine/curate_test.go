@@ -490,16 +490,16 @@ func TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions(t *testing.T) {
 // contract makes. A pin nothing could have harvested is added to the final
 // set: the verification between the loop and the write has to catch it, and
 // nothing may be written. Remove that verification and this test fails.
+//
+//nolint:paralleltest // owns package-global characterisation hook for its lifetime.
 func TestTheFinalPinSetIsVerifiedBeforeAnyWrite(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.UntilDry = true
 	config.CharacteriseWrite = true
 	config.SeedUntilDryRounds = 1
-	config.SeedFinalPinDefect = true
+	engine.SetFinalPinDefectSeed(t, module)
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrScaffoldRed) {

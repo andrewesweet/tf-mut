@@ -7,6 +7,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
+	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
 // SetMissingMockSeed removes one rendered provider-configuration mock for one
@@ -33,6 +34,28 @@ func SetMissingMockSeed(t *testing.T, moduleDir, missingConfiguration string) {
 			staged characterise.Scaffold,
 		) characterise.Scaffold {
 			return staged
+		}
+	})
+}
+
+// SetFinalPinDefectSeed adds one knowingly false pin for one module. Its caller
+// is sequential for the hook's complete lifetime.
+func SetFinalPinDefectSeed(t *testing.T, moduleDir string) {
+	t.Helper()
+	seedFinalPinDefect = func(configuration discovery.Configuration, pins []report.Pin) []report.Pin {
+		if configuration.ModuleDir != moduleDir || len(pins) == 0 {
+			return pins
+		}
+
+		defect := pins[0]
+		defect.ID = characterise.PinID(defect.Scenario, defect.Address, "seeded")
+		defect.Expression = defect.Address + ` == "tf-mut-seeded-final-pin-defect"`
+
+		return append(slices.Clone(pins), defect)
+	}
+	t.Cleanup(func() {
+		seedFinalPinDefect = func(_ discovery.Configuration, pins []report.Pin) []report.Pin {
+			return pins
 		}
 	})
 }

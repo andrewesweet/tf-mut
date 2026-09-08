@@ -215,7 +215,7 @@ func statesOf(graded report.Report) map[report.State]int {
 // half of issue #74's acceptance pair: the verification between the harvest and
 // everything downstream of it.
 //
-// `SeedFinalPinDefect` proves the verifier after the until-dry loop. This one
+// The final-pin defect hook proves the verifier after the until-dry loop. This one
 // proves the verifier before it — a separate call, on a path a run without
 // `--until-dry` takes, and one that a deletion would have left every test green
 // over.

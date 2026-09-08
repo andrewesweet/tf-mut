@@ -193,11 +193,6 @@ type Config struct {
 	// the loop stopping because it ran out of rounds rather than because it
 	// went dry — can be staged. It is a seam control, not a command-line flag.
 	SeedUntilDryRounds int
-	// SeedFinalPinDefect adds a knowingly false pin to the set the loop ends
-	// with, so the verification that stands between the loop and the write can
-	// be proven load-bearing rather than assumed. It is a seam control, not a
-	// command-line flag.
-	SeedFinalPinDefect bool
 	// SeedInitialPinDefect does the same for the *first* verification, the one
 	// between the harvest and everything downstream of it. The two verifiers
 	// are separate code paths and only the later one had a seam, so deleting
