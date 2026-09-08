@@ -22,15 +22,16 @@ labelled `ready-for-agent`.
 ## Reading order
 
 1. `README.md` — problem, verified findings, document map
-2. `docs/research/05-go-build-chain.md` — accepted local/CI build-chain contract
-3. `docs/design/product-design.md` — architecture, mutant states, metrics, CLI, roadmap
-4. `docs/reviews/` — **all adversarial reviews and their dispositions. Read before changing
+2. `CONTEXT.md` — bounded contexts, dependency direction, and the owned glossary
+3. `docs/research/05-go-build-chain.md` — accepted local/CI build-chain contract
+4. `docs/design/product-design.md` — architecture, mutant states, metrics, CLI, roadmap
+5. `docs/reviews/` — **all adversarial reviews and their dispositions. Read before changing
    any design decision**: many decisions exist specifically because a review refuted the
    obvious alternative, with experiments
-4a. `docs/research/12-m45-synthesis-rate.md` — the measurement that gated M4.5b, its
+5a. `docs/research/12-m45-synthesis-rate.md` — the measurement that gated M4.5b, its
    decision rule and the two costs it surfaced. `docs/research/13-m45-exit-gate.md` — what
    implementing M4.5 measured, decided and deferred
-4b. `docs/reviews/2026-08-16-m2-implementation-review.md` and
+5b. `docs/reviews/2026-08-16-m2-implementation-review.md` and
    `docs/research/08-m2-exit-gate.md` — what implementing M2 measured, decided and deferred,
    the contract sweep from every normative behaviour to its test, and the reproduction map.
    **Read both before writing the next milestone spec**: they carry the measurements that
