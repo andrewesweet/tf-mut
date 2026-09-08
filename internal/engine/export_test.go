@@ -50,7 +50,15 @@ func SetCharacteriseWriteSeeds(
 		if !renameWindowChange || configuration.ModuleDir != moduleDir || calls != insideTheWindow {
 			return nil
 		}
-		return seedClosureChange(configuration, closureChange)
+		if closureFile != "" {
+			if err := seedClosureFile(configuration, closureFile); err != nil {
+				return err
+			}
+		}
+		if closureChange != "" {
+			return seedClosureChange(configuration, closureChange)
+		}
+		return nil
 	}
 	seedRegistryFailure = func(currentModuleDir string) error {
 		if !registryFailure || currentModuleDir != moduleDir {

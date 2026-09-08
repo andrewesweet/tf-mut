@@ -338,9 +338,9 @@ func recheckWrite(
 	return nil
 }
 
-// seedClosureChange stages the race the commit step exists to close: a source
-// file that moved between the verification that made the scaffold green and
-// the rename that would install it. It fires once, before the first rename.
+// stageClosureFile stages the race the commit step exists to close: a source
+// file added between the verification that made the scaffold green and the
+// rename that would install it. The test seam's caller controls when it fires.
 func stageClosureFile(configuration discovery.Configuration, path string) error {
 	added := filepath.Join(configuration.ModuleDir, filepath.FromSlash(path))
 	if err := os.WriteFile(added, []byte("# staged closure addition\n"), seedFileMode); err != nil {
