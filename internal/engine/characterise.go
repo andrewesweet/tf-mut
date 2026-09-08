@@ -302,8 +302,8 @@ func scaffoldSuite(
 	}
 
 	block.Pins = seedInitialPinDefect(
+		stage.configuration,
 		characterise.Pin(scaffold, stage.configuration, stage.prepared.schemas, harvest),
-		stage.settings,
 	)
 
 	files := pinnedFiles(scaffold, block.Pins)
@@ -828,20 +828,12 @@ var seedFinalPinDefect = func(_ discovery.Configuration, pins []report.Pin) []re
 	return pins
 }
 
-// seedInitialPinDefect adds a pin nothing could have harvested to the harvested
-// set, so the verification between the harvest and everything downstream of it
-// can be shown to be load-bearing. It is a seam control and not a command-line
-// flag.
-func seedInitialPinDefect(pins []report.Pin, settings Config) []report.Pin {
-	if !settings.SeedInitialPinDefect || len(pins) == 0 {
-		return pins
-	}
-
-	defect := pins[0]
-	defect.ID = characterise.PinID(defect.Scenario, defect.Address, "seeded-initial")
-	defect.Expression = defect.Address + ` == "tf-mut-seeded-initial-pin-defect"`
-
-	return append(slices.Clone(pins), defect)
+// seedInitialPinDefect is an inert test hook beside the initial verifier it drives.
+// Tests replace it with the false pin needed to prove the verifier is load-bearing.
+//
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedInitialPinDefect = func(_ discovery.Configuration, pins []report.Pin) []report.Pin {
+	return pins
 }
 
 // seedNoEscalation puts the ladder back where the caller asked for it, so the

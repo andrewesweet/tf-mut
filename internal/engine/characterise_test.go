@@ -219,14 +219,14 @@ func statesOf(graded report.Report) map[report.State]int {
 // proves the verifier before it — a separate call, on a path a run without
 // `--until-dry` takes, and one that a deletion would have left every test green
 // over.
+//
+//nolint:paralleltest // owns package-global characterisation hook for its lifetime.
 func TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
-	config.SeedInitialPinDefect = true
+	engine.SetInitialPinDefectSeed(t, module)
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrScaffoldRed) {

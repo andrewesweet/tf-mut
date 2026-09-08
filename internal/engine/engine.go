@@ -193,12 +193,6 @@ type Config struct {
 	// the loop stopping because it ran out of rounds rather than because it
 	// went dry — can be staged. It is a seam control, not a command-line flag.
 	SeedUntilDryRounds int
-	// SeedInitialPinDefect does the same for the *first* verification, the one
-	// between the harvest and everything downstream of it. The two verifiers
-	// are separate code paths and only the later one had a seam, so deleting
-	// the earlier one left the suite green. It is a seam control, not a
-	// command-line flag.
-	SeedInitialPinDefect bool
 	// SeedNoEscalation suppresses the zero-output auto-escalation, so the other
 	// half of the contract — a rung that pinned nothing may never report
 	// complete — can be proven on its own. It is a seam control, not a

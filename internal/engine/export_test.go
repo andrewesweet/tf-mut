@@ -60,6 +60,28 @@ func SetFinalPinDefectSeed(t *testing.T, moduleDir string) {
 	})
 }
 
+// SetInitialPinDefectSeed adds one knowingly false pin for one module. Its caller
+// is sequential for the hook's complete lifetime.
+func SetInitialPinDefectSeed(t *testing.T, moduleDir string) {
+	t.Helper()
+	seedInitialPinDefect = func(configuration discovery.Configuration, pins []report.Pin) []report.Pin {
+		if configuration.ModuleDir != moduleDir || len(pins) == 0 {
+			return pins
+		}
+
+		defect := pins[0]
+		defect.ID = characterise.PinID(defect.Scenario, defect.Address, "seeded-initial")
+		defect.Expression = defect.Address + ` == "tf-mut-seeded-initial-pin-defect"`
+
+		return append(slices.Clone(pins), defect)
+	}
+	t.Cleanup(func() {
+		seedInitialPinDefect = func(_ discovery.Configuration, pins []report.Pin) []report.Pin {
+			return pins
+		}
+	})
+}
+
 // SetCharacteriseWriteSeeds exposes only the five characterisation-write
 // controls to the external test package. Its callers are deliberately
 // sequential: the hooks are package globals, so their complete lifetime must
