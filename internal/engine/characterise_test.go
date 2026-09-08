@@ -649,14 +649,14 @@ func TestScenarioPinsAreInvariantUnderFileOrder(t *testing.T) {
 // other, so the commit step re-checks the input-closure digest immediately
 // before every rename; a closure that moved in between must yield zero writes
 // rather than a file that was green for a module which no longer exists.
+//
+//nolint:paralleltest // owns package-global characterisation hooks for its lifetime.
 func TestAClosureChangeAtTheProbeYieldsZeroWrites(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
-	config.SeedClosureChange = mainFile
+	engine.SetCharacteriseWriteSeeds(t, module, mainFile, "", 0, false, false)
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrWriteRefused) {
@@ -706,14 +706,14 @@ func TestNoTerraformRunPrecedesAStagedGateRefusal(t *testing.T) {
 // race, and the half a digest fed from a captured path list cannot see: the
 // closure gained a file rather than changing one. Membership has to be
 // recomputed at the probe, not replayed from what discovery found.
+//
+//nolint:paralleltest // owns package-global characterisation hooks for its lifetime.
 func TestANewClosureFileAtTheProbeYieldsZeroWrites(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
-	config.SeedClosureFile = "added.tf"
+	engine.SetCharacteriseWriteSeeds(t, module, "", "added.tf", 0, false, false)
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrWriteRefused) {
@@ -736,17 +736,16 @@ func TestANewClosureFileAtTheProbeYieldsZeroWrites(t *testing.T) {
 // either zero writes or an explicit partial state. A commit that renamed one
 // file and then aborted has changed the caller's tree, and an error with no
 // report would leave them to work out what moved.
+//
+//nolint:paralleltest // owns package-global characterisation hooks for its lifetime.
 func TestAPartialCommitReportsWhatItWrote(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
 	// The closure grows between the first rename and the second, so the first
 	// file lands and the second is refused.
-	config.SeedClosureFile = "added.tf"
-	config.SeedClosureAfter = 1
+	engine.SetCharacteriseWriteSeeds(t, module, "", "added.tf", 1, false, false)
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {
@@ -814,14 +813,14 @@ func TestConfigurationAliasesAreMockedAndGated(t *testing.T) {
 // gap: by the time the registry is stored, every generated test file has been
 // renamed, so a registry that will not store leaves a changed tree and no
 // record of what changed it.
+//
+//nolint:paralleltest // owns package-global characterisation hooks for its lifetime.
 func TestARegistryFailureReportsThePartialState(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
-	config.SeedRegistryFailure = true
+	engine.SetCharacteriseWriteSeeds(t, module, "", "", 0, false, true)
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {
@@ -848,19 +847,48 @@ func TestARegistryFailureReportsThePartialState(t *testing.T) {
 // rather than immediately before the rename, so a source edited while the
 // temporary file was being written still commits. The seam fires the change
 // inside that window; a protocol that only checked before it would write.
+//
+//nolint:paralleltest // owns package-global hooks; sequential cases keep the proof together.
 func TestAClosureChangeInsideTheRenameWindowIsCaught(t *testing.T) {
-	t.Parallel()
+	for _, tc := range []struct {
+		name, closureChange, closureFile string
+	}{
+		{name: "change only", closureChange: mainFile},
+		{name: "file only", closureFile: "added.tf"},
+		{name: "file then change", closureChange: mainFile, closureFile: "added.tf"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assertRenameWindowChangeCaught(t, tc.closureChange, tc.closureFile)
+		})
+	}
+}
 
+func assertRenameWindowChangeCaught(t *testing.T, closureChange, closureFile string) {
+	t.Helper()
 	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseConfig(t, module)
 	config.CharacteriseWrite = true
-	config.SeedClosureChange = mainFile
-	config.SeedRenameWindowChange = true
+	engine.SetCharacteriseWriteSeeds(t, module, closureChange, closureFile, 0, true, false)
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrWriteRefused) {
 		t.Fatalf("error = %v, want a refusal of the change made inside the window", err)
+	}
+
+	if closureFile != "" {
+		if _, statErr := os.Stat(filepath.Join(module, closureFile)); statErr != nil {
+			t.Fatalf("staged closure file is missing: %v", statErr)
+		}
+	}
+	content, readErr := os.ReadFile(filepath.Join(module, mainFile)) //nolint:gosec // module is a test-owned tree.
+	if readErr != nil {
+		t.Fatalf("reading staged closure change: %v", readErr)
+	}
+	wantChange := closureChange != ""
+	changed := strings.Contains(string(content), "# staged closure change")
+	if changed != wantChange {
+		t.Fatalf("staged closure change present = %v, want %v", changed, wantChange)
 	}
 
 	entries, readErr := os.ReadDir(filepath.Join(module, "tests"))

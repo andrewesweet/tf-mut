@@ -193,20 +193,6 @@ type Config struct {
 	// prove the pins are identical whatever the file order. It is a seam
 	// control, not a command-line flag.
 	SeedSharedFileOrder string
-	// SeedClosureChange appends to a module-relative file immediately before the
-	// first atomic rename of a characterisation write, so the input-closure
-	// race the commit step exists to close can be staged at the probe. It is a
-	// seam control, not a command-line flag.
-	SeedClosureChange string
-	// SeedClosureFile adds a module-relative Terraform file immediately before
-	// the first atomic rename, so the half of the input-closure race that
-	// *grows* the closure can be staged at the probe. It is a seam control,
-	// not a command-line flag.
-	SeedClosureFile string
-	// SeedClosureAfter delays the seeded closure change until this many files
-	// have already been renamed, so a *partial* commit can be staged rather
-	// than a refused one. It is a seam control, not a command-line flag.
-	SeedClosureAfter int
 	// SeedUntilDryRounds bounds the until-dry loop, so the `bounded` exit —
 	// the loop stopping because it ran out of rounds rather than because it
 	// went dry — can be staged. It is a seam control, not a command-line flag.
@@ -222,16 +208,6 @@ type Config struct {
 	// the earlier one left the suite green. It is a seam control, not a
 	// command-line flag.
 	SeedInitialPinDefect bool
-	// SeedRenameWindowChange fires the seeded closure change inside the rename
-	// window rather than before it — after the temporary file has been
-	// created, written, closed and chmodded — so a probe that ran only before
-	// that window can be shown to miss it. It is a seam control, not a
-	// command-line flag.
-	SeedRenameWindowChange bool
-	// SeedRegistryFailure makes the provenance registry fail to store, so the
-	// one window in which every generated file has already been renamed can be
-	// staged. It is a seam control, not a command-line flag.
-	SeedRegistryFailure bool
 	// SeedNoEscalation suppresses the zero-output auto-escalation, so the other
 	// half of the contract — a rung that pinned nothing may never report
 	// complete — can be proven on its own. It is a seam control, not a
