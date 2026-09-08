@@ -848,53 +848,58 @@ func TestARegistryFailureReportsThePartialState(t *testing.T) {
 // temporary file was being written still commits. The seam fires the change
 // inside that window; a protocol that only checked before it would write.
 //
-//nolint:paralleltest,revive // owns package-global hooks; sequential cases keep the proof together.
+//nolint:paralleltest // owns package-global hooks; sequential cases keep the proof together.
 func TestAClosureChangeInsideTheRenameWindowIsCaught(t *testing.T) {
 	for _, tc := range []struct {
 		name, closureChange, closureFile string
-		wantFile, wantChange             bool
 	}{
-		{name: "change only", closureChange: mainFile, wantChange: true},
-		{name: "file only", closureFile: "added.tf", wantFile: true},
-		{name: "file then change", closureChange: mainFile, closureFile: "added.tf", wantFile: true, wantChange: true},
+		{name: "change only", closureChange: mainFile},
+		{name: "file only", closureFile: "added.tf"},
+		{name: "file then change", closureChange: mainFile, closureFile: "added.tf"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			module := copyFixture(t, untestedBranchesFixture)
-
-			config := characteriseConfig(t, module)
-			config.CharacteriseWrite = true
-			engine.SetCharacteriseWriteSeeds(t, module, tc.closureChange, tc.closureFile, 0, true, false)
-
-			_, err := engine.Run(t.Context(), config)
-			if !errors.Is(err, engine.ErrWriteRefused) {
-				t.Fatalf("error = %v, want a refusal of the change made inside the window", err)
-			}
-
-			if tc.closureFile != "" {
-				if _, statErr := os.Stat(filepath.Join(module, tc.closureFile)); statErr != nil {
-					t.Fatalf("staged closure file is missing: %v", statErr)
-				}
-			}
-			content, readErr := os.ReadFile(filepath.Join(module, mainFile)) //nolint:gosec // module is a test-owned tree.
-			if readErr != nil {
-				t.Fatalf("reading staged closure change: %v", readErr)
-			}
-			changed := strings.Contains(string(content), "# staged closure change")
-			if changed != tc.wantChange {
-				t.Fatalf("staged closure change present = %v, want %v", changed, tc.wantChange)
-			}
-
-			entries, readErr := os.ReadDir(filepath.Join(module, "tests"))
-			if readErr != nil && !os.IsNotExist(readErr) {
-				t.Fatalf("reading the test directory: %v", readErr)
-			}
-
-			for _, entry := range entries {
-				if strings.HasSuffix(entry.Name(), ".tftest.hcl") {
-					t.Fatalf("the aborted commit wrote %s", entry.Name())
-				}
-			}
+			assertRenameWindowChangeCaught(t, tc.closureChange, tc.closureFile)
 		})
+	}
+}
+
+func assertRenameWindowChangeCaught(t *testing.T, closureChange, closureFile string) {
+	t.Helper()
+	module := copyFixture(t, untestedBranchesFixture)
+
+	config := characteriseConfig(t, module)
+	config.CharacteriseWrite = true
+	engine.SetCharacteriseWriteSeeds(t, module, closureChange, closureFile, 0, true, false)
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrWriteRefused) {
+		t.Fatalf("error = %v, want a refusal of the change made inside the window", err)
+	}
+
+	if closureFile != "" {
+		if _, statErr := os.Stat(filepath.Join(module, closureFile)); statErr != nil {
+			t.Fatalf("staged closure file is missing: %v", statErr)
+		}
+	}
+	content, readErr := os.ReadFile(filepath.Join(module, mainFile)) //nolint:gosec // module is a test-owned tree.
+	if readErr != nil {
+		t.Fatalf("reading staged closure change: %v", readErr)
+	}
+	wantChange := closureChange != ""
+	changed := strings.Contains(string(content), "# staged closure change")
+	if changed != wantChange {
+		t.Fatalf("staged closure change present = %v, want %v", changed, wantChange)
+	}
+
+	entries, readErr := os.ReadDir(filepath.Join(module, "tests"))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatalf("reading the test directory: %v", readErr)
+	}
+
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tftest.hcl") {
+			t.Fatalf("the aborted commit wrote %s", entry.Name())
+		}
 	}
 }
 
