@@ -576,6 +576,11 @@ func harvestScaffold(
 	}, nil
 }
 
+// seedSharedFileOrder exposes shared-file staging only to test order invariance.
+//
+//nolint:gochecknoglobals // inert test hook; external tests own it sequentially.
+var seedSharedFileOrder = func(discovery.Configuration) string { return "" }
+
 // stagedScaffold renders the overlay the sandbox materialises.
 //
 // One file per scenario is the naming contract. The shared-file orders are the
@@ -584,9 +589,6 @@ func harvestScaffold(
 // the pins have to be identical under both, which is what the distinct state
 // keys buy.
 //
-//nolint:gochecknoglobals // inert test hook; external tests own it sequentially.
-var seedSharedFileOrder = func(discovery.Configuration) string { return "" }
-
 func stagedScaffold(
 	configuration discovery.Configuration,
 	scaffold characterise.Scaffold,
