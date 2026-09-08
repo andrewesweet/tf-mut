@@ -184,11 +184,6 @@ type Config struct {
 	// Resume reads answered TODOs from the edited non-executable artefact as
 	// well as from Answers, re-synthesises, verifies and promotes.
 	Resume bool
-	// SeedSharedFileOrder stages every generated scenario into one file, in
-	// the named order (forward or reverse), so the scaffold-soundness gate can
-	// prove the pins are identical whatever the file order. It is a seam
-	// control, not a command-line flag.
-	SeedSharedFileOrder string
 	// SeedUntilDryRounds bounds the until-dry loop, so the `bounded` exit —
 	// the loop stopping because it ran out of rounds rather than because it
 	// went dry — can be staged. It is a seam control, not a command-line flag.

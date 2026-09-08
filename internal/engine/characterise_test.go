@@ -606,16 +606,16 @@ func TestBranchExpansionPinsBothSidesOfAConditional(t *testing.T) {
 // reorder fixture. Generated scenarios carry distinct state keys precisely so
 // that no scenario can observe another's state, and the observable consequence
 // is that the pins do not depend on the order the runs are declared in.
+//
+//nolint:paralleltest // owns package-global shared-file-order hook for its lifetime.
 func TestScenarioPinsAreInvariantUnderFileOrder(t *testing.T) {
-	t.Parallel()
-
 	pins := map[string][]string{}
 
 	for _, order := range []string{"", "forward", "reverse"} {
 		module := copyFixture(t, untestedBranchesFixture)
 
 		config := characteriseConfig(t, module)
-		config.SeedSharedFileOrder = order
+		engine.SetSharedFileOrderSeed(t, module, order)
 
 		result, err := engine.Run(t.Context(), config)
 		if err != nil {

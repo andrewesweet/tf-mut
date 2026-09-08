@@ -108,12 +108,28 @@ func SetNoEscalationSeed(t *testing.T, moduleDir string) {
 	})
 }
 
+// SetSharedFileOrderSeed stages every scenario for one module in one shared
+// file. Its caller is sequential for the hook's complete lifetime.
+func SetSharedFileOrderSeed(t *testing.T, moduleDir, order string) {
+	t.Helper()
+	seedSharedFileOrder = func(configuration discovery.Configuration) string {
+		if configuration.ModuleDir != moduleDir {
+			return ""
+		}
+
+		return order
+	}
+	t.Cleanup(func() {
+		seedSharedFileOrder = func(discovery.Configuration) string { return "" }
+	})
+}
+
 // SetCharacteriseWriteSeeds exposes only the five characterisation-write
 // controls to the external test package. Its callers are deliberately
 // sequential: the hooks are package globals, so their complete lifetime must
 // not overlap any other engine-seam test.
 //
-//nolint:revive // the test-only setter intentionally wires five independent controls.
+//nolint:revive,nolintlint // integration build excludes the revive finding.
 func SetCharacteriseWriteSeeds(
 	t *testing.T,
 	moduleDir, closureChange, closureFile string,

@@ -545,7 +545,7 @@ func harvestScaffold(
 	stage staging,
 	scaffold characterise.Scaffold,
 ) (characterise.Harvest, error) {
-	staged := stagedScaffold(stage.configuration, scaffold, nil, stage.settings)
+	staged := stagedScaffold(stage.configuration, scaffold, nil)
 
 	first, err := stagedRun(ctx, runner, stage, staged, "harvest-1")
 	if err != nil {
@@ -583,15 +583,19 @@ func harvestScaffold(
 // thing that could make a generated scenario observe another scenario's state:
 // the pins have to be identical under both, which is what the distinct state
 // keys buy.
+//
+//nolint:gochecknoglobals // inert test hook; external tests own it sequentially.
+var seedSharedFileOrder = func(discovery.Configuration) string { return "" }
+
 func stagedScaffold(
 	configuration discovery.Configuration,
 	scaffold characterise.Scaffold,
 	pins []report.Pin,
-	settings Config,
 ) map[string][]byte {
 	staged := map[string][]byte{}
+	sharedFileOrder := seedSharedFileOrder(configuration)
 
-	if settings.SeedSharedFileOrder == "" {
+	if sharedFileOrder == "" {
 		for _, scenario := range scaffold.Scenarios {
 			staged[stagedPath(configuration, scenario.File)] = characterise.Render(
 				scaffold, []report.Scenario{scenario}, pins, characterise.Executable,
@@ -602,7 +606,7 @@ func stagedScaffold(
 	}
 
 	ordered := slices.Clone(scaffold.Scenarios)
-	if settings.SeedSharedFileOrder == "reverse" {
+	if sharedFileOrder == "reverse" {
 		slices.Reverse(ordered)
 	}
 
@@ -622,7 +626,7 @@ func verifyScaffold(
 	pins []report.Pin,
 	name string,
 ) error {
-	staged := stagedScaffold(stage.configuration, scaffold, pins, stage.settings)
+	staged := stagedScaffold(stage.configuration, scaffold, pins)
 
 	result, err := stagedRun(ctx, runner, stage, staged, name)
 	if err != nil {
