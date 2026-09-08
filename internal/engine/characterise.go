@@ -46,6 +46,17 @@ var ErrScaffoldRed = errors.New("the generated suite is not green")
 // ErrWriteRefused reports a write the protocol would not perform.
 var ErrWriteRefused = errors.New("refusing to write the generated suite")
 
+// seedMissingMock is an inert test hook beside the staged provider gate it
+// drives. Tests replace it with the rendered-mock removal needed to prove the
+// gate refuses before execution.
+//
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedMissingMock = func(_ discovery.Configuration,
+	staged characterise.Scaffold,
+) characterise.Scaffold {
+	return staged
+}
+
 // characterise scaffolds, harvests, pins and verifies a suite for a module.
 //
 // The order is the contract. The safety gates are evaluated against the
@@ -169,6 +180,16 @@ func characteriseModule(
 	return result, nil
 }
 
+// seedNoEscalation is an inert test hook beside the escalation it suppresses.
+// Tests replace it to prove that a rung which pins nothing is never complete.
+//
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedNoEscalation = func(_ discovery.Configuration,
+	scaffold characterise.Scaffold,
+) characterise.Scaffold {
+	return scaffold
+}
+
 // commit performs the write, where one was asked for, and keeps the report
 // when the write left a partial state behind.
 //
@@ -218,6 +239,14 @@ func characteriseInputs(
 	return rung, answers, nil
 }
 
+// seedFinalPinDefect is an inert test hook beside the final verifier it drives.
+// Tests replace it with the false pin needed to prove the verifier is load-bearing.
+//
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedFinalPinDefect = func(_ discovery.Configuration, pins []report.Pin) []report.Pin {
+	return pins
+}
+
 // closeTheGap runs the until-dry loop, promotes what the answers earned, and
 // proves the pin set the loop ended with before any of it can be written.
 //
@@ -265,6 +294,14 @@ func closeTheGap(
 
 	return append(append(pinnedFiles(scaffold, block.Pins), promoted...),
 		scaffoldArtefact(scaffold, block)...), refusals, nil
+}
+
+// seedInitialPinDefect is an inert test hook beside the initial verifier it drives.
+// Tests replace it with the false pin needed to prove the verifier is load-bearing.
+//
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedInitialPinDefect = func(_ discovery.Configuration, pins []report.Pin) []report.Pin {
+	return pins
 }
 
 // scaffoldSuite harvests, pins and verifies the planned scaffold.
@@ -824,41 +861,4 @@ func providersOf(configurations []string) []string {
 	}
 
 	return providers
-}
-
-// seedFinalPinDefect is an inert test hook beside the final verifier it drives.
-// Tests replace it with the false pin needed to prove the verifier is load-bearing.
-//
-//nolint:gochecknoglobals // test seam, inert outside the suite.
-var seedFinalPinDefect = func(_ discovery.Configuration, pins []report.Pin) []report.Pin {
-	return pins
-}
-
-// seedInitialPinDefect is an inert test hook beside the initial verifier it drives.
-// Tests replace it with the false pin needed to prove the verifier is load-bearing.
-//
-//nolint:gochecknoglobals // test seam, inert outside the suite.
-var seedInitialPinDefect = func(_ discovery.Configuration, pins []report.Pin) []report.Pin {
-	return pins
-}
-
-// seedNoEscalation is an inert test hook beside the escalation it suppresses.
-// Tests replace it to prove that a rung which pins nothing is never complete.
-//
-//nolint:gochecknoglobals // test seam, inert outside the suite.
-var seedNoEscalation = func(_ discovery.Configuration,
-	scaffold characterise.Scaffold,
-) characterise.Scaffold {
-	return scaffold
-}
-
-// seedMissingMock is an inert test hook beside the staged provider gate it
-// drives. Tests replace it with the rendered-mock removal needed to prove the
-// gate refuses before execution.
-//
-//nolint:gochecknoglobals // test seam, inert outside the suite.
-var seedMissingMock = func(_ discovery.Configuration,
-	staged characterise.Scaffold,
-) characterise.Scaffold {
-	return staged
 }
