@@ -53,6 +53,17 @@ linters:
             # mutate configurations without diverging from Terraform's grammar.
             - github.com/hashicorp/hcl/v2
             - github.com/zclconf/go-cty
+        context-boundary:
+          list-mode: lax
+          files:
+            - "**/internal/fingerprint/**"
+            - "**/internal/mutation/**"
+            - "**/internal/discovery/**"
+            - "**/internal/tfexec/**"
+            - "**/internal/sandbox/**"
+          deny:
+            - pkg: github.com/andrewesweet/tf-mut/internal/report
+              desc: "Publication DTOs are an outer context; preserve the dependency direction in CONTEXT.md."
     cyclop:
       # Matched to revive's cyclomatic setting below. A complete dispatch over
       # Terraform's grammar — every top-level block kind, every reference form,
