@@ -64,22 +64,24 @@ func TestExportedEngineTypesDeclareNoSeamControls(t *testing.T) {
 
 	engineDir := filepath.Join(root, internalTree, "engine")
 	fset := token.NewFileSet()
-	if err := filepath.WalkDir(engineDir, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
+	entries, err := os.ReadDir(engineDir)
+	if err != nil {
+		t.Fatalf("reading exported engine sources in %s: %v", engineDir, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
 		}
 
+		path := filepath.Join(engineDir, entry.Name())
 		file, parseErr := parser.ParseFile(fset, path, nil, 0)
 		if parseErr != nil {
-			return parseErr
+			t.Fatalf("parsing %s: %v", path, parseErr)
+		}
+		if file.Name.Name != "engine" {
+			continue
 		}
 		auditExportedEngineTypes(t, fset, file)
-		return nil
-	}); err != nil {
-		t.Fatalf("auditing exported engine types in %s: %v", engineDir, err)
 	}
 }
 
@@ -111,13 +113,40 @@ func auditExportedEngineType(t *testing.T, fset *token.FileSet, typeSpec *ast.Ty
 		return
 	}
 	for _, field := range structure.Fields.List {
-		for _, name := range field.Names {
-			if strings.HasPrefix(name.Name, "Seed") || strings.HasPrefix(name.Name, "Disable") {
-				position := fset.Position(name.Pos())
+		names := field.Names
+		if len(names) == 0 {
+			if name := embeddedFieldName(field.Type); name != "" {
+				names = []*ast.Ident{{Name: name, NamePos: field.Type.Pos()}}
+			}
+		}
+		for _, name := range names {
+			if isSeamControl(name.Name) {
+				position := fset.Position(field.Pos())
 				t.Errorf("exported engine type %s declares seam field %s at %s:%d",
 					typeSpec.Name.Name, name.Name, position.Filename, position.Line)
 			}
 		}
+	}
+}
+
+func isSeamControl(name string) bool {
+	return strings.HasPrefix(name, "Seed") || strings.HasPrefix(name, "Disable")
+}
+
+func embeddedFieldName(expression ast.Expr) string {
+	switch expression := expression.(type) {
+	case *ast.Ident:
+		return expression.Name
+	case *ast.StarExpr:
+		return embeddedFieldName(expression.X)
+	case *ast.SelectorExpr:
+		return expression.Sel.Name
+	case *ast.IndexExpr:
+		return embeddedFieldName(expression.X)
+	case *ast.IndexListExpr:
+		return embeddedFieldName(expression.X)
+	default:
+		return ""
 	}
 }
 
