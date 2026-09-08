@@ -196,7 +196,8 @@ var (
 )
 
 // Run performs a complete mutation run and returns the report.
-func Run(ctx context.Context, settings Config) (report.Report, error) {
+func Run(ctx context.Context, request Request) (report.Report, error) {
+	settings := configFor(request)
 	moduleDir, err := filepath.Abs(settings.ModuleDir)
 	if err != nil {
 		return report.Report{}, fmt.Errorf("resolving module directory: %w", err)

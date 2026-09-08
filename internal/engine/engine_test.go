@@ -17,7 +17,7 @@ func TestRunReportsKilledAndSurvivedOutputs(t *testing.T) {
 	module := copyFixture(t, "skeleton")
 	before := treeDigest(t, module)
 
-	result, err := engine.Run(t.Context(), baseConfig(t, module))
+	result, err := engine.Run(t.Context(), runRequest(t, module))
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}

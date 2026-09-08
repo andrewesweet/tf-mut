@@ -70,6 +70,25 @@ func baseConfig(t *testing.T, moduleDir string) engine.Config {
 	}
 }
 
+func runRequest(t *testing.T, moduleDir string) engine.RunRequest {
+	t.Helper()
+
+	settings := baseConfig(t, moduleDir)
+
+	return engine.RunRequest{Common: engine.Common{
+		ModuleDir:               settings.ModuleDir,
+		TestDirectory:           settings.TestDirectory,
+		Jobs:                    settings.Jobs,
+		TimeoutFactor:           settings.TimeoutFactor,
+		TimeoutFloor:            settings.TimeoutFloor,
+		AllowRealInfrastructure: settings.AllowRealInfrastructure,
+		AllowUnsandboxedEffects: settings.AllowUnsandboxedEffects,
+		TerraformBinary:         settings.TerraformBinary,
+		Env:                     settings.Env,
+		WorkDir:                 settings.WorkDir,
+	}}
+}
+
 // terraformEnv points Terraform at the repository's offline provider mirror
 // when one has been installed, and keeps it from phoning home.
 func terraformEnv(t *testing.T) []string {
