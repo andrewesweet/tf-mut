@@ -94,8 +94,7 @@ func TestIdentifiersAreStableAcrossRunsAndUnrelatedEdits(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, "skeleton")
-	config := baseConfig(t, module)
-	config.Preview = true
+	config := previewRequest(t, module)
 
 	first, err := engine.Run(t.Context(), config)
 	if err != nil {
@@ -114,8 +113,7 @@ func TestIdentifiersAreStableAcrossRunsAndUnrelatedEdits(t *testing.T) {
 	edited := copyFixture(t, "skeleton")
 	appendUnrelatedComment(t, edited+"/main.tf")
 
-	editedConfig := baseConfig(t, edited)
-	editedConfig.Preview = true
+	editedConfig := previewRequest(t, edited)
 
 	third, err := engine.Run(t.Context(), editedConfig)
 	if err != nil {

@@ -28,7 +28,7 @@ func TestEveryOutcomeTableRowIsReachableThroughTheSeam(t *testing.T) {
 	for _, fixture := range []string{
 		suggestBasicFixture, suggestSensitiveFixture, suggestJSONFixture,
 	} {
-		result := runSuggest(t, dryRunConfig(t, copyFixture(t, fixture)))
+		result := runSuggest(t, dryRunRequest(t, copyFixture(t, fixture)))
 		for status, count := range result.SuggestionsByStatus() {
 			if count > 0 {
 				reached[status] = true
@@ -44,12 +44,12 @@ func TestEveryOutcomeTableRowIsReachableThroughTheSeam(t *testing.T) {
 
 	// The two verification-time rows: verified from the clean run, refuted
 	// from the seeded defect.
-	verified := runSuggest(t, suggestConfig(t, copyFixture(t, suggestBasicFixture)))
+	verified := runSuggest(t, suggestRequest(t, copyFixture(t, suggestBasicFixture)))
 	if len(withStatus(verified, report.SuggestionVerified)) == 0 {
 		t.Error("status verified is unreachable")
 	}
 
-	seeded := suggestConfig(t, copyFixture(t, suggestBasicFixture))
+	seeded := suggestRequest(t, copyFixture(t, suggestBasicFixture))
 	engine.SetSuggestionDefectSeed(t, seeded.ModuleDir, suggest.DefectVacuous)
 
 	refuted := runSuggest(t, seeded)

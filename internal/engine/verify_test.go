@@ -17,7 +17,7 @@ import (
 func TestVerifiedRequiresBothLegsAndCarriesTheirEvidence(t *testing.T) {
 	t.Parallel()
 
-	result := runSuggest(t, suggestConfig(t, copyFixture(t, suggestBasicFixture)))
+	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestBasicFixture)))
 
 	verified := withStatus(result, report.SuggestionVerified)
 	if len(verified) == 0 {
@@ -53,7 +53,7 @@ func TestVerifiedRequiresBothLegsAndCarriesTheirEvidence(t *testing.T) {
 //
 //nolint:paralleltest // owns package-global suggestion hook for its lifetime.
 func TestASeededWrongValueIsRefutedThroughTheBaselineLeg(t *testing.T) {
-	config := suggestConfig(t, copyFixture(t, suggestBasicFixture))
+	config := suggestRequest(t, copyFixture(t, suggestBasicFixture))
 	engine.SetSuggestionDefectSeed(t, config.ModuleDir, suggest.DefectWrongValue)
 
 	result := runSuggest(t, config)
@@ -81,7 +81,7 @@ func TestASeededWrongValueIsRefutedThroughTheBaselineLeg(t *testing.T) {
 //
 //nolint:paralleltest // owns package-global suggestion hook for its lifetime.
 func TestASeededVacuousAssertionIsRefutedThroughTheMutantLeg(t *testing.T) {
-	config := suggestConfig(t, copyFixture(t, suggestBasicFixture))
+	config := suggestRequest(t, copyFixture(t, suggestBasicFixture))
 	engine.SetSuggestionDefectSeed(t, config.ModuleDir, suggest.DefectVacuous)
 
 	result := runSuggest(t, config)
@@ -125,13 +125,13 @@ func TestASeededVacuousAssertionIsRefutedThroughTheMutantLeg(t *testing.T) {
 
 //nolint:paralleltest // owns package-global suggestion hook for its lifetime.
 func TestASuggestExitCodeIsOneOnlyWhenSomethingIsRefuted(t *testing.T) {
-	clean := runSuggest(t, suggestConfig(t, copyFixture(t, suggestBasicFixture)))
+	clean := runSuggest(t, suggestRequest(t, copyFixture(t, suggestBasicFixture)))
 	if code := clean.ExitCode(report.Gate{}); code != report.ExitClean { //nolint:exhaustruct // no gate.
 		t.Fatalf("exit code = %d, want %d when every suggestion concluded",
 			code, report.ExitClean)
 	}
 
-	config := suggestConfig(t, copyFixture(t, suggestBasicFixture))
+	config := suggestRequest(t, copyFixture(t, suggestBasicFixture))
 	engine.SetSuggestionDefectSeed(t, config.ModuleDir, suggest.DefectVacuous)
 
 	refuted := runSuggest(t, config)
@@ -143,7 +143,7 @@ func TestASuggestExitCodeIsOneOnlyWhenSomethingIsRefuted(t *testing.T) {
 func TestAStaleSurvivorIdentifierIsAnOperationalFailureNamingIt(t *testing.T) {
 	t.Parallel()
 
-	config := suggestConfig(t, copyFixture(t, suggestBasicFixture))
+	config := suggestRequest(t, copyFixture(t, suggestBasicFixture))
 	config.SurvivorIDs = []string{"000000000000", "111111111111"}
 
 	_, err := engine.Run(t.Context(), config)
@@ -165,13 +165,13 @@ func TestSurvivorSelectionScopesTheSuggestions(t *testing.T) {
 	// suggestion and scoping has something to remove.
 	module := copyFixture(t, suggestMultiFixture)
 
-	all := runSuggest(t, dryRunConfig(t, module))
+	all := runSuggest(t, dryRunRequest(t, module))
 	if len(all.Suggestions) < 2 {
 		t.Fatalf("the fixture produced %d suggestions; the scoping claim needs more than one",
 			len(all.Suggestions))
 	}
 
-	config := dryRunConfig(t, module)
+	config := dryRunRequest(t, module)
 	config.SurvivorIDs = []string{all.Suggestions[0].MutantID}
 
 	scoped := runSuggest(t, config)
@@ -190,7 +190,7 @@ func TestSurvivorSelectionScopesTheSuggestions(t *testing.T) {
 func TestVerificationIsNeverCached(t *testing.T) {
 	t.Parallel()
 
-	config := suggestConfig(t, copyFixture(t, suggestBasicFixture))
+	config := suggestRequest(t, copyFixture(t, suggestBasicFixture))
 
 	first := runSuggest(t, config)
 	second := runSuggest(t, config)
@@ -220,12 +220,12 @@ func TestAScopedSuggestRunStatesItsVerificationCost(t *testing.T) {
 
 	module := copyFixture(t, suggestBasicFixture)
 
-	dry := runSuggest(t, dryRunConfig(t, module))
+	dry := runSuggest(t, dryRunRequest(t, module))
 	if len(dry.Suggestions) == 0 {
 		t.Fatal("no suggestions to scope to")
 	}
 
-	config := suggestConfig(t, module)
+	config := suggestRequest(t, module)
 	config.SurvivorIDs = []string{dry.Suggestions[0].MutantID}
 
 	result := runSuggest(t, config)
@@ -249,7 +249,7 @@ func TestSurvivorsSharingOneAssertionCollapseIntoOneSuggestion(t *testing.T) {
 
 	module := copyFixture(t, suggestBasicFixture)
 
-	config := suggestConfig(t, module)
+	config := suggestRequest(t, module)
 	config.ApplyAll = true
 
 	result := runSuggest(t, config)
@@ -280,7 +280,7 @@ func TestSurvivorsSharingOneAssertionCollapseIntoOneSuggestion(t *testing.T) {
 func TestADryRunRefusesAnApplySelection(t *testing.T) {
 	t.Parallel()
 
-	config := dryRunConfig(t, copyFixture(t, suggestBasicFixture))
+	config := dryRunRequest(t, copyFixture(t, suggestBasicFixture))
 	config.ApplyAll = true
 
 	_, err := engine.Run(t.Context(), config)
@@ -292,7 +292,7 @@ func TestADryRunRefusesAnApplySelection(t *testing.T) {
 func TestSuggestRefusesATestSelection(t *testing.T) {
 	t.Parallel()
 
-	config := suggestConfig(t, copyFixture(t, suggestBasicFixture))
+	config := suggestRequest(t, copyFixture(t, suggestBasicFixture))
 	config.TestSelection = []string{"tests/unit.tftest.hcl"}
 
 	_, err := engine.Run(t.Context(), config)

@@ -28,27 +28,17 @@ const (
 	unitTestFile            = "tests/unit.tftest.hcl"
 )
 
-// suggestConfig is a suggest run that verifies.
-func suggestConfig(t *testing.T, module string) engine.Config {
+// dryRunRequest is a suggest run that generates and verifies nothing.
+func dryRunRequest(t *testing.T, module string) engine.SuggestRequest {
 	t.Helper()
 
-	config := baseConfig(t, module)
-	config.Suggest = true
+	request := suggestRequest(t, module)
+	request.DryRun = true
 
-	return config
+	return request
 }
 
-// dryRunConfig is a suggest run that generates and verifies nothing.
-func dryRunConfig(t *testing.T, module string) engine.Config {
-	t.Helper()
-
-	config := suggestConfig(t, module)
-	config.SuggestDryRun = true
-
-	return config
-}
-
-func runSuggest(t *testing.T, request engine.Request) report.Report {
+func runSuggest(t *testing.T, request engine.SuggestRequest) report.Report {
 	t.Helper()
 
 	result, err := engine.Run(t.Context(), request)
@@ -64,7 +54,13 @@ func TestSuggestGeneratesTheAssertionThatWouldHaveKilledASurvivor(t *testing.T) 
 
 	request := suggestRequest(t, copyFixture(t, suggestBasicFixture))
 	request.DryRun = true
-	result := runSuggest(t, &request)
+
+	// The non-nil pointer is the #96 pointer-boundary proof for this command:
+	// the engine accepts the request type by value or by pointer alike.
+	result, err := engine.Run(t.Context(), &request)
+	if err != nil {
+		t.Fatalf("suggest: %v", err)
+	}
 
 	candidates := withStatus(result, report.SuggestionCandidate)
 	if len(candidates) == 0 {
@@ -94,7 +90,7 @@ func TestSuggestGeneratesTheAssertionThatWouldHaveKilledASurvivor(t *testing.T) 
 func TestADryRunVerifiesNothing(t *testing.T) {
 	t.Parallel()
 
-	result := runSuggest(t, dryRunConfig(t, copyFixture(t, suggestBasicFixture)))
+	result := runSuggest(t, dryRunRequest(t, copyFixture(t, suggestBasicFixture)))
 
 	for _, suggestion := range result.Suggestions {
 		if suggestion.Verification != nil {
@@ -113,8 +109,8 @@ func TestSuggestionIdentifiersAreStableAcrossRunsAndUnrelatedEdits(t *testing.T)
 
 	module := copyFixture(t, suggestBasicFixture)
 
-	first := identifiersOf(runSuggest(t, dryRunConfig(t, module)))
-	second := identifiersOf(runSuggest(t, dryRunConfig(t, module)))
+	first := identifiersOf(runSuggest(t, dryRunRequest(t, module)))
+	second := identifiersOf(runSuggest(t, dryRunRequest(t, module)))
 
 	if strings.Join(first, ",") != strings.Join(second, ",") {
 		t.Fatalf("identifiers changed across runs:\n%v\n%v", first, second)
@@ -123,7 +119,7 @@ func TestSuggestionIdentifiersAreStableAcrossRunsAndUnrelatedEdits(t *testing.T)
 	writeFile(t, filepath.Join(module, "unrelated.tf"),
 		"resource \"terraform_data\" \"unrelated\" {\n  input = \"elsewhere\"\n}\n")
 
-	third := identifiersOf(runSuggest(t, dryRunConfig(t, module)))
+	third := identifiersOf(runSuggest(t, dryRunRequest(t, module)))
 	for _, id := range first {
 		if !slices.Contains(third, id) {
 			t.Fatalf("identifier %s did not survive an unrelated edit: %v", id, third)
@@ -138,7 +134,7 @@ func TestIndeterminateSurvivorsAndUnassertableMutantsReceiveNoSuggestion(t *test
 		t.Run(fixture, func(t *testing.T) {
 			t.Parallel()
 
-			result := runSuggest(t, dryRunConfig(t, copyFixture(t, fixture)))
+			result := runSuggest(t, dryRunRequest(t, copyFixture(t, fixture)))
 
 			suggested := map[string]bool{}
 			for _, suggestion := range result.Suggestions {
@@ -166,7 +162,7 @@ func TestIndeterminateSurvivorsAndUnassertableMutantsReceiveNoSuggestion(t *test
 func TestAJSONTestTargetIsSkippedWithNoPatch(t *testing.T) {
 	t.Parallel()
 
-	result := runSuggest(t, dryRunConfig(t, copyFixture(t, suggestJSONFixture)))
+	result := runSuggest(t, dryRunRequest(t, copyFixture(t, suggestJSONFixture)))
 
 	skipped := withStatus(result, report.SuggestionSkippedUnsupportedTarget)
 	if len(skipped) == 0 {
@@ -190,7 +186,7 @@ func TestAJSONTestTargetIsSkippedWithNoPatch(t *testing.T) {
 func TestASensitiveValueReachesNoSuggestionArtefact(t *testing.T) {
 	t.Parallel()
 
-	result := runSuggest(t, dryRunConfig(t, copyFixture(t, suggestSensitiveFixture)))
+	result := runSuggest(t, dryRunRequest(t, copyFixture(t, suggestSensitiveFixture)))
 
 	for _, suggestion := range result.Suggestions {
 		for name, artefact := range map[string]string{
@@ -222,7 +218,7 @@ func TestEverySkippedStatusCarriesNoPatchAndAReason(t *testing.T) {
 		t.Run(fixture, func(t *testing.T) {
 			t.Parallel()
 
-			result := runSuggest(t, dryRunConfig(t, copyFixture(t, fixture)))
+			result := runSuggest(t, dryRunRequest(t, copyFixture(t, fixture)))
 
 			for _, suggestion := range result.Suggestions {
 				assertPresenceRules(t, suggestion)
@@ -354,9 +350,9 @@ func TestARealSuggestReportValidatesAgainstThePublishedSchema(t *testing.T) {
 
 	schema := loadPublishedSchema(t)
 
-	for name, config := range map[string]engine.Config{
-		"verified": suggestConfig(t, copyFixture(t, suggestBasicFixture)),
-		"skips":    dryRunConfig(t, copyFixture(t, suggestSensitiveFixture)),
+	for name, config := range map[string]engine.SuggestRequest{
+		"verified": suggestRequest(t, copyFixture(t, suggestBasicFixture)),
+		"skips":    dryRunRequest(t, copyFixture(t, suggestSensitiveFixture)),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

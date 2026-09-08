@@ -193,8 +193,7 @@ func TestNoJSONFileIsEverAMutationSite(t *testing.T) {
 		t.Run(fixture, func(t *testing.T) {
 			t.Parallel()
 
-			config := baseConfig(t, copyFixture(t, fixture))
-			config.Preview = true
+			config := previewRequest(t, copyFixture(t, fixture))
 
 			result, err := engine.Run(t.Context(), config)
 			if err != nil {
@@ -216,11 +215,9 @@ func TestNoJSONFileIsEverAMutationSite(t *testing.T) {
 //
 //nolint:paralleltest // owns package-global JSON-reading hook for its lifetime.
 func TestAJSONPopulationIsUnchangedByReadingIt(t *testing.T) {
-	read := baseConfig(t, copyFixture(t, jsonMixedFixture))
-	read.Preview = true
+	read := previewRequest(t, copyFixture(t, jsonMixedFixture))
 
-	unread := baseConfig(t, copyFixture(t, jsonMixedFixture))
-	unread.Preview = true
+	unread := previewRequest(t, copyFixture(t, jsonMixedFixture))
 	engine.SetJSONReadingDisabled(t, unread.ModuleDir)
 
 	withJSON, err := engine.Run(t.Context(), read)

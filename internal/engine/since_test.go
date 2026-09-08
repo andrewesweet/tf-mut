@@ -69,8 +69,7 @@ func commit(t *testing.T, dir, message string) {
 func sincePreview(t *testing.T, module, ref string) report.Report {
 	t.Helper()
 
-	config := baseConfig(t, module)
-	config.Preview = true
+	config := previewRequest(t, module)
 	config.Since = ref
 
 	result, err := engine.Run(t.Context(), config)
@@ -218,8 +217,7 @@ func TestAMissingRefIsAnError(t *testing.T) {
 
 	module := gitFixture(t, discriminateFixture)
 
-	config := baseConfig(t, module)
-	config.Preview = true
+	config := previewRequest(t, module)
 	config.Since = "no-such-ref"
 
 	if _, err := engine.Run(t.Context(), config); err == nil {
@@ -233,8 +231,7 @@ func TestOutsideARepositoryIsAnError(t *testing.T) {
 
 	module := copyFixture(t, discriminateFixture)
 
-	config := baseConfig(t, module)
-	config.Preview = true
+	config := previewRequest(t, module)
 	config.Since = sinceHead
 
 	if _, err := engine.Run(t.Context(), config); err == nil {
@@ -259,8 +256,7 @@ func TestAMergeConflictIsAnError(t *testing.T) {
 
 	applyIndexInfo(t, module, info.String())
 
-	config := baseConfig(t, module)
-	config.Preview = true
+	config := previewRequest(t, module)
 	config.Since = sinceHead
 
 	if _, err := engine.Run(t.Context(), config); err == nil {
@@ -282,8 +278,7 @@ func TestAShallowCloneLackingTheRefIsAnError(t *testing.T) {
 	shallow := filepath.Join(t.TempDir(), "shallow")
 	git(t, module, "clone", "--quiet", "--depth", "1", "file://"+module, shallow)
 
-	config := baseConfig(t, shallow)
-	config.Preview = true
+	config := previewRequest(t, shallow)
 	config.Since = "before"
 
 	if _, err := engine.Run(t.Context(), config); err == nil {
@@ -346,8 +341,7 @@ func TestSamplingIsDeterministicAndNonAuthoritative(t *testing.T) {
 	module := copyFixture(t, "operators")
 
 	sample := func(seed int64) report.Report {
-		config := baseConfig(t, module)
-		config.Preview = true
+		config := previewRequest(t, module)
 		config.SamplePercent = 30
 		config.HasSample = true
 		config.SampleSeed = seed
@@ -555,8 +549,7 @@ func TestAFractionalSampleNeverKeepsNothing(t *testing.T) {
 
 	module := copyFixture(t, "operators")
 
-	config := baseConfig(t, module)
-	config.Preview = true
+	config := previewRequest(t, module)
 	config.HasSample = true
 	config.SamplePercent = 0.5
 
@@ -570,8 +563,7 @@ func TestAFractionalSampleNeverKeepsNothing(t *testing.T) {
 	}
 
 	for _, percent := range []float64{0, -5, 101} {
-		bad := baseConfig(t, module)
-		bad.Preview = true
+		bad := previewRequest(t, module)
 		bad.HasSample = true
 		bad.SamplePercent = percent
 
