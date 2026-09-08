@@ -116,16 +116,15 @@ func TestAnEditBetweenVerificationAndApplyAbortsWithZeroWrites(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // owns package-global suggestion hook for its lifetime.
 func TestApplyRefusesANonVerifiedSelection(t *testing.T) {
-	t.Parallel()
-
 	// A dry run with --apply is now refused outright, so the non-verified
 	// selection under test is a refuted suggestion: the seeded vacuous defect
 	// guarantees one.
 	module := copyFixture(t, suggestBasicFixture)
 
 	config := suggestConfig(t, module)
-	config.SeedSuggestionDefect = suggest.DefectVacuous
+	engine.SetSuggestionDefectSeed(t, config.ModuleDir, suggest.DefectVacuous)
 	config.ApplyAll = false
 
 	seeded := runSuggest(t, config)
@@ -136,7 +135,6 @@ func TestApplyRefusesANonVerifiedSelection(t *testing.T) {
 	}
 
 	applying := suggestConfig(t, module)
-	applying.SeedSuggestionDefect = suggest.DefectVacuous
 	applying.Apply = []string{refuted[0].ID}
 
 	before := treeDigest(t, module)

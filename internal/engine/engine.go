@@ -20,7 +20,6 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
-	"github.com/andrewesweet/tf-mut/internal/suggest"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
@@ -152,10 +151,6 @@ type Config struct {
 	Apply []string
 	// ApplyAll writes every verified suggestion.
 	ApplyAll bool
-	// SeedSuggestionDefect makes the generator emit one deliberately wrong
-	// assertion, so the suggestion-soundness gate can prove that verification
-	// rejects it. It is a seam control, not a command-line flag.
-	SeedSuggestionDefect suggest.Defect
 	// ToolVersion is this binary's own version, recorded in the header of every
 	// generated file. Empty in a seam test, where the development marker
 	// stands in for it.

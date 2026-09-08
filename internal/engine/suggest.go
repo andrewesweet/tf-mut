@@ -19,6 +19,9 @@ import (
 // with an empty result would let that go unnoticed.
 var ErrSurvivorSelection = errors.New("no survivor with that identifier")
 
+//nolint:gochecknoglobals // inert production default; external tests scope and restore it.
+var seedSuggestionDefect = func(Config) suggest.Defect { return suggest.DefectNone }
+
 // suggestAssertions generates — and, unless this is a dry run, verifies — the
 // assertion that would have killed each selected survivor. The second result
 // is the verification cost statement: verification is bounded and chosen, so
@@ -37,7 +40,7 @@ func suggestAssertions(
 	generated := suggest.Generator{
 		Configuration: plan.configuration,
 		Schemas:       plan.prepared.schemas,
-		Defect:        plan.config.SeedSuggestionDefect,
+		Defect:        seedSuggestionDefect(plan.config),
 	}.Generate(selected)
 
 	if plan.config.SuggestDryRun {

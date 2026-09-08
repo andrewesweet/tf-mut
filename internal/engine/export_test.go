@@ -8,7 +8,24 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/suggest"
 )
+
+// SetSuggestionDefectSeed makes suggestion generation emit one known defect
+// for one module. Its callers are sequential for the hook's complete lifetime.
+func SetSuggestionDefectSeed(t *testing.T, moduleDir string, defect suggest.Defect) {
+	t.Helper()
+	seedSuggestionDefect = func(settings Config) suggest.Defect {
+		if settings.ModuleDir != moduleDir {
+			return suggest.DefectNone
+		}
+
+		return defect
+	}
+	t.Cleanup(func() {
+		seedSuggestionDefect = func(Config) suggest.Defect { return suggest.DefectNone }
+	})
+}
 
 // SetMissingMockSeed removes one rendered provider-configuration mock for one
 // module. Its callers are sequential for the hook's complete lifetime.
