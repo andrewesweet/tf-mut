@@ -20,9 +20,9 @@ import (
 // exclusions hiding none of these; zero Terraform runs before refusal" — plus
 // issue #57's two original reproductions.
 //
-// The claim under test is what happens while the content is *unread*, so every
-// case here runs under the `DisableJSONReading` seam control, over the same
-// fixtures whose content the M4c slice reads in `jsonslice_test.go`. The two
+// The claim under test is what happens while the content is *unread*, so
+// `floorConfig` activates the module-scoped unread-JSON test hook for every
+// case, over the same fixtures the M4c slice reads in `jsonslice_test.go`. The two
 // files together are the floor and its lift: `floorConfig` proves the refusal
 // is decided from unreadness, and the slice proves it is decided from content.
 //
