@@ -181,9 +181,9 @@ func TestExcludedCategoriesFailClosedToExecution(t *testing.T) {
 // TestDecidableToNonzeroControlsClassifyByExecution: where the evaluator
 // decides the multiplicity nonzero, pre-classification abstains, and the
 // verdicts are identical to a run with the shortcut disabled.
+//
+//nolint:paralleltest // owns package-global static-shortcut hook for its lifetime.
 func TestDecidableToNonzeroControlsClassifyByExecution(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, "conditional-nonzero")
 
 	static, err := engine.Run(t.Context(), baseConfig(t, module))
@@ -191,10 +191,9 @@ func TestDecidableToNonzeroControlsClassifyByExecution(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	control := baseConfig(t, module)
-	control.DisableStaticShortcuts = true
+	engine.SetStaticShortcutsDisabled(t, module)
 
-	executed, err := engine.Run(t.Context(), control)
+	executed, err := engine.Run(t.Context(), baseConfig(t, module))
 	if err != nil {
 		t.Fatalf("control run: %v", err)
 	}

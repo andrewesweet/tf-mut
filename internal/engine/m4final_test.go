@@ -3,6 +3,7 @@ package engine_test
 import (
 	"testing"
 
+	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
 )
@@ -11,9 +12,8 @@ import (
 // vocabulary is reachable through the engine seam, and each names the fixture
 // that produces it. A status nobody can reach is a lie in the schema.
 
+//nolint:paralleltest // owns package-global suggestion hook for its lifetime.
 func TestEveryOutcomeTableRowIsReachableThroughTheSeam(t *testing.T) {
-	t.Parallel()
-
 	// The four generation-time rows, from dry runs over their fixtures.
 	dryRunRows := map[report.SuggestionStatus]string{
 		report.SuggestionCandidate:                suggestBasicFixture,
@@ -50,7 +50,7 @@ func TestEveryOutcomeTableRowIsReachableThroughTheSeam(t *testing.T) {
 	}
 
 	seeded := suggestConfig(t, copyFixture(t, suggestBasicFixture))
-	seeded.SeedSuggestionDefect = suggest.DefectVacuous
+	engine.SetSuggestionDefectSeed(t, seeded.ModuleDir, suggest.DefectVacuous)
 
 	refuted := runSuggest(t, seeded)
 	if len(withStatus(refuted, report.SuggestionRefuted)) == 0 {

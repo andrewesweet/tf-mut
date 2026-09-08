@@ -20,9 +20,9 @@ import (
 // exclusions hiding none of these; zero Terraform runs before refusal" — plus
 // issue #57's two original reproductions.
 //
-// The claim under test is what happens while the content is *unread*, so every
-// case here runs under the `DisableJSONReading` seam control, over the same
-// fixtures whose content the M4c slice reads in `jsonslice_test.go`. The two
+// The claim under test is what happens while the content is *unread*, so
+// `floorConfig` activates the module-scoped unread-JSON test hook for every
+// case, over the same fixtures the M4c slice reads in `jsonslice_test.go`. The two
 // files together are the floor and its lift: `floorConfig` proves the refusal
 // is decided from unreadness, and the slice proves it is decided from content.
 //
@@ -34,7 +34,7 @@ func floorConfig(t *testing.T, fixture string) engine.Config {
 	t.Helper()
 
 	config := baseConfig(t, copyFixture(t, fixture))
-	config.DisableJSONReading = true
+	engine.SetJSONReadingDisabled(t, config.ModuleDir)
 
 	return config
 }
@@ -55,9 +55,8 @@ const (
 	unsandboxedEffectsFlag = "--allow-unsandboxed-effects"
 )
 
+//nolint:paralleltest // owns package-global JSON-reading hook for its lifetime.
 func TestUnreadJSONFailsTheRealInfrastructureGateClosed(t *testing.T) {
-	t.Parallel()
-
 	for _, fixture := range []struct {
 		name string
 		file string
@@ -66,8 +65,6 @@ func TestUnreadJSONFailsTheRealInfrastructureGateClosed(t *testing.T) {
 		{name: jsonTestMockFixture, file: jsonTestFileName},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
-			t.Parallel()
-
 			_, err := engine.Run(t.Context(), floorConfig(t, fixture.name))
 			if !errors.Is(err, engine.ErrRealInfrastructure) {
 				t.Fatalf("error = %v, want a real-infrastructure refusal", err)
@@ -78,9 +75,8 @@ func TestUnreadJSONFailsTheRealInfrastructureGateClosed(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // owns package-global JSON-reading hook for its lifetime.
 func TestUnreadJSONFailsTheUnsandboxedEffectsGateClosed(t *testing.T) {
-	t.Parallel()
-
 	config := floorConfig(t, jsonProvisionerFixture)
 	// Authorising one gate must never lift the other: the two flags authorise
 	// different risks and the unread file could carry either.
@@ -94,9 +90,8 @@ func TestUnreadJSONFailsTheUnsandboxedEffectsGateClosed(t *testing.T) {
 	assertRefusalNames(t, err, jsonEffectsFileName, unsandboxedEffectsFlag)
 }
 
+//nolint:paralleltest // owns package-global JSON-reading hook for its lifetime.
 func TestEachSafetyGateFailsClosedIndependentlyOnUnreadJSON(t *testing.T) {
-	t.Parallel()
-
 	// Neither flag: the first gate the unread content could have informed
 	// refuses.
 	noFlags := floorConfig(t, jsonProvisionerFixture)
@@ -125,13 +120,10 @@ func TestMalformedJSONRetainsTheFloorRatherThanLiftingIt(t *testing.T) {
 	assertRefusalNames(t, err, jsonMalformedFileName, realInfrastructureFlag)
 }
 
+//nolint:paralleltest // owns package-global JSON-reading hook for its lifetime.
 func TestConfiguredExclusionsCannotHideUnreadJSON(t *testing.T) {
-	t.Parallel()
-
 	for _, exclusion := range []string{"*.json", "*", "effects.tf.json"} {
 		t.Run(exclusion, func(t *testing.T) {
-			t.Parallel()
-
 			config := floorConfig(t, jsonProvisionerFixture)
 			config.ExcludePaths = []string{exclusion}
 
@@ -147,9 +139,8 @@ func TestConfiguredExclusionsCannotHideUnreadJSON(t *testing.T) {
 // made: the version gate, which runs before any configuration is read.
 const versionInvocation = "version"
 
+//nolint:paralleltest // owns package-global JSON-reading hook for its lifetime.
 func TestNoTerraformRunPrecedesAFloorRefusal(t *testing.T) {
-	t.Parallel()
-
 	log := filepath.Join(t.TempDir(), "terraform-calls")
 
 	config := floorConfig(t, jsonProvisionerFixture)
@@ -170,9 +161,9 @@ func TestNoTerraformRunPrecedesAFloorRefusal(t *testing.T) {
 // The variables classes inform neither safety gate — they declare no provider,
 // no provisioner and no run — so the run proceeds; what they do inform is the
 // static evaluation, and the floor withdraws every claim that depended on it.
+//
+//nolint:paralleltest // owns package-global JSON-reading hook for its lifetime.
 func TestAJSONAutoVariableFileKeepsTheStaticShortcutsDown(t *testing.T) {
-	t.Parallel()
-
 	result, err := engine.Run(t.Context(), floorConfig(t, jsonAutoVarFixture))
 	if err != nil {
 		t.Fatalf("a JSON variables file informs no safety gate and must not refuse: %v", err)
@@ -196,8 +187,9 @@ func TestAJSONAutoVariableFileKeepsTheStaticShortcutsDown(t *testing.T) {
 // a value the suite demonstrably observes. Under the floor the shortcut is
 // withdrawn and the executed verdict stands: the assertion on `output.side`
 // catches the mutant.
+//
+//nolint:paralleltest // owns package-global JSON-reading hook for its lifetime.
 func TestUnreadJSONDisablesEveryStaticShortcut(t *testing.T) {
-	t.Parallel()
 	requireProviderMirror(t)
 
 	config := floorConfig(t, jsonMixedFixture)
@@ -246,8 +238,8 @@ func TestTheHCLOnlyGraphIsTheFalseProofTheFloorWithdraws(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // owns package-global JSON-reading hook for its lifetime.
 func TestAuthorisingBothGatesStillReportsTheUnreadJSON(t *testing.T) {
-	t.Parallel()
 	requireProviderMirror(t)
 
 	config := floorConfig(t, jsonMixedFixture)
@@ -268,9 +260,8 @@ func TestAuthorisingBothGatesStillReportsTheUnreadJSON(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // owns package-global JSON-reading hook for its lifetime.
 func TestAPreviewIsNeverRefusedByTheFloor(t *testing.T) {
-	t.Parallel()
-
 	config := floorConfig(t, jsonProvisionerFixture)
 	config.Preview = true
 

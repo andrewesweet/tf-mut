@@ -20,7 +20,6 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
-	"github.com/andrewesweet/tf-mut/internal/suggest"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
@@ -130,15 +129,8 @@ type Config struct {
 	// FN-FAMILY-SWAP joins the population. Never part of standard until the
 	// published admission measurement, in a separate change.
 	GeneratedFunctions bool
-	// DisableStaticShortcuts turns the static pre-classifications off — the
-	// static Unobservable shortcut and the conditional-instantiation
-	// NoCoverage evaluator — so a control run can prove each shortcut equal
-	// to the executed verdict. It is a seam control, not a command-line flag.
-	DisableStaticShortcuts bool
-	// DisableJSONReading leaves every JSON-syntax file in the closure unread,
-	// so a control run can prove the safety floor holds for content the tool
-	// has not read. It is a seam control, not a command-line flag.
-	DisableJSONReading bool
+	// staticShortcutsDisabled records the invocation-local JSON safety floor.
+	staticShortcutsDisabled bool
 	// Suggest generates, and unless SuggestDryRun is set verifies, the
 	// assertion that would have killed each provable survivor.
 	Suggest bool
@@ -152,10 +144,6 @@ type Config struct {
 	Apply []string
 	// ApplyAll writes every verified suggestion.
 	ApplyAll bool
-	// SeedSuggestionDefect makes the generator emit one deliberately wrong
-	// assertion, so the suggestion-soundness gate can prove that verification
-	// rejects it. It is a seam control, not a command-line flag.
-	SeedSuggestionDefect suggest.Defect
 	// ToolVersion is this binary's own version, recorded in the header of every
 	// generated file. Empty in a seam test, where the development marker
 	// stands in for it.
@@ -184,11 +172,13 @@ type Config struct {
 	// Resume reads answered TODOs from the edited non-executable artefact as
 	// well as from Answers, re-synthesises, verifies and promotes.
 	Resume bool
-	// SeedUntilDryRounds bounds the until-dry loop, so the `bounded` exit —
-	// the loop stopping because it ran out of rounds rather than because it
-	// went dry — can be staged. It is a seam control, not a command-line flag.
-	SeedUntilDryRounds int
 }
+
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var disableStaticShortcuts = func(Config) bool { return false }
+
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var disableJSONReading = func(Config) bool { return false }
 
 // Operational failures. Every one of them aborts the run: none of them can be
 // reported as a mutant verdict without misleading the reader.
@@ -228,7 +218,7 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 	// absent or broken would break the loop over a check it never needed.
 	if settings.Todos {
 		listed, listErr := discovery.DiscoverWith(moduleDir, settings.TestDirectory,
-			discovery.Options{SkipJSON: settings.DisableJSONReading})
+			discovery.Options{SkipJSON: disableJSONReading(settings)})
 		if listErr != nil {
 			return report.Report{}, listErr
 		}
@@ -244,7 +234,7 @@ func Run(ctx context.Context, settings Config) (report.Report, error) {
 	}
 
 	configuration, err := discovery.DiscoverWith(moduleDir, settings.TestDirectory,
-		discovery.Options{SkipJSON: settings.DisableJSONReading})
+		discovery.Options{SkipJSON: disableJSONReading(settings)})
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -374,7 +364,7 @@ func applyFloor(
 ) (Config, []string) {
 	floor := floorOf(configuration)
 	if floor.active() {
-		settings.DisableStaticShortcuts = true
+		settings.staticShortcutsDisabled = true
 		warnings = append(warnings, floor.degradation())
 	}
 
@@ -680,6 +670,7 @@ func describe(
 ) []report.Mutant {
 	exercised := configuration.ExercisedModules()
 	described := make([]report.Mutant, 0, len(generated))
+	shortcutsDisabled := settings.staticShortcutsDisabled || disableStaticShortcuts(settings)
 
 	for _, mutant := range generated {
 		state := report.Pending
@@ -689,14 +680,14 @@ func describe(
 		switch {
 		case !exercised[mutant.ModuleRel]:
 			state = report.NoCoverage
-		case !settings.Preview && !settings.DisableStaticShortcuts &&
+		case !settings.Preview && !shortcutsDisabled &&
 			conditionallyUncovered(configuration, graph, settings, mutant):
 			// The finer conditional-instantiation claim (M3a.3): the mutated
 			// multiplicity expression is statically zero under every relevant
 			// run. Module-level NoCoverage above remains the strict subset.
 			state = report.NoCoverage
 			verdict = conditionalNoCoverageVerdict()
-		case !settings.Preview && !settings.DisableStaticShortcuts &&
+		case !settings.Preview && !shortcutsDisabled &&
 			staticallyUnobservable(graph, mutant):
 			// A preview keeps Pending — the documented preview contract — so
 			// the shortcut fires only where execution would otherwise run.

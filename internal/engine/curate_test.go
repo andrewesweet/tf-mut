@@ -20,11 +20,12 @@ import (
 // end-to-end case: the generated suite exists as an overlay that discovery,
 // mutation execution, suggestion targeting and verification all consume, and
 // the source tree is byte-identical when the loop stops.
+//
+//nolint:paralleltest // owns package-global until-dry hook for its lifetime.
 func TestUntilDryConvergesWithoutWritingAByte(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, untestedBranchesFixture)
 	before := treeDigest(t, module)
+	engine.SetUntilDryRounds(t, module, 1)
 
 	config := characteriseConfig(t, module)
 	config.UntilDry = true
@@ -43,7 +44,11 @@ func TestUntilDryConvergesWithoutWritingAByte(t *testing.T) {
 		t.Fatal("the loop reported no convergence evidence")
 	}
 
-	if convergence.Rounds == 0 || len(convergence.NewPinsPerRound) != convergence.Rounds {
+	if convergence.Rounds != 1 {
+		t.Fatalf("rounds = %d, want 1", convergence.Rounds)
+	}
+
+	if len(convergence.NewPinsPerRound) != convergence.Rounds {
 		t.Fatalf("the convergence evidence is incomplete: %+v", convergence)
 	}
 
@@ -498,7 +503,7 @@ func TestTheFinalPinSetIsVerifiedBeforeAnyWrite(t *testing.T) {
 	config := characteriseConfig(t, module)
 	config.UntilDry = true
 	config.CharacteriseWrite = true
-	config.SeedUntilDryRounds = 1
+	engine.SetUntilDryRounds(t, module, 1)
 	engine.SetFinalPinDefectSeed(t, module)
 
 	_, err := engine.Run(t.Context(), config)

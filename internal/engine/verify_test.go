@@ -50,11 +50,11 @@ func TestVerifiedRequiresBothLegsAndCarriesTheirEvidence(t *testing.T) {
 
 // TestASeededWrongValueIsRefutedThroughTheBaselineLeg is the first half of the
 // gate: an assertion that breaks the suite must never reach `verified`.
+//
+//nolint:paralleltest // owns package-global suggestion hook for its lifetime.
 func TestASeededWrongValueIsRefutedThroughTheBaselineLeg(t *testing.T) {
-	t.Parallel()
-
 	config := suggestConfig(t, copyFixture(t, suggestBasicFixture))
-	config.SeedSuggestionDefect = suggest.DefectWrongValue
+	engine.SetSuggestionDefectSeed(t, config.ModuleDir, suggest.DefectWrongValue)
 
 	result := runSuggest(t, config)
 
@@ -78,11 +78,11 @@ func TestASeededWrongValueIsRefutedThroughTheBaselineLeg(t *testing.T) {
 // and the attribution proof with it: the vacuous assertion is applied beside
 // real ones that do kill its mutant, so only the isolated check can see that it
 // does not kill anything itself.
+//
+//nolint:paralleltest // owns package-global suggestion hook for its lifetime.
 func TestASeededVacuousAssertionIsRefutedThroughTheMutantLeg(t *testing.T) {
-	t.Parallel()
-
 	config := suggestConfig(t, copyFixture(t, suggestBasicFixture))
-	config.SeedSuggestionDefect = suggest.DefectVacuous
+	engine.SetSuggestionDefectSeed(t, config.ModuleDir, suggest.DefectVacuous)
 
 	result := runSuggest(t, config)
 
@@ -123,9 +123,8 @@ func TestASeededVacuousAssertionIsRefutedThroughTheMutantLeg(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // owns package-global suggestion hook for its lifetime.
 func TestASuggestExitCodeIsOneOnlyWhenSomethingIsRefuted(t *testing.T) {
-	t.Parallel()
-
 	clean := runSuggest(t, suggestConfig(t, copyFixture(t, suggestBasicFixture)))
 	if code := clean.ExitCode(report.Gate{}); code != report.ExitClean { //nolint:exhaustruct // no gate.
 		t.Fatalf("exit code = %d, want %d when every suggestion concluded",
@@ -133,7 +132,7 @@ func TestASuggestExitCodeIsOneOnlyWhenSomethingIsRefuted(t *testing.T) {
 	}
 
 	config := suggestConfig(t, copyFixture(t, suggestBasicFixture))
-	config.SeedSuggestionDefect = suggest.DefectVacuous
+	engine.SetSuggestionDefectSeed(t, config.ModuleDir, suggest.DefectVacuous)
 
 	refuted := runSuggest(t, config)
 	if code := refuted.ExitCode(report.Gate{}); code != report.ExitFindings { //nolint:exhaustruct // no gate.

@@ -38,11 +38,14 @@ const defaultRounds = 5
 // stagingRoot is the directory the staged suite is materialised into.
 const stagingRoot = "staged"
 
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedUntilDryRounds = func(Config) int { return 0 }
+
 // roundLimit is the loop's bound, which a seam control may lower so that the
 // `bounded` exit can be staged rather than argued about.
 func roundLimit(settings Config) int {
-	if settings.SeedUntilDryRounds > 0 {
-		return settings.SeedUntilDryRounds
+	if rounds := seedUntilDryRounds(settings); rounds > 0 {
+		return rounds
 	}
 
 	return defaultRounds
@@ -120,7 +123,7 @@ func oneRound(
 	// than leaving a cache directory in a directory that is about to vanish.
 	stagedConfiguration, err := discovery.DiscoverWith(staged.ModuleDir,
 		stage.settings.TestDirectory,
-		discovery.Options{SkipJSON: stage.settings.DisableJSONReading})
+		discovery.Options{SkipJSON: disableJSONReading(stage.settings)})
 	if err != nil {
 		return 0, err
 	}
