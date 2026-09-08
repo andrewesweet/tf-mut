@@ -64,7 +64,7 @@ func TestSuggestGeneratesTheAssertionThatWouldHaveKilledASurvivor(t *testing.T) 
 
 	request := suggestRequest(t, copyFixture(t, suggestBasicFixture))
 	request.DryRun = true
-	result := runSuggest(t, request)
+	result := runSuggest(t, &request)
 
 	candidates := withStatus(result, report.SuggestionCandidate)
 	if len(candidates) == 0 {

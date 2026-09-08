@@ -349,7 +349,7 @@ func preview(t *testing.T, module string, only []string) report.Report {
 	config := previewRequest(t, module)
 	config.IncludeOperators = only
 
-	result, err := engine.Run(t.Context(), config)
+	result, err := engine.Run(t.Context(), &config)
 	if err != nil {
 		t.Fatalf("preview: %v", err)
 	}

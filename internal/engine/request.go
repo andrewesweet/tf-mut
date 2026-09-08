@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/mutation"
@@ -9,6 +11,8 @@ import (
 // Request is the closed set of commands the engine performs. The unexported
 // method keeps the set closed: no package outside engine can add a command.
 type Request interface{ isRequest() }
+
+var errInvalidRequest = errors.New("invalid engine request")
 
 // Common carries the options shared by every engine command.
 type Common struct {
@@ -115,24 +119,68 @@ func (CharacteriseRequest) isRequest() {}
 func (TodosRequest) isRequest()        {}
 func (CurateRequest) isRequest()       {}
 
-func configFor(request Request) Config {
+func configFor(request Request) (Config, error) {
 	switch typed := request.(type) {
+	case nil:
+		return Config{}, fmt.Errorf("%w: request must not be nil", errInvalidRequest)
 	case Config:
-		return typed
+		return typed, nil
+	case *Config:
+		if typed == nil {
+			return Config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+		}
+
+		return *typed, nil
 	case RunRequest:
-		return typed.config()
+		return typed.config(), nil
+	case *RunRequest:
+		if typed == nil {
+			return Config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+		}
+
+		return typed.config(), nil
 	case PreviewRequest:
-		return typed.config()
+		return typed.config(), nil
+	case *PreviewRequest:
+		if typed == nil {
+			return Config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+		}
+
+		return typed.config(), nil
 	case SuggestRequest:
-		return typed.config()
+		return typed.config(), nil
+	case *SuggestRequest:
+		if typed == nil {
+			return Config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+		}
+
+		return typed.config(), nil
 	case CharacteriseRequest:
-		return typed.config()
+		return typed.config(), nil
+	case *CharacteriseRequest:
+		if typed == nil {
+			return Config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+		}
+
+		return typed.config(), nil
 	case TodosRequest:
-		return typed.config()
+		return typed.config(), nil
+	case *TodosRequest:
+		if typed == nil {
+			return Config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+		}
+
+		return typed.config(), nil
 	case CurateRequest:
-		return typed.config()
+		return typed.config(), nil
+	case *CurateRequest:
+		if typed == nil {
+			return Config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+		}
+
+		return typed.config(), nil
 	default:
-		panic("engine: unhandled request type")
+		return Config{}, fmt.Errorf("%w: unsupported type %T", errInvalidRequest, request)
 	}
 }
 
