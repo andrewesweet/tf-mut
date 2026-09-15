@@ -187,7 +187,7 @@ func NativeExpression(expr hcl.Expression) (hclsyntax.Expression, bool)
 ```
 
 It is the one named route to native syntax — documented as such on the function — and it
-fails closed: a non-native expression, a nil expression and a nil native value all return
-`false`, and a caller receiving `false` treats the site as unreadable rather than guessing
-at syntax it cannot see. `Attribute.Expr` and `Validation.Condition` keep their current
+fails closed: a non-native expression and a nil expression both return `false`, and a
+caller receiving `false` treats the site as unreadable rather than guessing at syntax it
+cannot see. `Attribute.Expr` and `Validation.Condition` keep their current
 types; every consumer compiles unchanged; `just ci` is the gate.

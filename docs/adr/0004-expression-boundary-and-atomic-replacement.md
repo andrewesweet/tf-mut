@@ -33,3 +33,7 @@ duplicated filesystem mechanics without merging those protocols.
 
 This records the Terraform representation and write-boundary decisions in [#86](https://github.com/andrewesweet/tf-mut/issues/86), following DDD-4 and the write-protocol recommendation in [review #85](https://github.com/andrewesweet/tf-mut/issues/85).
 
+The consumer measurement #111 required is recorded in
+[`docs/research/14-expression-consumer-measurement.md`](../research/14-expression-consumer-measurement.md):
+it found no consumer served by neither `hcl.Expression` nor the named accessor, so the
+reopen condition above did not fire.
