@@ -27,6 +27,8 @@ func project(verdict report.Mutant, outcome oracle.Outcome) report.Mutant {
 		verdict.Suppression = projectSuppression(suppression)
 	}
 
+	verdict.Verdict = nil
+
 	if outcome.Message() != "" {
 		verdict.Verdict = &report.Verdict{
 			Diagnosis: projectDiagnosis(outcome.Diagnosis()),
