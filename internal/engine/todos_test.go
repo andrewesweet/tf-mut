@@ -34,8 +34,8 @@ func TestAnUnsynthesizableInputBecomesANonExecutableArtefact(t *testing.T) {
 
 	module := copyFixture(t, untestedTodoFixture)
 
-	config := characteriseConfig(t, module)
-	config.CharacteriseWrite = true
+	config := characteriseRequest(t, module)
+	config.Write = true
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {
@@ -99,16 +99,16 @@ func assertPromotion(t *testing.T, byEdit bool) {
 
 	module := copyFixture(t, untestedTodoFixture)
 
-	config := characteriseConfig(t, module)
-	config.CharacteriseWrite = true
+	config := characteriseRequest(t, module)
+	config.Write = true
 
 	opened, err := engine.Run(t.Context(), config)
 	if err != nil {
 		t.Fatalf("characterise --write: %v", err)
 	}
 
-	resumed := characteriseConfig(t, module)
-	resumed.CharacteriseWrite = true
+	resumed := characteriseRequest(t, module)
+	resumed.Write = true
 
 	if byEdit {
 		answerArtefact(t, filepath.Join(module, opened.Characterisation.Files[0].Path), answeredCIDR)
@@ -201,7 +201,7 @@ func TestASecretInAFailedAttemptReachesNoArtefact(t *testing.T) {
 
 	module := copyFixture(t, untestedSecretFixture)
 
-	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	result, err := engine.Run(t.Context(), characteriseRequest(t, module))
 	if err != nil {
 		t.Fatalf("characterise: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestAMinedValidationResolvesAnInputWithNoDefault(t *testing.T) {
 
 	module := copyFixture(t, untestedMinedFixture)
 
-	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	result, err := engine.Run(t.Context(), characteriseRequest(t, module))
 	if err != nil {
 		t.Fatalf("characterise: %v", err)
 	}
@@ -314,15 +314,15 @@ func TestARefutedAnswerIsRejectedRatherThanAnOperationalFailure(t *testing.T) {
 
 	module := copyFixture(t, untestedTodoFixture)
 
-	config := characteriseConfig(t, module)
-	config.CharacteriseWrite = true
+	config := characteriseRequest(t, module)
+	config.Write = true
 
 	opened, err := engine.Run(t.Context(), config)
 	if err != nil {
 		t.Fatalf("characterise --write: %v", err)
 	}
 
-	answered := characteriseConfig(t, module)
+	answered := characteriseRequest(t, module)
 	answered.Answers = []string{opened.Characterisation.Todos[0].ID + `="not-a-cidr-block"`}
 
 	result, err := engine.Run(t.Context(), answered)
@@ -359,7 +359,7 @@ func TestASensitiveAnswerIsVerifiedAndStillWithheld(t *testing.T) {
 
 	module := copyFixture(t, untestedSensitiveAnswerFixture)
 
-	opened, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	opened, err := engine.Run(t.Context(), characteriseRequest(t, module))
 	if err != nil {
 		t.Fatalf("characterise: %v", err)
 	}
@@ -367,8 +367,8 @@ func TestASensitiveAnswerIsVerifiedAndStillWithheld(t *testing.T) {
 	// The answer the fixture's constraint names.
 	const secret = `"tok-0123abcd"`
 
-	answered := characteriseConfig(t, module)
-	answered.CharacteriseWrite = true
+	answered := characteriseRequest(t, module)
+	answered.Write = true
 	answered.Answers = []string{opened.Characterisation.Todos[0].ID + "=" + secret}
 
 	result, err := engine.Run(t.Context(), answered)
@@ -437,12 +437,12 @@ func TestNoReportFieldVariesWithTheSensitiveAnswer(t *testing.T) {
 	for _, secret := range []string{`"tok-0123abcd"`, `"tok-fedc9876"`} {
 		module := copyFixture(t, untestedSensitiveAnswerFixture)
 
-		opened, err := engine.Run(t.Context(), characteriseConfig(t, module))
+		opened, err := engine.Run(t.Context(), characteriseRequest(t, module))
 		if err != nil {
 			t.Fatalf("characterise: %v", err)
 		}
 
-		answered := characteriseConfig(t, module)
+		answered := characteriseRequest(t, module)
 		answered.Answers = []string{opened.Characterisation.Todos[0].ID + "=" + secret}
 
 		result, err := engine.Run(t.Context(), answered)

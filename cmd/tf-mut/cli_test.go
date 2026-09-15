@@ -1178,15 +1178,22 @@ func walkthroughFixture(t *testing.T) string {
 }
 
 // TestCurateIsWiredThroughTheCommandLine covers the third new command: the
-// refusal a partial population earns can only be asserted from the shell if
+// refusal a narrowed population earns can only be asserted from the shell if
 // the shell actually reaches the engine with the command set.
+//
+// The narrowing arrives through `.tf-mut.hcl` — the effective-configuration
+// route C5 refuses before any work is done. The flag route is the parser's
+// now: the curate request has no field for a population control, so spelling
+// one there is a parse error, not a runtime sweep.
 func TestCurateIsWiredThroughTheCommandLine(t *testing.T) {
 	t.Parallel()
 
 	module := fixture(t)
+	writeFile(t, filepath.Join(module, ".tf-mut.hcl"),
+		"exclude {\n  paths = [\"main.tf\"]\n}\n")
 	stderr := bytes.Buffer{}
 
-	code := run([]string{curateCommand, "--sample", "50", noCacheFlag, module},
+	code := run([]string{curateCommand, noCacheFlag, module},
 		"test", &bytes.Buffer{}, &stderr)
 	if code != report.ExitOperational {
 		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
@@ -1194,6 +1201,73 @@ func TestCurateIsWiredThroughTheCommandLine(t *testing.T) {
 
 	if !strings.Contains(stderr.String(), "false finding") {
 		t.Fatalf("the refusal did not come from curate's population posture: %s", stderr.String())
+	}
+}
+
+// TestCurateRefusesAPartialPopulationAtConfigurationTime is C5's flag half,
+// relocated from the engine seam: the curate request has no field for a
+// population control, so a user who spells one is refused by the flag parser
+// rather than by a runtime population sweep. The configured half — a
+// `.tf-mut.hcl` that narrows the population — stays with the engine, and
+// TestCurateIsWiredThroughTheCommandLine holds it from this side.
+func TestCurateRefusesAPartialPopulationAtConfigurationTime(t *testing.T) {
+	t.Parallel()
+
+	partial := map[string][]string{
+		"--since":               {"--since", "HEAD"},
+		"--sample":              {"--sample", "50"},
+		"an operator selection": {"--operator", "BOOL-FLIP"},
+		"an exclusion":          {"--exclude-path", "main.tf"},
+	}
+
+	for name, flags := range partial {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			stderr := bytes.Buffer{}
+
+			code := run(append(append([]string{curateCommand}, flags...), t.TempDir()),
+				"test", &bytes.Buffer{}, &stderr)
+			if code != report.ExitOperational {
+				t.Fatalf("exit code = %d, want %d: %s",
+					code, report.ExitOperational, stderr.String())
+			}
+
+			if !strings.Contains(stderr.String(), errInapplicableFlag.Error()) {
+				t.Fatalf("the refusal is not the parser's: %s", stderr.String())
+			}
+
+			if !strings.Contains(stderr.String(), flags[0]+" is not a "+curateCommand+" flag") {
+				t.Fatalf("the refusal does not name the inapplicable flag: %s", stderr.String())
+			}
+		})
+	}
+}
+
+// TestUntilDryRefusesANarrowedPopulation holds convergence to the population
+// posture `curate` already holds, relocated from the engine seam: `--sample`
+// is not a characterise flag, because the characterise request has no field
+// for one, so the loop cannot be pointed at a subset it would report as the
+// whole. The engine-side refusal of a configured narrowing is
+// TestUntilDryRefusesAConfiguredNarrowing.
+func TestUntilDryRefusesANarrowedPopulation(t *testing.T) {
+	t.Parallel()
+
+	stderr := bytes.Buffer{}
+
+	code := run([]string{characteriseCommand, "--until-dry", "--sample", "1", t.TempDir()},
+		"test", &bytes.Buffer{}, &stderr)
+	if code != report.ExitOperational {
+		t.Fatalf("exit code = %d, want %d: %s",
+			code, report.ExitOperational, stderr.String())
+	}
+
+	if !strings.Contains(stderr.String(), errInapplicableFlag.Error()) {
+		t.Fatalf("the refusal is not the parser's: %s", stderr.String())
+	}
+
+	if !strings.Contains(stderr.String(), "--sample is not a "+characteriseCommand+" flag") {
+		t.Fatalf("the refusal does not name the inapplicable flag: %s", stderr.String())
 	}
 }
 

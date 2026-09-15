@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/characterise"
+	"github.com/andrewesweet/tf-mut/internal/config"
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
@@ -35,16 +36,6 @@ const (
 
 	rungOutputs = "outputs"
 )
-
-// characteriseConfig is the base configuration for a characterisation.
-func characteriseConfig(t *testing.T, moduleDir string) engine.Config {
-	t.Helper()
-
-	config := legacyBaseConfig(t, moduleDir)
-	config.Characterise = true
-
-	return config
-}
 
 // TestAnUntestedAliasedProviderModuleCharacterisesWithNoOptIn is the first half
 // of the M4.5 spec review's mandatory acceptance pair. The unscaffolded module
@@ -102,7 +93,7 @@ func TestAMissingAliasMockRefusesBeforeExecution(t *testing.T) {
 
 	module := copyFixture(t, untestedAliasesFixture)
 
-	config := characteriseConfig(t, module)
+	config := characteriseRequest(t, module)
 	engine.SetMissingMockSeed(t, module, secondaryConfiguration)
 
 	_, err := engine.Run(t.Context(), config)
@@ -128,7 +119,7 @@ func TestTheDefaultCharacterisationWritesNothing(t *testing.T) {
 	module := copyFixture(t, untestedBranchesFixture)
 	before := treeDigest(t, module)
 
-	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	result, err := engine.Run(t.Context(), characteriseRequest(t, module))
 	if err != nil {
 		t.Fatalf("characterise: %v", err)
 	}
@@ -150,8 +141,8 @@ func TestAWrittenSuiteIsGreenAndRegistered(t *testing.T) {
 
 	module := copyFixture(t, untestedBranchesFixture)
 
-	config := characteriseConfig(t, module)
-	config.CharacteriseWrite = true
+	config := characteriseRequest(t, module)
+	config.Write = true
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {
@@ -226,8 +217,8 @@ func statesOf(graded report.Report) map[report.State]int {
 func TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten(t *testing.T) {
 	module := copyFixture(t, untestedBranchesFixture)
 
-	config := characteriseConfig(t, module)
-	config.CharacteriseWrite = true
+	config := characteriseRequest(t, module)
+	config.Write = true
 	engine.SetInitialPinDefectSeed(t, module)
 
 	_, err := engine.Run(t.Context(), config)
@@ -256,8 +247,8 @@ func TestASecondWriteIsRefusedAsACollision(t *testing.T) {
 
 	module := copyFixture(t, untestedBranchesFixture)
 
-	config := characteriseConfig(t, module)
-	config.CharacteriseWrite = true
+	config := characteriseRequest(t, module)
+	config.Write = true
 
 	if _, err := engine.Run(t.Context(), config); err != nil {
 		t.Fatalf("characterise --write: %v", err)
@@ -281,15 +272,15 @@ func TestForceReplacesOnlyUnmodifiedGeneratedFiles(t *testing.T) {
 
 	module := copyFixture(t, untestedBranchesFixture)
 
-	config := characteriseConfig(t, module)
-	config.CharacteriseWrite = true
+	config := characteriseRequest(t, module)
+	config.Write = true
 
 	if _, err := engine.Run(t.Context(), config); err != nil {
 		t.Fatalf("characterise --write: %v", err)
 	}
 
 	forced := config
-	forced.CharacteriseForce = true
+	forced.Force = true
 
 	if _, err := engine.Run(t.Context(), forced); err != nil {
 		t.Fatalf("--force over an unmodified generated file: %v", err)
@@ -316,7 +307,7 @@ func TestScenariosCarryDistinctStateKeys(t *testing.T) {
 
 	module := copyFixture(t, untestedBranchesFixture)
 
-	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	result, err := engine.Run(t.Context(), characteriseRequest(t, module))
 	if err != nil {
 		t.Fatalf("characterise: %v", err)
 	}
@@ -365,7 +356,7 @@ func TestAZeroOutputModuleEscalatesAndSaysSo(t *testing.T) {
 
 	module := copyFixture(t, untestedZeroOutputFixture)
 
-	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	result, err := engine.Run(t.Context(), characteriseRequest(t, module))
 	if err != nil {
 		t.Fatalf("characterise: %v", err)
 	}
@@ -401,7 +392,7 @@ func TestAZeroOutputModuleEscalatesAndSaysSo(t *testing.T) {
 func TestARungThatPinsNothingIsNeverComplete(t *testing.T) {
 	module := copyFixture(t, untestedZeroOutputFixture)
 
-	config := characteriseConfig(t, module)
+	config := characteriseRequest(t, module)
 	config.PinRung = rungOutputs
 	engine.SetNoEscalationSeed(t, module)
 
@@ -424,7 +415,7 @@ func TestTheConfiguredRungPinsOnlyWhatTheConfigurationDetermined(t *testing.T) {
 
 	module := copyFixture(t, untestedAliasesFixture)
 
-	config := characteriseConfig(t, module)
+	config := characteriseRequest(t, module)
 	config.PinRung = "configured"
 
 	result, err := engine.Run(t.Context(), config)
@@ -465,7 +456,7 @@ func TestAnUnknownRungIsRefused(t *testing.T) {
 
 	module := copyFixture(t, untestedZeroOutputFixture)
 
-	config := characteriseConfig(t, module)
+	config := characteriseRequest(t, module)
 	config.PinRung = "everything"
 
 	if _, err := engine.Run(t.Context(), config); !errors.Is(err, characterise.ErrRung) {
@@ -482,7 +473,7 @@ func TestASensitiveValueReachesNoGeneratedArtefact(t *testing.T) {
 
 	module := copyFixture(t, untestedSensitiveFixture)
 
-	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	result, err := engine.Run(t.Context(), characteriseRequest(t, module))
 	if err != nil {
 		t.Fatalf("characterise: %v", err)
 	}
@@ -520,17 +511,17 @@ func TestASensitiveValueReachesNoGeneratedArtefact(t *testing.T) {
 func TestARealCharacterisationReportValidatesAgainstThePublishedSchema(t *testing.T) {
 	t.Parallel()
 
-	shapes := map[string]func(engine.Config) engine.Config{
-		"pinned": func(config engine.Config) engine.Config { return config },
-		"escalated": func(config engine.Config) engine.Config {
-			config.PinRung = rungOutputs
+	shapes := map[string]func(engine.CharacteriseRequest) engine.CharacteriseRequest{
+		"pinned": func(request engine.CharacteriseRequest) engine.CharacteriseRequest { return request },
+		"escalated": func(request engine.CharacteriseRequest) engine.CharacteriseRequest {
+			request.PinRung = rungOutputs
 
-			return config
+			return request
 		},
-		"skipped": func(config engine.Config) engine.Config {
-			config.PinRung = "configured"
+		"skipped": func(request engine.CharacteriseRequest) engine.CharacteriseRequest {
+			request.PinRung = "configured"
 
-			return config
+			return request
 		},
 	}
 
@@ -546,7 +537,7 @@ func TestARealCharacterisationReportValidatesAgainstThePublishedSchema(t *testin
 
 			module := copyFixture(t, fixtures[name])
 
-			result, err := engine.Run(t.Context(), adjust(characteriseConfig(t, module)))
+			result, err := engine.Run(t.Context(), adjust(characteriseRequest(t, module)))
 			if err != nil {
 				t.Fatalf("characterise: %v", err)
 			}
@@ -577,7 +568,7 @@ func TestBranchExpansionPinsBothSidesOfAConditional(t *testing.T) {
 
 	module := copyFixture(t, untestedBranchesFixture)
 
-	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	result, err := engine.Run(t.Context(), characteriseRequest(t, module))
 	if err != nil {
 		t.Fatalf("characterise: %v", err)
 	}
@@ -616,7 +607,7 @@ func TestScenarioPinsAreInvariantUnderFileOrder(t *testing.T) {
 	for _, order := range []string{"", "forward", "reverse"} {
 		module := copyFixture(t, untestedPersistentFixture)
 
-		config := characteriseConfig(t, module)
+		config := characteriseRequest(t, module)
 		engine.SetSharedFileOrderSeed(t, module, order)
 
 		result, err := engine.Run(t.Context(), config)
@@ -694,8 +685,8 @@ func scenarioPinTuples(t *testing.T, order string, block *report.Characterisatio
 func TestAClosureChangeAtTheProbeYieldsZeroWrites(t *testing.T) {
 	module := copyFixture(t, untestedBranchesFixture)
 
-	config := characteriseConfig(t, module)
-	config.CharacteriseWrite = true
+	config := characteriseRequest(t, module)
+	config.Write = true
 	engine.SetCharacteriseWriteSeeds(t, module, mainFile, "", 0, false, false)
 
 	_, err := engine.Run(t.Context(), config)
@@ -727,7 +718,7 @@ func TestAClosureChangeAtTheProbeYieldsZeroWrites(t *testing.T) {
 func TestNoTerraformRunPrecedesAStagedGateRefusal(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "terraform-calls")
 
-	config := characteriseConfig(t, copyFixture(t, untestedAliasesFixture))
+	config := characteriseRequest(t, copyFixture(t, untestedAliasesFixture))
 	engine.SetMissingMockSeed(t, config.ModuleDir, secondaryConfiguration)
 	config.TerraformBinary = recordingTerraform(t, log)
 
@@ -751,8 +742,8 @@ func TestNoTerraformRunPrecedesAStagedGateRefusal(t *testing.T) {
 func TestANewClosureFileAtTheProbeYieldsZeroWrites(t *testing.T) {
 	module := copyFixture(t, untestedBranchesFixture)
 
-	config := characteriseConfig(t, module)
-	config.CharacteriseWrite = true
+	config := characteriseRequest(t, module)
+	config.Write = true
 	engine.SetCharacteriseWriteSeeds(t, module, "", "added.tf", 0, false, false)
 
 	_, err := engine.Run(t.Context(), config)
@@ -781,8 +772,8 @@ func TestANewClosureFileAtTheProbeYieldsZeroWrites(t *testing.T) {
 func TestAPartialCommitReportsWhatItWrote(t *testing.T) {
 	module := copyFixture(t, untestedBranchesFixture)
 
-	config := characteriseConfig(t, module)
-	config.CharacteriseWrite = true
+	config := characteriseRequest(t, module)
+	config.Write = true
 	// The closure grows between the first rename and the second, so the first
 	// file lands and the second is refused.
 	engine.SetCharacteriseWriteSeeds(t, module, "", "added.tf", 1, false, false)
@@ -828,7 +819,7 @@ func TestConfigurationAliasesAreMockedAndGated(t *testing.T) {
 
 	module := copyFixture(t, untestedAliasFixture)
 
-	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	result, err := engine.Run(t.Context(), characteriseRequest(t, module))
 	if err != nil {
 		t.Fatalf("characterise: %v", err)
 	}
@@ -842,7 +833,7 @@ func TestConfigurationAliasesAreMockedAndGated(t *testing.T) {
 
 	// The gate has to see them too: a configuration nothing mocks must refuse
 	// before execution, exactly as a `provider`-block alias does.
-	seeded := characteriseConfig(t, module)
+	seeded := characteriseRequest(t, module)
 	engine.SetMissingMockSeed(t, module, secondaryConfiguration)
 
 	if _, err := engine.Run(t.Context(), seeded); !errors.Is(err, engine.ErrRealInfrastructure) {
@@ -859,8 +850,8 @@ func TestConfigurationAliasesAreMockedAndGated(t *testing.T) {
 func TestARegistryFailureReportsThePartialState(t *testing.T) {
 	module := copyFixture(t, untestedBranchesFixture)
 
-	config := characteriseConfig(t, module)
-	config.CharacteriseWrite = true
+	config := characteriseRequest(t, module)
+	config.Write = true
 	engine.SetCharacteriseWriteSeeds(t, module, "", "", 0, false, true)
 
 	result, err := engine.Run(t.Context(), config)
@@ -908,8 +899,8 @@ func assertRenameWindowChangeCaught(t *testing.T, closureChange, closureFile str
 	t.Helper()
 	module := copyFixture(t, untestedBranchesFixture)
 
-	config := characteriseConfig(t, module)
-	config.CharacteriseWrite = true
+	config := characteriseRequest(t, module)
+	config.Write = true
 	engine.SetCharacteriseWriteSeeds(t, module, closureChange, closureFile, 0, true, false)
 
 	_, err := engine.Run(t.Context(), config)
@@ -957,7 +948,7 @@ func TestAJSONDeclaredVariableReachesTheScaffold(t *testing.T) {
 
 	module := copyFixture(t, untestedJSONVariableFixture)
 
-	result, err := engine.Run(t.Context(), characteriseConfig(t, module))
+	result, err := engine.Run(t.Context(), characteriseRequest(t, module))
 	if err != nil {
 		t.Fatalf("characterise: %v", err)
 	}
@@ -990,7 +981,7 @@ func TestForEachKeysNeedingEscapesStillRenderAGreenSuite(t *testing.T) {
 
 	module := copyFixture(t, untestedForEachKeysFixture)
 
-	config := characteriseConfig(t, module)
+	config := characteriseRequest(t, module)
 	config.PinRung = "counts"
 
 	result, err := engine.Run(t.Context(), config)
@@ -1003,25 +994,24 @@ func TestForEachKeysNeedingEscapesStillRenderAGreenSuite(t *testing.T) {
 	}
 }
 
-// TestUntilDryRefusesANarrowedPopulation holds convergence to the population
-// posture `curate` already holds.
-//
-// "Dry" is a claim about a population: under a count lever the loop grades a
-// subset, and the report hard-codes the selection as full, so nothing
-// downstream could tell a sampled convergence from an authoritative one.
-func TestUntilDryRefusesANarrowedPopulation(t *testing.T) {
+// TestUntilDryRefusesAConfiguredNarrowing holds the preserved half of the
+// population posture at the engine seam: a flag can no longer carry the
+// narrowing (the parser refuses it), but `.tf-mut.hcl` still can, and C5's
+// refusal of an effective configuration that narrows the population stays
+// pre-execution.
+func TestUntilDryRefusesAConfiguredNarrowing(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, untestedBranchesFixture)
+	writeFile(t, filepath.Join(module, config.FileName),
+		"operators {\n  exclude = [\"BOOL-FLIP\"]\n}\n")
 
-	config := characteriseConfig(t, module)
-	config.UntilDry = true
-	config.HasSample = true
-	config.SamplePercent = 1
+	request := characteriseRequest(t, module)
+	request.UntilDry = true
 
-	_, err := engine.Run(t.Context(), config)
+	_, err := engine.Run(t.Context(), request)
 	if !errors.Is(err, engine.ErrUntilDryPopulation) {
-		t.Fatalf("error = %v, want the narrowed population refused before any work", err)
+		t.Fatalf("error = %v, want the configured narrowing refused before any work", err)
 	}
 }
 

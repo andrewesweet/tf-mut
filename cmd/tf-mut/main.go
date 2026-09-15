@@ -1,7 +1,8 @@
 // Package main exposes the tf-mut command-line entry point.
 //
-// The command is a thin shell over the engine: it parses flags into an
-// engine.Config, renders the returned report, and maps it to an exit code.
+// The command is a thin shell over the engine: it parses flags into an engine
+// request — one of the closed set of command values the seam takes — renders
+// the returned report, and maps it to an exit code.
 package main
 
 import (
@@ -139,7 +140,7 @@ func run(args []string, buildVersion string, stdout, stderr io.Writer) int {
 }
 
 type options struct {
-	config    engine.Config
+	config    engine.Request
 	gate      report.Gate
 	reporter  string
 	sarifPath string
@@ -340,7 +341,12 @@ var errUncarryingReporter = errors.New(
 )
 
 // commandFlags names the flags each command acts on, for the flags that belong
-// to one command and are declared on the set every command shares.
+// to one command and are declared on the set every command shares. The run,
+// preview and suggest rows name the population controls: those act only on the
+// commands whose engine requests carry a population, and are refused on the
+// rest, whose requests have no field for any of them — so `curate --since` is
+// a parse error rather than a narrowed population the engine discovers it
+// cannot express.
 //
 // A flag accepted and ignored is worse than one refused: `--write` and
 // `--force` both name write behaviour and were silently no-ops under `run`,
@@ -351,24 +357,41 @@ var errUncarryingReporter = errors.New(
 //
 //nolint:gochecknoglobals // an immutable table.
 var commandFlags = map[string]map[string]bool{
+	runCommand: {
+		"tier": true, "operator": true, "exclude-operator": true,
+		"exclude-path": true, "exclude-resource": true, "since": true,
+		"sample": true, "seed": true, "generated-functions": true,
+	},
+	previewCommand: {
+		"tier": true, "operator": true, "exclude-operator": true,
+		"exclude-path": true, "exclude-resource": true, "since": true,
+		"sample": true, "seed": true, "generated-functions": true,
+	},
+	suggestCommand: {
+		"apply": true, "all-verified": true, "survivor": true, "dry-run": true,
+		"tier": true, "operator": true, "exclude-operator": true,
+		"exclude-path": true, "exclude-resource": true, "since": true,
+		"sample": true, "seed": true, "generated-functions": true,
+	},
 	characteriseCommand: {
 		"write": true, "force": true, pinFlag: true,
 		"until-dry": true, answerFlagName: true, resumeFlagName: true,
 	},
 	todosCommand: {pinFlag: true, answerFlagName: true, resumeFlagName: true},
-	suggestCommand: {
-		"apply": true, "all-verified": true, "survivor": true, "dry-run": true,
-	},
 }
 
 // scopedFlags is every flag that belongs to some command rather than to all of
-// them. A flag outside this set applies everywhere and is never refused.
+// them: the flags named in commandFlags, including the population controls. A
+// flag outside this set applies everywhere and is never refused.
 //
 //nolint:gochecknoglobals // an immutable set.
 var scopedFlags = map[string]bool{
 	"write": true, "force": true, pinFlag: true, "until-dry": true,
 	answerFlagName: true, resumeFlagName: true, "apply": true, "all-verified": true,
 	"survivor": true, "dry-run": true,
+	"tier": true, "operator": true, "exclude-operator": true,
+	"exclude-path": true, "exclude-resource": true, "since": true,
+	"sample": true, "seed": true, "generated-functions": true,
 }
 
 func refuseInapplicableFlags(command string, given []string) error {
@@ -407,60 +430,120 @@ func refuseUncarryingReporter(command, reporter string) error {
 }
 
 // engineConfig maps the parsed flags onto the engine's one input value.
+//
+// Characterise, todos and curate are built as their own request values: a
+// request with no field for a population control is what makes the parser's
+// refusal of one complete. Run, preview and suggest still drive the legacy
+// Config until their own migrate steps land, and the mode booleans leave with
+// the contract step of the expand–contract sequence.
 func engineConfig(
 	command, buildVersion string,
 	values flagValues,
 	moduleDir string,
 	given []string,
 	requested, sampled bool,
-) engine.Config {
-	return engine.Config{
+) engine.Request {
+	switch command {
+	case characteriseCommand:
+		return engine.CharacteriseRequest{
+			Common:   commonFlags(buildVersion, values, moduleDir, given),
+			PinRung:  *values.pin,
+			Write:    *values.write,
+			Force:    *values.force,
+			UntilDry: *values.untilDry,
+			Resume:   *values.resume,
+			Answers:  *values.answers,
+		}
+
+	case todosCommand:
+		return engine.TodosRequest{
+			Common:  commonFlags(buildVersion, values, moduleDir, given),
+			PinRung: *values.pin,
+			Answers: *values.answers,
+			Resume:  *values.resume,
+		}
+
+	case curateCommand:
+		return engine.CurateRequest{
+			Common: commonFlags(buildVersion, values, moduleDir, given),
+			Gate: engine.Gate{
+				MinScore:             *values.minScore,
+				HasMinScore:          requested,
+				AllowIncompleteScore: *values.allowIncomplete,
+				AllowSampledGate:     *values.allowSampledGate,
+				FailOnNew:            *values.failOnNew,
+				WriteBaseline:        *values.writeBaseline,
+				BaselinePath:         *values.baselinePath,
+			},
+			NoCache: *values.noCache,
+		}
+
+	default:
+		return engine.Config{
+			ModuleDir:               moduleDir,
+			TestDirectory:           *values.testDirectory,
+			Jobs:                    *values.jobs,
+			TimeoutFactor:           *values.timeoutFactor,
+			TimeoutFloor:            0,
+			MinScore:                *values.minScore,
+			HasMinScore:             requested,
+			AllowIncompleteScore:    *values.allowIncomplete,
+			AllowRealInfrastructure: *values.allowReal,
+			AllowUnsandboxedEffects: *values.allowEffects,
+			Preview:                 command == previewCommand,
+			TerraformBinary:         "",
+			Env:                     nil,
+			WorkDir:                 "",
+			TestSelection:           nil,
+			Tier:                    mutation.Tier(*values.tier),
+			IncludeOperators:        commaSeparated(*values.operators),
+			ExcludeOperators:        commaSeparated(*values.excludeOperators),
+			ExcludePaths:            commaSeparated(*values.excludePaths),
+			ExcludeResources:        commaSeparated(*values.excludeResources),
+			SetFlags:                given,
+			Since:                   *values.since,
+			SamplePercent:           *values.sample,
+			HasSample:               sampled,
+			SampleSeed:              *values.seed,
+			AllowSampledGate:        *values.allowSampledGate,
+			NoCache:                 *values.noCache,
+			FailOnNew:               *values.failOnNew,
+			WriteBaseline:           *values.writeBaseline,
+			BaselinePath:            *values.baselinePath,
+			GeneratedFunctions:      *values.generatedFunctions,
+			Suggest:                 command == suggestCommand,
+			SuggestDryRun:           *values.dryRun,
+			SurvivorIDs:             commaSeparated(*values.survivors),
+			Apply:                   commaSeparated(*values.apply),
+			ApplyAll:                *values.allVerified,
+			ToolVersion:             buildinfo.Resolve(buildVersion),
+			Answers:                 *values.answers,
+			Resume:                  *values.resume,
+		}
+	}
+}
+
+// commonFlags projects the flags every command shares onto the Common embed
+// the typed requests carry.
+func commonFlags(
+	buildVersion string,
+	values flagValues,
+	moduleDir string,
+	given []string,
+) engine.Common {
+	return engine.Common{
 		ModuleDir:               moduleDir,
 		TestDirectory:           *values.testDirectory,
 		Jobs:                    *values.jobs,
 		TimeoutFactor:           *values.timeoutFactor,
 		TimeoutFloor:            0,
-		MinScore:                *values.minScore,
-		HasMinScore:             requested,
-		AllowIncompleteScore:    *values.allowIncomplete,
 		AllowRealInfrastructure: *values.allowReal,
 		AllowUnsandboxedEffects: *values.allowEffects,
-		Preview:                 command == previewCommand,
 		TerraformBinary:         "",
 		Env:                     nil,
 		WorkDir:                 "",
-		TestSelection:           nil,
-		Tier:                    mutation.Tier(*values.tier),
-		IncludeOperators:        commaSeparated(*values.operators),
-		ExcludeOperators:        commaSeparated(*values.excludeOperators),
-		ExcludePaths:            commaSeparated(*values.excludePaths),
-		ExcludeResources:        commaSeparated(*values.excludeResources),
-		SetFlags:                given,
-		Since:                   *values.since,
-		SamplePercent:           *values.sample,
-		HasSample:               sampled,
-		SampleSeed:              *values.seed,
-		AllowSampledGate:        *values.allowSampledGate,
-		NoCache:                 *values.noCache,
-		FailOnNew:               *values.failOnNew,
-		WriteBaseline:           *values.writeBaseline,
-		BaselinePath:            *values.baselinePath,
-		GeneratedFunctions:      *values.generatedFunctions,
-		Suggest:                 command == suggestCommand,
-		SuggestDryRun:           *values.dryRun,
-		SurvivorIDs:             commaSeparated(*values.survivors),
-		Apply:                   commaSeparated(*values.apply),
-		ApplyAll:                *values.allVerified,
 		ToolVersion:             buildinfo.Resolve(buildVersion),
-		Characterise:            command == characteriseCommand,
-		PinRung:                 *values.pin,
-		CharacteriseWrite:       *values.write,
-		CharacteriseForce:       *values.force,
-		Todos:                   command == todosCommand,
-		Curate:                  command == curateCommand,
-		UntilDry:                *values.untilDry,
-		Answers:                 *values.answers,
-		Resume:                  *values.resume,
+		SetFlags:                given,
 	}
 }
 

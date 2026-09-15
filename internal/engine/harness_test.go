@@ -92,32 +92,9 @@ func baseConfig(t *testing.T, moduleDir string) engine.RunRequest {
 	}
 }
 
-// legacyBaseConfig is the Config-typed base for the characterise, todos and
-// curate call sites that still stage their command through a mode boolean.
-// Issue #97 migrates those call sites onto their request types and deletes
-// this helper with them; do not extend its use to run-command call sites.
-func legacyBaseConfig(t *testing.T, moduleDir string) engine.Config {
-	t.Helper()
-
-	return engine.Config{
-		ModuleDir:               moduleDir,
-		TestDirectory:           engine.DefaultTestDirectory,
-		Jobs:                    testJobs,
-		TimeoutFactor:           engine.DefaultTimeoutFactor,
-		TimeoutFloor:            0,
-		MinScore:                0,
-		HasMinScore:             false,
-		AllowIncompleteScore:    false,
-		AllowRealInfrastructure: false,
-		AllowUnsandboxedEffects: false,
-		Preview:                 false,
-		TerraformBinary:         "",
-		Env:                     terraformEnv(t),
-		WorkDir:                 t.TempDir(),
-		TestSelection:           nil,
-	}
-}
-
+// characteriseRequest, todosRequest and curateRequest are the bases the
+// characterisation, todos and curate call sites start from. Each stages its
+// command through its request type, never through a mode boolean.
 func previewRequest(t *testing.T, moduleDir string) engine.PreviewRequest {
 	t.Helper()
 
