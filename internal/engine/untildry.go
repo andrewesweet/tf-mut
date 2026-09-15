@@ -349,12 +349,8 @@ func absorb(block *report.Characterisation, result report.Report) int {
 
 		address := assertedAddress(suggestion.Expression)
 
-		block.Pins = append(block.Pins, report.Pin{
-			ID:       characterise.PinID(scenario, address, suggestion.Expression),
-			Scenario: scenario, Address: address,
-			Expression: suggestion.Expression, Status: report.Pinned, Reason: "",
-			Rung: string(level),
-		})
+		block.Pins = append(block.Pins,
+			projectPin(characterise.Pinned(scenario, address, suggestion.Expression, string(level))))
 	}
 
 	slices.SortFunc(block.Pins, func(left, right report.Pin) int {

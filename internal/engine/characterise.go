@@ -346,7 +346,7 @@ func scaffoldSuite(
 
 	block.Pins = seedInitialPinDefect(
 		stage.configuration,
-		characterise.Pin(scaffold, stage.configuration, stage.prepared.schemas, harvest),
+		projectPins(characterise.PinHarvest(scaffold, stage.configuration, stage.prepared.schemas, harvest)),
 	)
 
 	files := pinnedFiles(scaffold, scenarios, block.Pins)

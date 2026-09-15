@@ -11,10 +11,133 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
-	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
+
+// The pin lifecycle.
+//
+// A pin is one harvested value at the chosen granularity, and it exists in
+// exactly one of two states: pinned, carrying the assert condition the value
+// was expressed as, or skipped, carrying why the pinning stage refused it and
+// nothing else. The rule "only pinned carries an expression; every skipped
+// status carries a reason and no executable content" is the constructors'
+// signatures: Pinned is the only spelling that takes an expression, and
+// PinSkipped takes none, so a skipped pin cannot smuggle executable content
+// into a generated suite. The identity the published row requires — the
+// scenario, the address and the rung — travels through both constructors,
+// because the report schema marks those required for every status.
+//
+// SkipReason is why the pinning stage refused a value. It is the
+// Characterisation context's own closed vocabulary, not a publication
+// status; the application layer projects it onto the published wire
+// spelling. Where a pin's fate turns on an observable difference, that
+// difference is the Oracle context's delta change type — the same
+// `fingerprint.Change` the survivor evidence carries — never a publication
+// DTO.
+
+// SkipReason is why a pin was skipped rather than pinned.
+type SkipReason string
+
+// The complete skip vocabulary. Nothing else may be assigned.
+const (
+	// SkipSensitive marks a value Terraform marks sensitive. Neither the
+	// value nor any rendering of it reaches an artefact.
+	SkipSensitive SkipReason = "skipped-sensitive"
+	// SkipUnrenderable marks a value no type-correct Terraform equality
+	// expresses, as the M4 rendering contract decides it.
+	SkipUnrenderable SkipReason = "skipped-unrenderable"
+	// SkipVolatile marks a value the double run proved varies between two
+	// runs of the same configuration.
+	SkipVolatile SkipReason = "skipped-volatile"
+	// SkipMockInvented marks a schema-computed value the mock invented rather
+	// than the configuration determined.
+	SkipMockInvented SkipReason = "skipped-mock-invented"
+)
+
+// outcome is the state a pin carries. The zero value is no state at all, and
+// only the constructors assign one.
+type outcome uint8
+
+const (
+	outcomePinned outcome = iota + 1
+	outcomeSkipped
+)
+
+// Pin is one harvested value at the chosen granularity. Its fields are
+// unexported: a pin exists only where Pinned or PinSkipped built it, and
+// every value carries exactly what its state requires and nothing a skipped
+// one must not.
+type Pin struct {
+	id         string
+	scenario   string
+	address    string
+	rung       string
+	outcome    outcome
+	skip       SkipReason
+	expression string
+	reason     string
+}
+
+// Pinned pins a harvested value as the assert condition that expresses it.
+// The identifier is the stable content hash over the scenario, the address
+// and the expression, so it survives a re-run.
+func Pinned(scenario, address, expression, rung string) Pin {
+	return Pin{
+		id:         PinID(scenario, address, expression),
+		scenario:   scenario,
+		address:    address,
+		rung:       rung,
+		outcome:    outcomePinned,
+		expression: expression,
+	}
+}
+
+// PinSkipped records the pinning stage's refusal of a value. It takes no
+// expression parameter — no reason in the closed vocabulary permits one — so
+// a refused value is reported as a refusal and can never be dressed as an
+// assertion. It does take the identity the published row requires (scenario,
+// address and rung), which the report schema marks required for every
+// status; a reason-and-detail-only constructor could not spell a
+// wire-complete row. The identifier hashes an empty expression, so a skipped
+// pin's identity is stable across re-runs exactly as a pinned one's is.
+func PinSkipped(scenario, address, rung string, reason SkipReason, detail string) Pin {
+	return Pin{
+		id:       PinID(scenario, address, ""),
+		scenario: scenario,
+		address:  address,
+		rung:     rung,
+		outcome:  outcomeSkipped,
+		skip:     reason,
+		reason:   detail,
+	}
+}
+
+// ID is the stable content identifier.
+func (p Pin) ID() string { return p.id }
+
+// Scenario is the identifier of the scenario the value was harvested from.
+func (p Pin) Scenario() string { return p.scenario }
+
+// Address is the Terraform address the pin is about.
+func (p Pin) Address() string { return p.address }
+
+// Rung is the ladder level the pin belongs to.
+func (p Pin) Rung() string { return p.rung }
+
+// Expression is the generated assert condition, for a pinned pin. A skipped
+// one carries none.
+func (p Pin) Expression() string { return p.expression }
+
+// Reason states why a skipped pin was skipped. Empty when pinned.
+func (p Pin) Reason() string { return p.reason }
+
+// IsPinned reports whether the pin expresses a value. A pin that is neither
+// pinned nor skipped cannot be constructed.
+func (p Pin) IsPinned() bool { return p.outcome == outcomePinned }
+
+// SkipReason is the generation-time refusal, and whether this pin is one.
+func (p Pin) SkipReason() (SkipReason, bool) { return p.skip, p.outcome == outcomeSkipped }
 
 // Harvest is everything one double run observed, in the form the pinning stage
 // consumes it.
@@ -34,24 +157,24 @@ const (
 	valuesSegment  = "].values."
 )
 
-// Pin turns a harvest into the pins of the scaffold's granularity.
+// PinHarvest turns a harvest into the pins of the scaffold's granularity.
 //
 // Every admitted value goes through the M4 rendering, addressing and
 // sensitivity adapters unchanged: the assertion this writes and the assertion
 // `suggest` writes are produced by one contract, so a value that is
 // unrenderable for one is unrenderable for both.
-func Pin(
+func PinHarvest(
 	scaffold Scaffold,
 	configuration discovery.Configuration,
 	schemas tfexec.Schemas,
 	harvest Harvest,
-) []report.Pin {
+) []Pin {
 	masked := map[string]bool{}
 	for _, path := range harvest.Mask.Paths() {
 		masked[path] = true
 	}
 
-	pins := []report.Pin{}
+	pins := []Pin{}
 	seen := map[string]bool{}
 
 	for _, payload := range harvest.Payloads {
@@ -68,12 +191,12 @@ func Pin(
 		pins = append(pins, countPins(scaffold, configuration, payload, scenario, seen)...)
 	}
 
-	slices.SortFunc(pins, func(left, right report.Pin) int {
-		if order := strings.Compare(left.Scenario, right.Scenario); order != 0 {
+	slices.SortFunc(pins, func(left, right Pin) int {
+		if order := strings.Compare(left.Scenario(), right.Scenario()); order != 0 {
 			return order
 		}
 
-		return strings.Compare(left.Address, right.Address)
+		return strings.Compare(left.Address(), right.Address())
 	})
 
 	return pins
@@ -97,7 +220,7 @@ func valuePins(
 	payload fingerprint.Payload,
 	scenario ScenarioPlan,
 	masked, seen map[string]bool,
-) []report.Pin {
+) []Pin {
 	sensitiveValues := payload.SensitiveRenderings()
 
 	paths := make([]string, 0, len(payload.Values))
@@ -107,7 +230,7 @@ func valuePins(
 
 	slices.Sort(paths)
 
-	pins := []report.Pin{}
+	pins := []Pin{}
 
 	for _, path := range paths {
 		rung, admitted := rungOf(path)
@@ -154,31 +277,27 @@ type pinContext struct {
 // onePin decides one candidate value's fate. The order is the contract: a
 // value the mask removed was never observed honestly, a sensitive value must
 // not reach a renderer at all, and only what survives both is expressed.
-func onePin(context pinContext) report.Pin {
+func onePin(context pinContext) Pin {
 	value := context.payload.Values[context.path]
 	expression := expressionAddress(context.address, context.attribute)
 
-	skip := func(status report.PinStatus, reason string) report.Pin {
-		return report.Pin{
-			ID: PinID(context.scenario.ID, expression, ""), Scenario: context.scenario.ID,
-			Address: expression, Expression: "", Status: status, Reason: reason,
-			Rung: string(context.rung),
-		}
+	skip := func(reason SkipReason, detail string) Pin {
+		return PinSkipped(context.scenario.ID, expression, string(context.rung), reason, detail)
 	}
 
 	if context.masked {
-		return skip(report.PinSkippedVolatile,
+		return skip(SkipVolatile,
 			"the double run proved this value varies between two runs of the same configuration")
 	}
 
 	sensitive := context.payload.Sensitive(context.path) || context.sensitiveValues[value]
 	if sensitive {
-		return skip(report.PinSkippedSensitive,
+		return skip(SkipSensitive,
 			"Terraform marks this value, or a container of it, sensitive")
 	}
 
 	if reason, invented := mockInvented(context); invented {
-		return skip(report.PinSkippedMockInvented, reason)
+		return skip(SkipMockInvented, reason)
 	}
 
 	rendered, err := suggest.Express(
@@ -191,17 +310,13 @@ func onePin(context pinContext) report.Pin {
 	)
 	if err != nil {
 		if errors.Is(err, suggest.ErrSensitive) {
-			return skip(report.PinSkippedSensitive, "the sensitivity predicate refused this value")
+			return skip(SkipSensitive, "the sensitivity predicate refused this value")
 		}
 
-		return skip(report.PinSkippedUnrenderable, err.Error())
+		return skip(SkipUnrenderable, err.Error())
 	}
 
-	return report.Pin{
-		ID: PinID(context.scenario.ID, expression, rendered), Scenario: context.scenario.ID,
-		Address: expression, Expression: rendered, Status: report.Pinned, Reason: "",
-		Rung: string(context.rung),
-	}
+	return Pinned(context.scenario.ID, expression, rendered, string(context.rung))
 }
 
 // mockInvented reports a value the provider computes rather than the
@@ -296,13 +411,13 @@ func countPins(
 	payload fingerprint.Payload,
 	scenario ScenarioPlan,
 	seen map[string]bool,
-) []report.Pin {
+) []Pin {
 	if !scaffold.Rung.Includes(RungCounts) {
 		return nil
 	}
 
 	instances := instancesOf(payload)
-	pins := []report.Pin{}
+	pins := []Pin{}
 
 	for _, module := range configuration.Modules {
 		if module.Dir != configuration.ModuleDir {
@@ -332,7 +447,7 @@ func countPins(
 }
 
 // countPin pins one resource collection's instance count.
-func countPin(scenario ScenarioPlan, address string, count int, seen map[string]bool) []report.Pin {
+func countPin(scenario ScenarioPlan, address string, count int, seen map[string]bool) []Pin {
 	expression := "length(" + address + ") == " + strconv.Itoa(count)
 
 	return onlyOnce(scenario, "length("+address+")", expression, seen)
@@ -344,7 +459,7 @@ func keyPin(
 	address string,
 	keys []string,
 	seen map[string]bool,
-) []report.Pin {
+) []Pin {
 	// Rendered through the same value machinery every other literal goes
 	// through. A key is arbitrary text — `for_each` over a map accepts a
 	// quote, a backslash and a `${` alike — and re-quoting it by concatenation
@@ -364,7 +479,7 @@ func onlyOnce(
 	scenario ScenarioPlan,
 	address, expression string,
 	seen map[string]bool,
-) []report.Pin {
+) []Pin {
 	key := scenario.ID + "\x00" + address
 	if seen[key] {
 		return nil
@@ -372,11 +487,7 @@ func onlyOnce(
 
 	seen[key] = true
 
-	return []report.Pin{{
-		ID: PinID(scenario.ID, address, expression), Scenario: scenario.ID,
-		Address: address, Expression: expression, Status: report.Pinned,
-		Reason: "", Rung: string(RungCounts),
-	}}
+	return []Pin{Pinned(scenario.ID, address, expression, string(RungCounts))}
 }
 
 // instancesOf groups a state payload's resource instances by the collection

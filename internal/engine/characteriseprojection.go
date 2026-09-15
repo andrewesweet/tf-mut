@@ -72,6 +72,61 @@ func projectInputProvenance(provenance characterise.InputProvenance) report.Inpu
 	return ""
 }
 
+// projectPins maps the context's pins onto the published DTOs, in bundle
+// order.
+func projectPins(pins []characterise.Pin) []report.Pin {
+	projected := make([]report.Pin, 0, len(pins))
+
+	for _, pin := range pins {
+		projected = append(projected, projectPin(pin))
+	}
+
+	return projected
+}
+
+// projectPin maps one pin onto the published DTO. Only a pinned pin carries
+// an expression; a skipped one carries its reason and no executable content —
+// the expression the context never gave it.
+func projectPin(pin characterise.Pin) report.Pin {
+	projected := report.Pin{
+		ID:         pin.ID(),
+		Scenario:   pin.Scenario(),
+		Address:    pin.Address(),
+		Expression: pin.Expression(),
+		Rung:       pin.Rung(),
+	}
+
+	if reason, skipped := pin.SkipReason(); skipped {
+		projected.Status = projectPinSkipReason(reason)
+		projected.Reason = pin.Reason()
+
+		return projected
+	}
+
+	projected.Status = report.Pinned
+
+	return projected
+}
+
+// projectPinSkipReason translates the Characterisation context's pin skip
+// vocabulary into the published wire spelling. The switch is exhaustive over
+// the context's closed set, so a reason the context gains is a compile-time
+// demand on this table.
+func projectPinSkipReason(reason characterise.SkipReason) report.PinStatus {
+	switch reason {
+	case characterise.SkipSensitive:
+		return report.PinSkippedSensitive
+	case characterise.SkipUnrenderable:
+		return report.PinSkippedUnrenderable
+	case characterise.SkipVolatile:
+		return report.PinSkippedVolatile
+	case characterise.SkipMockInvented:
+		return report.PinSkippedMockInvented
+	}
+
+	return ""
+}
+
 // projectTodos maps the context's judgement points onto the published DTOs,
 // in bundle order.
 func projectTodos(todos []characterise.Todo) []report.Todo {
