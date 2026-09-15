@@ -172,10 +172,6 @@ func (g Generator) nullInjection(where site, attribute *hclsyntax.Attribute) (ed
 
 // nullableVariable reports whether a variable accepts null, which is what
 // decides whether VAR-DEFAULT-NULL can fire without being doomed.
-//
-// The flag is read through the boundary's named accessor. Where the accessor
-// returns false the flag's syntax cannot be read, so the site is not a
-// mutation site: the catalogue does not guess at syntax it cannot see.
 func nullableVariable(where site, module discovery.Module) bool {
 	declaration, found := module.VariableByName(where.variable)
 	if !found {
@@ -187,18 +183,13 @@ func nullableVariable(where site, module discovery.Module) bool {
 			continue
 		}
 
-		native, ok := discovery.NativeExpression(attribute.Expr)
-		if !ok {
-			return false
-		}
-
-		return literalBool(native)
+		return literalBool(attribute.Expr)
 	}
 
 	return true
 }
 
-func literalBool(expr hclsyntax.Expression) bool {
+func literalBool(expr hcl.Expression) bool {
 	value, diagnostics := expr.Value(nil)
 	if diagnostics.HasErrors() || value.IsNull() || !value.IsKnown() {
 		return true
@@ -223,28 +214,12 @@ func blockEdits(source []byte, where site, block *hclsyntax.Block, _ map[string]
 }
 
 // sensitiveVariables names the variables a module declares sensitive.
-//
-// The flags are read through the boundary's named accessor. Where the
-// accessor returns false the flag's syntax cannot be read and the variable
-// counts as sensitive: the outputs reading it keep their sites closed rather
-// than risk a mutant that exposes a value the module hides.
 func sensitiveVariables(module discovery.Module) map[string]bool {
 	sensitive := map[string]bool{}
 
 	for _, variable := range module.Variables {
 		for _, attribute := range variable.Attributes {
-			if attribute.Name != sensitiveArgument {
-				continue
-			}
-
-			native, ok := discovery.NativeExpression(attribute.Expr)
-			if !ok {
-				sensitive[variable.Name] = true
-
-				continue
-			}
-
-			if literalBool(native) {
+			if attribute.Name == sensitiveArgument && literalBool(attribute.Expr) {
 				sensitive[variable.Name] = true
 			}
 		}
