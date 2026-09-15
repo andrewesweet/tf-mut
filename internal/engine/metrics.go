@@ -1,11 +1,9 @@
 package engine
 
 import (
-	"strings"
+	"fmt"
 	"time"
 
-	"github.com/andrewesweet/tf-mut/internal/discovery"
-	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
@@ -15,30 +13,32 @@ import (
 //
 // Every outcome the oracle assigned in this run was constructed at its
 // classification site and projected onto the published mutant; the DTO carries
-// the outcome's public record. complete() reads those records back through the
-// oracle's constructors to give the metrics their []Outcome, so the arithmetic
-// is computed over the Oracle context's own type. The reconstruction states
-// exactly what each record proves — the recorded state, diagnosis, operator,
-// diagnostics and suppression, and the published evidence behind them — and
-// the result feeds the arithmetic alone; the published mutant is never
-// rewritten from it.
-//
-// Two row classes carry a record no constructor in this run proved: a verdict
-// replayed from the cache, and a mutant phase two could not run for. #103's
-// parsing constructor replaces the replayed rows with a validated rebuild from
-// the stored record.
+// the outcome's public record. complete() reads those records back through
+// oracle.ParseRecord — the parsing constructor, which rebuilds an Outcome only
+// where the constructors could have produced it — so the arithmetic is
+// computed over the Oracle context's own type and no illegal record can reach
+// the numbers. The reconstruction states exactly what each record proves —
+// the recorded state, diagnosis, finding, evidence, diagnostics, suppression
+// and budget — and the result feeds the arithmetic alone; the published
+// mutant is never rewritten from it.
 
 // populationMetrics derives the report's metrics and per-operator error rates
-// from the executed population's recorded outcomes.
+// from the executed population's recorded outcomes. A record the constructors
+// could not have produced is an internal invariant broken, not a verdict:
+// the run fails rather than report numbers an illegal row contributed to.
 func populationMetrics(
 	executed []report.Mutant,
 	budget time.Duration,
-) (report.Metrics, []report.OperatorErrors) {
+) (report.Metrics, []report.OperatorErrors, error) {
 	outcomes := make([]oracle.Outcome, 0, len(executed))
 	classified := make([]oracle.Classified, 0, len(executed))
 
 	for _, mutant := range executed {
-		outcome := recordedOutcome(mutant, budget)
+		outcome, err := parsedOutcome(mutant, budget)
+		if err != nil {
+			return report.Metrics{}, nil, fmt.Errorf("mutant %s: %w", mutant.ID, err)
+		}
+
 		outcomes = append(outcomes, outcome)
 		classified = append(classified, oracle.Classified{
 			Operator: mutation.Operator(mutant.Operator),
@@ -47,150 +47,30 @@ func populationMetrics(
 	}
 
 	return projectMetrics(oracle.ComputeMetrics(outcomes)),
-		projectOperatorErrors(oracle.ComputeOperatorErrors(classified))
+		projectOperatorErrors(oracle.ComputeOperatorErrors(classified)), nil
 }
 
-// recordedOutcome reads one mutant's published record back through the
-// constructor its state was decided by.
-func recordedOutcome(mutant report.Mutant, budget time.Duration) oracle.Outcome {
-	// The closed published state set is covered; the default is unreachable in
-	// production and returns the state-only outcome for safety.
-	switch mutant.State {
-	case report.Invalid:
-		return oracle.Invalid(oracleDiagnostics(mutant.Diagnostics))
-	case report.Killed:
-		return oracle.Killed()
-	case report.KilledByError:
-		return oracle.KilledByError(oracleDiagnostics(mutant.Diagnostics))
-	case report.Timeout:
-		return oracle.TimedOut(budget)
-	case report.Survived:
-		return recordedSurvivor(mutant)
-	case report.StructurallyUnassertable:
-		return oracle.StructurallyUnassertable(mutation.Operator(mutant.Operator))
-	case report.Unobservable:
-		if mutant.Verdict == nil {
-			return oracle.Unobservable(fingerprint.NewMask())
-		}
-
-		return oracle.Unobservable(recordedMask(mutant.Verdict.Evidence))
-	case report.NoCoverage:
-		return oracle.NoCoverage(recordedNoCoverageClaim(mutant))
-	case report.Ignored:
-		return oracle.Ignored(oracleSuppression(mutant.Suppression))
-	case report.Pending:
-		return oracle.Pending()
-	// A state outside the closed published set cannot be recorded; the
-	// state-only outcome is the safe answer.
-	default:
+// parsedOutcome reads one mutant's published record back through the
+// parsing constructor its state was decided by.
+func parsedOutcome(mutant report.Mutant, budget time.Duration) (oracle.Outcome, error) {
+	record, err := storedRecord(oracleState(mutant.State), mutant.Verdict)
+	if err != nil {
+		return oracle.Outcome{}, err
 	}
 
-	return oracle.Pending()
-}
-
-// recordedSurvivor reads a survivor's record back through the constructor its
-// diagnosis was decided by. A survivor carrying no diagnosis is the provisional
-// phase-one state, published only where phase two could not run at all.
-func recordedSurvivor(mutant report.Mutant) oracle.Outcome {
-	if mutant.Verdict == nil || mutant.Verdict.Diagnosis == "" {
-		return oracle.SurvivedPhaseOne()
+	// The decision fields the finding DTO does not carry: the evaluation
+	// failures a killed-by-error or invalid claim is made from, the decision
+	// an ignored mutant records, and the budget a timeout was measured
+	// against. Every other state's record carries none of these.
+	record.Diagnostics = oracleDiagnostics(mutant.Diagnostics)
+	if mutant.Suppression != nil {
+		suppression := oracleSuppression(mutant.Suppression)
+		record.Suppression = &suppression
 	}
 
-	delta, mask := recordedEvidence(mutant.Verdict.Evidence)
+	record.Budget = budget
 
-	//nolint:exhaustive // mock-masked was withdrawn (issue #50) and is never emitted.
-	switch mutant.Verdict.Diagnosis {
-	case report.IndeterminateUnknownValues:
-		return oracle.SurvivedIndeterminateUnknowns(mutant.Verdict.Evidence.UnknownPaths, mask)
-	case report.IndeterminateVolatility:
-		return oracle.SurvivedIndeterminateVolatility(
-			delta, mask, mutant.Verdict.Evidence.UnstableAttributes,
-		)
-	case report.WeakAssertion:
-		return oracle.SurvivedWeakAssertion(delta, mask, firstAddress(delta), readingReach(mutant.Verdict.Evidence))
-	case report.NoAssertion:
-		return oracle.SurvivedNoAssertion(delta, mask)
-	case report.Unasserted:
-		return oracle.SurvivedUnasserted(delta, mask, firstAddress(delta), defeatedReach(mutant.Verdict.Evidence))
-	default:
-		// A withdrawn diagnosis has no constructor: the record contributes its
-		// state alone, and no diagnosis the oracle does not emit is counted.
-		return oracle.SurvivedPhaseOne()
-	}
-}
-
-// recordedEvidence rebuilds the delta and mask a survivor's published evidence
-// carries. The published evidence is the projection the constructor recorded,
-// so reading it back is exact.
-func recordedEvidence(evidence report.Evidence) (fingerprint.Delta, fingerprint.Mask) {
-	delta := fingerprint.Delta{}
-	for _, change := range evidence.Delta {
-		delta.Changes = append(delta.Changes, fingerprint.Change{
-			Run:       change.Run,
-			Path:      change.Path,
-			Address:   change.Address,
-			Baseline:  change.Baseline,
-			Mutant:    change.Mutant,
-			Sensitive: change.Sensitive,
-		})
-	}
-
-	return delta, recordedMask(evidence)
-}
-
-// recordedMask rebuilds the mask whose paths the published evidence names.
-func recordedMask(evidence report.Evidence) fingerprint.Mask {
-	mask := fingerprint.NewMask()
-	for _, path := range evidence.VolatileComponents {
-		mask.Spans[path] = fingerprint.Span{}
-	}
-
-	return mask
-}
-
-// firstAddress names the delta address the closure verdict was read against.
-// The recorded outcome's message quotes it; the published record keeps the
-// message it was decided with, so this serves the arithmetic's column alone.
-func firstAddress(delta fingerprint.Delta) string {
-	if addresses := delta.Addresses(); len(addresses) > 0 {
-		return addresses[0]
-	}
-
-	return ""
-}
-
-// readingReach rebuilds what the closure concluded about a read assertion.
-func readingReach(evidence report.Evidence) discovery.Reach {
-	return discovery.Reach{Read: true, Assertion: recordedAssertion(evidence.Assertion)}
-}
-
-// defeatedReach rebuilds what the closure concluded about a defeated read.
-func defeatedReach(evidence report.Evidence) discovery.Reach {
-	return discovery.Reach{
-		Defeated:  true,
-		Assertion: recordedAssertion(evidence.Assertion),
-		Construct: evidence.DefeatedBy,
-	}
-}
-
-// recordedAssertion splits a stored assertion location back into the test file
-// and run the closure read. Run block names are HCL identifiers, so the first
-// colon separates them.
-func recordedAssertion(location string) discovery.Assertion {
-	file, run, _ := strings.Cut(location, ":")
-
-	return discovery.Assertion{File: file, Run: run}
-}
-
-// recordedNoCoverageClaim states the claim the record carries: a block-level
-// pre-classification names its reason, and the module-level claim is the
-// state alone.
-func recordedNoCoverageClaim(mutant report.Mutant) string {
-	if mutant.Verdict == nil {
-		return ""
-	}
-
-	return mutant.Verdict.Message
+	return oracle.ParseRecord(record)
 }
 
 // projectMetrics spells the arithmetic's result onto the published report.

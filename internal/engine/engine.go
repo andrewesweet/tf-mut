@@ -398,8 +398,13 @@ func finish(
 	executed []report.Mutant,
 	failures []report.ExecutionError,
 ) (report.Report, error) {
-	result = complete(plan.configuration, plan.config, result, executed, failures,
+	completed, err := complete(plan.configuration, plan.config, result, executed, failures,
 		timeoutBudget(plan.config, plan.prepared.baselineDuration))
+	if err != nil {
+		return report.Report{}, err
+	}
+
+	result = completed
 
 	if plan.config.Suggest {
 		suggestions, cost, err := suggestAssertions(ctx, plan, result)
@@ -528,8 +533,8 @@ func build(
 	return prepared, generated, err
 }
 
-// complete fills in everything the report can only say once every mutant has a
-// verdict.
+// complete fills in everything the report can only say once every mutant has
+// a verdict.
 func complete(
 	configuration discovery.Configuration,
 	settings Config,
@@ -537,15 +542,22 @@ func complete(
 	executed []report.Mutant,
 	failures []report.ExecutionError,
 	budget time.Duration,
-) report.Report {
+) (report.Report, error) {
 	result.Mutants = executed
 	result.Errors = failures
-	result.Metrics, result.OperatorErrors = populationMetrics(executed, budget)
+
+	metrics, operatorErrors, err := populationMetrics(executed, budget)
+	if err != nil {
+		return report.Report{}, err
+	}
+
+	result.Metrics = metrics
+	result.OperatorErrors = operatorErrors
 	result.Findings = findings(configuration, executed)
 	result.Warnings = append(result.Warnings, unanswerableResources(configuration, executed)...)
 	result.Gates = gateOutcomes(settings, result)
 
-	return result
+	return result, nil
 }
 
 // scopeLabel names the population a gate was evaluated over.

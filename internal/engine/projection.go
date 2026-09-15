@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"fmt"
+
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
@@ -264,6 +266,124 @@ func withheld(sensitive bool, rendering string) string {
 	}
 
 	return SensitiveWithheld
+}
+
+// oracleState is the inverse of projectState, for rehydration: the closed
+// published vocabulary, which since #102 is exactly the context's own state
+// set. The exhaustive switches make a state gained on either side a
+// compile-time demand on the pairing.
+func oracleState(state report.State) oracle.State {
+	switch state {
+	case report.Invalid:
+		return oracle.StateInvalid
+	case report.Killed:
+		return oracle.StateKilled
+	case report.KilledByError:
+		return oracle.StateKilledByError
+	case report.Timeout:
+		return oracle.StateTimeout
+	case report.Survived:
+		return oracle.StateSurvived
+	case report.StructurallyUnassertable:
+		return oracle.StateStructurallyUnassertable
+	case report.Unobservable:
+		return oracle.StateUnobservable
+	case report.NoCoverage:
+		return oracle.StateNoCoverage
+	case report.Ignored:
+		return oracle.StateIgnored
+	case report.Pending:
+		return oracle.StatePending
+	}
+
+	// A spelling outside the closed published set belongs to no state; the
+	// parsing constructor refuses it.
+	return ""
+}
+
+// oracleDiagnosis is the inverse of projectDiagnosis, for rehydration. An
+// absent diagnosis maps as absent, where the terminal states record none;
+// mock-masked is refused, withdrawn since M3 (issue #50), so a record
+// naming it is not one this context stored.
+func oracleDiagnosis(diagnosis report.Diagnosis) (oracle.Diagnosis, bool) {
+	switch diagnosis {
+	case "":
+		return "", true
+	case report.IndeterminateUnknownValues:
+		return oracle.IndeterminateUnknownValues, true
+	case report.IndeterminateVolatility:
+		return oracle.IndeterminateVolatility, true
+	case report.WeakAssertion:
+		return oracle.WeakAssertion, true
+	case report.NoAssertion:
+		return oracle.NoAssertion, true
+	case report.Unasserted:
+		return oracle.Unasserted, true
+	//nolint:staticcheck // SA1019: named in order to refuse it; withdrawn since M3 (issue #50).
+	case report.MockMasked:
+		return "", false
+	}
+
+	return "", false
+}
+
+// storedRecord projects a stored verdict onto the Oracle context's record
+// spelling, so a stored document can be rebuilt through ParseRecord exactly
+// as a fresh verdict is built through the constructors. A verdict-less record
+// is legal: the states whose constructors write no finding — and the
+// provisional phase-one survivor — are stored and replayed without one, and
+// the parsing constructor decides what the state may carry.
+func storedRecord(state oracle.State, verdict *report.Verdict) (oracle.Record, error) {
+	record := oracle.Record{State: state}
+
+	if verdict == nil {
+		return record, nil
+	}
+
+	diagnosis, mapped := oracleDiagnosis(verdict.Diagnosis)
+	if !mapped {
+		return oracle.Record{}, fmt.Errorf(
+			"stored diagnosis %q: %w", verdict.Diagnosis, oracle.ErrUnemittedDiagnosis,
+		)
+	}
+
+	record.Diagnosis = diagnosis
+	record.Message = verdict.Message
+	record.Fix = verdict.Fix
+	record.Delta = storedDelta(verdict.Evidence.Delta)
+	record.UnknownPaths = verdict.Evidence.UnknownPaths
+	record.VolatileComponents = verdict.Evidence.VolatileComponents
+	record.UnstableAttributes = verdict.Evidence.UnstableAttributes
+	record.Assertion = verdict.Evidence.Assertion
+	record.ClosureVerdict = verdict.Evidence.ClosureVerdict
+	record.DefeatedBy = verdict.Evidence.DefeatedBy
+
+	return record, nil
+}
+
+// storedDelta projects the stored delta onto the context's change value,
+// preserving absent and empty: a diagnosis that recorded no delta keeps
+// recording none, and the projection of the rebuilt outcome must be the
+// document that was stored.
+func storedDelta(changes []report.Change) []fingerprint.Change {
+	if changes == nil {
+		return nil
+	}
+
+	converted := make([]fingerprint.Change, len(changes))
+
+	for index, change := range changes {
+		converted[index] = fingerprint.Change{
+			Run:       change.Run,
+			Path:      change.Path,
+			Address:   change.Address,
+			Baseline:  change.Baseline,
+			Mutant:    change.Mutant,
+			Sensitive: change.Sensitive,
+		}
+	}
+
+	return converted
 }
 
 // projectGeneration maps generation's and verification's outcomes onto the
