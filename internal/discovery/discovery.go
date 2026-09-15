@@ -32,10 +32,14 @@ const (
 )
 
 // Attribute is a top-level argument assignment inside a block body.
+//
+// Expr publishes the representation-neutral expression contract: whatever
+// syntax discovered the value, consumers read it through the `hcl.Expression`
+// interface, and native syntax is reached only through `NativeExpression`.
 type Attribute struct {
 	Name  string
 	Range hcl.Range
-	Expr  hclsyntax.Expression
+	Expr  hcl.Expression
 }
 
 // Block is a discovered configuration block.
@@ -70,8 +74,9 @@ type Block struct {
 
 // Validation is one validation block on a variable declaration.
 type Validation struct {
-	// Condition is the expression that must hold.
-	Condition hclsyntax.Expression
+	// Condition is the expression that must hold, published as the same
+	// representation-neutral contract as `Attribute.Expr`.
+	Condition hcl.Expression
 	// File is the declaring file's absolute path.
 	File string
 	// Range is the condition expression's source range, so the verbatim text
@@ -122,9 +127,9 @@ type ModuleCall struct {
 	DefRange hcl.Range
 	Inputs   []Attribute
 	// JSONDeclared marks a call declared in a `.tf.json` file. Its inputs are
-	// not decoded into `Inputs` — an `Attribute` carries a native-syntax
-	// expression and a JSON one has none — so the reference graph treats the
-	// call as unbounded, and no mutation is ever generated on it.
+	// not decoded into `Inputs` — an `Attribute` carries a discovered
+	// expression and a JSON-declared one has none — so the reference graph
+	// treats the call as unbounded, and no mutation is ever generated on it.
 	JSONDeclared bool
 }
 
@@ -237,8 +242,8 @@ type RunBlock struct {
 	HasPlanTarget bool
 	// JSONDeclared marks a run block declared in a `.tftest.json` file. Its
 	// variables are not decoded into the evaluator's context — an `Attribute`
-	// carries a native-syntax expression and a JSON one has none — so the
-	// evaluator fails closed on it, and no suggestion may target it.
+	// carries a discovered expression and a JSON-declared one has none — so
+	// the evaluator fails closed on it, and no suggestion may target it.
 	JSONDeclared bool
 }
 
