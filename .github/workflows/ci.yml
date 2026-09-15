@@ -44,7 +44,7 @@ jobs:
         run: mise exec -- just ci
       - name: Upload diagnostics
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: quality-${{ github.run_id }}
           path: .artifacts/
@@ -68,7 +68,7 @@ jobs:
           mise exec -- just tools-install
       - run: mise exec -- just test-race
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: race-${{ github.run_id }}
           path: .artifacts/test/
@@ -92,7 +92,7 @@ jobs:
           mise exec -- just tools-install
       - run: mise exec -- just security
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: security-${{ github.run_id }}
           path: .artifacts/security/
@@ -120,7 +120,7 @@ jobs:
           MUTATION_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: mise exec -- just mutate-diff "$MUTATION_BASE"
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mutation-${{ github.run_id }}
           path: .artifacts/mutation/
@@ -145,7 +145,7 @@ jobs:
           mise exec -- just tools-install
       - run: mise exec -- just ci-full
       - if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: full-${{ github.run_id }}
           path: .artifacts/
