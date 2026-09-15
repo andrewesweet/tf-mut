@@ -319,11 +319,10 @@ func oracleDiagnosis(diagnosis report.Diagnosis) (oracle.Diagnosis, bool) {
 		return oracle.NoAssertion, true
 	case report.Unasserted:
 		return oracle.Unasserted, true
-	//nolint:staticcheck // SA1019: named in order to refuse it; withdrawn since M3 (issue #50).
-	case report.MockMasked:
-		return "", false
 	}
 
+	// Anything else, the withdrawn mock-masked spelling included, is not a
+	// diagnosis this context emits.
 	return "", false
 }
 
@@ -343,7 +342,7 @@ func storedRecord(state oracle.State, verdict *report.Verdict) (oracle.Record, e
 	diagnosis, mapped := oracleDiagnosis(verdict.Diagnosis)
 	if !mapped {
 		return oracle.Record{}, fmt.Errorf(
-			"stored diagnosis %q: %w", verdict.Diagnosis, oracle.ErrUnemittedDiagnosis,
+			"%w: stored diagnosis %q is not one this context emits", oracle.ErrIllegalRecord, verdict.Diagnosis,
 		)
 	}
 

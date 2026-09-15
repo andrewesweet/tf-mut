@@ -9,31 +9,10 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 )
 
-// The refusals a stored record can earn. Each names the invariant the
-// constructors enforce and the record broke; the caller treats every one as
-// corruption, never as a verdict.
-var (
-	// ErrUnownedState marks a record naming a state no constructor produces.
-	ErrUnownedState = errors.New("not a state this context owns")
-	// ErrUnemittedDiagnosis marks a record naming a diagnosis no constructor
-	// assigns, or a decided survivor naming none.
-	ErrUnemittedDiagnosis = errors.New("not a diagnosis this context emits")
-	// ErrTerminalDiagnosis marks a record carrying a diagnosis on a terminal
-	// outcome, which no terminal constructor can spell.
-	ErrTerminalDiagnosis = errors.New("terminal outcomes carry no diagnosis")
-	// ErrEmptyFinding marks a record whose message or fix no constructor
-	// would have left empty.
-	ErrEmptyFinding = errors.New("carries no message or no fix")
-	// ErrUnrecordedEvidence marks a record carrying an evidence field outside
-	// the subset its classification records.
-	ErrUnrecordedEvidence = errors.New("carries evidence its classification does not record")
-	// ErrUnrecordedFinding marks a record carrying a finding where the state's
-	// constructors write none.
-	ErrUnrecordedFinding = errors.New("carries a finding its state does not record")
-	// ErrUnrecordedDecision marks a record whose state is decided from a
-	// decision the record does not carry.
-	ErrUnrecordedDecision = errors.New("carries no decision its state was recorded from")
-)
+// ErrIllegalRecord marks a stored record the constructors could not have
+// produced. Every refusal wraps it with the invariant the record broke; the
+// caller treats each one as corruption, never as a verdict.
+var ErrIllegalRecord = errors.New("oracle: not a record this context stored")
 
 // The stored-record side of the closed construction set.
 //
@@ -87,6 +66,13 @@ type Record struct {
 // refused record produces no value at all, so an illegal combination can no
 // more reach a reader from a store than from a fresh classification.
 func ParseRecord(record Record) (Outcome, error) {
+	if record.State != StateSurvived && record.Diagnosis != "" {
+		return Outcome{}, fmt.Errorf(
+			"%w: a stored %s outcome carries the diagnosis %q, and only a survivor is diagnosed",
+			ErrIllegalRecord, record.State, record.Diagnosis,
+		)
+	}
+
 	subset, verdictless, err := recordedSubset(record)
 	if err != nil {
 		return Outcome{}, err
@@ -117,7 +103,7 @@ func ParseRecord(record Record) (Outcome, error) {
 		return parseTerminalRecord(record)
 	}
 
-	return Outcome{}, fmt.Errorf("oracle: %q: %w", record.State, ErrUnownedState)
+	return Outcome{}, fmt.Errorf("%w: %q is not a state this context owns", ErrIllegalRecord, record.State)
 }
 
 // parseSurvivedRecord rebuilds a survivor. A decided survivor exists only
@@ -153,7 +139,7 @@ func parseSurvivedRecord(record Record) (Outcome, error) {
 		}, nil
 	}
 
-	return Outcome{}, fmt.Errorf("oracle: %q: %w", record.Diagnosis, ErrUnemittedDiagnosis)
+	return Outcome{}, fmt.Errorf("%w: %q is not a diagnosis this context emits", ErrIllegalRecord, record.Diagnosis)
 }
 
 // parseIgnoredRecord rebuilds an ignored outcome. The suppression is the
@@ -162,26 +148,16 @@ func parseSurvivedRecord(record Record) (Outcome, error) {
 func parseIgnoredRecord(record Record) (Outcome, error) {
 	if record.Suppression == nil {
 		return Outcome{}, fmt.Errorf(
-			"oracle: a stored ignored record carries no suppression: %w", ErrUnrecordedDecision,
+			"%w: a stored ignored record carries no suppression", ErrIllegalRecord,
 		)
 	}
 
 	return Ignored(*record.Suppression), nil
 }
 
-// parseTerminalRecord rebuilds a terminal observable outcome. No terminal
-// constructor takes a diagnosis, because a diagnosis names why a mutant that
-// every run passed survived and a terminal outcome is not one, so a record
-// carrying one — a Killed entry carrying a diagnosis being the canonical
-// case — is refused rather than rebuilt.
+// parseTerminalRecord rebuilds a terminal observable outcome; ParseRecord
+// has already refused the diagnosis no terminal constructor takes.
 func parseTerminalRecord(record Record) (Outcome, error) {
-	if record.Diagnosis != "" {
-		return Outcome{}, fmt.Errorf(
-			"oracle: a stored %s outcome carries the diagnosis %q: %w",
-			record.State, record.Diagnosis, ErrTerminalDiagnosis,
-		)
-	}
-
 	if err := refuseEmptyFinding(record); err != nil {
 		return Outcome{}, err
 	}
@@ -199,7 +175,7 @@ func parseTerminalRecord(record Record) (Outcome, error) {
 // message and the fix.
 func refuseEmptyFinding(record Record) error {
 	if record.Message == "" || record.Fix == "" {
-		return fmt.Errorf("oracle: a stored %s outcome %w", record.State, ErrEmptyFinding)
+		return fmt.Errorf("%w: a stored %s outcome carries no message or no fix", ErrIllegalRecord, record.State)
 	}
 
 	return nil
@@ -210,15 +186,15 @@ func refuseEmptyFinding(record Record) error {
 // with one was not stored by them.
 func refuseRecordedFinding(record Record) error {
 	if record.hasFinding() {
-		return fmt.Errorf("oracle: a stored %s outcome carries a finding: %w", record.State, ErrUnrecordedFinding)
+		return fmt.Errorf("%w: a stored %s outcome carries a finding its state does not record", ErrIllegalRecord, record.State)
 	}
 
 	return nil
 }
 
 // hasFinding reports whether the record carries any part of a published
-// finding: the diagnosis aside, which the caller owns, any of the fields a
-// Verdict DTO spells.
+// finding: the diagnosis aside, which ParseRecord refuses first, any of the
+// fields a Verdict DTO spells.
 func (r Record) hasFinding() bool {
 	return r.Message != "" || r.Fix != "" || r.hasEvidence()
 }
@@ -253,9 +229,7 @@ func recordedSubset(record Record) (evidenceSubset, bool, error) {
 		return survivedSubset(record.Diagnosis)
 	case StateKilled, StatePending, StateKilledByError, StateInvalid,
 		StateTimeout, StateIgnored:
-		// The states whose constructors write no finding: a Killed entry
-		// carrying a diagnosis — the canonical illegal record — is refused
-		// here.
+		// The states whose constructors write no finding.
 		return evidenceSubset{verdictless: true}, true, nil
 	case StateNoCoverage:
 		// A block-level claim states its reason as the message and derives
@@ -274,8 +248,8 @@ func recordedSubset(record Record) (evidenceSubset, bool, error) {
 		// constructor writes both.
 		if record.ClosureVerdict != "" && record.VolatileComponents != nil {
 			return evidenceSubset{}, false, fmt.Errorf(
-				"oracle: a stored unobservable record carries both the mask and the closure verdict: %w",
-				ErrUnrecordedEvidence,
+				"%w: a stored unobservable record carries both the mask and the closure verdict",
+				ErrIllegalRecord,
 			)
 		}
 
@@ -286,7 +260,7 @@ func recordedSubset(record Record) (evidenceSubset, bool, error) {
 		return evidenceSubset{volatileComponents: true}, false, nil
 	}
 
-	return evidenceSubset{}, false, fmt.Errorf("oracle: %q: %w", record.State, ErrUnownedState)
+	return evidenceSubset{}, false, fmt.Errorf("%w: %q is not a state this context owns", ErrIllegalRecord, record.State)
 }
 
 // survivedSubset names the evidence subset one survivor diagnosis records.
@@ -317,7 +291,7 @@ func survivedSubset(diagnosis Diagnosis) (evidenceSubset, bool, error) {
 		}, false, nil
 	}
 
-	return evidenceSubset{}, false, fmt.Errorf("oracle: %q: %w", diagnosis, ErrUnemittedDiagnosis)
+	return evidenceSubset{}, false, fmt.Errorf("%w: %q is not a diagnosis this context emits", ErrIllegalRecord, diagnosis)
 }
 
 // refuseUnrecordedEvidence refuses a record carrying an evidence field
@@ -361,8 +335,8 @@ func refuseUnrecordedEvidence(record Record, subset evidenceSubset, verdictless 
 
 	if len(outside) > 0 {
 		return fmt.Errorf(
-			"oracle: a stored %s record names %s and %w",
-			record.State, strings.Join(outside, ", "), ErrUnrecordedEvidence,
+			"%w: a stored %s record carries %s, evidence its classification does not record",
+			ErrIllegalRecord, record.State, strings.Join(outside, ", "),
 		)
 	}
 
