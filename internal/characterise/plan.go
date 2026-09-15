@@ -643,6 +643,8 @@ func flipsIn(
 		return nil
 	}
 
+	resolved.Provenance = FromType
+
 	return []flip{{variable: name, expression: expression, resolved: resolved}}
 }
 
