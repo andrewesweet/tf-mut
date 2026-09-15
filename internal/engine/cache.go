@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
+	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
@@ -463,7 +464,9 @@ func (c *verdictCache) entryName(mutantID string) string {
 // load replays cached verdicts onto the selected population, marking each
 // replayed mutant and returning the number of hits. Everything about the
 // mutant except the verdict — site, range, diff — stays as the current tree
-// describes it.
+// describes it; the verdict itself is rebuilt through the Oracle context, so
+// an entry whose document no constructor could have produced is a miss like
+// any other corruption.
 func (c *verdictCache) load(mutants []report.Mutant) int {
 	unlock, err := c.lock()
 	if err != nil {
@@ -484,12 +487,9 @@ func (c *verdictCache) load(mutants []report.Mutant) int {
 			continue
 		}
 
-		mutants[index].State = entry.State
-		mutants[index].Verdict = entry.Verdict
-		mutants[index].Runs = entry.Runs
-		mutants[index].Diagnostics = entry.Diagnostics
-		mutants[index].ExecutedRuns = entry.ExecutedRuns
-		mutants[index].Validated = entry.Validated
+		if !rehydrated(&mutants[index], entry) {
+			continue
+		}
 
 		if mutants[index].Provenance != nil {
 			mutants[index].Provenance.Execution = report.ExecutionCached
@@ -500,6 +500,37 @@ func (c *verdictCache) load(mutants []report.Mutant) int {
 	}
 
 	return hits
+}
+
+// rehydrated replays one stored entry onto its mutant and reports whether
+// the entry was replayed; false is a miss, and the mutant executes again.
+//
+// The verdict travels through the Oracle context: the stored document is
+// projected onto an oracle.Record, rebuilt by oracle.ParseRecord — the
+// parsing constructor, which refuses any document the constructors could not
+// have produced, a Killed entry carrying a diagnosis being the canonical
+// case — and re-projected onto the published DTO. Only then does the
+// replayed verdict reach a reader. The runs, diagnostics and execution
+// counts are the run's own observations, rehydrated as stored; the outcome
+// carries only the classification.
+func rehydrated(mutant *report.Mutant, entry cacheEntry) bool {
+	record, err := storedRecord(oracleState(entry.State), entry.Verdict)
+	if err != nil {
+		return false
+	}
+
+	outcome, err := oracle.ParseRecord(record)
+	if err != nil {
+		return false
+	}
+
+	*mutant = project(*mutant, outcome)
+	mutant.Runs = entry.Runs
+	mutant.Diagnostics = entry.Diagnostics
+	mutant.ExecutedRuns = entry.ExecutedRuns
+	mutant.Validated = entry.Validated
+
+	return true
 }
 
 // read opens one entry, treating every irregularity — a symlink, a parse

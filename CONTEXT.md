@@ -11,8 +11,9 @@ The six-context table and dependency direction below are the target architecture
 specified by #86, not a claim that the current packages already satisfy every
 boundary. `internal/oracle` owns the mutant outcome and every diagnosis since
 #101 and #102: survivors and terminal outcomes alike are constructed only
-through its constructors, and the population arithmetic computes over outcomes.
-Cache rehydration (#103) is still pending. The judgement points and the input
+through its constructors, and the population arithmetic computes over outcomes;
+cache rehydration (#103) rebuilds a stored verdict through its parsing
+constructor. The judgement points and the input
 provenance are owned by `internal/characterise` since #107; the
 supporting-context migrations and dependency enforcement still pending in #106,
 #108, #109 and #113; #91 is the separately recorded narrow filesystem-primitive
