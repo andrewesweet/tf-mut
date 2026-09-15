@@ -41,6 +41,19 @@ const (
 	answerFlagName = "answer"
 	resumeFlagName = "resume"
 
+	// The population controls, named because the declaration, the parse check
+	// and the scoping tables all spell them: a misspelling in one place would
+	// silently narrow nothing.
+	tierFlag               = "tier"
+	operatorFlag           = "operator"
+	excludeOperatorFlag    = "exclude-operator"
+	excludePathFlag        = "exclude-path"
+	excludeResourceFlag    = "exclude-resource"
+	sinceFlag              = "since"
+	sampleFlagName         = "sample"
+	seedFlag               = "seed"
+	generatedFunctionsFlag = "generated-functions"
+
 	reporterTerminal = "terminal"
 	reporterJSON     = "json"
 	reporterSARIF    = "sarif"
@@ -219,14 +232,14 @@ func declareFlags(set *flag.FlagSet) flagValues {
 		reporter: set.String("reporter", reporterTerminal,
 			"output format: terminal, json, sarif, mte, html, junit or markdown"),
 		sarifPath:        set.String("sarif-path", "", "where to write the SARIF document"),
-		tier:             set.String("tier", "", "operator breadth: smoke, standard or deep"),
-		operators:        set.String("operator", "", "restrict generation to these operator identifiers"),
-		excludeOperators: set.String("exclude-operator", "", "remove these operator identifiers"),
-		excludePaths:     set.String("exclude-path", "", "remove sites in files matching these globs"),
-		excludeResources: set.String("exclude-resource", "", "remove sites in these resource addresses"),
-		since:            set.String("since", "", "run only mutants in configuration changed since this git ref"),
-		sample:           set.Float64("sample", 0, "run a deterministic percentage sample of the population"),
-		seed:             set.Int64("seed", 0, "seed for --sample"),
+		tier:             set.String(tierFlag, "", "operator breadth: smoke, standard or deep"),
+		operators:        set.String(operatorFlag, "", "restrict generation to these operator identifiers"),
+		excludeOperators: set.String(excludeOperatorFlag, "", "remove these operator identifiers"),
+		excludePaths:     set.String(excludePathFlag, "", "remove sites in files matching these globs"),
+		excludeResources: set.String(excludeResourceFlag, "", "remove sites in these resource addresses"),
+		since:            set.String(sinceFlag, "", "run only mutants in configuration changed since this git ref"),
+		sample:           set.Float64(sampleFlagName, 0, "run a deterministic percentage sample of the population"),
+		seed:             set.Int64(seedFlag, 0, "seed for --sample"),
 		allowSampledGate: set.Bool("allow-sampled-gate", false,
 			"let a sampled run satisfy a gate (unsafe)"),
 		noCache: set.Bool("no-cache", false, "disable the project-local verdict cache"),
@@ -235,7 +248,7 @@ func declareFlags(set *flag.FlagSet) flagValues {
 		writeBaseline: set.Bool("write-baseline", false,
 			"accept the current findings as the baseline"),
 		baselinePath: set.String("baseline", "", "baseline file location"),
-		generatedFunctions: set.Bool("generated-functions", false,
+		generatedFunctions: set.Bool(generatedFunctionsFlag, false,
 			"opt in to the generated function-family operators"),
 		outputs: declareOutputFlag(set),
 		dryRun: set.Bool("dry-run", false,
@@ -304,7 +317,7 @@ func parse(command, buildVersion string, args []string, stderr io.Writer) (optio
 			requested = true
 		}
 
-		if flagged.Name == "sample" {
+		if flagged.Name == sampleFlagName {
 			sampled = true
 		}
 	})
@@ -358,20 +371,20 @@ var errUncarryingReporter = errors.New(
 //nolint:gochecknoglobals // an immutable table.
 var commandFlags = map[string]map[string]bool{
 	runCommand: {
-		"tier": true, "operator": true, "exclude-operator": true,
-		"exclude-path": true, "exclude-resource": true, "since": true,
-		"sample": true, "seed": true, "generated-functions": true,
+		tierFlag: true, operatorFlag: true, excludeOperatorFlag: true,
+		excludePathFlag: true, excludeResourceFlag: true, sinceFlag: true,
+		sampleFlagName: true, seedFlag: true, generatedFunctionsFlag: true,
 	},
 	previewCommand: {
-		"tier": true, "operator": true, "exclude-operator": true,
-		"exclude-path": true, "exclude-resource": true, "since": true,
-		"sample": true, "seed": true, "generated-functions": true,
+		tierFlag: true, operatorFlag: true, excludeOperatorFlag: true,
+		excludePathFlag: true, excludeResourceFlag: true, sinceFlag: true,
+		sampleFlagName: true, seedFlag: true, generatedFunctionsFlag: true,
 	},
 	suggestCommand: {
 		"apply": true, "all-verified": true, "survivor": true, "dry-run": true,
-		"tier": true, "operator": true, "exclude-operator": true,
-		"exclude-path": true, "exclude-resource": true, "since": true,
-		"sample": true, "seed": true, "generated-functions": true,
+		tierFlag: true, operatorFlag: true, excludeOperatorFlag: true,
+		excludePathFlag: true, excludeResourceFlag: true, sinceFlag: true,
+		sampleFlagName: true, seedFlag: true, generatedFunctionsFlag: true,
 	},
 	characteriseCommand: {
 		"write": true, "force": true, pinFlag: true,
@@ -389,9 +402,9 @@ var scopedFlags = map[string]bool{
 	"write": true, "force": true, pinFlag: true, "until-dry": true,
 	answerFlagName: true, resumeFlagName: true, "apply": true, "all-verified": true,
 	"survivor": true, "dry-run": true,
-	"tier": true, "operator": true, "exclude-operator": true,
-	"exclude-path": true, "exclude-resource": true, "since": true,
-	"sample": true, "seed": true, "generated-functions": true,
+	tierFlag: true, operatorFlag: true, excludeOperatorFlag: true,
+	excludePathFlag: true, excludeResourceFlag: true, sinceFlag: true,
+	sampleFlagName: true, seedFlag: true, generatedFunctionsFlag: true,
 }
 
 func refuseInapplicableFlags(command string, given []string) error {

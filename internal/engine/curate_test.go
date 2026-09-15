@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andrewesweet/tf-mut/internal/config"
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
@@ -100,7 +99,7 @@ func TestCurateRefusesAConfiguredNarrowing(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, "suggest-basic")
-	writeFile(t, filepath.Join(module, config.FileName),
+	writeFile(t, filepath.Join(module, ".tf-mut.hcl"),
 		"operators {\n  include = [\"BOOL-FLIP\"]\n}\n\n"+
 			"exclude {\n  paths = [\"main.tf\"]\n}\n")
 

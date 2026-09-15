@@ -27,6 +27,13 @@ const noCacheFlag = "--no-cache"
 // dryRunFlag is the suggest flag the wiring cases exercise most.
 const dryRunFlag = "--dry-run"
 
+// untilDryFlag and sampleFlag are the loop flag the characterisation commands
+// own and the population control whose refusal the relocated cases assert.
+const (
+	untilDryFlag = "--until-dry"
+	sampleFlag   = "--sample"
+)
+
 func TestRunReportsPseudoTestedResourcesAndExitsWithFindings(t *testing.T) {
 	t.Parallel()
 
@@ -1012,7 +1019,7 @@ func TestASeededWrongFlagInTheSkillTurnsTheGateRed(t *testing.T) {
 		runTranscriptCommand(t, command, clean)
 	}
 
-	seedWrongFlag(t, installed, transcriptFence, "--until-dry", seededFlag)
+	seedWrongFlag(t, installed, transcriptFence, untilDryFlag, seededFlag)
 
 	seeded := walkthroughFixture(t)
 	named := false
@@ -1215,7 +1222,7 @@ func TestCurateRefusesAPartialPopulationAtConfigurationTime(t *testing.T) {
 
 	partial := map[string][]string{
 		"--since":               {"--since", "HEAD"},
-		"--sample":              {"--sample", "50"},
+		sampleFlag:              {sampleFlag, "50"},
 		"an operator selection": {"--operator", "BOOL-FLIP"},
 		"an exclusion":          {"--exclude-path", "main.tf"},
 	}
@@ -1255,7 +1262,7 @@ func TestUntilDryRefusesANarrowedPopulation(t *testing.T) {
 
 	stderr := bytes.Buffer{}
 
-	code := run([]string{characteriseCommand, "--until-dry", "--sample", "1", t.TempDir()},
+	code := run([]string{characteriseCommand, untilDryFlag, sampleFlag, "1", t.TempDir()},
 		"test", &bytes.Buffer{}, &stderr)
 	if code != report.ExitOperational {
 		t.Fatalf("exit code = %d, want %d: %s",
@@ -1307,10 +1314,10 @@ func TestACharacterisationFlagIsRefusedByAGradingCommand(t *testing.T) {
 		{runCommand, writeFlag},
 		{runCommand, "--force"},
 		{runCommand, "--pin=nonsense"},
-		{previewCommand, "--until-dry"},
+		{previewCommand, untilDryFlag},
 		{suggestCommand, resumeFlag},
 		{curateCommand, "--apply=sug-1"},
-		{curateCommand, "--until-dry"},
+		{curateCommand, untilDryFlag},
 		{todosCommand, writeFlag},
 	}
 
