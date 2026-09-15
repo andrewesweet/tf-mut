@@ -237,7 +237,7 @@ func TestAMultiFileApplyReportsAPartialFailureExplicitly(t *testing.T) {
 	verified := runSuggest(t, suggestRequest(t, module))
 	if len(withStatus(verified, report.SuggestionVerified)) < 2 {
 		t.Fatalf("want verified suggestions in two files, got %s",
-			suggest.Statuses(verified.Suggestions))
+			statusSummary(verified.Suggestions))
 	}
 
 	locked := filepath.Join(module, "tests")

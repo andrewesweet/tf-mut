@@ -9,7 +9,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
-	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
@@ -35,8 +35,8 @@ func runIn(name, moduleSource string) discovery.RunBlock {
 	}
 }
 
-func changeAt(path, baseline string) report.Change {
-	return report.Change{
+func changeAt(path, baseline string) fingerprint.Change {
+	return fingerprint.Change{
 		Run: "tests/unit.tftest.hcl::applied", Path: path, Address: "",
 		Baseline: baseline, Mutant: "", Sensitive: false,
 	}

@@ -4,6 +4,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/suggest"
 )
 
 // project maps an oracle outcome onto the published report: the outcome's
@@ -127,4 +128,153 @@ func withheld(sensitive bool, rendering string) string {
 	}
 
 	return SensitiveWithheld
+}
+
+// projectGeneration maps generation's and verification's outcomes onto the
+// published DTOs in survivor order — the order generation produced them in —
+// with collapsed duplicates carried by their first assertion's AlsoKills. A
+// survivor the generator said nothing about projects to nothing.
+func projectGeneration(
+	selected []report.Mutant,
+	candidates []suggest.Candidate,
+	concluded []suggest.Suggestion,
+	skipped []suggest.Suggestion,
+) []report.Suggestion {
+	carriers := map[string]suggest.Candidate{}
+	for _, candidate := range candidates {
+		carriers[candidate.MutantID()] = candidate
+	}
+
+	terminals := map[string]suggest.Suggestion{}
+	for _, suggestion := range concluded {
+		terminals[suggestion.MutantID()] = suggestion
+	}
+
+	for _, suggestion := range skipped {
+		terminals[suggestion.MutantID()] = suggestion
+	}
+
+	projected := make([]report.Suggestion, 0, len(candidates)+len(skipped))
+
+	for _, mutant := range selected {
+		if candidate, found := carriers[mutant.ID]; found {
+			projected = append(projected, projectCandidate(candidate))
+
+			continue
+		}
+
+		if suggestion, found := terminals[mutant.ID]; found {
+			projected = append(projected, projectSuggestion(suggestion))
+		}
+	}
+
+	return projected
+}
+
+// projectCandidate maps a candidate onto the published DTO. The candidate
+// status needs no mapping: the value's type is the status.
+func projectCandidate(candidate suggest.Candidate) report.Suggestion {
+	return report.Suggestion{
+		ID:         candidate.ID(),
+		MutantID:   candidate.MutantID(),
+		AlsoKills:  candidate.AlsoKills(),
+		TargetFile: candidate.TargetFile(),
+		TargetRun:  candidate.TargetRun(),
+		Status:     report.SuggestionCandidate,
+		Expression: candidate.Expression(),
+		Patch:      candidate.Patch(),
+	}
+}
+
+// projectSuggestion maps a terminal outcome onto the published DTO, carrying
+// exactly the artefacts its outcome requires: a verified one its digest and
+// both legs, a refuted one its legs and reason, a skipped one its reason and
+// no patch at all.
+func projectSuggestion(suggestion suggest.Suggestion) report.Suggestion {
+	projected := report.Suggestion{
+		ID:           suggestion.ID(),
+		MutantID:     suggestion.MutantID(),
+		AlsoKills:    suggestion.AlsoKills(),
+		TargetFile:   suggestion.TargetFile(),
+		TargetRun:    suggestion.TargetRun(),
+		Expression:   suggestion.Expression(),
+		Patch:        suggestion.Patch(),
+		StatusReason: suggestion.StatusReason(),
+	}
+
+	reason, skipped := suggestion.SkipReason()
+
+	switch {
+	case skipped:
+		projected.Status = projectSkipReason(reason)
+	case suggestion.Verified():
+		projected.Status = report.SuggestionVerified
+		projected.VerifiedDigest = suggestion.VerifiedDigest()
+		projected.Verification = projectVerification(suggestion)
+	default:
+		projected.Status = report.SuggestionRefuted
+		projected.Verification = projectVerification(suggestion)
+	}
+
+	return projected
+}
+
+// projectVerification maps a terminal outcome's evidence onto the published
+// DTO. A verified or refuted outcome carries both legs by construction, so
+// the absence the guard names is unreachable.
+func projectVerification(suggestion suggest.Suggestion) *report.Verification {
+	evidence, carried := suggestion.Verification()
+	if !carried {
+		return nil
+	}
+
+	return &report.Verification{
+		Baseline: projectLeg(evidence.Baseline()),
+		Mutant:   projectLeg(evidence.Mutant()),
+	}
+}
+
+// projectLeg maps one verification leg onto the published DTO.
+func projectLeg(leg suggest.Leg) report.VerificationLeg {
+	return report.VerificationLeg{
+		Passed: leg.Passed(),
+		Runs:   projectRunRecords(leg.Runs()),
+		Detail: leg.Detail(),
+	}
+}
+
+// projectRunRecords maps a leg's run references onto the published DTO. The
+// slice is never nil: an empty leg marshals as an empty list, not a null.
+func projectRunRecords(records []suggest.RunRecord) []report.RunOutcome {
+	projected := make([]report.RunOutcome, len(records))
+
+	for index, record := range records {
+		projected[index] = report.RunOutcome{
+			File:   record.File(),
+			Run:    record.Run(),
+			Phase:  record.Phase(),
+			Status: record.Status(),
+		}
+	}
+
+	return projected
+}
+
+// projectSkipReason translates the Suggestion context's skip vocabulary into
+// the published wire spelling. The switch is exhaustive over the context's
+// closed set, so a reason the context gains is a compile-time demand on this
+// table.
+func projectSkipReason(reason suggest.SkipReason) report.SuggestionStatus {
+	switch reason {
+	case suggest.SkipSensitive:
+		return report.SuggestionSkippedSensitive
+	case suggest.SkipUnaddressable:
+		return report.SuggestionSkippedUnaddressable
+	case suggest.SkipUnrenderable:
+		return report.SuggestionSkippedUnrenderable
+	case suggest.SkipUnsupportedTarget:
+		return report.SuggestionSkippedUnsupportedTarget
+	}
+
+	return ""
 }

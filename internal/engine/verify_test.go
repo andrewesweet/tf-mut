@@ -21,7 +21,7 @@ func TestVerifiedRequiresBothLegsAndCarriesTheirEvidence(t *testing.T) {
 
 	verified := withStatus(result, report.SuggestionVerified)
 	if len(verified) == 0 {
-		t.Fatalf("nothing verified; statuses were %s", suggest.Statuses(result.Suggestions))
+		t.Fatalf("nothing verified; statuses were %s", statusSummary(result.Suggestions))
 	}
 
 	for _, suggestion := range verified {
@@ -60,7 +60,7 @@ func TestASeededWrongValueIsRefutedThroughTheBaselineLeg(t *testing.T) {
 
 	refuted := withStatus(result, report.SuggestionRefuted)
 	if len(refuted) == 0 {
-		t.Fatalf("the seeded wrong value was not refuted: %s", suggest.Statuses(result.Suggestions))
+		t.Fatalf("the seeded wrong value was not refuted: %s", statusSummary(result.Suggestions))
 	}
 
 	for _, suggestion := range refuted {
@@ -94,7 +94,7 @@ func TestASeededVacuousAssertionIsRefutedThroughTheMutantLeg(t *testing.T) {
 		}
 
 		t.Fatalf("want exactly the seeded vacuous suggestion refuted, got %s",
-			suggest.Statuses(result.Suggestions))
+			statusSummary(result.Suggestions))
 	}
 
 	for _, suggestion := range result.Suggestions {
@@ -257,7 +257,7 @@ func TestSurvivorsSharingOneAssertionCollapseIntoOneSuggestion(t *testing.T) {
 	verified := withStatus(result, report.SuggestionVerified)
 	if len(verified) != 1 {
 		t.Fatalf("want one collapsed suggestion, got %d (%s)",
-			len(verified), suggest.Statuses(result.Suggestions))
+			len(verified), statusSummary(result.Suggestions))
 	}
 
 	claimed := 1 + len(verified[0].AlsoKills)

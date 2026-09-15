@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/andrewesweet/tf-mut/internal/mutation"
-	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
@@ -31,19 +30,21 @@ import (
 // claim about a program nobody has.
 
 // verifySuggestions runs both legs over every candidate and assigns the
-// verified or refuted outcome with its evidence.
+// verified or refuted outcome with its evidence. The only route from a
+// candidate to a terminal outcome is the transition that demands the digest
+// and both legs, so what comes back carries what it claims.
 func verifySuggestions(
 	ctx context.Context,
 	plan executionPlan,
-	suggestions []report.Suggestion,
-) ([]report.Suggestion, error) {
-	byFile := groupCandidates(suggestions)
+	candidates []suggest.Candidate,
+) ([]suggest.Suggestion, error) {
+	byFile := groupCandidates(candidates)
 	if len(byFile) == 0 {
-		return suggestions, nil
+		return nil, nil
 	}
 
 	mutated := mutantsByID(plan)
-	outcomes := map[string]report.Suggestion{}
+	outcomes := map[string]suggest.Suggestion{}
 
 	for _, file := range sortedTargets(byFile) {
 		group := byFile[file]
@@ -54,18 +55,16 @@ func verifySuggestions(
 		}
 
 		for _, candidate := range group {
-			outcomes[candidate.ID] = decide(ctx, plan, mutated, candidate, baseline, digest)
+			outcomes[candidate.ID()] = decide(ctx, plan, mutated, candidate, baseline, digest)
 		}
 	}
 
-	verified := slices.Clone(suggestions)
-	for index, suggestion := range verified {
-		if outcome, found := outcomes[suggestion.ID]; found {
-			verified[index] = outcome
-		}
+	concluded := make([]suggest.Suggestion, 0, len(candidates))
+	for _, candidate := range candidates {
+		concluded = append(concluded, outcomes[candidate.ID()])
 	}
 
-	return verified, nil
+	return concluded, nil
 }
 
 // decide runs the isolated mutant leg where the baseline leg allows it, and
@@ -74,65 +73,48 @@ func decide(
 	ctx context.Context,
 	plan executionPlan,
 	mutated map[string]mutation.Mutant,
-	candidate report.Suggestion,
-	baseline report.VerificationLeg,
+	candidate suggest.Candidate,
+	baseline suggest.Leg,
 	digest string,
-) report.Suggestion {
-	if !baseline.Passed {
-		return refute(candidate, baseline, report.VerificationLeg{
-			Passed: false, Runs: []report.RunOutcome{},
-			Detail: "not run: the baseline leg refuted the batch this suggestion belongs to",
-		}, "the full suite is not green with the suggested assertions applied")
+) suggest.Suggestion {
+	if !baseline.Passed() {
+		return candidate.Refute(
+			"the full suite is not green with the suggested assertions applied",
+			suggest.NewVerification(baseline, suggest.NewLeg(false, nil,
+				"not run: the baseline leg refuted the batch this suggestion belongs to")),
+		)
 	}
 
 	// One isolated check per mutant the suggestion claims: a collapsed
 	// suggestion lists its extra kills in AlsoKills, and attribution stays
 	// per-mutant — every listed mutant must die against this assertion alone.
-	mutantLeg := report.VerificationLeg{Passed: true, Runs: []report.RunOutcome{}, Detail: ""}
+	runs := []suggest.RunRecord{}
 	details := []string{}
 
-	for _, mutantID := range append([]string{candidate.MutantID}, candidate.AlsoKills...) {
+	for _, mutantID := range append([]string{candidate.MutantID()}, candidate.AlsoKills()...) {
 		leg, err := verifyAgainstMutant(ctx, plan, mutated, candidate, mutantID)
 		if err != nil {
-			return refute(candidate, baseline, report.VerificationLeg{
-				Passed: false, Runs: []report.RunOutcome{}, Detail: err.Error(),
-			}, "the isolated mutant leg could not be executed: "+err.Error())
+			return candidate.Refute(
+				"the isolated mutant leg could not be executed: "+err.Error(),
+				suggest.NewVerification(baseline, suggest.NewLeg(false, nil, err.Error())),
+			)
 		}
 
-		mutantLeg.Runs = append(mutantLeg.Runs, leg.Runs...)
-		details = append(details, leg.Detail)
+		runs = append(runs, leg.Runs()...)
+		details = append(details, leg.Detail())
 
-		if !leg.Passed {
-			mutantLeg.Passed = false
-			mutantLeg.Detail = strings.Join(details, "; ")
-
-			return refute(candidate, baseline, mutantLeg, fmt.Sprintf(
-				"mutant %s survived the suggested assertion applied on its own, so the "+
-					"assertion does not kill it", mutantID,
-			))
+		if !leg.Passed() {
+			return candidate.Refute(
+				fmt.Sprintf("mutant %s survived the suggested assertion applied on its own, so the "+
+					"assertion does not kill it", mutantID),
+				suggest.NewVerification(baseline,
+					suggest.NewLeg(false, runs, strings.Join(details, "; "))),
+			)
 		}
 	}
 
-	mutantLeg.Detail = strings.Join(details, "; ")
-
-	candidate.Status = report.SuggestionVerified
-	candidate.VerifiedDigest = digest
-	candidate.Verification = &report.Verification{Baseline: baseline, Mutant: mutantLeg}
-
-	return candidate
-}
-
-func refute(
-	candidate report.Suggestion,
-	baseline, mutantLeg report.VerificationLeg,
-	reason string,
-) report.Suggestion {
-	candidate.Status = report.SuggestionRefuted
-	candidate.VerifiedDigest = ""
-	candidate.StatusReason = reason
-	candidate.Verification = &report.Verification{Baseline: baseline, Mutant: mutantLeg}
-
-	return candidate
+	return candidate.Verify(digest, suggest.NewVerification(baseline,
+		suggest.NewLeg(true, runs, strings.Join(details, "; "))))
 }
 
 // verifyBatch is the baseline leg: every candidate of one target file applied
@@ -141,18 +123,18 @@ func verifyBatch(
 	ctx context.Context,
 	plan executionPlan,
 	file string,
-	candidates []report.Suggestion,
-) (report.VerificationLeg, string, error) {
+	candidates []suggest.Candidate,
+) (suggest.Leg, string, error) {
 	content, digest, err := batched(plan, file, candidates)
 	if err != nil {
-		return report.VerificationLeg{}, "", err //nolint:exhaustruct // nothing ran.
+		return suggest.Leg{}, "", err //nolint:exhaustruct // nothing ran.
 	}
 
 	result, err := runVerification(ctx, plan, "batch-"+shortName(file), map[string][]byte{
 		closureRelative(plan, file): content,
 	})
 	if err != nil {
-		return report.VerificationLeg{}, "", err //nolint:exhaustruct // nothing ran.
+		return suggest.Leg{}, "", err //nolint:exhaustruct // nothing ran.
 	}
 
 	green := !result.HasStatus(tfexec.StatusFail) &&
@@ -165,9 +147,7 @@ func verifyBatch(
 			len(candidates), file)
 	}
 
-	return report.VerificationLeg{
-		Passed: green, Runs: runOutcomes(result), Detail: detail,
-	}, digest, nil
+	return suggest.NewLeg(green, runRecords(result), detail), digest, nil
 }
 
 // verifyAgainstMutant is the isolated leg: this suggestion alone, against the
@@ -178,32 +158,32 @@ func verifyAgainstMutant(
 	ctx context.Context,
 	plan executionPlan,
 	mutated map[string]mutation.Mutant,
-	candidate report.Suggestion,
+	candidate suggest.Candidate,
 	mutantID string,
-) (report.VerificationLeg, error) {
+) (suggest.Leg, error) {
 	mutant, found := mutated[mutantID]
 	if !found {
-		return report.VerificationLeg{}, //nolint:exhaustruct // nothing ran.
+		return suggest.Leg{}, //nolint:exhaustruct // nothing ran.
 			fmt.Errorf("%w: mutant %s is not in this population", ErrSurvivorSelection, mutantID)
 	}
 
-	original, err := suggest.ReadTarget(plan.configuration.ModuleDir, candidate.TargetFile)
+	original, err := suggest.ReadTarget(plan.configuration.ModuleDir, candidate.TargetFile())
 	if err != nil {
-		return report.VerificationLeg{}, err //nolint:exhaustruct // nothing ran.
+		return suggest.Leg{}, err //nolint:exhaustruct // nothing ran.
 	}
 
-	alone, err := suggest.Apply(original, candidate.TargetFile, candidate.TargetRun,
-		candidate.Expression, verificationMessage(candidate))
+	alone, err := suggest.Apply(original, candidate.TargetFile(), candidate.TargetRun(),
+		candidate.Expression(), verificationMessage(candidate))
 	if err != nil {
-		return report.VerificationLeg{}, err //nolint:exhaustruct // nothing ran.
+		return suggest.Leg{}, err //nolint:exhaustruct // nothing ran.
 	}
 
-	result, err := runVerification(ctx, plan, "kill-"+candidate.ID+"-"+mutantID, map[string][]byte{
-		closureRelative(plan, candidate.TargetFile): alone,
+	result, err := runVerification(ctx, plan, "kill-"+candidate.ID()+"-"+mutantID, map[string][]byte{
+		closureRelative(plan, candidate.TargetFile()): alone,
 		mutant.File: mutant.Mutated,
 	})
 	if err != nil {
-		return report.VerificationLeg{}, err //nolint:exhaustruct // nothing ran.
+		return suggest.Leg{}, err //nolint:exhaustruct // nothing ran.
 	}
 
 	killed := result.HasStatus(tfexec.StatusFail)
@@ -215,7 +195,7 @@ func verifyAgainstMutant(
 			"so the kill is attributable to this suggestion", mutantID)
 	}
 
-	return report.VerificationLeg{Passed: killed, Runs: runOutcomes(result), Detail: detail}, nil
+	return suggest.NewLeg(killed, runRecords(result), detail), nil
 }
 
 // runVerification materialises one throwaway sandbox and runs the whole suite
@@ -263,7 +243,7 @@ func runVerification(
 func batched(
 	plan executionPlan,
 	file string,
-	candidates []report.Suggestion,
+	candidates []suggest.Candidate,
 ) ([]byte, string, error) {
 	original, err := suggest.ReadTarget(plan.configuration.ModuleDir, file)
 	if err != nil {
@@ -273,8 +253,8 @@ func batched(
 	content := original
 
 	for _, candidate := range candidates {
-		content, err = suggest.Apply(content, file, candidate.TargetRun,
-			candidate.Expression, verificationMessage(candidate))
+		content, err = suggest.Apply(content, file, candidate.TargetRun(),
+			candidate.Expression(), verificationMessage(candidate))
 		if err != nil {
 			return nil, "", err
 		}
@@ -286,8 +266,20 @@ func batched(
 // verificationMessage names the suggestion and the mutant and never the
 // compared value. It is the same renderer apply uses, deliberately: the bytes
 // verified and the bytes written must be identical.
-func verificationMessage(candidate report.Suggestion) string {
-	return suggest.VerifiedMessage(candidate.ID, candidate.MutantID)
+func verificationMessage(candidate suggest.Candidate) string {
+	return suggest.VerifiedMessage(candidate.ID(), candidate.MutantID())
+}
+
+// runRecords translates a verification run's executed run blocks into the
+// evidence shape the Suggestion context carries.
+func runRecords(result tfexec.TestResult) []suggest.RunRecord {
+	records := make([]suggest.RunRecord, 0, len(result.Runs))
+
+	for _, run := range result.Runs {
+		records = append(records, suggest.NewRunRecord(run.File, run.Run, phaseOne, run.Status))
+	}
+
+	return records
 }
 
 // mutantsByID indexes the generated population so a suggestion can
@@ -319,21 +311,20 @@ func shortName(path string) string {
 	return strings.NewReplacer("/", "-", ".", "-").Replace(path)
 }
 
-func groupCandidates(suggestions []report.Suggestion) map[string][]report.Suggestion {
-	byFile := map[string][]report.Suggestion{}
+func groupCandidates(candidates []suggest.Candidate) map[string][]suggest.Candidate {
+	byFile := map[string][]suggest.Candidate{}
 
-	for _, suggestion := range suggestions {
-		if suggestion.Status != report.SuggestionCandidate {
-			continue
-		}
-
-		byFile[suggestion.TargetFile] = append(byFile[suggestion.TargetFile], suggestion)
+	for _, candidate := range candidates {
+		byFile[candidate.TargetFile()] = append(byFile[candidate.TargetFile()], candidate)
 	}
 
 	return byFile
 }
 
-func sortedTargets(byFile map[string][]report.Suggestion) []string {
+// sortedTargets orders a by-file grouping deterministically. The grouping's
+// value type is whichever suggestion representation the caller holds: apply
+// reads the published DTO, verification reads the context's candidates.
+func sortedTargets[V any](byFile map[string][]V) []string {
 	files := make([]string, 0, len(byFile))
 	for file := range byFile {
 		files = append(files, file)
