@@ -19,6 +19,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
+	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
@@ -321,7 +322,7 @@ func mutate(
 
 	if settings.Preview {
 		result.Mutants = selected
-		result.Metrics = report.ComputeMetrics(nil)
+		result.Metrics = projectMetrics(oracle.ComputeMetrics(nil))
 
 		return result, nil
 	}
@@ -397,7 +398,8 @@ func finish(
 	executed []report.Mutant,
 	failures []report.ExecutionError,
 ) (report.Report, error) {
-	result = complete(plan.configuration, plan.config, result, executed, failures)
+	result = complete(plan.configuration, plan.config, result, executed, failures,
+		timeoutBudget(plan.config, plan.prepared.baselineDuration))
 
 	if plan.config.Suggest {
 		suggestions, cost, err := suggestAssertions(ctx, plan, result)
@@ -534,11 +536,11 @@ func complete(
 	result report.Report,
 	executed []report.Mutant,
 	failures []report.ExecutionError,
+	budget time.Duration,
 ) report.Report {
 	result.Mutants = executed
 	result.Errors = failures
-	result.Metrics = report.ComputeMetrics(executed)
-	result.OperatorErrors = report.ComputeOperatorErrors(executed)
+	result.Metrics, result.OperatorErrors = populationMetrics(executed, budget)
 	result.Findings = findings(configuration, executed)
 	result.Warnings = append(result.Warnings, unanswerableResources(configuration, executed)...)
 	result.Gates = gateOutcomes(settings, result)
@@ -678,30 +680,7 @@ func describe(
 	shortcutsDisabled := settings.staticShortcutsDisabled || disableStaticShortcuts(settings)
 
 	for _, mutant := range generated {
-		state := report.Pending
-
-		var verdict *report.Verdict
-
-		switch {
-		case !exercised[mutant.ModuleRel]:
-			state = report.NoCoverage
-		case !settings.Preview && !shortcutsDisabled &&
-			conditionallyUncovered(configuration, graph, settings, mutant):
-			// The finer conditional-instantiation claim (M3a.3): the mutated
-			// multiplicity expression is statically zero under every relevant
-			// run. Module-level NoCoverage above remains the strict subset.
-			state = report.NoCoverage
-			verdict = conditionalNoCoverageVerdict()
-		case !settings.Preview && !shortcutsDisabled &&
-			staticallyUnobservable(graph, mutant):
-			// A preview keeps Pending — the documented preview contract — so
-			// the shortcut fires only where execution would otherwise run.
-			state = report.Unobservable
-			verdict = staticUnobservableVerdict()
-		default:
-		}
-
-		described = append(described, report.Mutant{
+		entry := report.Mutant{
 			ID:       mutant.ID,
 			Operator: string(mutant.Operator),
 			Tier:     string(mutation.TierOf(mutant.Operator)),
@@ -713,11 +692,35 @@ func describe(
 				Start: report.Position{Line: mutant.Range.Start.Line, Column: mutant.Range.Start.Column},
 				End:   report.Position{Line: mutant.Range.End.Line, Column: mutant.Range.End.Column},
 			},
-			Diff:    mutant.Diff,
-			State:   state,
-			Verdict: verdict,
-			Runs:    []report.RunOutcome{},
-		})
+			Diff: mutant.Diff,
+			Runs: []report.RunOutcome{},
+		}
+
+		switch {
+		case !exercised[mutant.ModuleRel]:
+			// Module-level NoCoverage: the report states the absence as a
+			// count and no finding, so the outcome carries the state and
+			// nothing else.
+			entry = project(entry, oracle.NoCoverage(""))
+		case !settings.Preview && !shortcutsDisabled &&
+			conditionallyUncovered(configuration, graph, settings, mutant):
+			// The finer conditional-instantiation claim (M3a.3): the mutated
+			// multiplicity expression is statically zero under every relevant
+			// run. Module-level NoCoverage above remains the strict subset.
+			entry = project(entry, oracle.NoCoverage(conditionallyNoCoverageClaim))
+		case !settings.Preview && !shortcutsDisabled &&
+			staticallyUnobservable(graph, mutant):
+			// A preview keeps Pending — the documented preview contract — so
+			// the shortcut fires only where execution would otherwise run.
+			entry = project(entry, oracle.StaticallyUnobservable())
+		default:
+			// Pending stands: the state every executable mutant carries until
+			// something decides otherwise, and the only state a preview
+			// reports.
+			entry = project(entry, oracle.Pending())
+		}
+
+		described = append(described, entry)
 	}
 
 	return described
@@ -741,22 +744,6 @@ func staticallyUnobservable(graph *discovery.Graph, mutant mutation.Mutant) bool
 	}
 
 	return !cone.ContainsObservable()
-}
-
-// staticUnobservableVerdict is the finding a statically classified mutant
-// carries: the same claim the executed verdict would make, reached without
-// the execution.
-func staticUnobservableVerdict() *report.Verdict {
-	return &report.Verdict{
-		Diagnosis: "",
-		Message: "the mutated node's forward cone reaches no resource, data source, output, " +
-			"check or contract construct, so no plan or state could reflect the change and " +
-			"no assertion could ever read it",
-		Fix: "either the construct is genuinely dead — delete it — or nothing consumes it " +
-			"yet: wire it into a resource or an output and re-run",
-		//nolint:exhaustruct // no delta exists: nothing executed.
-		Evidence: report.Evidence{ClosureVerdict: "statically unobservable: empty observable cone"},
-	}
 }
 
 // Exclude is the site exclusion policy the run was given.

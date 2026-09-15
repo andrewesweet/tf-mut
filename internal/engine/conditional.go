@@ -15,7 +15,6 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
-	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
 // M3a.3 (#47): conditional-instantiation NoCoverage, evaluated against the
@@ -514,16 +513,7 @@ func isZeroMultiplicity(value cty.Value, meta string) bool {
 	return value.LengthInt() == 0
 }
 
-// conditionalNoCoverageVerdict is the finding a pre-classified mutant
-// carries.
-func conditionalNoCoverageVerdict() *report.Verdict {
-	return &report.Verdict{
-		Diagnosis: "",
-		Message: "the mutated block's multiplicity expression is statically zero under every " +
-			"relevant run, so no run instantiates the block and nothing can execute the mutation",
-		Fix: "add a run block whose variables make the multiplicity nonzero, or accept that " +
-			"the block is untested under the current suite",
-		//nolint:exhaustruct // no delta exists: nothing executed.
-		Evidence: report.Evidence{ClosureVerdict: "conditional instantiation: statically zero"},
-	}
-}
+// conditionallyNoCoverageClaim is the finding a pre-classified mutant
+// carries: the reason the oracle's NoCoverage constructor states for it.
+const conditionallyNoCoverageClaim = "the mutated block's multiplicity expression is statically zero under every " +
+	"relevant run, so no run instantiates the block and nothing can execute the mutation"

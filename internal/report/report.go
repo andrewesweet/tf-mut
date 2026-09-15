@@ -4,11 +4,6 @@
 // value, so no two of them can disagree about a verdict.
 package report
 
-import (
-	"cmp"
-	"slices"
-)
-
 // SchemaVersion is the version of the machine-readable report schema.
 //
 // It changes whenever a consumer could break: removed fields, renamed fields,
@@ -527,94 +522,4 @@ func (r Report) MutantByID(id string) (Mutant, bool) {
 	}
 
 	return Mutant{}, false
-}
-
-// scoredStates is the scored set: everything the population can be graded on.
-//
-// Invalid, Unobservable and Ignored are excluded and reported as counts, so a
-// mutant nobody could have caught never lowers a score.
-//
-//nolint:gochecknoglobals // an immutable lookup table.
-var scoredStates = []State{Killed, KilledByError, Survived, StructurallyUnassertable, NoCoverage, Timeout}
-
-// ComputeMetrics derives the state counts and the three headline metrics.
-func ComputeMetrics(mutants []Mutant) Metrics {
-	counts := map[State]int{}
-	diagnoses := map[Diagnosis]int{}
-
-	for _, mutant := range mutants {
-		counts[mutant.State]++
-
-		if mutant.State == Survived && mutant.Verdict != nil {
-			diagnoses[mutant.Verdict.Diagnosis]++
-		}
-	}
-
-	scored := 0
-	for _, state := range scoredStates {
-		scored += counts[state]
-	}
-
-	killed := counts[Killed]
-	killedByError := counts[KilledByError]
-	survived := counts[Survived]
-	unassertable := counts[StructurallyUnassertable]
-	timeout := counts[Timeout]
-
-	return Metrics{
-		MutationScore:  ratio(killed+killedByError, scored),
-		AssertionScore: ratio(killed, killed+survived+unassertable+timeout),
-		Reachability:   ratio(killed+killedByError+survived+timeout, scored),
-		Incomplete:     timeout > 0,
-		Counts:         counts,
-		Diagnoses:      diagnoses,
-		Scored:         scored,
-	}
-}
-
-// ComputeOperatorErrors summarises generation quality per operator.
-func ComputeOperatorErrors(mutants []Mutant) []OperatorErrors {
-	byOperator := map[string]*OperatorErrors{}
-
-	for _, mutant := range mutants {
-		entry, found := byOperator[mutant.Operator]
-		if !found {
-			entry = &OperatorErrors{
-				Operator: mutant.Operator, Generated: 0, Invalid: 0, KilledByError: 0, ErrorRate: 0,
-			}
-			byOperator[mutant.Operator] = entry
-		}
-
-		entry.Generated++
-
-		//nolint:exhaustive // only the two error states contribute to the counts.
-		switch mutant.State {
-		case Invalid:
-			entry.Invalid++
-		case KilledByError:
-			entry.KilledByError++
-		default:
-		}
-	}
-
-	counts := make([]OperatorErrors, 0, len(byOperator))
-
-	for _, entry := range byOperator {
-		entry.ErrorRate = ratio(entry.Invalid, entry.Generated)
-		counts = append(counts, *entry)
-	}
-
-	slices.SortFunc(counts, func(left, right OperatorErrors) int {
-		return cmp.Compare(left.Operator, right.Operator)
-	})
-
-	return counts
-}
-
-func ratio(numerator, denominator int) float64 {
-	if denominator == 0 {
-		return 0
-	}
-
-	return float64(numerator) / float64(denominator)
 }

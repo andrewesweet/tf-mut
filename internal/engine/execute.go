@@ -12,6 +12,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
+	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
@@ -167,7 +168,7 @@ func evaluate(
 	verdict.ExecutedRuns = result.ExecutedRuns()
 	verdict.Diagnostics = diagnostics(result.Diagnostics)
 
-	verdict, failure := classify(ctx, plan, built, verdict, result)
+	verdict, failure := classify(ctx, plan, built, verdict, result, budget)
 	if failure != nil || verdict.State != report.Survived {
 		return verdict, failure
 	}
@@ -179,12 +180,15 @@ func evaluate(
 
 // classify assigns the aggregate state by the normative precedence, and runs
 // terraform validate only where it is the sole discriminator: after an error.
+// Every branch names its state through the oracle's terminal constructors; the
+// outcome is projected onto the published mutant at the boundary.
 func classify(
 	ctx context.Context,
 	plan executionPlan,
 	built sandbox.Sandbox,
 	verdict report.Mutant,
 	result tfexec.TestResult,
+	budget time.Duration,
 ) (report.Mutant, *report.ExecutionError) {
 	// Killed is checked before Invalid even though the precedence table ranks
 	// Invalid first. The two cannot both apply: a statically invalid
@@ -192,9 +196,7 @@ func classify(
 	// reports fail. Checking here keeps the M11 speed win — the killed majority
 	// never pays for validate — without changing any verdict.
 	if result.HasStatus(tfexec.StatusFail) {
-		verdict.State = report.Killed
-
-		return verdict, nil
+		return project(verdict, oracle.Killed()), nil
 	}
 
 	if result.HasStatus(tfexec.StatusError) || verdict.ExecutedRuns == 0 {
@@ -210,24 +212,19 @@ func classify(
 		verdict.Validated = true
 
 		if !validation.Valid {
-			verdict.State = report.Invalid
 			verdict.Diagnostics = append(verdict.Diagnostics,
 				diagnostics(validation.Diagnostics)...)
 
-			return verdict, nil
+			return project(verdict, oracle.Invalid(oracleDiagnostics(verdict.Diagnostics))), nil
 		}
 
 		if result.HasStatus(tfexec.StatusError) {
-			verdict.State = report.KilledByError
-
-			return verdict, nil
+			return project(verdict, oracle.KilledByError(oracleDiagnostics(verdict.Diagnostics))), nil
 		}
 	}
 
 	if result.TimedOut {
-		verdict.State = report.Timeout
-
-		return verdict, nil
+		return project(verdict, oracle.TimedOut(budget)), nil
 	}
 
 	if verdict.ExecutedRuns == 0 {
@@ -239,9 +236,9 @@ func classify(
 		}
 	}
 
-	verdict.State = report.Survived
-
-	return verdict, nil
+	// Phase one is out of decisions: the mutant survived everything phase one
+	// can see, and phase two decides what that means.
+	return project(verdict, oracle.SurvivedPhaseOne()), nil
 }
 
 func runOutcomes(result tfexec.TestResult) []report.RunOutcome {

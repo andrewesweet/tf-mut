@@ -26,5 +26,5 @@ checked.
 
 ## Evidence
 
-This records the structural-invariant decision in [#86](https://github.com/andrewesweet/tf-mut/issues/86), following DDD-2 in the [review #85](https://github.com/andrewesweet/tf-mut/issues/85). The Oracle / Verdict context adopted it in #101 and the Suggestion context in #105 (`internal/suggest`'s `Candidate`, `Suggestion` and `Skipped`, projected in `internal/engine/projection.go`); the remaining contexts follow under #86's dependency order.
+This records the structural-invariant decision in [#86](https://github.com/andrewesweet/tf-mut/issues/86), following DDD-2 in the [review #85](https://github.com/andrewesweet/tf-mut/issues/85). The Oracle / Verdict context adopted it in #101 (survivor outcomes) and #102 (terminal outcomes, with the population metrics computed over outcomes) and the Suggestion context in #105 (`internal/suggest`'s `Candidate`, `Suggestion` and `Skipped`, projected in `internal/engine/projection.go`); the remaining contexts follow under #86's dependency order.
 

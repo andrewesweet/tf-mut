@@ -32,6 +32,27 @@ const mteSchemaPath = "../../docs/schema/mutation-testing-report-2.0.0.json"
 // junitSchemaPath is the vendored Jenkins JUnit dialect.
 const junitSchemaPath = "../../docs/schema/junit-jenkins.xsd"
 
+// allStatesMetrics is the sample population's arithmetic: one mutant per
+// state, two survivors, so seven scored and one timeout making the score
+// incomplete.
+func allStatesMetrics() report.Metrics {
+	return report.Metrics{
+		MutationScore:  0.2857142857142857,
+		AssertionScore: 0.2,
+		Reachability:   0.7142857142857143,
+		Incomplete:     true,
+		Counts: map[report.State]int{
+			report.Killed: 1, report.KilledByError: 1, report.Survived: 2,
+			report.StructurallyUnassertable: 1, report.Unobservable: 1,
+			report.NoCoverage: 1, report.Ignored: 1, report.Invalid: 1, report.Timeout: 1,
+		},
+		Diagnoses: map[report.Diagnosis]int{
+			report.WeakAssertion: 1, report.IndeterminateUnknownValues: 1,
+		},
+		Scored: 7,
+	}
+}
+
 // allStatesReport covers every state class once, so a mapping that loses one
 // fails here.
 func allStatesReport() report.Report {
@@ -56,7 +77,7 @@ func allStatesReport() report.Report {
 	for index, entry := range states {
 		mutant := report.Mutant{ //nolint:exhaustruct // the mapped subset.
 			ID:       string(rune('a'+index)) + "00000000000",
-			Operator: "EXT-OUTPUT-NULL",
+			Operator: sampleNullOperator,
 			Tier:     smokeTier,
 			Module:   ".",
 			Site:     "output.value",
@@ -95,7 +116,7 @@ func allStatesReport() report.Report {
 
 	value := sampleReport()
 	value.Mutants = mutants
-	value.Metrics = report.ComputeMetrics(mutants)
+	value.Metrics = allStatesMetrics()
 	value.Errors = []report.ExecutionError{{
 		MutantID: "deadbeef0000", Site: "output.value",
 		Message: "the fingerprint run could not be evaluated",

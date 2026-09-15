@@ -117,6 +117,9 @@ const (
 	sampleTestFile = "tests/unit.tftest.hcl"
 	sampleMutantID = "0123456789ab"
 	sampleOutput   = "output.tier"
+
+	sampleNullOperator = "EXT-OUTPUT-NULL"
+	sampleBodyOperator = "EXT-BODY-BLANK"
 )
 
 // sampleReport exercises every branch of the schema the engine can produce.
@@ -132,10 +135,25 @@ func sampleReport() report.Report {
 			Fingerprint:        "0f4c0e6a",
 			VolatileComponents: []string{"root_module.resources[terraform_data.app].values.id"},
 		},
-		Mutants:        sampleMutants(),
-		Findings:       sampleFindings(),
-		Metrics:        report.ComputeMetrics(sampleMutants()),
-		OperatorErrors: report.ComputeOperatorErrors(sampleMutants()),
+		Mutants:  sampleMutants(),
+		Findings: sampleFindings(),
+		// The sample population's arithmetic: one survivor carrying
+		// weak-assertion, one killed by error, both scored.
+		Metrics: report.Metrics{
+			MutationScore:  0.5,
+			AssertionScore: 0,
+			Reachability:   1,
+			Incomplete:     false,
+			Counts: map[report.State]int{
+				report.Survived: 1, report.KilledByError: 1,
+			},
+			Diagnoses: map[report.Diagnosis]int{report.WeakAssertion: 1},
+			Scored:    2,
+		},
+		OperatorErrors: []report.OperatorErrors{
+			{Operator: sampleBodyOperator, Generated: 1, Invalid: 0, KilledByError: 1, ErrorRate: 0},
+			{Operator: sampleNullOperator, Generated: 1, Invalid: 0, KilledByError: 0, ErrorRate: 0},
+		},
 		Suppressions: []report.Suppression{{
 			Kind:      "config-operator",
 			Operators: []string{"STR-CASE"},
@@ -265,7 +283,7 @@ func sampleMutants() []report.Mutant {
 	mutants := []report.Mutant{
 		{
 			ID:       sampleMutantID,
-			Operator: "EXT-OUTPUT-NULL",
+			Operator: sampleNullOperator,
 			Tier:     smokeTier,
 			Module:   ".",
 			Site:     sampleOutput,
@@ -315,7 +333,7 @@ func sampleMutants() []report.Mutant {
 		},
 		{
 			ID:       sampleOtherID,
-			Operator: "EXT-BODY-BLANK",
+			Operator: sampleBodyOperator,
 			Tier:     smokeTier,
 			Module:   ".",
 			Site:     sampleResource,
