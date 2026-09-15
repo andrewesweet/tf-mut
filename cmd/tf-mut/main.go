@@ -370,41 +370,52 @@ var errUncarryingReporter = errors.New(
 //
 //nolint:gochecknoglobals // an immutable table.
 var commandFlags = map[string]map[string]bool{
-	runCommand: {
-		tierFlag: true, operatorFlag: true, excludeOperatorFlag: true,
-		excludePathFlag: true, excludeResourceFlag: true, sinceFlag: true,
-		sampleFlagName: true, seedFlag: true, generatedFunctionsFlag: true,
-	},
-	previewCommand: {
-		tierFlag: true, operatorFlag: true, excludeOperatorFlag: true,
-		excludePathFlag: true, excludeResourceFlag: true, sinceFlag: true,
-		sampleFlagName: true, seedFlag: true, generatedFunctionsFlag: true,
-	},
-	suggestCommand: {
-		"apply": true, "all-verified": true, "survivor": true, "dry-run": true,
-		tierFlag: true, operatorFlag: true, excludeOperatorFlag: true,
-		excludePathFlag: true, excludeResourceFlag: true, sinceFlag: true,
-		sampleFlagName: true, seedFlag: true, generatedFunctionsFlag: true,
-	},
-	characteriseCommand: {
-		"write": true, "force": true, pinFlag: true,
-		"until-dry": true, answerFlagName: true, resumeFlagName: true,
-	},
-	todosCommand: {pinFlag: true, answerFlagName: true, resumeFlagName: true},
+	runCommand:     flagSet(populationFlags...),
+	previewCommand: flagSet(populationFlags...),
+	suggestCommand: flagSet(append(
+		[]string{"apply", "all-verified", "survivor", "dry-run"}, populationFlags...,
+	)...),
+	characteriseCommand: flagSet(
+		"write", "force", pinFlag, "until-dry", answerFlagName, resumeFlagName,
+	),
+	todosCommand: flagSet(pinFlag, answerFlagName, resumeFlagName),
+}
+
+// populationFlags are the controls that select or narrow the mutant population;
+// only the grading commands carry a population.
+//
+//nolint:gochecknoglobals // an immutable list.
+var populationFlags = []string{
+	tierFlag, operatorFlag, excludeOperatorFlag,
+	excludePathFlag, excludeResourceFlag, sinceFlag,
+	sampleFlagName, seedFlag, generatedFunctionsFlag,
 }
 
 // scopedFlags is every flag that belongs to some command rather than to all of
-// them: the flags named in commandFlags, including the population controls. A
-// flag outside this set applies everywhere and is never refused.
+// them: the union of the commandFlags rows. A flag outside this set applies
+// everywhere and is never refused.
 //
 //nolint:gochecknoglobals // an immutable set.
-var scopedFlags = map[string]bool{
-	"write": true, "force": true, pinFlag: true, "until-dry": true,
-	answerFlagName: true, resumeFlagName: true, "apply": true, "all-verified": true,
-	"survivor": true, "dry-run": true,
-	tierFlag: true, operatorFlag: true, excludeOperatorFlag: true,
-	excludePathFlag: true, excludeResourceFlag: true, sinceFlag: true,
-	sampleFlagName: true, seedFlag: true, generatedFunctionsFlag: true,
+var scopedFlags = func() map[string]bool {
+	scoped := map[string]bool{}
+
+	for _, acted := range commandFlags {
+		for name := range acted {
+			scoped[name] = true
+		}
+	}
+
+	return scoped
+}()
+
+func flagSet(names ...string) map[string]bool {
+	set := make(map[string]bool, len(names))
+
+	for _, name := range names {
+		set[name] = true
+	}
+
+	return set
 }
 
 func refuseInapplicableFlags(command string, given []string) error {
