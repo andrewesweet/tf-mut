@@ -440,7 +440,7 @@ func (b *graphBuilder) callByName(name string) (ModuleCall, bool) {
 
 // link records an edge from every address the expression observes to the
 // observing node.
-func (b *graphBuilder) link(expr hclsyntax.Expression, reader nodeID) {
+func (b *graphBuilder) link(expr hcl.Expression, reader nodeID) {
 	for _, ref := range referencesOf(expr) {
 		source, ok := b.resolveRef(ref.Address)
 		if !ok {

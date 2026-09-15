@@ -126,7 +126,7 @@ func mutatedMultiplicity(
 	mutant mutation.Mutant,
 	block discovery.Block,
 	meta string,
-) (hclsyntax.Expression, bool) {
+) (hcl.Expression, bool) {
 	file, diagnostics := hclparse.NewParser().ParseHCL(mutant.Mutated, mutant.File)
 	if diagnostics.HasErrors() {
 		return nil, false
@@ -213,10 +213,19 @@ func evaluateMultiplicity(
 	configuration discovery.Configuration,
 	settings Config,
 	run discovery.RunBlock,
-	expr hclsyntax.Expression,
+	expr hcl.Expression,
 ) (cty.Value, bool) {
+	// The admitted multiplicity forms are native-syntax shapes, and the
+	// accessor is the one named route to them. A value that is not native
+	// syntax is a form the evaluator cannot walk — undecided, which the
+	// caller fails closed to execution.
+	native, ok := discovery.NativeExpression(expr)
+	if !ok {
+		return cty.NilVal, false
+	}
+
 	names := []string{}
-	if !supportedMultiplicityForm(expr, &names) {
+	if !supportedMultiplicityForm(native, &names) {
 		return cty.NilVal, false
 	}
 
@@ -480,7 +489,7 @@ func environmentOverrides(settings Config, name string) bool {
 }
 
 // namedAttribute finds an attribute assignment by name.
-func namedAttribute(attributes []discovery.Attribute, name string) (hclsyntax.Expression, bool) {
+func namedAttribute(attributes []discovery.Attribute, name string) (hcl.Expression, bool) {
 	for _, attribute := range attributes {
 		if attribute.Name == name {
 			return attribute.Expr, true
