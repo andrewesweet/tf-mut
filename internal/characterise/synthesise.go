@@ -340,8 +340,19 @@ func mined(variable discovery.Block) []string {
 	return candidates
 }
 
-func mineExpression(expr hclsyntax.Expression, name string) []string {
-	switch typed := expr.(type) {
+// mineExpression needs native syntax — the forms it mines are the call's
+// argument structure and the comparison's operator, which only the concrete
+// nodes expose — and the condition arrives across the discovery boundary, so
+// the requirement is named through discovery.NativeExpression. An unreadable
+// condition mines nothing, which is the fail-closed direction: the variable
+// keeps its judgement point rather than gaining a guessed value.
+func mineExpression(expr hcl.Expression, name string) []string {
+	native, readable := discovery.NativeExpression(expr)
+	if !readable {
+		return nil
+	}
+
+	switch typed := native.(type) {
 	case *hclsyntax.FunctionCallExpr:
 		return mineContains(typed, name)
 	case *hclsyntax.BinaryOpExpr:
@@ -446,12 +457,24 @@ const nestingLimit = 6
 
 // synthesiseType walks a type expression, which Terraform writes as a call
 // tree — `list(object({ name = string }))` — rather than as a value.
-func synthesiseType(expr hclsyntax.Expression, depth int) (string, bool) {
+//
+// The walk needs native syntax — the forms it synthesises are the call's name
+// and arguments and the object literal's items, which only the concrete nodes
+// expose — and the type arrives across the discovery boundary, so the
+// requirement is named through discovery.NativeExpression. An unreadable type
+// expression is a judgement point, the same direction as a type this walker
+// cannot synthesise.
+func synthesiseType(expr hcl.Expression, depth int) (string, bool) {
+	native, readable := discovery.NativeExpression(expr)
+	if !readable {
+		return "", false
+	}
+
 	if depth > nestingLimit {
 		return "", false
 	}
 
-	switch typed := expr.(type) {
+	switch typed := native.(type) {
 	case *hclsyntax.ScopeTraversalExpr:
 		return primitiveValue(typed.Traversal.RootName())
 	case *hclsyntax.FunctionCallExpr:
