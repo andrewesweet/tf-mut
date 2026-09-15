@@ -9,11 +9,12 @@ application layer that coordinates them; `cmd/tf-mut` is an adapter. `internal/c
 
 The six-context table and dependency direction below are the target architecture
 specified by #86, not a claim that the current packages already satisfy every
-boundary. `internal/oracle` does not exist yet, and verdict extraction is pending
-#101–#103. Supporting-context migrations and dependency enforcement remain pending
-in #89, #105–#109 and #113; #91 is the separately recorded narrow
-filesystem-primitive exception. Until those tickets land, current imports and
-ownership remain as implemented while this document states the normative direction.
+boundary. `internal/oracle` owns the survivor outcomes since #101; the terminal
+outcomes (#102) and cache rehydration (#103) are still pending. Supporting-context
+migrations and dependency enforcement remain pending in #89, #105–#109 and #113;
+#91 is the separately recorded narrow filesystem-primitive exception. Until those
+tickets land, current imports and ownership remain as implemented while this
+document states the normative direction.
 
 | Context | Kind | Packages | Owns |
 | --- | --- | --- | --- |

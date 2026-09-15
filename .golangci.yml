@@ -57,6 +57,7 @@ linters:
           list-mode: lax
           files:
             - "**/internal/fingerprint/**"
+            - "**/internal/oracle/**"
             - "**/internal/mutation/**"
             - "**/internal/discovery/**"
             - "**/internal/tfexec/**"
