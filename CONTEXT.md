@@ -12,11 +12,12 @@ specified by #86, not a claim that the current packages already satisfy every
 boundary. `internal/oracle` owns the mutant outcome and every diagnosis since
 #101 and #102: survivors and terminal outcomes alike are constructed only
 through its constructors, and the population arithmetic computes over outcomes.
-Cache rehydration (#103) is still pending. Supporting-context
-migrations and dependency enforcement remain pending in #106–#109 and #113;
-#91 is the separately recorded narrow filesystem-primitive exception. Until those
-tickets land, current imports and ownership remain as implemented while this
-document states the normative direction.
+Cache rehydration (#103) is still pending. The judgement points and the input
+provenance are owned by `internal/characterise` since #107; the
+supporting-context migrations and dependency enforcement still pending in #106,
+#108, #109 and #113; #91 is the separately recorded narrow filesystem-primitive
+exception. Until those tickets land, current imports and ownership remain as
+implemented while this document states the normative direction.
 
 | Context | Kind | Packages | Owns |
 | --- | --- | --- | --- |

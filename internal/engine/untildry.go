@@ -291,7 +291,7 @@ func stageSuite(
 	// from it would plan a redaction marker.
 	staged := map[string][]byte{}
 
-	for _, file := range pinnedFiles(scaffold, block.Pins) {
+	for _, file := range pinnedFiles(scaffold, projectScenarios(scaffold.Scenarios), block.Pins) {
 		if file.entry.Executable {
 			staged[stagedPath(stage.configuration, file.entry.Path)] = file.bytes
 		}

@@ -18,7 +18,6 @@ import (
 	"strings"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
-	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
 // Rung is a level of the pinning granularity ladder.
@@ -87,6 +86,14 @@ const (
 	RunPrefix = "characterise_"
 )
 
+// SensitiveWithheld is what every published rendering carries in place of a
+// value Terraform marks sensitive: a scenario's input expression, a judgement
+// point's constraint evidence and a failed attempt's diagnostic alike. The
+// string is the published wire spelling — the report DTO declares the same
+// constant, and the two must not drift; the projection contract that keeps the
+// vocabularies aligned is #109's, and until then this comment is the link.
+const SensitiveWithheld = "(sensitive value withheld)"
+
 // ScenarioFile is the module-relative path of a scenario's generated file.
 func ScenarioFile(testDirRel, scenario string) string {
 	return path.Join(testDirRel, filePrefix+scenario+fileSuffix)
@@ -118,15 +125,21 @@ type Options struct {
 // report describes it with.
 type Scaffold struct {
 	// Scenarios are the harvest points, in deterministic order.
-	Scenarios []report.Scenario
+	Scenarios []ScenarioPlan
 	// Todos are the judgement points the deterministic pipeline could not
 	// resolve. A scenario with an open TODO is not executable, so the scaffold
 	// travels as a non-executable artefact until one is answered.
-	Todos []report.Todo
+	Todos []Todo
+	// Answered holds the answered points' transition handles, keyed by point
+	// identity. The bundle above carries every point in its current state;
+	// the handle is what a later Promote or Reject consumes, and it is the
+	// only value either transition accepts.
+	Answered map[string]Answered
 	// Values are the assignments the generated run blocks actually carry,
 	// keyed by scenario identifier and then by variable name.
 	//
-	// They are deliberately not the same strings as `report.Scenario.Inputs`.
+	// They are deliberately not the same strings as the scenarios' published
+	// input expressions.
 	// A sensitive variable's *report* carries the withheld marker, because a
 	// secret must reach no artefact; its *run block* has to carry the value,
 	// because Terraform cannot plan a marker. Holding one string for both
@@ -216,6 +229,29 @@ func PinID(scenario, address, expression string) string {
 	return Identify("pin-", scenario, address, expression)
 }
 
+// ScenarioPlan is one planned harvest point: its identity, its naming, and
+// the input assignments the synthesis pipeline resolved for it.
+//
+// It is the planning record the application layer projects onto the published
+// scenario DTO at the report boundary. The scenario lifecycle itself —
+// scaffolded, promoted — is a separate entity, and does not move into this
+// context here.
+type ScenarioPlan struct {
+	// ID is a hash over the module, the input assignment set and the state
+	// key. Two scenarios with the same inputs in the same module are the same
+	// scenario, whatever they are named.
+	ID   string
+	Name string
+	// StateKey isolates the scenario's Terraform state from every other
+	// generated scenario, so its pins describe creates rather than updates.
+	StateKey string
+	// File is the generated test file, relative to the module directory.
+	File string
+	// Inputs are the assignments the run block carries, in the published
+	// (redacted) rendering.
+	Inputs []Input
+}
+
 // scenarioID is a hash over the module, the input assignment set and the
 // state key: two scenarios with the same inputs in the same module are the
 // same scenario, whatever they are named.
@@ -238,12 +274,12 @@ func PinID(scenario, address, expression string) string {
 // different answers produce two different registry records there, so the
 // collision the first finding named does not reach the place provenance is
 // consumed — and no published field distinguishes one secret from another.
-func scenarioID(moduleRel string, inputs []report.Input, stateKey string) string {
+func scenarioID(moduleRel string, inputs []Input, stateKey string) string {
 	parts := make([]string, 0, len(inputs)+partsBeforeInputs)
 	parts = append(parts, moduleRel, stateKey)
 
 	for _, input := range inputs {
-		parts = append(parts, input.Name+"="+input.Expression)
+		parts = append(parts, input.Name()+"="+input.Expression())
 	}
 
 	return Identify("scn-", parts...)
