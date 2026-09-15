@@ -79,6 +79,28 @@ type Validation struct {
 	Range hcl.Range
 }
 
+// NativeExpression is the one named route from a discovered expression to
+// Terraform's native syntax. Whatever representation the boundary fields
+// (`Attribute.Expr`, `Validation.Condition`) publish, consumers downstream of
+// discovery must not reach through them with their own type assertions. A
+// consumer that needs the concrete nodes — because it inspects or rewrites the
+// tokens an expression owns, which only the native syntax exposes — names that
+// requirement here, and accepts false when the discovered value is not native
+// syntax. There is no second route: a new assertion against a discovered
+// expression is a boundary violation, not a convenience.
+//
+// The accessor fails closed. A non-native expression and a nil expression both
+// return false, and a caller that receives false must treat the site as
+// unreadable rather than guess at the syntax it cannot see.
+func NativeExpression(expr hcl.Expression) (hclsyntax.Expression, bool) {
+	native, ok := expr.(hclsyntax.Expression)
+	if !ok {
+		return nil, false
+	}
+
+	return native, true
+}
+
 // VariableByName returns the module's variable declaration of that name.
 func (m Module) VariableByName(name string) (Block, bool) {
 	for _, variable := range m.Variables {

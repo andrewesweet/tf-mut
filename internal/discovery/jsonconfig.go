@@ -457,7 +457,7 @@ func collectJSONVariable(module *Module, path, relative string, block *hcl.Block
 	}
 
 	for name, attribute := range content.Attributes {
-		expr, ok := nativeExpression(name, attribute.Expr)
+		expr, ok := reparseArgument(name, attribute.Expr)
 		if !ok {
 			continue
 		}
@@ -477,7 +477,7 @@ func collectJSONVariable(module *Module, path, relative string, block *hcl.Block
 	return collectJSONReferences(module, path, block.Body)
 }
 
-// nativeExpression re-parses one JSON-declared variable argument as native
+// reparseArgument re-parses one JSON-declared variable argument as native
 // syntax, which is what every reader downstream of discovery expects.
 //
 // `type` is the special case: Terraform spells a JSON type constraint as a
@@ -485,7 +485,7 @@ func collectJSONVariable(module *Module, path, relative string, block *hcl.Block
 // expression. Every other argument is an ordinary JSON literal, and JSON
 // literal syntax is a subset of HCL expression syntax, so its own source text
 // parses unchanged.
-func nativeExpression(name string, expr hcl.Expression) (hclsyntax.Expression, bool) {
+func reparseArgument(name string, expr hcl.Expression) (hclsyntax.Expression, bool) {
 	var source string
 
 	if name == typeLabel {
