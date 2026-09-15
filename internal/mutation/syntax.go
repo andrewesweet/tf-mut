@@ -189,7 +189,7 @@ func nullableVariable(where site, module discovery.Module) bool {
 	return true
 }
 
-func literalBool(expr hclsyntax.Expression) bool {
+func literalBool(expr hcl.Expression) bool {
 	value, diagnostics := expr.Value(nil)
 	if diagnostics.HasErrors() || value.IsNull() || !value.IsKnown() {
 		return true
