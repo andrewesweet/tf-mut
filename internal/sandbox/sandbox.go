@@ -352,6 +352,15 @@ func WriteFresh(target, source string, content []byte) error {
 // before `os.Rename` is the only place the check means what the write protocol
 // says it means.
 func WriteFreshChecked(target, source string, content []byte, commit func() error) error {
+	return WriteFreshCheckedMode(target, source, content, fileMode, commit)
+}
+
+// WriteFreshCheckedMode is WriteFreshChecked with the installed file's mode
+// chosen by the caller. The mode goes onto the temporary file before the
+// rename, so the target never carries any other mode, however briefly.
+func WriteFreshCheckedMode(
+	target, source string, content []byte, mode os.FileMode, commit func() error,
+) error {
 	if err := assertDistinct(target, source); err != nil {
 		return err
 	}
@@ -380,7 +389,7 @@ func WriteFreshChecked(target, source string, content []byte, commit func() erro
 		return fmt.Errorf("closing %s: %w", name, err)
 	}
 
-	if err := os.Chmod(name, fileMode); err != nil {
+	if err := os.Chmod(name, mode); err != nil {
 		return fmt.Errorf("setting permissions on %s: %w", name, err)
 	}
 

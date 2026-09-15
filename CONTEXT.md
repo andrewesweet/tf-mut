@@ -29,10 +29,11 @@ ownership remain as implemented while this document states the normative directi
 Core and supporting contexts, and every Terraform Boundary package, do not import
 Publication (`internal/report`), the CLI, or a renderer. `internal/report` is the
 stdlib-only publication leaf and has no domain-context imports. `internal/skill` is
-grouped under Publication because it owns shipped documents, but the planned #91
-implementation may use Terraform Boundary's shared checked filesystem primitive
-(`internal/sandbox.WriteFreshChecked`); that narrow infrastructure dependency is an
-explicit exception, not a dependency from the report DTO leaf. Publication otherwise
+grouped under Publication because it owns shipped documents, but since #91 it writes
+through Terraform Boundary's shared checked filesystem primitive
+(`internal/sandbox.WriteFreshCheckedMode`, as `suggest --apply` and the
+characterisation commit do); that narrow infrastructure dependency is an explicit
+exception, not a dependency from the report DTO leaf. Publication otherwise
 does not import a domain context. The application layer may import every context and
 performs the projections between context values and report DTOs.
 
