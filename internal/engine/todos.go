@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
@@ -123,7 +124,7 @@ func collectArtefactAnswers(body *hclsyntax.Body, content []byte, answers map[st
 	}
 }
 
-func expressionSource(content []byte, expr hclsyntax.Expression) string {
+func expressionSource(content []byte, expr hcl.Expression) string {
 	span := expr.Range()
 	if span.Start.Byte < 0 || span.End.Byte > len(content) || span.Start.Byte >= span.End.Byte {
 		return ""

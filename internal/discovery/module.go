@@ -517,7 +517,7 @@ func ProviderOf(resourceType string) string {
 	return name
 }
 
-func literalString(expr hclsyntax.Expression) string {
+func literalString(expr hcl.Expression) string {
 	value, diagnostics := expr.Value(nil)
 	if diagnostics.HasErrors() || value.IsNull() || !value.IsKnown() {
 		return ""

@@ -214,10 +214,12 @@ func normaliseAddress(address string) string {
 }
 
 // referencesOf lists every address an expression observes.
-func referencesOf(expr hclsyntax.Expression) []Ref {
+func referencesOf(expr hcl.Expression) []Ref {
 	refs := []Ref{}
 
-	collectRefs(expr, true, "", &refs)
+	if native, ok := NativeExpression(expr); ok {
+		collectRefs(native, true, "", &refs)
+	}
 
 	slices.SortFunc(refs, func(left, right Ref) int {
 		return strings.Compare(left.Address, right.Address)
