@@ -82,25 +82,27 @@ Flags for run, preview, suggest, characterise, todos and curate:
   --allow-incomplete-score     Let a timeout-affected score satisfy --min-score
   --allow-real-infrastructure  Permit execution against unmocked providers
   --allow-unsandboxed-effects  Permit apply-mode provisioners and unsevered data sources
-  --tier smoke|standard|deep   Operator breadth (default standard)
-  --since REF                  Run only mutants in configuration changed since REF,
-                               including staged, unstaged and untracked changes
-  --sample N                   Run a deterministic N% sample (non-authoritative)
-  --seed N                     Seed for --sample (default 0)
   --allow-sampled-gate         Let a sampled run satisfy --min-score (unsafe)
   --no-cache                   Disable the project-local verdict cache
   --fail-on-new                Fail on findings the baseline does not accept
   --write-baseline             Accept the current findings as the baseline
   --baseline PATH              Baseline file (default ".tf-mut-baseline.json")
+  --reporter FORMAT            terminal|json|sarif|mte|html|junit|markdown (default terminal)
+  --output FORMAT=PATH         Write an additional reporter from the same run;
+                               repeatable — every output derives from one report value
+  --sarif-path PATH            Where to write the SARIF document
+
+Flags for run, preview and suggest:
+  --tier smoke|standard|deep   Operator breadth (default standard)
+  --since REF                  Run only mutants in configuration changed since REF,
+                               including staged, unstaged and untracked changes
+  --sample N                   Run a deterministic N% sample (non-authoritative)
+  --seed N                     Seed for --sample (default 0)
   --generated-functions        Opt in to the generated function-family operators
   --operator ID[,ID]           Restrict generation to these operators
   --exclude-operator ID[,ID]   Remove operators from the population
   --exclude-path GLOB[,GLOB]   Remove sites in matching files
   --exclude-resource ADDR[,..] Remove sites in matching resources
-  --reporter FORMAT            terminal|json|sarif|mte|html|junit|markdown (default terminal)
-  --output FORMAT=PATH         Write an additional reporter from the same run;
-                               repeatable — every output derives from one report value
-  --sarif-path PATH            Where to write the SARIF document
 
 Flags for characterise:
   --pin LEVEL                  Pinning granularity: outputs, counts or configured
