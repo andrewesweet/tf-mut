@@ -289,11 +289,15 @@ func closeTheGap(
 
 	block.Pins = seedFinalPinDefect(stage.configuration, block.Pins)
 
-	if err := verifyScaffold(ctx, runner, stage, scaffold, block.Pins, "verify-final"); err != nil {
+	// The final leg's evidence is not carried further: the judgement points
+	// were promoted on the leg above, and this leg re-proves the pin set the
+	// loop ended with.
+	if _, err := verifyScaffold(ctx, runner, stage, scaffold, block.Pins, "verify-final"); err != nil {
 		return nil, nil, err
 	}
 
-	return append(append(pinnedFiles(scaffold, block.Pins), promoted...),
+	return append(append(pinnedFiles(scaffold, projectScenarios(scaffold.Scenarios), block.Pins),
+		promoted...),
 		scaffoldArtefact(scaffold, block)...), refusals, nil
 }
 
@@ -312,9 +316,10 @@ func scaffoldSuite(
 	stage staging,
 	scaffold characterise.Scaffold,
 ) (report.Characterisation, []generated, error) {
+	scenarios := projectScenarios(scaffold.Scenarios)
 	block := report.Characterisation{ //nolint:exhaustruct // filled in below, stage by stage.
 		Rung: string(scaffold.Rung), Complete: false,
-		Scenarios: scaffold.Scenarios, Pins: []report.Pin{}, Todos: scaffold.Todos,
+		Scenarios: scenarios, Pins: []report.Pin{}, Todos: projectTodos(scaffold.Todos),
 		Files: []report.GeneratedFile{}, Staged: !stage.settings.CharacteriseWrite,
 	}
 
@@ -328,7 +333,7 @@ func scaffoldSuite(
 	// artefact is the editable surface, and promotion after verification is the
 	// only route from it into test content.
 	if openTodos(scaffold.Todos) > 0 {
-		files := artefactFiles(scaffold, scaffold.Todos)
+		files := artefactFiles(scaffold, scenarios, scaffold.Todos)
 		block.Files = entriesOf(files)
 
 		return block, files, nil
@@ -344,16 +349,18 @@ func scaffoldSuite(
 		characterise.Pin(scaffold, stage.configuration, stage.prepared.schemas, harvest),
 	)
 
-	files := pinnedFiles(scaffold, block.Pins)
+	files := pinnedFiles(scaffold, scenarios, block.Pins)
 	block.Files = entriesOf(files)
 
-	if err := verifyScaffold(ctx, runner, stage, scaffold, block.Pins, "verify"); err != nil {
+	verification, err := verifyScaffold(ctx, runner, stage, scaffold, block.Pins, "verify")
+	if err != nil {
 		return rejectAnswers(block, scaffold, err)
 	}
 
 	// Promotion is what verification earns, and nothing else: an answer is
-	// promoted only once the suite it produced has been proven green.
-	promote(&block)
+	// promoted only once the suite it produced has been proven green, and the
+	// transition that records it accepts only the verification's evidence.
+	block.Todos = projectTodos(promoted(scaffold, verification))
 
 	// A characterisation whose selected rung produced no pins may never report
 	// complete: green with nothing pinned is the false confidence the ladder's
@@ -364,11 +371,11 @@ func scaffoldSuite(
 }
 
 // openTodos counts the judgement points still awaiting an answer.
-func openTodos(todos []report.Todo) int {
+func openTodos(todos []characterise.Todo) int {
 	open := 0
 
 	for _, todo := range todos {
-		if todo.Status == report.TodoOpen {
+		if todo.Status() == characterise.TodoOpen {
 			open++
 		}
 	}
@@ -437,17 +444,23 @@ func rejectAnswers(
 		return report.Characterisation{}, nil, failure //nolint:exhaustruct // nothing was produced.
 	}
 
-	rejected := false
+	reason := "the suite did not pass with this answer in play, so it could not be promoted; " +
+		"the failure may or may not be attributable to it: " + failure.Error()
 
-	for index, todo := range block.Todos {
-		if todo.Status != report.TodoAnswered {
+	rejected := false
+	todos := make([]characterise.Todo, len(scaffold.Todos))
+
+	for index, todo := range scaffold.Todos {
+		handle, answered := scaffold.Answered[todo.ID()]
+		if todo.Status() != characterise.TodoAnswered || !answered {
+			todos[index] = todo
+
 			continue
 		}
 
-		block.Todos[index].Status = report.TodoRejected
-		block.Todos[index].Diagnostic = "the suite did not pass with this answer in play, so " +
-			"it could not be promoted; the failure may or may not be attributable to it: " +
-			failure.Error()
+		// The reason travels verbatim through the transition; the doc comment
+		// above owns why rejection is the safe direction.
+		todos[index] = handle.Reject(reason)
 		rejected = true
 	}
 
@@ -455,7 +468,8 @@ func rejectAnswers(
 		return report.Characterisation{}, nil, failure //nolint:exhaustruct // nothing was produced.
 	}
 
-	files := artefactFiles(scaffold, block.Todos)
+	block.Todos = projectTodos(todos)
+	files := artefactFiles(scaffold, projectScenarios(scaffold.Scenarios), todos)
 	block.Pins = []report.Pin{}
 	block.Files = entriesOf(files)
 	block.Complete = false
@@ -465,10 +479,14 @@ func rejectAnswers(
 
 // artefactFiles renders the non-executable artefact for every scenario whose
 // inputs are not fully resolved.
-func artefactFiles(scaffold characterise.Scaffold, todos []report.Todo) []generated {
-	files := make([]generated, 0, len(scaffold.Scenarios))
+func artefactFiles(
+	scaffold characterise.Scaffold,
+	scenarios []report.Scenario,
+	todos []characterise.Todo,
+) []generated {
+	files := make([]generated, 0, len(scenarios))
 
-	for _, scenario := range scaffold.Scenarios {
+	for _, scenario := range scenarios {
 		// The artefact is redacted in both views: it is the editable surface,
 		// and nothing in it is ever planned.
 		content := characterise.RenderArtefact(scaffold, scenario, todos)
@@ -557,10 +575,14 @@ func scaffoldArtefact(
 }
 
 // pinnedFiles renders the executable suite.
-func pinnedFiles(scaffold characterise.Scaffold, pins []report.Pin) []generated {
-	files := make([]generated, 0, len(scaffold.Scenarios))
+func pinnedFiles(
+	scaffold characterise.Scaffold,
+	scenarios []report.Scenario,
+	pins []report.Pin,
+) []generated {
+	files := make([]generated, 0, len(scenarios))
 
-	for _, scenario := range scaffold.Scenarios {
+	for _, scenario := range scenarios {
 		one := []report.Scenario{scenario}
 		files = append(files, generatedFile(scenario.File,
 			characterise.Render(scaffold, one, pins, characterise.Executable),
@@ -635,7 +657,7 @@ func stagedScaffold(
 	sharedFileOrder := seedSharedFileOrder(configuration)
 
 	if sharedFileOrder == "" {
-		for _, scenario := range scaffold.Scenarios {
+		for _, scenario := range projectScenarios(scaffold.Scenarios) {
 			staged[stagedPath(configuration, scenario.File)] = characterise.Render(
 				scaffold, []report.Scenario{scenario}, pins, characterise.Executable,
 			)
@@ -644,7 +666,7 @@ func stagedScaffold(
 		return staged
 	}
 
-	ordered := slices.Clone(scaffold.Scenarios)
+	ordered := projectScenarios(scaffold.Scenarios)
 	if sharedFileOrder == "reverse" {
 		slices.Reverse(ordered)
 	}
@@ -657,6 +679,8 @@ func stagedScaffold(
 }
 
 // verifyScaffold proves the pinned suite passes before anything is written.
+// On success it returns the evidence of the verification that passed — the
+// leg and what it executed — which is what a promotion transition demands.
 func verifyScaffold(
 	ctx context.Context,
 	runner tfexec.Runner,
@@ -664,30 +688,32 @@ func verifyScaffold(
 	scaffold characterise.Scaffold,
 	pins []report.Pin,
 	name string,
-) error {
+) (characterise.Verification, error) {
 	staged := stagedScaffold(stage.configuration, scaffold, pins)
 
 	result, err := stagedRun(ctx, runner, stage, staged, name)
 	if err != nil {
-		return err
+		return characterise.Verification{}, err
 	}
 
 	if failures := result.FailedRuns(); len(failures) > 0 {
-		return fmt.Errorf("%w: %s\n  The pins were harvested from this module's own output, "+
+		return characterise.Verification{}, fmt.Errorf("%w: %s\n  The pins were harvested from this module's own output, "+
 			"so a red scaffold is a generator defect",
 			ErrScaffoldRed, describeFailures(failures, result.Diagnostics))
 	}
 
 	if result.ExitCode != 0 {
-		return fmt.Errorf("%w: terraform test exited %d\n%s",
+		return characterise.Verification{}, fmt.Errorf("%w: terraform test exited %d\n%s",
 			ErrScaffoldRed, result.ExitCode, describeDiagnostics(result.Diagnostics))
 	}
 
-	if result.ExecutedRuns() == 0 {
-		return fmt.Errorf("%w: the generated suite executed no run blocks", ErrScaffoldRed)
+	executed := result.ExecutedRuns()
+	if executed == 0 {
+		return characterise.Verification{},
+			fmt.Errorf("%w: the generated suite executed no run blocks", ErrScaffoldRed)
 	}
 
-	return nil
+	return characterise.Verified(name, executed), nil
 }
 
 // stagedRun executes the suite with the staged overlay in place: the generated

@@ -177,8 +177,9 @@ func listTodos(
 	result.Selection = report.Selection{Mode: scopeLabel(true), Ref: "", ForcedFull: ""}
 	result.Metrics = projectMetrics(oracle.ComputeMetrics(nil))
 	block := &report.Characterisation{ //nolint:exhaustruct // a listing carries no scaffold.
-		Rung: string(rung), Complete: false, Scenarios: scenarios,
-		Pins: []report.Pin{}, Todos: todos, Files: []report.GeneratedFile{}, Staged: true,
+		Rung: string(rung), Complete: false, Scenarios: projectScenarios(scenarios),
+		Pins: []report.Pin{}, Todos: projectTodos(todos),
+		Files: []report.GeneratedFile{}, Staged: true,
 	}
 	// A listing is complete when it has nothing outstanding to list, which is
 	// what makes its exit code mean the same thing as every other command's.
@@ -188,12 +189,26 @@ func listTodos(
 	return result, nil
 }
 
-// promote marks every answered judgement point promoted, which only the
-// verification that precedes it makes true.
-func promote(block *report.Characterisation) {
-	for index, todo := range block.Todos {
-		if todo.Status == report.TodoAnswered {
-			block.Todos[index].Status = report.TodoPromoted
+// promoted advances every answered judgement point through the promotion
+// transition, which only the verification that precedes it makes true: the
+// evidence the transition demands is the verification leg that passed. Every
+// other point is carried through untouched.
+func promoted(
+	scaffold characterise.Scaffold,
+	verification characterise.Verification,
+) []characterise.Todo {
+	todos := make([]characterise.Todo, len(scaffold.Todos))
+
+	for index, todo := range scaffold.Todos {
+		handle, answered := scaffold.Answered[todo.ID()]
+		if todo.Status() != characterise.TodoAnswered || !answered {
+			todos[index] = todo
+
+			continue
 		}
+
+		todos[index] = handle.Promote(verification)
 	}
+
+	return todos
 }

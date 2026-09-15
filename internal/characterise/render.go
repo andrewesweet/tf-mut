@@ -185,7 +185,7 @@ func renderRun(
 // what lets three contracts hold at once — a TODO fails loudly, the suite on
 // disk is green by construction, and the file an agent edits is the file the
 // resume reads.
-func RenderArtefact(scaffold Scaffold, scenario report.Scenario, todos []report.Todo) []byte {
+func RenderArtefact(scaffold Scaffold, scenario report.Scenario, todos []Todo) []byte {
 	builder := strings.Builder{}
 	builder.WriteString(GeneratedHeader(scaffold.Options.Version, scenario.Name))
 	builder.WriteString(strings.Join([]string{
@@ -198,22 +198,22 @@ func RenderArtefact(scaffold Scaffold, scenario report.Scenario, todos []report.
 	}, "\n"))
 
 	for _, todo := range todos {
-		builder.WriteString("\ntodo " + `"` + todo.ID + `" {` + "\n")
-		builder.WriteString("  variable = \"" + todo.Variable + "\"\n")
+		builder.WriteString("\ntodo " + `"` + todo.ID() + `" {` + "\n")
+		builder.WriteString("  variable = \"" + todo.Variable() + "\"\n")
 		builder.WriteString("  value    = TFMUT_TODO\n")
 
-		if todo.Constraint != "" {
-			builder.WriteString("  # constraint: " + oneLine(todo.Constraint) + "\n")
+		if todo.Constraint() != "" {
+			builder.WriteString("  # constraint: " + oneLine(todo.Constraint()) + "\n")
 		}
 
-		builder.WriteString("  # declared at: " + todo.Range.File + ":" +
-			strconv.Itoa(todo.Range.Start.Line) + "\n")
+		builder.WriteString("  # declared at: " + todo.File() + ":" +
+			strconv.Itoa(todo.Range().Start.Line) + "\n")
 
-		if todo.Diagnostic != "" {
-			builder.WriteString("  # diagnostic: " + oneLine(todo.Diagnostic) + "\n")
+		if todo.Diagnostic() != "" {
+			builder.WriteString("  # diagnostic: " + oneLine(todo.Diagnostic()) + "\n")
 		}
 
-		for _, attempted := range todo.Attempted {
+		for _, attempted := range todo.Attempted() {
 			builder.WriteString("  # attempted: " + oneLine(attempted) + "\n")
 		}
 

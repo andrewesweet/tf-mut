@@ -10,7 +10,6 @@ import (
 	"github.com/zclconf/go-cty/cty/convert"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
-	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
 // Synthesis is one input's resolution: a value with its provenance, or the
@@ -27,8 +26,10 @@ type Synthesis struct {
 	Name string
 	// Expression is the rendered Terraform literal, empty where none was found.
 	Expression string
-	// Provenance names which rung produced the value.
-	Provenance report.InputProvenance
+	// Provenance names which rung produced the value. The preference order is
+	// its only writer: each rung records itself as it resolves, and nothing
+	// outside this file assigns one.
+	Provenance InputProvenance
 	// Assign reports whether the run block has to carry the assignment. A
 	// variable resolved from its own default needs none.
 	Assign bool
@@ -45,6 +46,18 @@ type Synthesis struct {
 // Resolved reports a variable the pipeline found a value for.
 func (s Synthesis) Resolved() bool {
 	return s.Gap == ""
+}
+
+// Input is the resolved assignment, published: the value with the provenance
+// the rung that produced it gave it. A sensitive or ephemeral variable carries
+// the withheld marker instead of the value, exactly as the report will; the
+// executable assignment stays where it is, and reaches only the run block.
+func (s Synthesis) Input(variable discovery.Block) Input {
+	return Input{
+		name:       s.Name,
+		expression: withheld(variable, s.Expression),
+		provenance: s.Provenance,
+	}
 }
 
 // Synthesise resolves one variable.
@@ -71,7 +84,7 @@ func Synthesise(variable discovery.Block, sources map[string][]byte, answer stri
 	// default, the preference order carries on to the rungs below.
 	if attribute, declared := attributeOf(variable, "default"); declared {
 		if satisfiesOwnConstraints(variable, attribute) {
-			result.Provenance = report.FromDefault
+			result.Provenance = FromDefault
 
 			return result
 		}
@@ -83,7 +96,7 @@ func Synthesise(variable discovery.Block, sources map[string][]byte, answer stri
 	// surface whose whole worth is quoting the module's own words to the reader
 	// who has to satisfy them.
 	for _, candidate := range mined(variable) {
-		attempt := check(result, candidate, report.FromValidation, variable, sources)
+		attempt := check(result, candidate, FromValidation, variable, sources)
 		if attempt.Resolved() {
 			return attempt
 		}
@@ -100,7 +113,7 @@ func Synthesise(variable discovery.Block, sources map[string][]byte, answer stri
 				"version synthesises a value for")
 	}
 
-	attempt := check(result, candidate, report.FromType, variable, sources)
+	attempt := check(result, candidate, FromType, variable, sources)
 	if attempt.Resolved() {
 		return attempt
 	}
@@ -144,7 +157,7 @@ func accept(
 	}
 
 	result.Expression = answer
-	result.Provenance = report.FromAnswer
+	result.Provenance = FromAnswer
 	result.Assign = true
 
 	return result
@@ -211,7 +224,7 @@ func satisfiesOwnConstraints(variable discovery.Block, attribute discovery.Attri
 func check(
 	result Synthesis,
 	candidate string,
-	provenance report.InputProvenance,
+	provenance InputProvenance,
 	variable discovery.Block,
 	sources map[string][]byte,
 ) Synthesis {

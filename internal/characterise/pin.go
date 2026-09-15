@@ -80,14 +80,14 @@ func Pin(
 }
 
 // scenarioOf maps a run block name back to the scenario that generated it.
-func scenarioOf(scaffold Scaffold, run string) (report.Scenario, bool) {
+func scenarioOf(scaffold Scaffold, run string) (ScenarioPlan, bool) {
 	for _, scenario := range scaffold.Scenarios {
 		if RunPrefix+scenario.Name == run {
 			return scenario, true
 		}
 	}
 
-	return report.Scenario{}, false //nolint:exhaustruct // the not-found sentinel.
+	return ScenarioPlan{}, false //nolint:exhaustruct // the not-found sentinel.
 }
 
 // valuePins pins the output and configured-attribute values of one payload.
@@ -95,7 +95,7 @@ func valuePins(
 	scaffold Scaffold,
 	schemas tfexec.Schemas,
 	payload fingerprint.Payload,
-	scenario report.Scenario,
+	scenario ScenarioPlan,
 	masked, seen map[string]bool,
 ) []report.Pin {
 	sensitiveValues := payload.SensitiveRenderings()
@@ -142,7 +142,7 @@ type pinContext struct {
 	scaffold        Scaffold
 	schemas         tfexec.Schemas
 	payload         fingerprint.Payload
-	scenario        report.Scenario
+	scenario        ScenarioPlan
 	rung            Rung
 	path            string
 	address         string
@@ -294,7 +294,7 @@ func countPins(
 	scaffold Scaffold,
 	configuration discovery.Configuration,
 	payload fingerprint.Payload,
-	scenario report.Scenario,
+	scenario ScenarioPlan,
 	seen map[string]bool,
 ) []report.Pin {
 	if !scaffold.Rung.Includes(RungCounts) {
@@ -332,7 +332,7 @@ func countPins(
 }
 
 // countPin pins one resource collection's instance count.
-func countPin(scenario report.Scenario, address string, count int, seen map[string]bool) []report.Pin {
+func countPin(scenario ScenarioPlan, address string, count int, seen map[string]bool) []report.Pin {
 	expression := "length(" + address + ") == " + strconv.Itoa(count)
 
 	return onlyOnce(scenario, "length("+address+")", expression, seen)
@@ -340,7 +340,7 @@ func countPin(scenario report.Scenario, address string, count int, seen map[stri
 
 // keyPin pins one for_each collection's key set.
 func keyPin(
-	scenario report.Scenario,
+	scenario ScenarioPlan,
 	address string,
 	keys []string,
 	seen map[string]bool,
@@ -361,7 +361,7 @@ func keyPin(
 
 // onlyOnce emits a counts-rung pin the first time its address is seen.
 func onlyOnce(
-	scenario report.Scenario,
+	scenario ScenarioPlan,
 	address, expression string,
 	seen map[string]bool,
 ) []report.Pin {
