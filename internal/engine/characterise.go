@@ -679,8 +679,8 @@ func stagedScaffold(
 }
 
 // verifyScaffold proves the pinned suite passes before anything is written.
-// On success it returns the evidence of the verification that passed — the
-// leg and what it executed — which is what a promotion transition demands.
+// On success it returns the evidence that the verification passed, which is
+// what a promotion transition demands.
 func verifyScaffold(
 	ctx context.Context,
 	runner tfexec.Runner,
@@ -707,13 +707,12 @@ func verifyScaffold(
 			ErrScaffoldRed, result.ExitCode, describeDiagnostics(result.Diagnostics))
 	}
 
-	executed := result.ExecutedRuns()
-	if executed == 0 {
+	if result.ExecutedRuns() == 0 {
 		return characterise.Verification{},
 			fmt.Errorf("%w: the generated suite executed no run blocks", ErrScaffoldRed)
 	}
 
-	return characterise.Verified(name, executed), nil
+	return characterise.Verified(), nil
 }
 
 // stagedRun executes the suite with the staged overlay in place: the generated

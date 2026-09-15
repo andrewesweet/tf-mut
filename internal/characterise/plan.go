@@ -225,7 +225,7 @@ func synthesiseInputs(
 		// resolved: promotion is what verification earns, and it has not run.
 		if resolved.Provenance == FromAnswer {
 			handle := OpenTodo(todoEvidence(identifier, variable, resolved, options)).
-				Answer(options.Answers[identifier])
+				Answer()
 			result.answered[identifier] = handle
 			result.todos = append(result.todos, handle.Point())
 		}
@@ -638,12 +638,10 @@ func flipsIn(
 
 	// The flip has to satisfy the module's own constraints like any other
 	// synthesised value: a branch nobody can legally reach is not a scenario.
-	resolved := Synthesise(variable, options.Sources, expression)
+	resolved := synthesiseFlip(variable, options.Sources, expression)
 	if !resolved.Resolved() {
 		return nil
 	}
-
-	resolved.Provenance = FromType
 
 	return []flip{{variable: name, expression: expression, resolved: resolved}}
 }

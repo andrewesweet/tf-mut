@@ -73,7 +73,7 @@ func Synthesise(variable discovery.Block, sources map[string][]byte, answer stri
 	}
 
 	if answer != "" {
-		return accept(result, answer, variable, sources)
+		return accept(result, answer, FromAnswer, variable, sources)
 	}
 
 	// A declared default is a *candidate*, not an exemption. The standard
@@ -126,6 +126,20 @@ func Synthesise(variable discovery.Block, sources map[string][]byte, answer stri
 		"no synthesised value satisfied the variable's declared constraints")
 }
 
+// synthesiseFlip resolves a branch flip: a value the declared type admits,
+// chosen to take a conditional the other way. It is the typed rung's entry for
+// a candidate the planner already chose, and it is accepted on the answer's
+// fail-open terms: the flip is verified by the real plan, not this evaluator,
+// and a constraint this evaluator cannot decide must not drop a branch.
+func synthesiseFlip(variable discovery.Block, sources map[string][]byte, expression string) Synthesis {
+	result := Synthesis{
+		Name: variable.Name, Expression: "", Provenance: "", Assign: false,
+		Gap: "", Attempted: []string{}, Constraint: "", ConstraintRange: hcl.Range{}, //nolint:exhaustruct // the empty range.
+	}
+
+	return accept(result, expression, FromType, variable, sources)
+}
+
 // accept takes an answer on its own terms.
 //
 // An answer is not a guess the tool has to justify: it is the judgement the
@@ -137,6 +151,7 @@ func Synthesise(variable discovery.Block, sources map[string][]byte, answer stri
 func accept(
 	result Synthesis,
 	answer string,
+	provenance InputProvenance,
 	variable discovery.Block,
 	sources map[string][]byte,
 ) Synthesis {
@@ -157,7 +172,7 @@ func accept(
 	}
 
 	result.Expression = answer
-	result.Provenance = FromAnswer
+	result.Provenance = provenance
 	result.Assign = true
 
 	return result

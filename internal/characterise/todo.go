@@ -120,34 +120,27 @@ func (t Todo) Attempted() []string { return t.attempted }
 // Artefact returns the non-executable file the point is written into.
 func (t Todo) Artefact() string { return t.artefact }
 
-// Answer supplies the value the reader chose for this point, moving it from
-// open to answered. It records the judgement the tool refused to make; what
-// the answer becomes — promoted test content or a rejected hypothesis — is
-// what the verification that follows earns, and nothing else.
-func (t Todo) Answer(value string) Answered {
+// Answer moves the point from open to answered: the reader supplied the
+// judgement the tool refused to make. The answer itself is deliberately not
+// carried here — it may be a secret, and no report field may vary with one —
+// so it reaches only the executable run block, through the scaffold's Values.
+// What the answer becomes — promoted test content or a rejected hypothesis —
+// is what the verification that follows earns, and nothing else.
+func (t Todo) Answer() Answered {
 	return Answered{
 		point: Todo{
 			id: t.id, variable: t.variable, status: TodoAnswered,
 			constraint: t.constraint, constraintRange: t.constraintRange,
 			file: t.file, attempted: t.attempted, artefact: t.artefact,
 		},
-		value: value,
 	}
 }
 
-// Answered is a judgement point carrying a supplied answer, and the only value
+// Answered is a judgement point whose answer was supplied, and the only value
 // Promote and Reject accept: there is no route from open to either.
 type Answered struct {
 	point Todo
-	// value is the answer as supplied. It is deliberately unpublished: an
-	// answer may be a secret, and no report field may vary with one. The
-	// executable run block carries it through the scaffold's Values, and the
-	// write protocol keeps that out of every reported byte.
-	value string
 }
-
-// Value returns the answer as supplied. It never reaches a report.
-func (a Answered) Value() string { return a.value }
 
 // Point returns the answered judgement point, as a report bundle carries it:
 // an answer supplied, and nothing yet proven.
@@ -180,21 +173,11 @@ func (a Answered) Reject(reason string) Todo {
 }
 
 // Verification is the evidence promotion demands: the proof that the suite an
-// answer produced was executed and passed. Its fields are unexported, and the
-// engine builds it at the point its verifier succeeded, so a transition site
-// names the leg that proved the point and what that leg executed.
-type Verification struct {
-	leg  string
-	runs int
-}
+// answer produced was executed and passed. It is opaque — the engine builds it
+// through Verified at the point its verifier succeeded, and nothing it carries
+// is published — so it exists to make a promotion site spell where its
+// evidence came from.
+type Verification struct{}
 
-// Verified records the evidence of one passed verification leg.
-func Verified(leg string, runs int) Verification {
-	return Verification{leg: leg, runs: runs}
-}
-
-// Leg names the verification leg that proved the point.
-func (v Verification) Leg() string { return v.leg }
-
-// Runs counts the run blocks the leg executed.
-func (v Verification) Runs() int { return v.runs }
+// Verified records that one verification leg passed.
+func Verified() Verification { return Verification{} }
