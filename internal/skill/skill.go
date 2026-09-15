@@ -141,10 +141,6 @@ func Install(root, agent, version string, force bool) ([]Result, error) {
 	return results, nil
 }
 
-// errTargetChanged reports a target that moved between the install's decision
-// and its write: the outcome decided no longer describes the file on disk.
-var errTargetChanged = errors.New("changed between the install's decision and its write")
-
 // installOne places a single skill.
 func installOne(root, agent, version string, force bool, name Name) (Result, error) {
 	relative, err := TargetPath(agent, name)
@@ -195,22 +191,18 @@ func installOne(root, agent, version string, force bool, name Name) (Result, err
 
 		if exists := readErr == nil; exists != existed ||
 			(exists && string(current) != string(existing)) {
-			return fmt.Errorf("%s %w, so the decided outcome no longer describes the "+
-				"file: nothing was replaced", relative, errTargetChanged)
+			return fmt.Errorf("%s changed between the install's decision and its write, "+
+				"so the decided outcome no longer describes the file: nothing was replaced",
+				relative)
 		}
 
 		return nil
 	}
 
-	if err := sandbox.WriteFreshChecked(target, "", []byte(shipped), commit); err != nil {
+	if err := sandbox.WriteFreshCheckedMode(
+		target, "", []byte(shipped), installedFileMode, commit,
+	); err != nil {
 		return Result{}, err //nolint:exhaustruct // nothing was installed.
-	}
-
-	// The primitive installs with its own mode; this install's own contract is
-	// world-readable documentation, restored immediately after the rename.
-	if err := os.Chmod(target, installedFileMode); err != nil {
-		return Result{}, fmt.Errorf("%s was installed, but restoring its mode failed: %w",
-			relative, err) //nolint:exhaustruct // the file landed, but not as reported.
 	}
 
 	return Result{Path: relative, Outcome: outcome}, nil
@@ -258,10 +250,7 @@ func unmodified(content string) bool {
 }
 
 // installedFileMode is the mode an installed skill carries: world-readable
-// documentation. The install goes through the sandbox's checked atomic
-// replacement, which sets its own file mode; this one is restored immediately
-// after the rename, so the file is briefly stricter than the contract and
-// never looser.
+// documentation.
 const installedFileMode = 0o644
 
 // Content returns a shipped skill body, for the suite tests that assert the

@@ -29,7 +29,7 @@ import (
 // what was verified, every target is preflighted before the first write, any
 // mismatch aborts with zero writes, and every write is the sandbox's checked
 // atomic replacement — the preflight re-checked inside its rename window — with
-// the file's mode restored after the install.
+// the file's mode preserved.
 
 // ErrApply reports an apply the protocol refused or could not complete.
 var ErrApply = errors.New("suggestions were not applied")
@@ -314,28 +314,21 @@ func write(record *report.AppliedSuggestions, planned []plannedWrite) {
 // atomic-replace primitive, so a reader never sees a half-written test file
 // and a concurrent edit aborts instead of being overwritten. The primitive
 // runs the protocol's own recheck in its rename window — the only place the
-// check means what it says — and installs with its own mode, so the mode the
-// preflight recorded is restored immediately after the rename.
+// check means what it says — and installs with the mode the preflight recorded.
 func atomicWrite(target plannedWrite) error {
-	writeErr := sandbox.WriteFreshChecked(target.path, "", target.content, func() error {
-		return recheck(target)
-	})
-	if writeErr != nil {
-		// The recheck's refusals are already worded as apply's; only the
-		// primitive's own failures need the protocol's sentinel.
-		if errors.Is(writeErr, ErrApply) {
-			return writeErr
-		}
-
-		return fmt.Errorf("%w: %w", ErrApply, writeErr)
+	writeErr := sandbox.WriteFreshCheckedMode(target.path, "", target.content, target.mode,
+		func() error { return recheck(target) })
+	if writeErr == nil {
+		return nil
 	}
 
-	if err := os.Chmod(target.path, target.mode); err != nil {
-		return fmt.Errorf("%w: %s was replaced, but restoring its mode failed: %w",
-			ErrApply, target.rel, err)
+	// The recheck's refusals are already worded as apply's; only the
+	// primitive's own failures need the protocol's sentinel.
+	if errors.Is(writeErr, ErrApply) {
+		return writeErr
 	}
 
-	return nil
+	return fmt.Errorf("%w: %w", ErrApply, writeErr)
 }
 
 // appliedMessage is the verification renderer, deliberately: the bytes
