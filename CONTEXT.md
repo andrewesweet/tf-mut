@@ -9,16 +9,15 @@ application layer that coordinates them; `cmd/tf-mut` is an adapter. `internal/c
 
 The six-context table and dependency direction below are the target architecture
 specified by #86, not a claim that the current packages already satisfy every
-boundary. `internal/oracle` owns the mutant outcome and every diagnosis since
-#101 and #102: survivors and terminal outcomes alike are constructed only
-through its constructors, and the population arithmetic computes over outcomes;
-cache rehydration (#103) rebuilds a stored verdict through its parsing
-constructor. The judgement points and the input
-provenance are owned by `internal/characterise` since #107; the
-supporting-context migrations and dependency enforcement still pending in #106,
-#108, #109 and #113; #91 is the separately recorded narrow filesystem-primitive
-exception. Until those tickets land, current imports and ownership remain as
-implemented while this document states the normative direction.
+boundary. `internal/oracle` owns the mutant outcome and every diagnosis:
+survivors and terminal outcomes alike are constructed only through its
+constructors, and the population arithmetic computes over outcomes; cache
+rehydration rebuilds a stored verdict through its parsing constructor. The
+judgement points and the input provenance are owned by `internal/characterise`.
+Which tickets of #86 have landed and which are pending is tracked in
+[issue #86](https://github.com/andrewesweet/tf-mut/issues/86), the programme's
+authoritative status; until it completes, current imports and ownership remain
+as implemented while this document states the normative direction.
 
 | Context | Kind | Packages | Owns |
 | --- | --- | --- | --- |
