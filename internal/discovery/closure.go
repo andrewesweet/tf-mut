@@ -217,19 +217,7 @@ func normaliseAddress(address string) string {
 func referencesOf(expr hcl.Expression) []Ref {
 	refs := []Ref{}
 
-	if native, nativeOK := NativeExpression(expr); !nativeOK && expr != nil {
-		// A non-native expression's syntax is unreadable, so the precise
-		// walk cannot run. What the interface can still prove — the
-		// traversals the value mentions — is recorded imprecise, the same
-		// direction every form the walk cannot follow takes: it defeats a
-		// precise claim rather than asserting one, and never guesses at
-		// the syntax it cannot see.
-		for _, traversal := range expr.Variables() {
-			if address, named := traversalRef(traversal); named {
-				refs = append(refs, Ref{Address: address, Precise: false, Construct: "unreadable expression"})
-			}
-		}
-	} else if nativeOK {
+	if native, ok := NativeExpression(expr); ok {
 		collectRefs(native, true, "", &refs)
 	}
 
