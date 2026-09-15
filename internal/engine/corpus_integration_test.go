@@ -128,7 +128,7 @@ func measureModule(t *testing.T, module corpusModule, dir string) moduleMeasurem
 		Executable: false, TodoRate: 0, Refused: "",
 	}
 
-	config := baseConfig(t, dir)
+	config := legacyBaseConfig(t, dir)
 	config.Todos = true
 
 	result, err := engine.Run(t.Context(), config)

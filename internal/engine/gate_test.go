@@ -45,7 +45,7 @@ func failOnNewGate() report.Gate {
 	}
 }
 
-func runWith(t *testing.T, config engine.Config) report.Report {
+func runWith(t *testing.T, config engine.RunRequest) report.Report {
 	t.Helper()
 
 	result, err := engine.Run(t.Context(), config)

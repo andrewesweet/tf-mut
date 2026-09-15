@@ -123,11 +123,13 @@ func BenchmarkPerformanceMockedRealProvider(b *testing.B) {
 	b.ResetTimer()
 
 	for range b.N {
-		config := engine.Config{ //nolint:exhaustruct // defaults are the point of the measurement.
-			ModuleDir: module,
-			Jobs:      measurementJobs,
-			Env:       []string{checkpointDisabled, inAutomation},
-			WorkDir:   b.TempDir(),
+		config := engine.RunRequest{ //nolint:exhaustruct // defaults are the point of the measurement.
+			Common: engine.Common{
+				ModuleDir: module,
+				Jobs:      measurementJobs,
+				Env:       []string{checkpointDisabled, inAutomation},
+				WorkDir:   b.TempDir(),
+			},
 		}
 
 		if _, err := engine.Run(b.Context(), config); err != nil {
@@ -163,7 +165,7 @@ func requireRealInfrastructureOptIn(t *testing.T) {
 
 // networkConfig deliberately omits the repository's offline CLI configuration:
 // the mirror carries hashicorp/null only, and this fixture needs the registry.
-func networkConfig(t *testing.T, module string) engine.Config {
+func networkConfig(t *testing.T, module string) engine.RunRequest {
 	t.Helper()
 
 	config := baseConfig(t, module)

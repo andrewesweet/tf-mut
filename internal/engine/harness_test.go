@@ -47,8 +47,56 @@ func copyFixture(t *testing.T, name string) string {
 	return target
 }
 
-// baseConfig is the configuration every test starts from.
-func baseConfig(t *testing.T, moduleDir string) engine.Config {
+// baseConfig is the run request every run-command test starts from.
+func baseConfig(t *testing.T, moduleDir string) engine.RunRequest {
+	t.Helper()
+
+	return engine.RunRequest{
+		Common: engine.Common{
+			ModuleDir:               moduleDir,
+			TestDirectory:           engine.DefaultTestDirectory,
+			Jobs:                    testJobs,
+			TimeoutFactor:           engine.DefaultTimeoutFactor,
+			TimeoutFloor:            0,
+			AllowRealInfrastructure: false,
+			AllowUnsandboxedEffects: false,
+			TerraformBinary:         "",
+			Env:                     terraformEnv(t),
+			WorkDir:                 t.TempDir(),
+			ToolVersion:             "",
+			SetFlags:                nil,
+		},
+		Population: engine.Population{
+			TestSelection:      nil,
+			Tier:               "",
+			IncludeOperators:   nil,
+			ExcludeOperators:   nil,
+			ExcludePaths:       nil,
+			ExcludeResources:   nil,
+			Since:              "",
+			SamplePercent:      0,
+			HasSample:          false,
+			SampleSeed:         0,
+			GeneratedFunctions: false,
+		},
+		Gate: engine.Gate{
+			MinScore:             0,
+			HasMinScore:          false,
+			AllowIncompleteScore: false,
+			AllowSampledGate:     false,
+			FailOnNew:            false,
+			WriteBaseline:        false,
+			BaselinePath:         "",
+		},
+		NoCache: false,
+	}
+}
+
+// legacyBaseConfig is the Config-typed base for the characterise, todos and
+// curate call sites that still stage their command through a mode boolean.
+// Issue #97 migrates those call sites onto their request types and deletes
+// this helper with them; do not extend its use to run-command call sites.
+func legacyBaseConfig(t *testing.T, moduleDir string) engine.Config {
 	t.Helper()
 
 	return engine.Config{
@@ -68,12 +116,6 @@ func baseConfig(t *testing.T, moduleDir string) engine.Config {
 		WorkDir:                 t.TempDir(),
 		TestSelection:           nil,
 	}
-}
-
-func runRequest(t *testing.T, moduleDir string) engine.RunRequest {
-	t.Helper()
-
-	return engine.RunRequest{Common: commonRequest(t, moduleDir)}
 }
 
 func previewRequest(t *testing.T, moduleDir string) engine.PreviewRequest {
@@ -109,22 +151,7 @@ func curateRequest(t *testing.T, moduleDir string) engine.CurateRequest {
 func commonRequest(t *testing.T, moduleDir string) engine.Common {
 	t.Helper()
 
-	settings := baseConfig(t, moduleDir)
-
-	return engine.Common{
-		ModuleDir:               settings.ModuleDir,
-		TestDirectory:           settings.TestDirectory,
-		Jobs:                    settings.Jobs,
-		TimeoutFactor:           settings.TimeoutFactor,
-		TimeoutFloor:            settings.TimeoutFloor,
-		AllowRealInfrastructure: settings.AllowRealInfrastructure,
-		AllowUnsandboxedEffects: settings.AllowUnsandboxedEffects,
-		TerraformBinary:         settings.TerraformBinary,
-		Env:                     settings.Env,
-		WorkDir:                 settings.WorkDir,
-		ToolVersion:             settings.ToolVersion,
-		SetFlags:                settings.SetFlags,
-	}
+	return baseConfig(t, moduleDir).Common
 }
 
 // terraformEnv points Terraform at the repository's offline provider mirror

@@ -40,7 +40,7 @@ const (
 func characteriseConfig(t *testing.T, moduleDir string) engine.Config {
 	t.Helper()
 
-	config := baseConfig(t, moduleDir)
+	config := legacyBaseConfig(t, moduleDir)
 	config.Characterise = true
 
 	return config

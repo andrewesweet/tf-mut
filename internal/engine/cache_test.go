@@ -23,7 +23,7 @@ import (
 // a cache hit must reuse one configuration: the key includes the relevant
 // environment, and the harness gives each configuration its own
 // TF_PLUGIN_CACHE_DIR.
-func cachedRun(t *testing.T, config engine.Config) report.Report {
+func cachedRun(t *testing.T, config engine.RunRequest) report.Report {
 	t.Helper()
 
 	result, err := engine.Run(t.Context(), config)
@@ -85,25 +85,25 @@ func TestASecondUnchangedRunIsAllCacheHits(t *testing.T) {
 func TestCacheInvalidationPerKeyDimension(t *testing.T) {
 	t.Parallel()
 
-	dimensions := map[string]func(t *testing.T, module string, config *engine.Config){
-		"source-closure": func(t *testing.T, module string, _ *engine.Config) {
+	dimensions := map[string]func(t *testing.T, module string, config *engine.RunRequest){
+		"source-closure": func(t *testing.T, module string, _ *engine.RunRequest) {
 			t.Helper()
 			appendFile(t, filepath.Join(module, "main.tf"), "\n# touched\n")
 		},
-		"child-module-closure": func(t *testing.T, module string, _ *engine.Config) {
+		"child-module-closure": func(t *testing.T, module string, _ *engine.RunRequest) {
 			t.Helper()
 			appendFile(t, filepath.Join(module, "child", "main.tf"), "\n# touched\n")
 		},
-		"test-files": func(t *testing.T, module string, _ *engine.Config) {
+		"test-files": func(t *testing.T, module string, _ *engine.RunRequest) {
 			t.Helper()
 			appendFile(t, filepath.Join(module, "tests", "main.tftest.hcl"), "\n# touched\n")
 		},
-		"resolved-configuration": func(t *testing.T, _ string, config *engine.Config) {
+		"resolved-configuration": func(t *testing.T, _ string, config *engine.RunRequest) {
 			t.Helper()
 
 			config.ExcludeOperators = []string{"STR-CASE"}
 		},
-		"environment": func(t *testing.T, _ string, config *engine.Config) {
+		"environment": func(t *testing.T, _ string, config *engine.RunRequest) {
 			t.Helper()
 
 			config.Env = append(config.Env, "TF_VAR_cache_probe=changed")
