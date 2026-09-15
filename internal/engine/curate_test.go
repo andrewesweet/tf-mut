@@ -27,7 +27,7 @@ func TestUntilDryConvergesWithoutWritingAByte(t *testing.T) {
 	before := treeDigest(t, module)
 	engine.SetUntilDryRounds(t, module, 1)
 
-	config := characteriseConfig(t, module)
+	config := characteriseRequest(t, module)
 	config.UntilDry = true
 
 	result, err := engine.Run(t.Context(), config)
@@ -69,7 +69,7 @@ func TestUntilDryRespectsTheGranularityLadder(t *testing.T) {
 
 	module := copyFixture(t, untestedBranchesFixture)
 
-	config := characteriseConfig(t, module)
+	config := characteriseRequest(t, module)
 	config.UntilDry = true
 	config.PinRung = rungOutputs
 
@@ -90,54 +90,28 @@ func TestUntilDryRespectsTheGranularityLadder(t *testing.T) {
 	}
 }
 
-// TestCurateRefusesAPartialPopulationAtConfigurationTime is C5: a redundancy
-// finding drawn from a scoped or sampled population is a false finding, and
-// the refusal costs nothing because it happens before any work is done.
-func TestCurateRefusesAPartialPopulationAtConfigurationTime(t *testing.T) {
+// TestCurateRefusesAConfiguredNarrowing holds the preserved half of C5 at the
+// engine seam: a flag can no longer carry the narrowing (the parser refuses
+// it), but `.tf-mut.hcl` still can — tier, operator filters and exclusions —
+// and the refusal of an effective configuration that draws findings from a
+// partial population stays at configuration time.
+func TestCurateRefusesAConfiguredNarrowing(t *testing.T) {
 	t.Parallel()
 
-	partial := map[string]func(engine.Config) engine.Config{
-		"--since": func(config engine.Config) engine.Config {
-			config.Since = "HEAD"
+	module := copyFixture(t, "suggest-basic")
+	writeFile(t, filepath.Join(module, ".tf-mut.hcl"),
+		"operators {\n  include = [\"BOOL-FLIP\"]\n}\n\n"+
+			"exclude {\n  paths = [\"main.tf\"]\n}\n")
 
-			return config
-		},
-		"--sample": func(config engine.Config) engine.Config {
-			config.HasSample = true
-			config.SamplePercent = 50
+	request := curateRequest(t, module)
 
-			return config
-		},
-		"an operator selection": func(config engine.Config) engine.Config {
-			config.IncludeOperators = []string{"BOOL-FLIP"}
-
-			return config
-		},
-		"an exclusion": func(config engine.Config) engine.Config {
-			config.ExcludePaths = []string{mainFile}
-
-			return config
-		},
+	_, err := engine.Run(t.Context(), request)
+	if !errors.Is(err, engine.ErrCuratePopulation) {
+		t.Fatalf("error = %v, want a refusal of the partial population", err)
 	}
 
-	for name, adjust := range partial {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
-			module := copyFixture(t, "suggest-basic")
-
-			config := legacyBaseConfig(t, module)
-			config.Curate = true
-
-			_, err := engine.Run(t.Context(), adjust(config))
-			if !errors.Is(err, engine.ErrCuratePopulation) {
-				t.Fatalf("error = %v, want a refusal of the partial population", err)
-			}
-
-			if !strings.Contains(err.Error(), "false finding") {
-				t.Fatalf("the refusal does not say why: %v", err)
-			}
-		})
+	if !strings.Contains(err.Error(), "false finding") {
+		t.Fatalf("the refusal does not say why: %v", err)
 	}
 }
 
@@ -199,11 +173,10 @@ func TestCurateWritesNothing(t *testing.T) {
 	module := copyFixture(t, curateFixture)
 	before := treeDigest(t, module)
 
-	config := legacyBaseConfig(t, module)
-	config.Curate = true
-	config.NoCache = true
+	request := curateRequest(t, module)
+	request.NoCache = true
 
-	if _, err := engine.Run(t.Context(), config); err != nil {
+	if _, err := engine.Run(t.Context(), request); err != nil {
 		t.Fatalf("curate: %v", err)
 	}
 
@@ -286,7 +259,7 @@ func TestUnassertableConstructsBecomeNonExecutableScaffolds(t *testing.T) {
 	module := copyFixture(t, contractFixture)
 	removeTests(t, module)
 
-	config := characteriseConfig(t, module)
+	config := characteriseRequest(t, module)
 	config.UntilDry = true
 
 	result, err := engine.Run(t.Context(), config)
@@ -358,7 +331,7 @@ func TestAnAnsweredScaffoldIsVerifiedBeforeItIsPromoted(t *testing.T) {
 			module := copyFixture(t, contractFixture)
 			removeTests(t, module)
 
-			config := characteriseConfig(t, module)
+			config := characteriseRequest(t, module)
 			config.UntilDry = true
 
 			opened, err := engine.Run(t.Context(), config)
@@ -368,7 +341,7 @@ func TestAnAnsweredScaffoldIsVerifiedBeforeItIsPromoted(t *testing.T) {
 
 			identifier := scaffoldFor(t, opened.Characterisation, "var.size.validation")
 
-			answered := characteriseConfig(t, module)
+			answered := characteriseRequest(t, module)
 			answered.UntilDry = true
 			answered.Answers = []string{identifier + "=" + answer}
 
@@ -453,18 +426,17 @@ func TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions(t *testing.T) {
 
 	module := copyFixture(t, untestedBranchesFixture)
 
-	generate := characteriseConfig(t, module)
-	generate.CharacteriseWrite = true
+	generate := characteriseRequest(t, module)
+	generate.Write = true
 
 	if _, err := engine.Run(t.Context(), generate); err != nil {
 		t.Fatalf("characterise --write: %v", err)
 	}
 
-	config := legacyBaseConfig(t, module)
-	config.Curate = true
-	config.NoCache = true
+	request := curateRequest(t, module)
+	request.NoCache = true
 
-	result, err := engine.Run(t.Context(), config)
+	result, err := engine.Run(t.Context(), request)
 	if err != nil {
 		t.Fatalf("curate: %v", err)
 	}
@@ -498,9 +470,9 @@ func TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions(t *testing.T) {
 func TestTheFinalPinSetIsVerifiedBeforeAnyWrite(t *testing.T) {
 	module := copyFixture(t, untestedBranchesFixture)
 
-	config := characteriseConfig(t, module)
+	config := characteriseRequest(t, module)
 	config.UntilDry = true
-	config.CharacteriseWrite = true
+	config.Write = true
 	engine.SetUntilDryRounds(t, module, 1)
 	engine.SetFinalPinDefectSeed(t, module)
 
@@ -535,7 +507,7 @@ func TestAScaffoldAnswerCannotInjectConfiguration(t *testing.T) {
 	module := copyFixture(t, contractFixture)
 	removeTests(t, module)
 
-	config := characteriseConfig(t, module)
+	config := characteriseRequest(t, module)
 	config.UntilDry = true
 
 	opened, err := engine.Run(t.Context(), config)
@@ -552,7 +524,7 @@ func TestAScaffoldAnswerCannotInjectConfiguration(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			refused := characteriseConfig(t, module)
+			refused := characteriseRequest(t, module)
 			refused.UntilDry = true
 			refused.Answers = []string{identifier + "=" + answer}
 
@@ -590,9 +562,9 @@ func TestAForeignRegistryIsNeverReplaced(t *testing.T) {
 
 	writeFile(t, registry, "{\"this\":\"is not a provenance registry\"}\n")
 
-	config := characteriseConfig(t, module)
-	config.CharacteriseWrite = true
-	config.CharacteriseForce = true
+	config := characteriseRequest(t, module)
+	config.Write = true
+	config.Force = true
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrWriteRefused) {
@@ -617,10 +589,7 @@ func TestARealCurateReportValidatesAgainstThePublishedSchema(t *testing.T) {
 
 	module := copyFixture(t, curateFixture)
 
-	config := legacyBaseConfig(t, module)
-	config.Curate = true
-
-	result, err := engine.Run(t.Context(), config)
+	result, err := engine.Run(t.Context(), curateRequest(t, module))
 	if err != nil {
 		t.Fatalf("curate: %v", err)
 	}
@@ -655,10 +624,7 @@ func TestCurateHonoursTheGateFlagsItAccepts(t *testing.T) {
 
 	module := copyFixture(t, curateFixture)
 
-	config := legacyBaseConfig(t, module)
-	config.Curate = true
-
-	result, err := engine.Run(t.Context(), config)
+	result, err := engine.Run(t.Context(), curateRequest(t, module))
 	if err != nil {
 		t.Fatalf("curate: %v", err)
 	}

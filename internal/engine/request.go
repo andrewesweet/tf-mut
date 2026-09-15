@@ -109,6 +109,8 @@ type TodosRequest struct {
 type CurateRequest struct {
 	Common
 	Gate
+
+	NoCache bool
 }
 
 func (Config) isRequest()              {}
@@ -236,6 +238,7 @@ func (r TodosRequest) config() Config {
 func (r CurateRequest) config() Config {
 	settings := commonConfig(r.Common)
 	settings = gateConfig(settings, r.Gate)
+	settings.NoCache = r.NoCache
 	settings.Curate = true
 	return settings
 }
