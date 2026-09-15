@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"path/filepath"
 	"strings"
@@ -10,15 +9,16 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
+	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
-// oracle answers the only question phase one cannot: whether a mutant that
-// every run passed produced any observable difference at all, and if so what
-// the suite would have had to do to notice.
-type oracle struct {
+// executionOracle answers the only question phase one cannot: whether a mutant
+// that every run passed produced any observable difference at all, and if so
+// what the suite would have had to do to notice.
+type executionOracle struct {
 	plan executionPlan
 }
 
@@ -28,7 +28,7 @@ type oracle struct {
 // Phase two exists because `-verbose` embeds the whole provider schema in every
 // per-run message — 20,288 times the output volume, measured — so only the
 // non-killed minority may pay for it.
-func (o oracle) observe(
+func (o executionOracle) observe(
 	ctx context.Context,
 	built sandbox.Sandbox,
 	index int,
@@ -82,7 +82,7 @@ func (o oracle) observe(
 }
 
 // fingerprintRun executes the verbose phase and projects its payloads.
-func (o oracle) fingerprintRun(
+func (o executionOracle) fingerprintRun(
 	ctx context.Context,
 	built sandbox.Sandbox,
 ) ([]fingerprint.Payload, []report.RunOutcome, error) {
@@ -125,7 +125,7 @@ const (
 // confined to attributes the provider fills in, or touches a resource the
 // static impure scan over the *mutant's* own syntax marks suspicious, the
 // mutant is run once more and the difference between its two runs is masked.
-func (o oracle) needsRerun(index int, delta fingerprint.Delta) bool {
+func (o executionOracle) needsRerun(index int, delta fingerprint.Delta) bool {
 	if len(delta.Changes) == 0 {
 		return false
 	}
@@ -145,7 +145,7 @@ func (o oracle) needsRerun(index int, delta fingerprint.Delta) bool {
 }
 
 // mutantScan runs the static impure scan over the mutant's own syntax.
-func (o oracle) mutantScan(index int) discovery.VolatilityScan {
+func (o executionOracle) mutantScan(index int) discovery.VolatilityScan {
 	mutant := o.plan.generated[index]
 
 	sources := maps.Clone(o.plan.prepared.sources)
@@ -156,7 +156,7 @@ func (o oracle) mutantScan(index int) discovery.VolatilityScan {
 
 // computedConfined reports a delta that lies entirely in attributes the
 // provider computes, which is the shape a mock's invented value takes.
-func (o oracle) computedConfined(delta fingerprint.Delta) bool {
+func (o executionOracle) computedConfined(delta fingerprint.Delta) bool {
 	addresses := delta.Addresses()
 	if len(addresses) == 0 || !allAddressed(delta) {
 		return false
@@ -191,8 +191,11 @@ func allAddressed(delta fingerprint.Delta) bool {
 }
 
 // classify assigns the final state and, for a survivor, its single diagnosis by
-// the normative precedence.
-func (o oracle) classify(
+// the normative precedence. The precedence table is the constructors' only
+// caller: each branch names the evidence its diagnosis requires through the
+// constructor's parameters, and the outcome is projected onto the published
+// report at the boundary.
+func (o executionOracle) classify(
 	verdict report.Mutant,
 	payloads []fingerprint.Payload,
 	delta fingerprint.Delta,
@@ -207,10 +210,7 @@ func (o oracle) classify(
 	operator := mutation.Operator(verdict.Operator)
 
 	if proven(delta) {
-		verdict.State = report.Survived
-		verdict.Verdict = o.diagnoseDelta(delta, mask)
-
-		return verdict
+		return project(verdict, o.diagnoseDelta(delta, mask))
 	}
 
 	// No difference could be proven.
@@ -229,27 +229,21 @@ func (o oracle) classify(
 	// it does not prove unassertability (R2-2).
 	switch {
 	case !mutation.Projects(operator):
-		verdict.State = report.StructurallyUnassertable
-		verdict.Verdict = unassertableVerdict(operator)
+		return project(verdict, oracle.StructurallyUnassertable(operator))
 	case len(unknowns) > 0:
-		verdict.State = report.Survived
-		verdict.Verdict = unknownVerdict(unknowns, mask)
+		return project(verdict, oracle.SurvivedIndeterminateUnknowns(unknowns, mask))
 	case delta.Indeterminate:
-		verdict.State = report.Survived
-		verdict.Verdict = volatilityVerdict(delta, mask, unstable)
+		return project(verdict, oracle.SurvivedIndeterminateVolatility(delta, mask, unstable))
 	default:
-		verdict.State = report.Unobservable
-		verdict.Verdict = unobservableVerdict(mask)
+		return project(verdict, oracle.Unobservable(mask))
 	}
-
-	return verdict
 }
 
 // blockingUnknowns keeps the unknowns that lie in the mutation's forward
 // cone. A site that does not map into the graph falls back to the whole
 // payload — every unknown blocks — and an unknown that does not map is
 // treated as in-cone by the adapter itself.
-func (o oracle) blockingUnknowns(verdict report.Mutant, unknowns []string) []string {
+func (o executionOracle) blockingUnknowns(verdict report.Mutant, unknowns []string) []string {
 	cone, ok := o.plan.graph.SiteCone(verdict.Module, verdict.Site)
 	if !ok {
 		return unknowns
@@ -276,7 +270,7 @@ func proven(delta fingerprint.Delta) bool {
 	return len(delta.Changes) > 0
 }
 
-func (o oracle) diagnoseDelta(delta fingerprint.Delta, mask fingerprint.Mask) *report.Verdict {
+func (o executionOracle) diagnoseDelta(delta fingerprint.Delta, mask fingerprint.Mask) oracle.Outcome {
 	// The mock-masked diagnosis was withdrawn here (M3, issue #50): a stable
 	// apply-mode delta confined to computed-flagged attributes is
 	// attributable to the module wherever the attribute is configurable, and
@@ -284,196 +278,17 @@ func (o oracle) diagnoseDelta(delta fingerprint.Delta, mask fingerprint.Mask) *r
 	// to the closure diagnoses, which is what it always was.
 	for _, address := range delta.Addresses() {
 		if closureVerdict := o.plan.closure.Reads(address); closureVerdict.Read {
-			return weakAssertionVerdict(delta, mask, address, closureVerdict)
+			return oracle.SurvivedWeakAssertion(delta, mask, address, closureVerdict)
 		}
 	}
 
 	for _, address := range delta.Addresses() {
 		if closureVerdict := o.plan.closure.Reads(address); closureVerdict.Defeated {
-			return unassertedVerdict(delta, mask, address, closureVerdict)
+			return oracle.SurvivedUnasserted(delta, mask, address, closureVerdict)
 		}
 	}
 
-	return noAssertionVerdict(delta, mask)
-}
-
-func unknownVerdict(unknowns []string, mask fingerprint.Mask) *report.Verdict {
-	return &report.Verdict{
-		Diagnosis: report.IndeterminateUnknownValues,
-		Message: fmt.Sprintf(
-			"every selected run produced the same plan or state, but %d value(s) are still unknown, "+
-				"so the tool cannot prove no assertion could tell the mutant apart",
-			len(unknowns),
-		),
-		Fix: "run this module in apply mode, or supply inputs that make the unknown values known, " +
-			"and re-run: the oracle reaches full power only over a fully-known payload",
-		Evidence: report.Evidence{ //nolint:exhaustruct // each diagnosis names its own subset.
-			UnknownPaths:       unknowns,
-			VolatileComponents: mask.Paths(),
-		},
-	}
-}
-
-func volatilityVerdict(delta fingerprint.Delta, mask fingerprint.Mask, unstable []string) *report.Verdict {
-	// Where the mutant was not re-run — the baseline's own mask could not
-	// decompose a value — the undecidable paths are the evidence. The field is
-	// never empty: a diagnosis the reader cannot act on is the failure this
-	// milestone exists to avoid.
-	if len(unstable) == 0 {
-		unstable = mask.Undecidables()
-	}
-
-	return &report.Verdict{
-		Diagnosis: report.IndeterminateVolatility,
-		Message: "the comparison could not be made soundly: values moved between runs in a way " +
-			"the mask could not decompose, so the fingerprint is indeterminate and is never " +
-			"treated as identical",
-		Fix: "pin the volatile values — a mock default, a fixed input, or a deterministic " +
-			"function such as uuidv5 — and re-run",
-		Evidence: report.Evidence{ //nolint:exhaustruct // each diagnosis names its own subset.
-			Delta:              changes(delta),
-			VolatileComponents: mask.Paths(),
-			UnstableAttributes: unstable,
-		},
-	}
-}
-
-func unassertableVerdict(operator mutation.Operator) *report.Verdict {
-	entry, _ := mutation.Describe(operator)
-
-	// No diagnosis: diagnoses exist only for survivors, and this mutant is
-	// StructurallyUnassertable. The finding is still actionable, so it keeps its
-	// message and its fix.
-	return &report.Verdict{
-		Diagnosis: "",
-		Message: "the mutated construct has no projection into a plan or a state, " +
-			"so no assertion over either could ever catch it",
-		Fix:      entry.Fix,
-		Evidence: report.Evidence{ClosureVerdict: "no plan or state projection"}, //nolint:exhaustruct // no delta exists.
-	}
-}
-
-func unobservableVerdict(mask fingerprint.Mask) *report.Verdict {
-	return &report.Verdict{
-		Diagnosis: "",
-		Message: "every selected run produced an identical plan or state over a fully-known " +
-			"payload, so no assertion could distinguish this mutant under the current inputs",
-		Fix: "either the construct is genuinely redundant, or no run block supplies input " +
-			"where it matters: add a run block with different variables, or accept the mutant",
-		Evidence: report.Evidence{VolatileComponents: mask.Paths()}, //nolint:exhaustruct // no delta exists.
-	}
-}
-
-func weakAssertionVerdict(
-	delta fingerprint.Delta,
-	mask fingerprint.Mask,
-	address string,
-	closure discovery.Reach,
-) *report.Verdict {
-	return &report.Verdict{
-		Diagnosis: report.WeakAssertion,
-		Message: fmt.Sprintf(
-			"an assertion reads %s, directly or through an output or local, and still passed: "+
-				"the assertion is too loose to catch this change", address,
-		),
-		Fix: "tighten the assertion at " + closure.Assertion.Location() +
-			" so that it compares the value the mutation changed",
-		Evidence: report.Evidence{ //nolint:exhaustruct // each diagnosis names its own subset.
-			Delta:              changes(delta),
-			VolatileComponents: mask.Paths(),
-			Assertion:          closure.Assertion.Location(),
-			ClosureVerdict:     "read through the output and local closure",
-		},
-	}
-}
-
-func noAssertionVerdict(delta fingerprint.Delta, mask fingerprint.Mask) *report.Verdict {
-	return &report.Verdict{
-		Diagnosis: report.NoAssertion,
-		Message: "the mutant changed the plan or state and the output and local closure shows " +
-			"no assertion reads any of the changed addresses",
-		Fix: "add an assertion over " + strings.Join(delta.Addresses(), ", "),
-		Evidence: report.Evidence{ //nolint:exhaustruct // each diagnosis names its own subset.
-			Delta:              changes(delta),
-			VolatileComponents: mask.Paths(),
-			ClosureVerdict:     "no assertion reads any delta address",
-		},
-	}
-}
-
-func unassertedVerdict(
-	delta fingerprint.Delta,
-	mask fingerprint.Mask,
-	address string,
-	closure discovery.Reach,
-) *report.Verdict {
-	return &report.Verdict{
-		Diagnosis: report.Unasserted,
-		Message: fmt.Sprintf(
-			"the mutant changed %s, and an assertion reads it only through a %s: "+
-				"whether that assertion is weak or absent cannot be decided honestly",
-			address, closure.Construct,
-		),
-		Fix: "assert on " + address + " directly, so that the answer stops depending on a projection",
-		Evidence: report.Evidence{ //nolint:exhaustruct // each diagnosis names its own subset.
-			Delta:              changes(delta),
-			VolatileComponents: mask.Paths(),
-			Assertion:          closure.Assertion.Location(),
-			ClosureVerdict:     "defeated",
-			DefeatedBy:         closure.Construct,
-		},
-	}
-}
-
-// maxReportedChanges bounds the delta a report carries. A mutant that empties a
-// resource changes every attribute of it, and a hundred lines of evidence
-// serves nobody. Confirmed by measurement (M3c): only 4.3% of real survivors
-// saturate this cap, all of them whole-resource mutants.
-const maxReportedChanges = 20
-
-func changes(delta fingerprint.Delta) []report.Change {
-	converted := make([]report.Change, 0, min(len(delta.Changes), maxReportedChanges))
-
-	for index, change := range delta.Changes {
-		if index >= maxReportedChanges {
-			break
-		}
-
-		converted = append(converted, report.Change{
-			Run:     change.Run,
-			Path:    change.Path,
-			Address: change.Address,
-			// The values are withheld where Terraform marks them sensitive
-			// (2.2.0). The reader still learns that the path changed, which is
-			// the whole evidential content of a delta; the value itself is the
-			// one thing a report must not carry, because every reporter — the
-			// JSON document, the SARIF artefact, the job step summary — would
-			// carry it too.
-			Baseline: withheld(change.Sensitive, change.Baseline),
-			Mutant:   withheld(change.Sensitive, change.Mutant),
-			// Carried through deliberately: the suggestion engine's
-			// sensitivity predicate is decided from this flag, and dropping it
-			// here would let a secret reach a generated expression.
-			Sensitive: change.Sensitive,
-		})
-	}
-
-	return converted
-}
-
-// SensitiveWithheld is what a report carries in place of a sensitive value. It
-// is deliberately not a canonical rendering: every rendering of a string starts
-// with a quote, so nothing a module could hold can collide with it.
-const SensitiveWithheld = report.SensitiveWithheld
-
-// withheld replaces a sensitive rendering, and leaves an absent one absent so
-// that "the path was not there" stays distinguishable from "it was withheld".
-func withheld(sensitive bool, rendering string) string {
-	if !sensitive || rendering == "" {
-		return rendering
-	}
-
-	return SensitiveWithheld
+	return oracle.SurvivedNoAssertion(delta, mask)
 }
 
 // lookup is the schema coordinates a Terraform address implies.
