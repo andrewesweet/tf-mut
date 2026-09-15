@@ -89,12 +89,12 @@ type Validation struct {
 // syntax. There is no second route: a new assertion against a discovered
 // expression is a boundary violation, not a convenience.
 //
-// The accessor fails closed. A non-native expression, a nil expression and a
-// nil native value all return false, and a caller that receives false must
-// treat the site as unreadable rather than guess at the syntax it cannot see.
+// The accessor fails closed. A non-native expression and a nil expression both
+// return false, and a caller that receives false must treat the site as
+// unreadable rather than guess at the syntax it cannot see.
 func NativeExpression(expr hcl.Expression) (hclsyntax.Expression, bool) {
 	native, ok := expr.(hclsyntax.Expression)
-	if !ok || native == nil {
+	if !ok {
 		return nil, false
 	}
 

@@ -66,8 +66,8 @@ Failures in the order the passes surfaced them (file:line as of the scratch comm
 | retype 2 | `internal/mutation/syntax.go:186` | `literalBool(attribute.Expr)` — parameter is `hclsyntax.Expression` |
 | retype 2 | `internal/mutation/syntax.go:222` | `literalBool(attribute.Expr)` — parameter is `hclsyntax.Expression` |
 | retype 3 | `internal/characterise/synthesise.go:309` | `mineExpression(validation.Condition)` — parameter is `hclsyntax.Expression` |
-| retype 3 | `internal/characterise/synthesise.go:409` | `synthesiseType(attribute.Expr)` — parameter is `hclsyntax.Expression` |
-| retype 4 | `internal/characterise/synthesise.go:414` | `synthesiseType(attribute.Expr)` — parameter is `hclsyntax.Expression` |
+| retype 3 | `internal/characterise/synthesise.go` `typedValue` | `synthesiseType(attribute.Expr)` — parameter is `hclsyntax.Expression` |
+| retype 4 | `internal/characterise/synthesise.go` `typedValue` | `synthesiseType(attribute.Expr)` — parameter is `hclsyntax.Expression` |
 | retype 5 | `internal/engine/conditional.go:165` | `return attribute.Expr` — return type is `hclsyntax.Expression` |
 | retype 5 | `internal/engine/conditional.go:487` | `return attribute.Expr` — return type is `hclsyntax.Expression` |
 | refinement | `internal/engine/conditional.go:166` | second `return attribute.Expr` in `mutatedMultiplicity`, masked by pass 1's bridge until the helper signatures were narrowed |
@@ -118,7 +118,7 @@ owns, and only native syntax owns tokens.
 | --- | --- | --- |
 | `internal/discovery/closure.go:122` | `referencesOf` → `collectRefs` | type-switches `ScopeTraversalExpr`, `RelativeTraversalExpr`, `SplatExpr`, `ForExpr`, `IndexExpr`, … and recurses through their child expressions to build the closure's reference set |
 | `internal/characterise/synthesise.go:309` | `mineExpression` | type-switches `FunctionCallExpr`/`BinaryOpExpr` and inspects `Args`/`Op` to mine `contains(x, var.n)` and equality idioms out of a validation condition |
-| `internal/characterise/synthesise.go:414` | `synthesiseType` | type-switches `ScopeTraversalExpr`/`FunctionCallExpr`/`ObjectConsExpr` and walks the type-constraint call tree to synthesise the declared type's simplest inhabitant |
+| `internal/characterise/synthesise.go` `typedValue` | `synthesiseType` | type-switches `ScopeTraversalExpr`/`FunctionCallExpr`/`ObjectConsExpr` and walks the type-constraint call tree to synthesise the declared type's simplest inhabitant |
 | `internal/engine/conditional.go:166` | `mutatedMultiplicity` → `evaluateMultiplicity` → `supportedMultiplicityForm` | type-switch admitting exactly the multiplicity forms the static `NoCoverage` evaluator can walk (`LiteralValueExpr`, `ScopeTraversalExpr`, `ConditionalExpr`, `BinaryOpExpr`, `UnaryOpExpr`, `ParenthesesExpr`, `TupleConsExpr`); the switch is the evaluator's admission boundary |
 
 One genuine site is inside `internal/discovery` itself; per #114, native-syntax use inside
@@ -140,7 +140,7 @@ producer/construction sites — and 4 genuinely native.
 | Package | Sites | Satisfied | Genuine native | Notes |
 | --- | --- | --- | --- | --- |
 | `internal/discovery` | 6 | 5 (4 producers + 1 read) | 1 (`closure.go:122`) | the read satisfied here is `literalString`, narrowed in the refinement |
-| `internal/characterise` | 7 | 5 (4 reads + 1 test construction) | 2 (`synthesise.go:309`, `:414`) | the two pinning-side readers dominate |
+| `internal/characterise` | 7 | 5 (4 reads + 1 test construction) | 2 (`synthesise.go:309`, `typedValue`) | the two pinning-side readers dominate |
 | `internal/mutation` | 2 | 2 | 0 | see the scope note below |
 | `internal/engine` | 2 | 1 | 1 (`conditional.go:166`) | |
 | `internal/suggest` | 0 | — | — | `patch.go`'s `.Expr()` is `hclwrite`'s own method, not a boundary field |
