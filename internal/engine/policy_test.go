@@ -61,7 +61,7 @@ func TestACommandLineFlagOverridesOneConfiguredScalarAndNoOthers(t *testing.T) {
 
 	module := copyFixture(t, "policy")
 
-	overridden := runRequest(t, module)
+	overridden := baseConfig(t, module)
 	overridden.Tier = "smoke"
 	overridden.SetFlags = []string{engine.FlagTier}
 

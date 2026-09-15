@@ -118,12 +118,6 @@ func legacyBaseConfig(t *testing.T, moduleDir string) engine.Config {
 	}
 }
 
-func runRequest(t *testing.T, moduleDir string) engine.RunRequest {
-	t.Helper()
-
-	return engine.RunRequest{Common: commonRequest(t, moduleDir)}
-}
-
 func previewRequest(t *testing.T, moduleDir string) engine.PreviewRequest {
 	t.Helper()
 
