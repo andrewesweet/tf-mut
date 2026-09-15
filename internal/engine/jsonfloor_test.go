@@ -31,7 +31,7 @@ import (
 // nothing executes.
 
 // floorConfig is a run whose JSON content is deliberately left unread.
-func floorConfig(t *testing.T, fixture string) engine.Config {
+func floorConfig(t *testing.T, fixture string) engine.RunRequest {
 	t.Helper()
 
 	config := baseConfig(t, copyFixture(t, fixture))

@@ -126,7 +126,7 @@ func TestCurateRefusesAPartialPopulationAtConfigurationTime(t *testing.T) {
 
 			module := copyFixture(t, "suggest-basic")
 
-			config := baseConfig(t, module)
+			config := legacyBaseConfig(t, module)
 			config.Curate = true
 
 			_, err := engine.Run(t.Context(), adjust(config))
@@ -199,7 +199,7 @@ func TestCurateWritesNothing(t *testing.T) {
 	module := copyFixture(t, curateFixture)
 	before := treeDigest(t, module)
 
-	config := baseConfig(t, module)
+	config := legacyBaseConfig(t, module)
 	config.Curate = true
 	config.NoCache = true
 
@@ -460,7 +460,7 @@ func TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions(t *testing.T) {
 		t.Fatalf("characterise --write: %v", err)
 	}
 
-	config := baseConfig(t, module)
+	config := legacyBaseConfig(t, module)
 	config.Curate = true
 	config.NoCache = true
 
@@ -617,7 +617,7 @@ func TestARealCurateReportValidatesAgainstThePublishedSchema(t *testing.T) {
 
 	module := copyFixture(t, curateFixture)
 
-	config := baseConfig(t, module)
+	config := legacyBaseConfig(t, module)
 	config.Curate = true
 
 	result, err := engine.Run(t.Context(), config)
@@ -655,7 +655,7 @@ func TestCurateHonoursTheGateFlagsItAccepts(t *testing.T) {
 
 	module := copyFixture(t, curateFixture)
 
-	config := baseConfig(t, module)
+	config := legacyBaseConfig(t, module)
 	config.Curate = true
 
 	result, err := engine.Run(t.Context(), config)
