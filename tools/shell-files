@@ -19,4 +19,5 @@ scripts/mutate-diff
 scripts/run-gremlins
 scripts/update-provider
 scripts/update-source-tools
+tests/agent/protect-hooks.sh
 tests/build-chain/terraform-offline.sh

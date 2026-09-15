@@ -30,6 +30,9 @@ done
 jq -e '.hooks.PreToolUse[] | select(.matcher == "Bash|Edit|Write")' \
   .codex/hooks.json >/dev/null
 
+# Protect hooks must fire only on tool input, never on payload metadata.
+tests/agent/protect-hooks.sh
+
 if grep -REq 'decision[[:space:]]*=[[:space:]]*"allow"' .codex/rules; then
   echo "Codex project rules must never auto-allow commands" >&2
   exit 1
