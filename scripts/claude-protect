@@ -4,7 +4,7 @@ set -euo pipefail
 payload=$(cat)
 protected='(Justfile|mise\.(toml|lock)|\.golangci\.yml|\.gitleaks\.toml|AGENTS\.md|CLAUDE\.md|\.github/|\.claude/|\.codex/|\.agents/|\.terraform\.lock\.hcl|tools/[^/]+/go\.(mod|sum))'
 
-if grep -Eq "$protected" <<<"$payload"; then
+if grep -Eq "$protected" <<<"$(jq -r '.tool_input | tostring' <<<"$payload")"; then
   jq -cn '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
