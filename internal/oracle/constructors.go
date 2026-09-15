@@ -164,6 +164,23 @@ func Unobservable(mask fingerprint.Mask) Outcome {
 	}
 }
 
+// StaticallyUnobservable records the empty-cone claim reached without
+// execution: the mutated node's forward cone reaches nothing observable, so no
+// plan or state could reflect the change. It is the same claim Unobservable
+// makes, decided from the reference graph rather than from a comparison, and
+// so carries no mask.
+func StaticallyUnobservable() Outcome {
+	return Outcome{
+		state: StateUnobservable,
+		message: "the mutated node's forward cone reaches no resource, data source, output, " +
+			"check or contract construct, so no plan or state could reflect the change and " +
+			"no assertion could ever read it",
+		fix: "either the construct is genuinely dead — delete it — or nothing consumes it " +
+			"yet: wire it into a resource or an output and re-run",
+		evidence: Evidence{closureVerdict: "statically unobservable: empty observable cone"},
+	}
+}
+
 // Terminal outcomes. None carries a diagnosis; the type makes that
 // unstateable. Each carries exactly the evidence its state was decided from:
 // the diagnostics a killed-by-error or invalid mutant is claimed from, the

@@ -69,6 +69,10 @@ func recordedOutcome(mutant report.Mutant, budget time.Duration) oracle.Outcome 
 	case report.StructurallyUnassertable:
 		return oracle.StructurallyUnassertable(mutation.Operator(mutant.Operator))
 	case report.Unobservable:
+		if mutant.Verdict == nil {
+			return oracle.Unobservable(fingerprint.NewMask())
+		}
+
 		return oracle.Unobservable(recordedMask(mutant.Verdict.Evidence))
 	case report.NoCoverage:
 		return oracle.NoCoverage(recordedNoCoverageClaim(mutant))

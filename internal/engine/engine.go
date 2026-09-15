@@ -711,12 +711,8 @@ func describe(
 		case !settings.Preview && !shortcutsDisabled &&
 			staticallyUnobservable(graph, mutant):
 			// A preview keeps Pending — the documented preview contract — so
-			// the shortcut fires only where execution would otherwise run. The
-			// static claim is the empty-cone finding, not the executed claim
-			// the oracle's Unobservable constructor records, so its verdict is
-			// built here until the claim has a constructor of its own.
-			entry.State = report.Unobservable
-			entry.Verdict = staticUnobservableVerdict()
+			// the shortcut fires only where execution would otherwise run.
+			entry = project(entry, oracle.StaticallyUnobservable())
 		default:
 			// Pending stands: the state every executable mutant carries until
 			// something decides otherwise, and the only state a preview
@@ -748,22 +744,6 @@ func staticallyUnobservable(graph *discovery.Graph, mutant mutation.Mutant) bool
 	}
 
 	return !cone.ContainsObservable()
-}
-
-// staticUnobservableVerdict is the finding a statically classified mutant
-// carries: the same claim the executed verdict would make, reached without
-// the execution.
-func staticUnobservableVerdict() *report.Verdict {
-	return &report.Verdict{
-		Diagnosis: "",
-		Message: "the mutated node's forward cone reaches no resource, data source, output, " +
-			"check or contract construct, so no plan or state could reflect the change and " +
-			"no assertion could ever read it",
-		Fix: "either the construct is genuinely dead — delete it — or nothing consumes it " +
-			"yet: wire it into a resource or an output and re-run",
-		//nolint:exhaustruct // no delta exists: nothing executed.
-		Evidence: report.Evidence{ClosureVerdict: "statically unobservable: empty observable cone"},
-	}
 }
 
 // Exclude is the site exclusion policy the run was given.
