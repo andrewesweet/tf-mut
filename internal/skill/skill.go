@@ -69,6 +69,10 @@ const (
 // ErrUnknownAgent reports an --agent value outside the documented set.
 var ErrUnknownAgent = errors.New("unknown agent")
 
+// ErrTargetChanged reports a skill file that changed between the install's
+// decision and its write, so the decided outcome no longer describes the file.
+var ErrTargetChanged = errors.New("target changed between decision and write")
+
 // TargetPath is the documented per-agent install location, relative to the
 // --path root.
 //
@@ -191,9 +195,7 @@ func installOne(root, agent, version string, force bool, name Name) (Result, err
 
 		if exists := readErr == nil; exists != existed ||
 			(exists && string(current) != string(existing)) {
-			return fmt.Errorf("%s changed between the install's decision and its write, "+
-				"so the decided outcome no longer describes the file: nothing was replaced",
-				relative)
+			return fmt.Errorf("%w: %s: nothing was replaced", ErrTargetChanged, relative)
 		}
 
 		return nil
