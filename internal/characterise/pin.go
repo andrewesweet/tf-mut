@@ -184,7 +184,7 @@ func onePin(context pinContext) report.Pin {
 	rendered, err := suggest.Express(
 		discovery.RunBlock{Name: RunPrefix + context.scenario.Name}, //nolint:exhaustruct // the adapter reads the address.
 		context.schemas,
-		report.Change{
+		fingerprint.Change{
 			Run: RunPrefix + context.scenario.Name, Path: context.path,
 			Address: expression, Baseline: value, Mutant: "", Sensitive: false,
 		},

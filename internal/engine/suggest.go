@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
 )
@@ -21,6 +22,19 @@ var ErrSurvivorSelection = errors.New("no survivor with that identifier")
 
 //nolint:gochecknoglobals // inert production default; external tests scope and restore it.
 var seedSuggestionDefect = func(Config) suggest.Defect { return suggest.DefectNone }
+
+// suggestibleDiagnoses names the diagnoses a suggestion is generated for.
+//
+// Each one names a proven, expressible delta. The indeterminate diagnoses name
+// a comparison the oracle could not make, so there is nothing to assert; and
+// `StructurallyUnassertable` is not a survivor diagnosis at all — its skeleton
+// generation was removed from that milestone and relocated behind the
+// minable-share measurement it always belonged to.
+//
+//nolint:gochecknoglobals // an immutable lookup table.
+var suggestibleDiagnoses = []report.Diagnosis{
+	report.NoAssertion, report.WeakAssertion, report.Unasserted,
+}
 
 // suggestAssertions generates — and, unless this is a dry run, verifies — the
 // assertion that would have killed each selected survivor. The second result
@@ -37,45 +51,83 @@ func suggestAssertions(
 		return nil, "", err
 	}
 
-	generated := suggest.Generator{
+	candidates, skipped := suggest.Generator{
 		Configuration: plan.configuration,
 		Schemas:       plan.prepared.schemas,
 		Defect:        seedSuggestionDefect(plan.config),
-	}.Generate(selected)
+	}.Generate(suggestable(selected))
 
 	if plan.config.SuggestDryRun {
-		return generated, "", nil
+		return projectGeneration(selected, candidates, nil, skipped), "", nil
 	}
 
-	verified, err := verifySuggestions(ctx, plan, generated)
+	verified, err := verifySuggestions(ctx, plan, candidates)
 	if err != nil {
 		return nil, "", err
 	}
 
-	return verified, verificationCost(generated), nil
+	return projectGeneration(selected, nil, verified, skipped), verificationCost(candidates), nil
+}
+
+// suggestable projects the selected survivors onto the Suggestion context's
+// input: the mutant identifier and the proven delta, and nothing about the
+// diagnosis — the engine grades, the context turns grading into improvement.
+// A survivor whose diagnosis names no proven delta — the indeterminate
+// comparisons — is not projected: there is nothing to assert about it.
+func suggestable(selected []report.Mutant) []suggest.Survivor {
+	survivors := make([]suggest.Survivor, 0, len(selected))
+
+	for _, mutant := range selected {
+		if mutant.Verdict == nil || !slices.Contains(suggestibleDiagnoses, mutant.Verdict.Diagnosis) {
+			continue
+		}
+
+		survivors = append(survivors,
+			suggest.NewSurvivor(mutant.ID, projectSurvivorDelta(mutant.Verdict.Evidence.Delta)))
+	}
+
+	return survivors
+}
+
+// projectSurvivorDelta hands the generator the report's delta in the
+// fingerprint document shape the adapters read. It is the same capped delta
+// the report carries: generation sees what the report showed, not more.
+func projectSurvivorDelta(changes []report.Change) []fingerprint.Change {
+	delta := make([]fingerprint.Change, 0, len(changes))
+
+	for _, change := range changes {
+		delta = append(delta, fingerprint.Change{
+			Run:       change.Run,
+			Path:      change.Path,
+			Address:   change.Address,
+			Baseline:  change.Baseline,
+			Mutant:    change.Mutant,
+			Sensitive: change.Sensitive,
+		})
+	}
+
+	return delta
 }
 
 // verificationCost states what the verification contract executes for a
 // candidate set: one full-suite run per target test file, plus one isolated
 // mutant run per candidate.
-func verificationCost(generated []report.Suggestion) string {
-	candidates := 0
+func verificationCost(candidates []suggest.Candidate) string {
+	candidatesCount := 0
 	files := map[string]bool{}
 
-	for _, suggestion := range generated {
-		if suggestion.Status == report.SuggestionCandidate {
-			candidates += 1 + len(suggestion.AlsoKills)
-			files[suggestion.TargetFile] = true
-		}
+	for _, candidate := range candidates {
+		candidatesCount += 1 + len(candidate.AlsoKills())
+		files[candidate.TargetFile()] = true
 	}
 
-	if candidates == 0 {
+	if candidatesCount == 0 {
 		return ""
 	}
 
 	return fmt.Sprintf("verification executed %d full-suite run(s) — one per target test "+
 		"file — plus %d isolated mutant run(s), one per mutant a suggestion claims",
-		len(files), candidates)
+		len(files), candidatesCount)
 }
 
 // selectSurvivors narrows the population to the survivors the caller asked

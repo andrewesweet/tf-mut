@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
-	"github.com/andrewesweet/tf-mut/internal/suggest"
 )
 
 // M4a: generation behind the three fail-closed adapters, through the engine
@@ -64,7 +64,7 @@ func TestSuggestGeneratesTheAssertionThatWouldHaveKilledASurvivor(t *testing.T) 
 
 	candidates := withStatus(result, report.SuggestionCandidate)
 	if len(candidates) == 0 {
-		t.Fatalf("no candidate was generated; statuses were %s", suggest.Statuses(result.Suggestions))
+		t.Fatalf("no candidate was generated; statuses were %s", statusSummary(result.Suggestions))
 	}
 
 	for _, candidate := range candidates {
@@ -167,7 +167,7 @@ func TestAJSONTestTargetIsSkippedWithNoPatch(t *testing.T) {
 	skipped := withStatus(result, report.SuggestionSkippedUnsupportedTarget)
 	if len(skipped) == 0 {
 		t.Fatalf("a JSON-declared run produced no unsupported-target skip: %s",
-			suggest.Statuses(result.Suggestions))
+			statusSummary(result.Suggestions))
 	}
 
 	for _, suggestion := range skipped {
@@ -262,6 +262,30 @@ func withStatus(result report.Report, status report.SuggestionStatus) []report.S
 	}
 
 	return matching
+}
+
+// statusSummary renders a suggestion set as its status counts, in vocabulary
+// order, for assertion messages. It is the engine tests' own helper since the
+// Suggestion context stopped reading the report DTO.
+func statusSummary(suggestions []report.Suggestion) string {
+	counts := map[report.SuggestionStatus]int{}
+	for _, suggestion := range suggestions {
+		counts[suggestion.Status]++
+	}
+
+	parts := []string{}
+
+	for _, status := range []report.SuggestionStatus{
+		report.SuggestionVerified, report.SuggestionCandidate, report.SuggestionRefuted,
+		report.SuggestionSkippedSensitive, report.SuggestionSkippedUnaddressable,
+		report.SuggestionSkippedUnrenderable, report.SuggestionSkippedUnsupportedTarget,
+	} {
+		if counts[status] > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", counts[status], status))
+		}
+	}
+
+	return strings.Join(parts, ", ")
 }
 
 func identifiersOf(result report.Report) []string {

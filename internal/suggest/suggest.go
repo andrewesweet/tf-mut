@@ -5,9 +5,12 @@
 // suggestion is generated behind three fail-closed adapters — addressing,
 // rendering and sensitivity — and each adapter has its own honest outcome, so
 // what the generator cannot express is reported as a limit and never as a
-// refutation. Nothing here writes anything: generation produces a candidate and
-// a patch, verification decides whether the candidate is true, and applying is
-// a separate protocol bound to the bytes that were verified.
+// refutation. Nothing here writes anything: generation produces a candidate
+// and a patch, verification decides whether the candidate is true, and
+// applying is a separate protocol bound to the bytes that were verified. The
+// lifecycle those outcomes move through — candidate, verified, refuted,
+// skipped — is owned by this package's types, and the application layer
+// projects them onto the published report at the boundary.
 package suggest
 
 import (
@@ -21,22 +24,9 @@ import (
 	"strings"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
-	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
-
-// The diagnoses a suggestion is generated for.
-//
-// Each one names a proven, expressible delta. The indeterminate diagnoses name
-// a comparison the oracle could not make, so there is nothing to assert; and
-// `StructurallyUnassertable` is not a survivor diagnosis at all — its skeleton
-// generation was removed from this milestone and relocated behind the
-// minable-share measurement it always belonged to.
-//
-//nolint:gochecknoglobals // an immutable lookup table.
-var suggestibleDiagnoses = []report.Diagnosis{
-	report.NoAssertion, report.WeakAssertion, report.Unasserted,
-}
 
 // Defect is a deliberately wrong assertion the generator can be made to emit.
 //
@@ -60,7 +50,22 @@ const (
 // SeededWrongValue is the value the wrong-value defect compares against.
 const SeededWrongValue = "tf-mut-seeded-wrong-value"
 
-// Generator produces suggestions from a completed report.
+// Survivor is a proven survivor the generator is asked about: the mutant
+// identifier and the masked delta the oracle proved against the baseline. The
+// engine grades; this value is what grading hands over — the delta, and
+// nothing about how it was diagnosed.
+type Survivor struct {
+	id    string
+	delta []fingerprint.Change
+}
+
+// NewSurvivor names a survivor and its delta. The delta is copied, so the
+// value is immutable once built.
+func NewSurvivor(id string, delta []fingerprint.Change) Survivor {
+	return Survivor{id: id, delta: slices.Clone(delta)}
+}
+
+// Generator produces suggestions from the selected survivors.
 type Generator struct {
 	// Configuration is the discovered module under test.
 	Configuration discovery.Configuration
@@ -72,14 +77,23 @@ type Generator struct {
 }
 
 // Generate returns one suggestion per survivor the generator has something
-// honest to say about, in report order.
-func (g Generator) Generate(mutants []report.Mutant) []report.Suggestion {
-	suggestions := []report.Suggestion{}
+// honest to say about, in survivor order: the candidates awaiting
+// verification, and the skipped suggestions whose reason an adapter chose.
+func (g Generator) Generate(survivors []Survivor) ([]Candidate, []Suggestion) {
+	candidates := []Candidate{}
+	skipped := []Suggestion{}
 	seeded := false
 
-	for _, mutant := range mutants {
-		suggestion, ok := g.generateOne(mutant)
-		if !ok {
+	for _, survivor := range survivors {
+		out := g.generateOne(survivor)
+
+		if out.skip != nil {
+			skipped = append(skipped, *out.skip)
+
+			continue
+		}
+
+		if out.candidate == nil {
 			continue
 		}
 
@@ -87,107 +101,109 @@ func (g Generator) Generate(mutants []report.Mutant) []report.Suggestion {
 		// gate prove attribution as well as rejection: the rest of the batch
 		// is real, so a batch-wide kill check would have hidden the defect and
 		// the isolated check cannot.
-		if !seeded && g.Defect != DefectNone && suggestion.Status == report.SuggestionCandidate {
+		if !seeded && g.Defect != DefectNone {
 			seeded = true
-			suggestion = g.seed(mutant, suggestion)
+			out = g.seed(survivor, *out.candidate)
+
+			if out.skip != nil {
+				skipped = append(skipped, *out.skip)
+
+				continue
+			}
 		}
 
-		suggestions = append(suggestions, suggestion)
+		candidates = append(candidates, *out.candidate)
 	}
 
-	return collapse(suggestions)
+	return collapse(candidates), skipped
 }
 
-// collapse folds candidates that share a target run and an expression into one
-// suggestion (round-3 review, PR #69): five survivors one assertion kills are
-// one review item and one write, not five byte-identical assert blocks. The
-// first candidate keeps the identity; the rest become its AlsoKills, and the
-// isolated verification leg still runs once per listed mutant, so attribution
-// stays per-mutant.
-func collapse(suggestions []report.Suggestion) []report.Suggestion {
-	collapsed := []report.Suggestion{}
+// generated is one survivor's generation outcome: a candidate awaiting
+// verification, a skipped suggestion with its reason, or nothing — the
+// generator has nothing honest to say about that survivor.
+type generated struct {
+	candidate *Candidate
+	skip      *Suggestion
+}
+
+// collapse folds candidates that share a target run and an expression into
+// one suggestion (round-3 review, PR #69): five survivors one assertion kills
+// are one review item and one write, not five byte-identical assert blocks.
+// The first candidate keeps the identity; the rest become its AlsoKills, and
+// the isolated verification leg still runs once per listed mutant, so
+// attribution stays per-mutant.
+func collapse(candidates []Candidate) []Candidate {
+	collapsed := []Candidate{}
 	carrier := map[string]int{}
 
-	for _, suggestion := range suggestions {
-		if suggestion.Status != report.SuggestionCandidate {
-			collapsed = append(collapsed, suggestion)
-
-			continue
-		}
-
-		key := suggestion.TargetFile + "\x00" + suggestion.TargetRun + "\x00" + suggestion.Expression
+	for _, candidate := range candidates {
+		key := candidate.TargetFile() + "\x00" + candidate.TargetRun() + "\x00" + candidate.Expression()
 
 		if index, found := carrier[key]; found {
-			collapsed[index].AlsoKills = append(collapsed[index].AlsoKills, suggestion.MutantID)
+			collapsed[index].alsoKills = append(collapsed[index].alsoKills, candidate.MutantID())
 
 			continue
 		}
 
 		carrier[key] = len(collapsed)
-		collapsed = append(collapsed, suggestion)
+		collapsed = append(collapsed, candidate)
 	}
 
 	return collapsed
 }
 
 // seed rewrites a candidate into the named deliberately wrong assertion.
-func (g Generator) seed(mutant report.Mutant, suggestion report.Suggestion) report.Suggestion {
-	target, found := g.placement(mutant.Verdict.Evidence.Delta)
+func (g Generator) seed(survivor Survivor, candidate Candidate) generated {
+	target, found := g.placement(survivor.delta)
 	if !found {
-		return suggestion
+		return generated{candidate: &candidate}
 	}
 
 	// Terraform refuses a constant condition ("must refer to at least one
 	// object"), so the vacuous defect is a tautology over the real reference:
 	// always true, and only the isolated mutant leg can see it kills nothing.
-	reference := strings.SplitN(suggestion.Expression, " == ", partsOfAnEquality)[0]
+	reference := strings.SplitN(candidate.Expression(), " == ", partsOfAnEquality)[0]
 
 	expression := reference + " == " + reference
 	if g.Defect == DefectWrongValue {
 		expression = reference + ` == "` + SeededWrongValue + `"`
 	}
 
-	return candidate(mutant, target, expression)
+	return build(survivor, target, expression)
 }
 
 // partsOfAnEquality is the operand count of the equality the generator writes.
 const partsOfAnEquality = 2
 
 // generateOne produces the suggestion for one survivor.
-func (g Generator) generateOne(mutant report.Mutant) (report.Suggestion, bool) {
-	if mutant.State != report.Survived || mutant.Verdict == nil {
-		return report.Suggestion{}, false
+func (g Generator) generateOne(survivor Survivor) generated {
+	delta := survivor.delta
+	if len(delta) == 0 {
+		return generated{}
 	}
 
-	if !slices.Contains(suggestibleDiagnoses, mutant.Verdict.Diagnosis) {
-		return report.Suggestion{}, false
-	}
-
-	changes := mutant.Verdict.Evidence.Delta
-	if len(changes) == 0 {
-		return report.Suggestion{}, false
-	}
-
-	target, found := g.placement(changes)
+	target, found := g.placement(delta)
 	if !found {
-		return report.Suggestion{}, false
+		return generated{}
 	}
 
 	// The JSON test writer is deliberately not built, so a survivor carried by
 	// a JSON run has no patch and `--apply` never touches its file.
 	if target.JSONDeclared {
-		return skipped(mutant, target, report.SuggestionSkippedUnsupportedTarget,
+		skip := Skipped(survivor.id, target.Rel, target.Name, SkipUnsupportedTarget,
 			"the target run is declared in "+target.Rel+
-				", and no JSON test writer is built: this suggestion is reported and never applied"), true
+				", and no JSON test writer is built: this suggestion is reported and never applied")
+
+		return generated{skip: &skip}
 	}
 
-	return g.suggestFor(mutant, target, changes), true
+	return g.suggestFor(survivor, target, delta)
 }
 
 // placement chooses the run the assertion is written into: the run whose
 // fingerprint carried the delta, and where several did, the first in
 // declaration order.
-func (g Generator) placement(changes []report.Change) (discovery.RunBlock, bool) {
+func (g Generator) placement(changes []fingerprint.Change) (discovery.RunBlock, bool) {
 	carrying := map[string]bool{}
 	for _, change := range changes {
 		carrying[change.Run] = true
@@ -211,10 +227,10 @@ func runKey(run discovery.RunBlock) string {
 // suggestFor walks the delta for the first change all three adapters admit,
 // and reports the first change's own refusal where none is admitted.
 func (g Generator) suggestFor(
-	mutant report.Mutant,
+	survivor Survivor,
 	target discovery.RunBlock,
-	changes []report.Change,
-) report.Suggestion {
+	changes []fingerprint.Change,
+) generated {
 	renderer := render{schemas: g.Schemas}
 
 	var first, sensitive error
@@ -242,7 +258,7 @@ func (g Generator) suggestFor(
 			continue
 		}
 
-		return candidate(mutant, target, expression)
+		return build(survivor, target, expression)
 	}
 
 	if sensitive != nil {
@@ -253,7 +269,9 @@ func (g Generator) suggestFor(
 		first = fmt.Errorf("%w: the delta carries no change in the target run", ErrUnaddressable)
 	}
 
-	return skipped(mutant, target, statusOf(first), first.Error())
+	skip := Skipped(survivor.id, target.Rel, target.Name, reasonOf(first), first.Error())
+
+	return generated{skip: &skip}
 }
 
 // Express maps one delta change onto the assertion condition that would catch
@@ -261,13 +279,13 @@ func (g Generator) suggestFor(
 //
 // It is the whole three-adapter sweep behind one call, and it is exported
 // because the fail-closed matrices are contracts about payload paths and
-// provider types rather than about any one module: driving the real binary into
-// producing each of the fifteen shapes on demand is not possible, exactly as it
-// is not for the payload shapes `internal/fingerprint` is tested on.
+// provider types rather than about any one module: driving the real binary
+// into producing each of the fifteen shapes on demand is not possible, exactly
+// as it is not for the payload shapes `internal/fingerprint` is tested on.
 func Express(
 	run discovery.RunBlock,
 	schemas tfexec.Schemas,
-	change report.Change,
+	change fingerprint.Change,
 ) (string, error) {
 	_ = run // the adapter reads the module path from the address itself; see traversal.
 
@@ -276,7 +294,7 @@ func Express(
 
 // expressChange runs one change through the three adapters in order.
 // Sensitivity comes first: a sensitive value must not reach a renderer at all.
-func expressChange(renderer render, change report.Change) (string, error) {
+func expressChange(renderer render, change fingerprint.Change) (string, error) {
 	if change.Sensitive {
 		return "", fmt.Errorf("%w: Terraform marks the value at this path, or a container "+
 			"of it, sensitive", ErrSensitive)
@@ -298,74 +316,40 @@ func expressChange(renderer render, change report.Change) (string, error) {
 // patch, no error message, and nothing any reporter renders.
 var ErrSensitive = errors.New("the delta's value is sensitive")
 
-// statusOf maps an adapter's refusal onto its own outcome status.
-func statusOf(err error) report.SuggestionStatus {
+// reasonOf maps an adapter's refusal onto its own outcome reason.
+func reasonOf(err error) SkipReason {
 	switch {
 	case errors.Is(err, ErrSensitive):
-		return report.SuggestionSkippedSensitive
+		return SkipSensitive
 	case errors.Is(err, ErrUnaddressable):
-		return report.SuggestionSkippedUnaddressable
+		return SkipUnaddressable
 	default:
-		return report.SuggestionSkippedUnrenderable
+		return SkipUnrenderable
 	}
 }
 
-// candidate builds the suggestion for an admitted change.
+// build renders the candidate for an admitted change.
 //
 // The patch is rendered with the same message renderer verification and apply
 // use, after the stable identifier is known: the bytes a reporter shows, the
 // bytes the sandbox verifies and the bytes apply writes must be one sequence,
-// or the digest protocol proves a file nobody was shown.
-func candidate(
-	mutant report.Mutant,
-	target discovery.RunBlock,
-	expression string,
-) report.Suggestion {
-	id := identifier(mutant.ID, target.Rel, target.Name, expression)
+// or the digest protocol proves a file nobody was shown. Where the target
+// cannot be rewritten the outcome is a skip — a candidate with no patch has no
+// spelling.
+func build(survivor Survivor, target discovery.RunBlock, expression string) generated {
+	id := identifier(survivor.id, target.Rel, target.Name, expression)
 
-	suggestion := report.Suggestion{
-		ID:             id,
-		MutantID:       mutant.ID,
-		TargetFile:     target.Rel,
-		TargetRun:      target.Name,
-		Status:         report.SuggestionCandidate,
-		Expression:     expression,
-		Patch:          "",
-		VerifiedDigest: "",
-		Verification:   nil,
-		StatusReason:   "",
-	}
-
-	patch, err := PatchFor(target, expression, VerifiedMessage(id, mutant.ID))
+	patch, err := PatchFor(target, expression, VerifiedMessage(id, survivor.id))
 	if err != nil {
-		return skipped(mutant, target, report.SuggestionSkippedUnaddressable,
+		skip := Skipped(survivor.id, target.Rel, target.Name, SkipUnaddressable,
 			"the target run could not be rewritten: "+err.Error())
+
+		return generated{skip: &skip}
 	}
 
-	suggestion.Patch = patch
+	candidate := NewCandidate(survivor.id, target.Rel, target.Name, expression, patch)
 
-	return suggestion
-}
-
-// skipped builds a suggestion that carries a status and a reason and no patch.
-func skipped(
-	mutant report.Mutant,
-	target discovery.RunBlock,
-	status report.SuggestionStatus,
-	reason string,
-) report.Suggestion {
-	return report.Suggestion{
-		ID:             identifier(mutant.ID, target.Rel, target.Name, string(status)),
-		MutantID:       mutant.ID,
-		TargetFile:     target.Rel,
-		TargetRun:      target.Name,
-		Status:         status,
-		Expression:     "",
-		Patch:          "",
-		VerifiedDigest: "",
-		Verification:   nil,
-		StatusReason:   reason,
-	}
+	return generated{candidate: &candidate}
 }
 
 // identifier is the stable suggestion ID: a content hash over the mutant
@@ -409,27 +393,4 @@ func ReadTarget(moduleDir, relative string) ([]byte, error) {
 // assertion itself from drifting between the two.
 func VerifiedMessage(suggestionID, mutantID string) string {
 	return "tf-mut suggestion " + suggestionID + " catches mutant " + mutantID
-}
-
-// Statuses renders a suggestion set as its status counts, in vocabulary order,
-// for the summaries a reporter prints.
-func Statuses(suggestions []report.Suggestion) string {
-	counts := map[report.SuggestionStatus]int{}
-	for _, suggestion := range suggestions {
-		counts[suggestion.Status]++
-	}
-
-	parts := []string{}
-
-	for _, status := range []report.SuggestionStatus{
-		report.SuggestionVerified, report.SuggestionCandidate, report.SuggestionRefuted,
-		report.SuggestionSkippedSensitive, report.SuggestionSkippedUnaddressable,
-		report.SuggestionSkippedUnrenderable, report.SuggestionSkippedUnsupportedTarget,
-	} {
-		if counts[status] > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", counts[status], status))
-		}
-	}
-
-	return strings.Join(parts, ", ")
 }
