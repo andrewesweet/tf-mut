@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/andrewesweet/tf-mut/internal/sandbox"
 )
 
 //go:embed content/mutation-loop.md
@@ -139,6 +141,10 @@ func Install(root, agent, version string, force bool) ([]Result, error) {
 	return results, nil
 }
 
+// errTargetChanged reports a target that moved between the install's decision
+// and its write: the outcome decided no longer describes the file on disk.
+var errTargetChanged = errors.New("changed between the install's decision and its write")
+
 // installOne places a single skill.
 func installOne(root, agent, version string, force bool, name Name) (Result, error) {
 	relative, err := TargetPath(agent, name)
@@ -156,6 +162,7 @@ func installOne(root, agent, version string, force bool, name Name) (Result, err
 	shipped := stamped(body, version)
 
 	existing, err := os.ReadFile(target) //nolint:gosec // the caller-chosen install root.
+	existed := err == nil
 	outcome := OutcomeInstalled
 
 	switch {
@@ -175,8 +182,35 @@ func installOne(root, agent, version string, force bool, name Name) (Result, err
 		// The target does not exist: a fresh install.
 	}
 
-	if err := atomicInstall(target, shipped); err != nil {
+	// The commit step re-asks, in the primitive's rename window, the question
+	// the classification answered: is the file on disk still the bytes — or
+	// the absence — the outcome was decided from? An editor's write or a
+	// concurrent install inside the window would otherwise be replaced by an
+	// outcome that no longer describes the file.
+	commit := func() error {
+		current, readErr := os.ReadFile(target) //nolint:gosec // the caller-chosen install root.
+		if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
+			return fmt.Errorf("re-reading %s: %w", relative, readErr)
+		}
+
+		if exists := readErr == nil; exists != existed ||
+			(exists && string(current) != string(existing)) {
+			return fmt.Errorf("%s %w, so the decided outcome no longer describes the "+
+				"file: nothing was replaced", relative, errTargetChanged)
+		}
+
+		return nil
+	}
+
+	if err := sandbox.WriteFreshChecked(target, "", []byte(shipped), commit); err != nil {
 		return Result{}, err //nolint:exhaustruct // nothing was installed.
+	}
+
+	// The primitive installs with its own mode; this install's own contract is
+	// world-readable documentation, restored immediately after the rename.
+	if err := os.Chmod(target, installedFileMode); err != nil {
+		return Result{}, fmt.Errorf("%s was installed, but restoring its mode failed: %w",
+			relative, err) //nolint:exhaustruct // the file landed, but not as reported.
 	}
 
 	return Result{Path: relative, Outcome: outcome}, nil
@@ -223,51 +257,12 @@ func unmodified(content string) bool {
 	return recorded == hex.EncodeToString(digest[:])
 }
 
-// The modes an install writes with: directories group-traversable, the skill
-// itself world-readable documentation.
-const (
-	installDirectoryMode = 0o750
-	installedFileMode    = 0o644
-)
-
-// atomicInstall writes through a temporary file in the target's directory and
-// renames it into place.
-func atomicInstall(target, content string) error {
-	directory := filepath.Dir(target)
-
-	if err := os.MkdirAll(directory, installDirectoryMode); err != nil {
-		return fmt.Errorf("creating %s: %w", directory, err)
-	}
-
-	temporary, err := os.CreateTemp(directory, ".tf-mut-skill-*")
-	if err != nil {
-		return fmt.Errorf("creating a temporary file in %s: %w", directory, err)
-	}
-
-	name := temporary.Name()
-
-	defer func() { _ = os.Remove(name) }()
-
-	if _, err := temporary.WriteString(content); err != nil {
-		_ = temporary.Close()
-
-		return fmt.Errorf("writing %s: %w", target, err)
-	}
-
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("closing the temporary file for %s: %w", target, err)
-	}
-
-	if err := os.Chmod(name, installedFileMode); err != nil {
-		return fmt.Errorf("setting the mode of %s: %w", target, err)
-	}
-
-	if err := os.Rename(name, target); err != nil {
-		return fmt.Errorf("installing %s: %w", target, err)
-	}
-
-	return nil
-}
+// installedFileMode is the mode an installed skill carries: world-readable
+// documentation. The install goes through the sandbox's checked atomic
+// replacement, which sets its own file mode; this one is restored immediately
+// after the rename, so the file is briefly stricter than the contract and
+// never looser.
+const installedFileMode = 0o644
 
 // Content returns a shipped skill body, for the suite tests that assert the
 // skills reference only commands and flags the binary has, and that extract

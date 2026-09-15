@@ -14,6 +14,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/sandbox"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
 )
 
@@ -26,8 +27,9 @@ import (
 // redirect the writer outside the module, and would leave an unexplained
 // half-applied tree behind a failure. So: every suggestion carries the digest of
 // what was verified, every target is preflighted before the first write, any
-// mismatch aborts with zero writes, and each write is temp-plus-atomic-rename
-// with the file's mode preserved.
+// mismatch aborts with zero writes, and every write is the sandbox's checked
+// atomic replacement — the preflight re-checked inside its rename window — with
+// the file's mode restored after the install.
 
 // ErrApply reports an apply the protocol refused or could not complete.
 var ErrApply = errors.New("suggestions were not applied")
@@ -308,42 +310,29 @@ func write(record *report.AppliedSuggestions, planned []plannedWrite) {
 	}
 }
 
-// atomicWrite writes through a temporary file in the same directory, re-checks
-// the target against the preflight's identity and digest, and renames the
-// temporary over it — so a reader never sees a half-written test file and a
-// concurrent edit aborts instead of being overwritten.
+// atomicWrite installs the planned bytes through the sandbox's checked
+// atomic-replace primitive, so a reader never sees a half-written test file
+// and a concurrent edit aborts instead of being overwritten. The primitive
+// runs the protocol's own recheck in its rename window — the only place the
+// check means what it says — and installs with its own mode, so the mode the
+// preflight recorded is restored immediately after the rename.
 func atomicWrite(target plannedWrite) error {
-	directory := filepath.Dir(target.path)
+	writeErr := sandbox.WriteFreshChecked(target.path, "", target.content, func() error {
+		return recheck(target)
+	})
+	if writeErr != nil {
+		// The recheck's refusals are already worded as apply's; only the
+		// primitive's own failures need the protocol's sentinel.
+		if errors.Is(writeErr, ErrApply) {
+			return writeErr
+		}
 
-	temporary, err := os.CreateTemp(directory, ".tf-mut-apply-*")
-	if err != nil {
-		return fmt.Errorf("%w: creating a temporary file beside %s: %w", ErrApply, target.rel, err)
+		return fmt.Errorf("%w: %w", ErrApply, writeErr)
 	}
 
-	name := temporary.Name()
-
-	defer func() { _ = os.Remove(name) }()
-
-	if _, err := temporary.Write(target.content); err != nil {
-		_ = temporary.Close()
-
-		return fmt.Errorf("%w: writing %s: %w", ErrApply, target.rel, err)
-	}
-
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("%w: closing the temporary file for %s: %w", ErrApply, target.rel, err)
-	}
-
-	if err := os.Chmod(name, target.mode); err != nil {
-		return fmt.Errorf("%w: preserving the mode of %s: %w", ErrApply, target.rel, err)
-	}
-
-	if err := recheck(target); err != nil {
-		return err
-	}
-
-	if err := os.Rename(name, target.path); err != nil {
-		return fmt.Errorf("%w: replacing %s: %w", ErrApply, target.rel, err)
+	if err := os.Chmod(target.path, target.mode); err != nil {
+		return fmt.Errorf("%w: %s was replaced, but restoring its mode failed: %w",
+			ErrApply, target.rel, err)
 	}
 
 	return nil
