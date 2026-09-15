@@ -186,7 +186,9 @@ func refuseEmptyFinding(record Record) error {
 // with one was not stored by them.
 func refuseRecordedFinding(record Record) error {
 	if record.hasFinding() {
-		return fmt.Errorf("%w: a stored %s outcome carries a finding its state does not record", ErrIllegalRecord, record.State)
+		return fmt.Errorf(
+			"%w: a stored %s outcome carries a finding its state does not record", ErrIllegalRecord, record.State,
+		)
 	}
 
 	return nil

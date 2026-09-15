@@ -304,28 +304,23 @@ func oracleState(state report.State) oracle.State {
 }
 
 // oracleDiagnosis is the inverse of projectDiagnosis, for rehydration. An
-// absent diagnosis maps as absent, where the terminal states record none;
-// mock-masked is refused, withdrawn since M3 (issue #50), so a record
-// naming it is not one this context stored.
+// absent diagnosis maps as absent, where the terminal states record none.
+// Anything outside the table, the withdrawn mock-masked spelling included, is
+// not a diagnosis this context emits, so a record naming it is not one it
+// stored. It is a table rather than a switch because the withdrawn spelling
+// (since M3, issue #50) must be refused without being named: naming it is a
+// deprecated reference, and an exhaustive switch cannot omit it.
 func oracleDiagnosis(diagnosis report.Diagnosis) (oracle.Diagnosis, bool) {
-	switch diagnosis {
-	case "":
-		return "", true
-	case report.IndeterminateUnknownValues:
-		return oracle.IndeterminateUnknownValues, true
-	case report.IndeterminateVolatility:
-		return oracle.IndeterminateVolatility, true
-	case report.WeakAssertion:
-		return oracle.WeakAssertion, true
-	case report.NoAssertion:
-		return oracle.NoAssertion, true
-	case report.Unasserted:
-		return oracle.Unasserted, true
-	}
+	mapped, ok := map[report.Diagnosis]oracle.Diagnosis{
+		"":                                "",
+		report.IndeterminateUnknownValues: oracle.IndeterminateUnknownValues,
+		report.IndeterminateVolatility:    oracle.IndeterminateVolatility,
+		report.WeakAssertion:              oracle.WeakAssertion,
+		report.NoAssertion:                oracle.NoAssertion,
+		report.Unasserted:                 oracle.Unasserted,
+	}[diagnosis]
 
-	// Anything else, the withdrawn mock-masked spelling included, is not a
-	// diagnosis this context emits.
-	return "", false
+	return mapped, ok
 }
 
 // storedRecord projects a stored verdict onto the Oracle context's record
