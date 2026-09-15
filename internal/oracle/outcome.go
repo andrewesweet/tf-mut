@@ -17,6 +17,14 @@ type State string
 // the State prefix so they never collide with the constructors that share
 // their wire name.
 const (
+	// StateInvalid marks a mutant that fails terraform validate.
+	StateInvalid State = "Invalid"
+	// StateKilled marks a mutant an assertion caught.
+	StateKilled State = "Killed"
+	// StateKilledByError marks a mutant Terraform's own evaluation caught.
+	StateKilledByError State = "KilledByError"
+	// StateTimeout marks a mutant that exceeded its execution budget.
+	StateTimeout State = "Timeout"
 	// StateSurvived marks a mutant every executed run passed.
 	StateSurvived State = "Survived"
 	// StateStructurallyUnassertable marks a fingerprint-identical mutant of a
@@ -26,6 +34,13 @@ const (
 	// that projects, proven over a payload with no unknown value in the
 	// mutation's forward cone.
 	StateUnobservable State = "Unobservable"
+	// StateNoCoverage marks a mutant in a module no run block instantiates.
+	StateNoCoverage State = "NoCoverage"
+	// StateIgnored marks a mutant a reasoned suppression or a configured
+	// exclusion removed from the population.
+	StateIgnored State = "Ignored"
+	// StatePending marks a mutant that was generated but not executed.
+	StatePending State = "Pending"
 )
 
 // Diagnosis names why a survivor survived. Exactly one is assigned to every
@@ -58,6 +73,13 @@ type Outcome struct {
 	message   string
 	fix       string
 	evidence  Evidence
+	// diagnostics are the Terraform diagnostics a terminal outcome carries:
+	// the evaluation failure a KilledByError or Invalid mutant is claimed
+	// from. Every other constructor records none.
+	diagnostics []Diagnostic
+	// suppression is the directive or exclusion an Ignored outcome was
+	// decided from. Every other constructor records none.
+	suppression *Suppression
 }
 
 // State returns the aggregate verdict the oracle assigned.
@@ -76,3 +98,11 @@ func (o Outcome) Fix() string { return o.fix }
 
 // Evidence returns what the classification carries behind it.
 func (o Outcome) Evidence() Evidence { return o.evidence }
+
+// Diagnostics returns the Terraform diagnostics the state was decided from,
+// where the outcome carries any.
+func (o Outcome) Diagnostics() []Diagnostic { return o.diagnostics }
+
+// Suppression returns the directive or exclusion the outcome was decided
+// from, where it carries one.
+func (o Outcome) Suppression() *Suppression { return o.suppression }

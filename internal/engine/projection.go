@@ -8,16 +8,30 @@ import (
 )
 
 // project maps an oracle outcome onto the published report: the outcome's
-// state becomes the mutant's State, and the outcome's classification becomes
-// its Verdict. The report DTO keeps its exported fields — this is the one
-// place the Oracle context's vocabulary is spelled onto the wire.
+// state becomes the mutant's State, and everything the outcome carries — the
+// classification, the diagnostics, the suppression — is written field for
+// field. A terminal outcome carries no diagnosis, so it carries no verdict
+// either, which is what keeps the wire honest about which states are findings.
+// The report DTO keeps its exported fields — this is the one place the Oracle
+// context's vocabulary is spelled onto the wire.
 func project(verdict report.Mutant, outcome oracle.Outcome) report.Mutant {
 	verdict.State = projectState(outcome.State())
-	verdict.Verdict = &report.Verdict{
-		Diagnosis: projectDiagnosis(outcome.Diagnosis()),
-		Message:   outcome.Message(),
-		Fix:       outcome.Fix(),
-		Evidence:  projectEvidence(outcome.Evidence()),
+
+	if diagnostics := outcome.Diagnostics(); len(diagnostics) > 0 {
+		verdict.Diagnostics = projectDiagnostics(diagnostics)
+	}
+
+	if suppression := outcome.Suppression(); suppression != nil {
+		verdict.Suppression = projectSuppression(suppression)
+	}
+
+	if outcome.Message() != "" {
+		verdict.Verdict = &report.Verdict{
+			Diagnosis: projectDiagnosis(outcome.Diagnosis()),
+			Message:   outcome.Message(),
+			Fix:       outcome.Fix(),
+			Evidence:  projectEvidence(outcome.Evidence()),
+		}
 	}
 
 	return verdict
@@ -28,12 +42,26 @@ func project(verdict report.Mutant, outcome oracle.Outcome) report.Mutant {
 // set, so a state the oracle gains is a compile-time demand on this table.
 func projectState(state oracle.State) report.State {
 	switch state {
+	case oracle.StateInvalid:
+		return report.Invalid
+	case oracle.StateKilled:
+		return report.Killed
+	case oracle.StateKilledByError:
+		return report.KilledByError
+	case oracle.StateTimeout:
+		return report.Timeout
 	case oracle.StateSurvived:
 		return report.Survived
 	case oracle.StateStructurallyUnassertable:
 		return report.StructurallyUnassertable
 	case oracle.StateUnobservable:
 		return report.Unobservable
+	case oracle.StateNoCoverage:
+		return report.NoCoverage
+	case oracle.StateIgnored:
+		return report.Ignored
+	case oracle.StatePending:
+		return report.Pending
 	}
 
 	return ""
@@ -84,6 +112,114 @@ func projectEvidence(evidence oracle.Evidence) report.Evidence {
 // serves nobody. Confirmed by measurement (M3c): only 4.3% of real survivors
 // saturate this cap, all of them whole-resource mutants.
 const maxReportedChanges = 20
+
+// projectDiagnostics maps the outcome's diagnostics onto the published DTO,
+// field for field, preserving the presence and absence of each location.
+func projectDiagnostics(diagnostics []oracle.Diagnostic) []report.Diagnostic {
+	converted := make([]report.Diagnostic, 0, len(diagnostics))
+
+	for _, diagnostic := range diagnostics {
+		entry := report.Diagnostic{
+			Severity: diagnostic.Severity,
+			Summary:  diagnostic.Summary,
+			Detail:   diagnostic.Detail,
+			Range:    nil,
+			TestFile: diagnostic.TestFile,
+			TestRun:  diagnostic.TestRun,
+		}
+
+		if diagnostic.Range != nil {
+			entry.Range = &report.Range{
+				File:  diagnostic.Range.File,
+				Start: report.Position{Line: diagnostic.Range.Start.Line, Column: diagnostic.Range.Start.Column},
+				End:   report.Position{Line: diagnostic.Range.End.Line, Column: diagnostic.Range.End.Column},
+			}
+		}
+
+		converted = append(converted, entry)
+	}
+
+	return converted
+}
+
+// projectSuppression maps the outcome's suppression onto the published DTO,
+// field for field.
+func projectSuppression(suppression *oracle.Suppression) *report.Suppression {
+	projected := &report.Suppression{
+		Kind:      suppression.Kind,
+		Operators: suppression.Operators,
+		Reason:    suppression.Reason,
+		Accepted:  suppression.Accepted,
+		Range:     nil,
+		Mutants:   suppression.Mutants,
+		Rejection: suppression.Rejection,
+	}
+
+	if suppression.Range != nil {
+		projected.Range = &report.Range{
+			File:  suppression.Range.File,
+			Start: report.Position{Line: suppression.Range.Start.Line, Column: suppression.Range.Start.Column},
+			End:   report.Position{Line: suppression.Range.End.Line, Column: suppression.Range.End.Column},
+		}
+	}
+
+	return projected
+}
+
+// oracleDiagnostics lifts the published diagnostics into the Oracle context's
+// shape, so the terminal constructors can carry the evidence their states
+// were decided from.
+func oracleDiagnostics(diagnostics []report.Diagnostic) []oracle.Diagnostic {
+	converted := make([]oracle.Diagnostic, 0, len(diagnostics))
+
+	for _, diagnostic := range diagnostics {
+		entry := oracle.Diagnostic{
+			Severity: diagnostic.Severity,
+			Summary:  diagnostic.Summary,
+			Detail:   diagnostic.Detail,
+			Range:    nil,
+			TestFile: diagnostic.TestFile,
+			TestRun:  diagnostic.TestRun,
+		}
+
+		if diagnostic.Range != nil {
+			entry.Range = &oracle.Range{
+				File:  diagnostic.Range.File,
+				Start: oracle.Position{Line: diagnostic.Range.Start.Line, Column: diagnostic.Range.Start.Column},
+				End:   oracle.Position{Line: diagnostic.Range.End.Line, Column: diagnostic.Range.End.Column},
+			}
+		}
+
+		converted = append(converted, entry)
+	}
+
+	return converted
+}
+
+// oracleSuppression lifts a published suppression record into the Oracle
+// context's shape, so the Ignored constructor can carry the decision the
+// outcome records.
+func oracleSuppression(suppression *report.Suppression) oracle.Suppression {
+	lifted := oracle.Suppression{
+		Kind:      suppression.Kind,
+		Operators: suppression.Operators,
+		Reason:    suppression.Reason,
+		Accepted:  suppression.Accepted,
+		Range:     nil,
+		Mutants:   suppression.Mutants,
+		Rejection: suppression.Rejection,
+	}
+
+	if suppression.Range != nil {
+		lifted.Range = &oracle.Range{
+			File:  suppression.Range.File,
+			Start: oracle.Position{Line: suppression.Range.Start.Line, Column: suppression.Range.Start.Column},
+			End:   oracle.Position{Line: suppression.Range.End.Line, Column: suppression.Range.End.Column},
+		}
+	}
+
+	return lifted
+}
 
 func projectDelta(changes []fingerprint.Change) []report.Change {
 	converted := make([]report.Change, 0, min(len(changes), maxReportedChanges))

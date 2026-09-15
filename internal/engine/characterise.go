@@ -13,6 +13,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
+	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
@@ -161,7 +162,7 @@ func characteriseModule(
 			// reasons, so the report that records it reaches the caller rather
 			// than being discarded with an error.
 			result.Characterisation = &block
-			result.Metrics = report.ComputeMetrics(nil)
+			result.Metrics = projectMetrics(oracle.ComputeMetrics(nil))
 
 			return result, nil
 		}
@@ -171,7 +172,7 @@ func characteriseModule(
 	}
 
 	result.Characterisation = &block
-	result.Metrics = report.ComputeMetrics(nil)
+	result.Metrics = projectMetrics(oracle.ComputeMetrics(nil))
 
 	if err := commit(stage, &block, files, &result); err != nil {
 		return report.Report{}, err

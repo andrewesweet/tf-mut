@@ -1,6 +1,10 @@
 package oracle
 
-import "github.com/andrewesweet/tf-mut/internal/fingerprint"
+import (
+	"time"
+
+	"github.com/andrewesweet/tf-mut/internal/fingerprint"
+)
 
 // Evidence is what a classification carries behind it, one shape for every
 // outcome. Its fields are unexported and populated only by constructors: each
@@ -25,6 +29,11 @@ type Evidence struct {
 	closureVerdict string
 	// defeatedBy names the construct that defeated the closure computation.
 	defeatedBy string
+	// budget is the execution budget a Timeout was measured against. The
+	// published evidence has no slot for it — a timeout is never a fact about
+	// the module — but the claim is only meaningful against the budget that
+	// was exceeded, so the constructor demands it.
+	budget time.Duration
 }
 
 // Delta returns the masked observable difference, or nil where the diagnosis
@@ -51,3 +60,6 @@ func (e Evidence) ClosureVerdict() string { return e.closureVerdict }
 // DefeatedBy returns the construct that defeated the closure computation,
 // where one did.
 func (e Evidence) DefeatedBy() string { return e.defeatedBy }
+
+// Budget returns the execution budget a Timeout was measured against.
+func (e Evidence) Budget() time.Duration { return e.budget }

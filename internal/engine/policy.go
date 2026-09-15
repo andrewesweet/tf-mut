@@ -10,6 +10,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/config"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
+	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
@@ -84,6 +85,11 @@ func (c Config) overridden(flag string) bool {
 // Both are applied here, after generation and before execution, and never
 // before the safety gates: an exclusion is a statement about what is worth
 // grading, not a statement about what is safe to run.
+//
+// The outcomes are constructed in a second pass, after every directive has
+// matched: an inline directive's record accumulates the identifiers it covers,
+// and the outcome must carry the finished record, not the half-finished one
+// the first matching mutant would have seen.
 func suppress(
 	configuration discovery.Configuration,
 	exclude config.Exclude,
@@ -91,20 +97,30 @@ func suppress(
 ) ([]report.Mutant, []report.Suppression, []string) {
 	directives := collectDirectives(configuration)
 	applied := map[int]*report.Suppression{}
+	ignored := map[int]bool{}
 	warnings := []string{}
 
 	for index, mutant := range described {
 		if reason, kind, excluded := excludedBy(exclude, mutant); excluded {
-			described[index].State = report.Ignored
 			described[index].Suppression = &report.Suppression{
 				Kind: kind, Operators: nil, Reason: reason, Accepted: true,
 				Range: nil, Mutants: []string{mutant.ID}, Rejection: "",
 			}
+			ignored[index] = true
 
 			continue
 		}
 
-		attachDirective(directives, applied, described, index)
+		attachDirective(directives, applied, ignored, described, index)
+	}
+
+	// The Ignored outcomes are constructed in a second pass: an inline
+	// directive's record accumulates the identifiers it covers, and the
+	// outcome must carry the finished record, not the half-finished one the
+	// first matching mutant would have seen.
+	for index := range ignored {
+		described[index] = project(described[index],
+			oracle.Ignored(oracleSuppression(described[index].Suppression)))
 	}
 
 	suppressions := make([]report.Suppression, 0, len(directives))
@@ -137,10 +153,16 @@ func suppress(
 	return described, suppressions, warnings
 }
 
-// attachDirective applies the first directive that covers a mutant.
+// attachDirective applies the first directive that covers a mutant. The
+// mutant's identifier joins the directive's record whether or not the
+// directive is valid — that is what lets the report show which finding a
+// rejected directive tried to hide — but only a valid one suppresses. The
+// outcome itself is constructed once every directive has matched, in
+// suppress's second pass.
 func attachDirective(
 	directives []config.Directive,
 	applied map[int]*report.Suppression,
+	ignored map[int]bool,
 	described []report.Mutant,
 	index int,
 ) {
@@ -167,7 +189,7 @@ func attachDirective(
 			return
 		}
 
-		described[index].State = report.Ignored
+		ignored[index] = true
 		described[index].Suppression = record
 
 		return

@@ -13,6 +13,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
+	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
@@ -174,7 +175,7 @@ func listTodos(
 		warm{}, []string{}) //nolint:exhaustruct // nothing was prepared: this surface runs no Terraform.
 	result.Command = report.CommandTodos
 	result.Selection = report.Selection{Mode: scopeLabel(true), Ref: "", ForcedFull: ""}
-	result.Metrics = report.ComputeMetrics(nil)
+	result.Metrics = projectMetrics(oracle.ComputeMetrics(nil))
 	block := &report.Characterisation{ //nolint:exhaustruct // a listing carries no scaffold.
 		Rung: string(rung), Complete: false, Scenarios: scenarios,
 		Pins: []report.Pin{}, Todos: todos, Files: []report.GeneratedFile{}, Staged: true,
