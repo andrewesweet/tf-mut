@@ -170,7 +170,8 @@ func exerciseSuggestionStatuses(
 		},
 		func(reason suggest.SkipReason) report.SuggestionStatus {
 			projected := projectSuggestion(suggest.Skipped(
-				"0123456789ab", "tests/unit.tftest.hcl", "applied", reason, "the detail"))
+				"0123456789ab", "tests/unit.tftest.hcl", "applied", reason, "the detail",
+			))
 
 			return projected.Status
 		})
@@ -205,13 +206,15 @@ func exercisePinStatuses(
 		},
 		func(reason characterise.SkipReason) report.PinStatus {
 			projected := projectPin(characterise.PinSkipped(
-				"scenario-1", "terraform_data.app", "configured", reason, "the detail"))
+				"scenario-1", "terraform_data.app", "configured", reason, "the detail",
+			))
 
 			return projected.Status
 		})
 
 	projected := projectPin(characterise.Pinned(
-		"scenario-1", "terraform_data.app", `terraform_data.app.input == "steady"`, "configured"))
+		"scenario-1", "terraform_data.app", `terraform_data.app.input == "steady"`, "configured",
+	))
 
 	if projected.Status != report.Pinned {
 		t.Errorf("the pinned outcome projected status %q, want %q", projected.Status, report.Pinned)
@@ -373,7 +376,8 @@ func exerciseDiagnosesAndEvidence(
 			constant: "IndeterminateUnknownValues",
 			want:     report.IndeterminateUnknownValues,
 			outcome: oracle.SurvivedIndeterminateUnknowns(
-				[]string{"outputs.tier.value"}, mask),
+				[]string{"outputs.tier.value"}, mask,
+			),
 		},
 		{
 			constant: "IndeterminateVolatility",
@@ -574,7 +578,8 @@ func vocabularyCensus(t *testing.T, packageDir, typeName string) map[string]stri
 		}
 
 		file, parseErr := parser.ParseFile(
-			token.NewFileSet(), filepath.Join(packageDir, name), nil, parser.SkipObjectResolution)
+			token.NewFileSet(), filepath.Join(packageDir, name), nil, parser.SkipObjectResolution,
+		)
 		if parseErr != nil {
 			t.Fatalf("parsing %s: %v", name, parseErr)
 		}
