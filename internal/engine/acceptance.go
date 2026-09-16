@@ -40,6 +40,12 @@ var (
 	ErrBaselineWrite = errors.New(
 		"a baseline write requires a full unsampled run: neither --since nor --sample may shape it",
 	)
+	// ErrBaselineUnobserved reports a write requested off a population that
+	// did not finish executing: the accepted list is the record of what a run
+	// observed, and a mutant that never ran was not observed.
+	ErrBaselineUnobserved = errors.New(
+		"a baseline write requires a fully observed run",
+	)
 	// ErrBaselineFile reports a baseline file that could not be read: a
 	// corrupt acceptance list must never fake an empty one.
 	ErrBaselineFile = errors.New("the baseline file could not be read")
@@ -108,9 +114,12 @@ func applyBaselineGate(settings config, moduleDir string, result *report.Report)
 		// list is the record of what a full, unsampled, freshly executed run
 		// observed, and this is where that claim is earned rather than
 		// assumed from the configuration.
-		authoritative, authErr := newAuthoritativePopulation(*result, ErrBaselineWrite)
+		authoritative, authErr := newAuthoritativePopulation(*result)
 		if authErr != nil {
-			return authErr
+			return fmt.Errorf("%w: %v\n"+
+				"  The accepted list records what a run observed, and a mutant that never ran\n"+
+				"  was not observed",
+				ErrBaselineUnobserved, authErr)
 		}
 
 		fresh, freshErr := newFreshPopulation(authoritative)

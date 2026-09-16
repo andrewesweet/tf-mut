@@ -45,18 +45,23 @@ type freshPopulation struct {
 	proven authoritativePopulation
 }
 
+// unobservedPopulation names every reason a classified population was not
+// fully observed. Its text is the reasons alone, command-neutral: the command
+// that refused wraps it in its own sentinel and its own remedy.
+type unobservedPopulation struct {
+	reasons []string
+}
+
+func (u unobservedPopulation) Error() string { return strings.Join(u.reasons, "; ") }
+
 // newAuthoritativePopulation is the constructor: the check
 // checkPopulationObserved performed at its single call site, promoted to the
 // one route to the value.
 //
-// refused is the sentinel of the rule the caller serves. The rule itself —
-// which populations count as fully observed, and why — is stated once, here;
-// the refusal is spelled in the refusing command's own terms, the way the
-// configuration-time refusals share populationRefusals.
-func newAuthoritativePopulation(
-	result report.Report,
-	refused error,
-) (authoritativePopulation, error) {
+// The rule itself — which populations count as fully observed, and why — is
+// stated once, here. The refusal it returns is an unobservedPopulation, and
+// the caller spells it in the refusing command's own terms.
+func newAuthoritativePopulation(result report.Report) (authoritativePopulation, error) {
 	reasons := []string{}
 
 	if timeouts := result.Count(report.Timeout); timeouts > 0 {
@@ -70,10 +75,7 @@ func newAuthoritativePopulation(
 	}
 
 	if len(reasons) != 0 {
-		return authoritativePopulation{}, fmt.Errorf("%w: %s\n"+
-			"  An unobserved mutant is not an absent one, and an empty kill set drawn over\n"+
-			"  mutants that never ran is a false finding",
-			refused, strings.Join(reasons, "; "))
+		return authoritativePopulation{}, unobservedPopulation{reasons: reasons}
 	}
 
 	return authoritativePopulation{classified: result}, nil

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -146,9 +147,12 @@ func oneRound(
 	// The round's survivors are evidence only where the round observed its
 	// whole population: a round that timed mutants out has not shown that the
 	// survivors stopped yielding, only that it stopped waiting.
-	authoritative, err := newAuthoritativePopulation(result, ErrUntilDryPopulation)
+	authoritative, err := newAuthoritativePopulation(result)
 	if err != nil {
-		return pins, 0, err
+		return pins, 0, fmt.Errorf("%w: %v\n"+
+			"  A round that did not observe its whole population has not shown that the\n"+
+			"  survivors stopped yielding, only that it stopped waiting",
+			ErrUntilDryPopulation, err)
 	}
 
 	updated, added := absorb(block, pins, authoritative)

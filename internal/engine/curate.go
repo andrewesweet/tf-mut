@@ -148,9 +148,12 @@ func curateSuite(
 	// population that proved it was fully observed, never over a report that
 	// was merely in hand. An assertion looks like it senses nothing precisely
 	// when the mutants that would have proved otherwise never ran.
-	authoritative, err := newAuthoritativePopulation(result, ErrCuratePopulation)
+	authoritative, err := newAuthoritativePopulation(result)
 	if err != nil {
-		return report.Report{}, err
+		return report.Report{}, fmt.Errorf("%w: %v\n"+
+			"  An unobserved mutant is not an absent one, and an empty kill set drawn over\n"+
+			"  mutants that never ran is a false finding",
+			ErrCuratePopulation, err)
 	}
 
 	assertions := assertionInventory(configuration)

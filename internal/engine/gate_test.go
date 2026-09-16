@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -340,8 +341,13 @@ func TestBaselineWriteIsRefusedOverAnUnobservedPopulation(t *testing.T) {
 	config.TimeoutFactor = 0.0001
 	config.TimeoutFloor = time.Millisecond
 
-	if _, err := engine.Run(t.Context(), config); !errors.Is(err, engine.ErrBaselineWrite) {
-		t.Fatalf("an unobserved baseline write returned %v, want ErrBaselineWrite", err)
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrBaselineUnobserved) {
+		t.Fatalf("an unobserved baseline write returned %v, want ErrBaselineUnobserved", err)
+	}
+
+	if strings.Contains(err.Error(), "--since") || strings.Contains(err.Error(), "--sample") {
+		t.Fatalf("the refusal names a remedy that does not apply: %v", err)
 	}
 }
 
