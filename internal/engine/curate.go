@@ -51,8 +51,8 @@ var ErrUntilDryPopulation = errors.New(
 // checkCuratePopulation refuses at configuration time, which is the point: a
 // refusal that arrived after the population ran would have cost the caller the
 // whole run to learn that its evidence is inadmissible.
-func checkCuratePopulation(settings Config) error {
-	if !settings.Curate {
+func checkCuratePopulation(settings config) error {
+	if settings.mode != curateMode {
 		return nil
 	}
 
@@ -74,7 +74,7 @@ func checkCuratePopulation(settings Config) error {
 // becomes "the survivors *this sample* reached stopped yielding", which is a
 // different and much weaker statement — and the report hard-codes the
 // selection as full, so nothing downstream could tell the two apart.
-func checkUntilDryPopulation(settings Config) error {
+func checkUntilDryPopulation(settings config) error {
 	if !settings.UntilDry {
 		return nil
 	}
@@ -92,7 +92,7 @@ func checkUntilDryPopulation(settings Config) error {
 
 // populationRefusals names every reason this population is not the default
 // one, which is the standard both commands apply.
-func populationRefusals(settings Config) []string {
+func populationRefusals(settings config) []string {
 	refusals := []string{}
 
 	if settings.Since != "" {
@@ -162,12 +162,12 @@ func curateSuite(
 	ctx context.Context,
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	version tfexec.Version,
 	moduleDir string,
 ) (report.Report, error) {
 	graded := settings
-	graded.Curate = false
+	graded.mode = gradeMode
 
 	result, err := mutate(ctx, runner, configuration, graded, version, moduleDir)
 	if err != nil {

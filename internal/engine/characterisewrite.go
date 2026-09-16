@@ -84,7 +84,7 @@ type registryFile struct {
 // carries the paths and the caller keeps the report.
 func commitScaffold(
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	prepared warm,
 	block *report.Characterisation,
 	files []generated,
@@ -201,7 +201,7 @@ func checkRegistry(configuration discovery.Configuration) string {
 // checkTargets applies the collision rule over the full target path set.
 func checkTargets(
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	files []report.GeneratedFile,
 	existing registry,
 ) string {
@@ -241,7 +241,7 @@ func checkTargets(
 // closure and the target immediately before every rename.
 func writeFiles(
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	prepared warm,
 	inputDigest string,
 	block *report.Characterisation,
@@ -313,7 +313,7 @@ func targetPaths(configuration discovery.Configuration, files []generated) map[s
 // made this content green, and is the target still free?
 func recheckWrite(
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	prepared warm,
 	inputDigest string,
 	targets map[string]bool,

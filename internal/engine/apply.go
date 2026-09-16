@@ -35,7 +35,7 @@ import (
 var ErrApply = errors.New("suggestions were not applied")
 
 // applySuggestions performs the whole protocol and records what it did.
-func applySuggestions(settings Config, result *report.Report, configuration applyContext) {
+func applySuggestions(settings config, result *report.Report, configuration applyContext) {
 	if len(settings.Apply) == 0 && !settings.ApplyAll {
 		return
 	}
@@ -74,7 +74,7 @@ type applyContext struct {
 
 // selectForApply resolves the caller's selection and refuses anything that is
 // not a verified suggestion.
-func selectForApply(settings Config, result report.Report) ([]report.Suggestion, error) {
+func selectForApply(settings config, result report.Report) ([]report.Suggestion, error) {
 	if settings.ApplyAll {
 		verified := []report.Suggestion{}
 

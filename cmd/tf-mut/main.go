@@ -78,19 +78,21 @@ Flags for run, preview, suggest, characterise, todos and curate:
   --test-directory PATH        Test directory relative to the module (default "tests")
   --jobs N                     Mutants to execute concurrently (default: CPU count)
   --timeout-factor F           Multiple of the baseline run time (default 10)
-  --min-score N                Fail below this mutation score percentage
-  --allow-incomplete-score     Let a timeout-affected score satisfy --min-score
   --allow-real-infrastructure  Permit execution against unmocked providers
   --allow-unsandboxed-effects  Permit apply-mode provisioners and unsevered data sources
+  --reporter FORMAT            terminal|json|sarif|mte|html|junit|markdown (default terminal)
+  --output FORMAT=PATH         Write an additional reporter from the same run;
+                               repeatable — every output derives from one report value
+  --sarif-path PATH            Where to write the SARIF document
+
+Flags for run, suggest and curate:
+  --min-score N                Fail below this mutation score percentage
+  --allow-incomplete-score     Let a timeout-affected score satisfy --min-score
   --allow-sampled-gate         Let a sampled run satisfy --min-score (unsafe)
   --no-cache                   Disable the project-local verdict cache
   --fail-on-new                Fail on findings the baseline does not accept
   --write-baseline             Accept the current findings as the baseline
   --baseline PATH              Baseline file (default ".tf-mut-baseline.json")
-  --reporter FORMAT            terminal|json|sarif|mte|html|junit|markdown (default terminal)
-  --output FORMAT=PATH         Write an additional reporter from the same run;
-                               repeatable — every output derives from one report value
-  --sarif-path PATH            Where to write the SARIF document
 
 Flags for run, preview and suggest:
   --tier smoke|standard|deep   Operator breadth (default standard)
@@ -355,36 +357,59 @@ var errUncarryingReporter = errors.New(
 	"reporter cannot carry a characterisation: use --reporter json or terminal",
 )
 
+// gateFlags are the acceptance controls. The Gate embed of the run, suggest
+// and curate requests is their only carrier, so they are scoped flags: a
+// command whose request has no gate — preview describes a population it never
+// scores; characterise and todos produce no population at all — refuses them
+// at the parser instead of accepting and ignoring them.
+//
+//nolint:gochecknoglobals // an immutable list.
+var gateFlags = []string{
+	"min-score", "allow-incomplete-score", "allow-sampled-gate",
+	"fail-on-new", "write-baseline", "baseline",
+}
+
 // commandFlags names the flags each command acts on, for the flags that belong
-// to one command and are declared on the set every command shares. The run,
-// preview and suggest rows name the population controls: those act only on the
-// commands whose engine requests carry a population, and are refused on the
-// rest, whose requests have no field for any of them — so `curate --since` is
-// a parse error rather than a narrowed population the engine discovers it
-// cannot express.
+// to one command and are declared on the set every command shares. A flag is
+// in a command's row exactly when that command's engine request has a field
+// for it, so a flag spelled on a command that could not carry it is refused by
+// the parser rather than accepted and silently ignored — the run, preview and
+// suggest rows name the population controls their requests' Population embed
+// carries, and curate's row names its Gate and NoCache fields.
 //
 // A flag accepted and ignored is worse than one refused: `--write` and
 // `--force` both name write behaviour and were silently no-ops under `run`,
 // `--apply` let a caller request a destructive action from `curate` and
-// receive an ordinary report, and `--pin nonsense` was validated under
-// `characterise` and accepted under everything else. This repository already
-// refuses misapplied flags elsewhere; the table makes the two agree.
+// receive an ordinary report, and `--min-score` promised preview a gate over
+// a population it never executes. This repository already refuses misapplied
+// flags elsewhere; the table makes the two agree.
 //
 //nolint:gochecknoglobals // an immutable table.
 var commandFlags = map[string]map[string]bool{
-	runCommand:     flagSet(populationFlags...),
+	runCommand:     flagSet(gradingFlags()...),
 	previewCommand: flagSet(populationFlags...),
-	suggestCommand: flagSet(append(
-		[]string{"apply", "all-verified", "survivor", "dry-run"}, populationFlags...,
-	)...),
+	suggestCommand: flagSet(append(suggestOnlyFlags, gradingFlags()...)...),
 	characteriseCommand: flagSet(
 		"write", "force", pinFlag, "until-dry", answerFlagName, resumeFlagName,
 	),
-	todosCommand: flagSet(pinFlag, answerFlagName, resumeFlagName),
+	todosCommand:  flagSet(pinFlag, answerFlagName, resumeFlagName),
+	curateCommand: flagSet(append([]string{"no-cache"}, gateFlags...)...),
+}
+
+// suggestOnlyFlags are the suggest command's own controls, which no other
+// request has a field for.
+//
+//nolint:gochecknoglobals // an immutable list.
+var suggestOnlyFlags = []string{"apply", "all-verified", "survivor", "dry-run"}
+
+// gradingFlags is what the run and suggest requests share beyond the
+// population controls: the acceptance gate and the cache switch.
+func gradingFlags() []string {
+	return append(append([]string{"no-cache"}, gateFlags...), populationFlags...)
 }
 
 // populationFlags are the controls that select or narrow the mutant population;
-// only the grading commands carry a population.
+// only the grading commands' requests carry a Population embed.
 //
 //nolint:gochecknoglobals // an immutable list.
 var populationFlags = []string{
@@ -455,13 +480,11 @@ func refuseUncarryingReporter(command, reporter string) error {
 		errUncarryingReporter, reporter, command)
 }
 
-// engineConfig maps the parsed flags onto the engine's one input value.
-//
-// Characterise, todos and curate are built as their own request values: a
-// request with no field for a population control is what makes the parser's
-// refusal of one complete. Run, preview and suggest still drive the legacy
-// Config until their own migrate steps land, and the mode booleans leave with
-// the contract step of the expand–contract sequence.
+// engineConfig maps the parsed flags onto the engine's closed request set.
+// Each command builds its own request: a request with no field for a control
+// is what makes the parser's refusal of the corresponding flag complete, so
+// the mode booleans a legacy input once carried are gone — the request's type
+// is the command.
 func engineConfig(
 	command, buildVersion string,
 	values flagValues,
@@ -491,61 +514,67 @@ func engineConfig(
 
 	case curateCommand:
 		return engine.CurateRequest{
-			Common: commonFlags(buildVersion, values, moduleDir, given),
-			Gate: engine.Gate{
-				MinScore:             *values.minScore,
-				HasMinScore:          requested,
-				AllowIncompleteScore: *values.allowIncomplete,
-				AllowSampledGate:     *values.allowSampledGate,
-				FailOnNew:            *values.failOnNew,
-				WriteBaseline:        *values.writeBaseline,
-				BaselinePath:         *values.baselinePath,
-			},
+			Common:  commonFlags(buildVersion, values, moduleDir, given),
+			Gate:    gateControls(values, requested),
 			NoCache: *values.noCache,
 		}
 
-	default:
-		return engine.Config{
-			ModuleDir:               moduleDir,
-			TestDirectory:           *values.testDirectory,
-			Jobs:                    *values.jobs,
-			TimeoutFactor:           *values.timeoutFactor,
-			TimeoutFloor:            0,
-			MinScore:                *values.minScore,
-			HasMinScore:             requested,
-			AllowIncompleteScore:    *values.allowIncomplete,
-			AllowRealInfrastructure: *values.allowReal,
-			AllowUnsandboxedEffects: *values.allowEffects,
-			Preview:                 command == previewCommand,
-			TerraformBinary:         "",
-			Env:                     nil,
-			WorkDir:                 "",
-			TestSelection:           nil,
-			Tier:                    mutation.Tier(*values.tier),
-			IncludeOperators:        commaSeparated(*values.operators),
-			ExcludeOperators:        commaSeparated(*values.excludeOperators),
-			ExcludePaths:            commaSeparated(*values.excludePaths),
-			ExcludeResources:        commaSeparated(*values.excludeResources),
-			SetFlags:                given,
-			Since:                   *values.since,
-			SamplePercent:           *values.sample,
-			HasSample:               sampled,
-			SampleSeed:              *values.seed,
-			AllowSampledGate:        *values.allowSampledGate,
-			NoCache:                 *values.noCache,
-			FailOnNew:               *values.failOnNew,
-			WriteBaseline:           *values.writeBaseline,
-			BaselinePath:            *values.baselinePath,
-			GeneratedFunctions:      *values.generatedFunctions,
-			Suggest:                 command == suggestCommand,
-			SuggestDryRun:           *values.dryRun,
-			SurvivorIDs:             commaSeparated(*values.survivors),
-			Apply:                   commaSeparated(*values.apply),
-			ApplyAll:                *values.allVerified,
-			ToolVersion:             buildinfo.Resolve(buildVersion),
-			Answers:                 *values.answers,
-			Resume:                  *values.resume,
+	case previewCommand:
+		return engine.PreviewRequest{
+			Common:     commonFlags(buildVersion, values, moduleDir, given),
+			Population: populationControls(values, sampled),
 		}
+
+	case suggestCommand:
+		return engine.SuggestRequest{
+			Common:      commonFlags(buildVersion, values, moduleDir, given),
+			Population:  populationControls(values, sampled),
+			Gate:        gateControls(values, requested),
+			NoCache:     *values.noCache,
+			DryRun:      *values.dryRun,
+			SurvivorIDs: commaSeparated(*values.survivors),
+			Apply:       commaSeparated(*values.apply),
+			ApplyAll:    *values.allVerified,
+		}
+
+	default:
+		return engine.RunRequest{
+			Common:     commonFlags(buildVersion, values, moduleDir, given),
+			Population: populationControls(values, sampled),
+			Gate:       gateControls(values, requested),
+			NoCache:    *values.noCache,
+		}
+	}
+}
+
+// populationControls projects the population flags onto the Population embed
+// the run, preview and suggest requests carry.
+func populationControls(values flagValues, sampled bool) engine.Population {
+	return engine.Population{
+		Tier:               mutation.Tier(*values.tier),
+		IncludeOperators:   commaSeparated(*values.operators),
+		ExcludeOperators:   commaSeparated(*values.excludeOperators),
+		ExcludePaths:       commaSeparated(*values.excludePaths),
+		ExcludeResources:   commaSeparated(*values.excludeResources),
+		Since:              *values.since,
+		SamplePercent:      *values.sample,
+		HasSample:          sampled,
+		SampleSeed:         *values.seed,
+		GeneratedFunctions: *values.generatedFunctions,
+	}
+}
+
+// gateControls projects the acceptance flags onto the Gate embed the run,
+// suggest and curate requests carry.
+func gateControls(values flagValues, requested bool) engine.Gate {
+	return engine.Gate{
+		MinScore:             *values.minScore,
+		HasMinScore:          requested,
+		AllowIncompleteScore: *values.allowIncomplete,
+		AllowSampledGate:     *values.allowSampledGate,
+		FailOnNew:            *values.failOnNew,
+		WriteBaseline:        *values.writeBaseline,
+		BaselinePath:         *values.baselinePath,
 	}
 }
 

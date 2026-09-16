@@ -39,11 +39,11 @@ const defaultRounds = 5
 const stagingRoot = "staged"
 
 //nolint:gochecknoglobals // test seam, inert outside the suite.
-var seedUntilDryRounds = func(Config) int { return 0 }
+var seedUntilDryRounds = func(config) int { return 0 }
 
 // roundLimit is the loop's bound, which a seam control may lower so that the
 // `bounded` exit can be staged rather than argued about.
-func roundLimit(settings Config) int {
+func roundLimit(settings config) int {
 	if rounds := seedUntilDryRounds(settings); rounds > 0 {
 		return rounds
 	}
@@ -110,10 +110,9 @@ func oneRound(
 	}
 
 	graded := stage.settings
-	graded.Characterise = false
+	graded.mode = suggestMode
 	graded.UntilDry = false
 	graded.CharacteriseWrite = false
-	graded.Suggest = true
 	graded.SuggestDryRun = false
 	graded.ModuleDir = staged.ModuleDir
 	graded.NoCache = true

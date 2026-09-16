@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/buildinfo"
-	"github.com/andrewesweet/tf-mut/internal/config"
+	tfconfig "github.com/andrewesweet/tf-mut/internal/config"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
@@ -56,8 +56,12 @@ func defaultJobs() int {
 	return max(1, runtime.NumCPU()*jobsNumerator/jobsDenominator)
 }
 
-// Config is the complete input to a mutation run.
-type Config struct {
+// config is the complete input to one engine command: the internal settings
+// value each request type produces. The request's type is the command, and
+// the mode field below is its projection here — both are unexported, so an
+// inapplicable command and option combination is not representable through
+// the seam at all.
+type config struct {
 	// ModuleDir is the module to mutate.
 	ModuleDir string
 	// TestDirectory is the test directory relative to ModuleDir.
@@ -79,8 +83,6 @@ type Config struct {
 	// AllowUnsandboxedEffects permits apply-mode execution of provisioners and
 	// the data sources mocking does not sever.
 	AllowUnsandboxedEffects bool
-	// Preview generates the mutant population without executing anything.
-	Preview bool
 	// TerraformBinary is the Terraform executable to drive.
 	TerraformBinary string
 	// Env adds environment entries to every Terraform invocation.
@@ -132,10 +134,8 @@ type Config struct {
 	GeneratedFunctions bool
 	// staticShortcutsDisabled records the invocation-local JSON safety floor.
 	staticShortcutsDisabled bool
-	// Suggest generates, and unless SuggestDryRun is set verifies, the
-	// assertion that would have killed each provable survivor.
-	Suggest bool
-	// SuggestDryRun prints the candidate patches and verifies nothing.
+	// SuggestDryRun prints the candidate patches and verifies nothing. It is
+	// the suggest command's --dry-run; verification is the default.
 	SuggestDryRun bool
 	// SurvivorIDs restricts suggestion to the named survivors. A missing or
 	// stale identifier is an operational failure that names it.
@@ -149,9 +149,6 @@ type Config struct {
 	// generated file. Empty in a seam test, where the development marker
 	// stands in for it.
 	ToolVersion string
-	// Characterise scaffolds, harvests and pins a suite for a module that has
-	// none, instead of grading the suite it has.
-	Characterise bool
 	// PinRung is the granularity ladder level: outputs, counts or configured.
 	PinRung string
 	// CharacteriseWrite places the verified suite in the module's test
@@ -161,10 +158,6 @@ type Config struct {
 	// CharacteriseForce replaces target files, and only those the provenance
 	// registry marks generated-and-unmodified.
 	CharacteriseForce bool
-	// Todos lists the open judgement points and runs no Terraform.
-	Todos bool
-	// Curate reports redundancy over an authoritative population.
-	Curate bool
 	// UntilDry iterates scaffold, mutate and pin until the survivors stop
 	// yielding new assertions at the chosen granularity.
 	UntilDry bool
@@ -173,13 +166,18 @@ type Config struct {
 	// Resume reads answered TODOs from the edited non-executable artefact as
 	// well as from Answers, re-synthesises, verifies and promotes.
 	Resume bool
+
+	// mode is the command these settings serve: the projection of the request
+	// type that produced them, written by that type's settings method and by
+	// nothing else.
+	mode mode
 }
 
 //nolint:gochecknoglobals // test seam, inert outside the suite.
-var disableStaticShortcuts = func(Config) bool { return false }
+var disableStaticShortcuts = func(config) bool { return false }
 
 //nolint:gochecknoglobals // test seam, inert outside the suite.
-var disableJSONReading = func(Config) bool { return false }
+var disableJSONReading = func(config) bool { return false }
 
 // Operational failures. Every one of them aborts the run: none of them can be
 // reported as a mutant verdict without misleading the reader.
@@ -198,7 +196,7 @@ var (
 
 // Run performs a complete mutation run and returns the report.
 func Run(ctx context.Context, request Request) (report.Report, error) {
-	settings, err := configFor(request)
+	settings, err := settingsFor(request)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -222,7 +220,8 @@ func Run(ctx context.Context, request Request) (report.Report, error) {
 	// Terraform at all: the shipped skill promises a cheap local inspection an
 	// agent calls every iteration, and making it unavailable when Terraform is
 	// absent or broken would break the loop over a check it never needed.
-	if settings.Todos {
+	switch request.(type) {
+	case TodosRequest, *TodosRequest:
 		listed, listErr := discovery.DiscoverWith(moduleDir, settings.TestDirectory,
 			discovery.Options{SkipJSON: disableJSONReading(settings)})
 		if listErr != nil {
@@ -247,17 +246,18 @@ func Run(ctx context.Context, request Request) (report.Report, error) {
 
 	// Characterisation is the same machinery pointed the other way: it has no
 	// suite to baseline, no population to grade, and its safety gates are
-	// judged against the suite it plans rather than the one on disk.
-
-	if settings.Curate {
+	// judged against the suite it plans rather than the one on disk. The
+	// dispatch is on the request's type: the type is the mode.
+	switch request.(type) {
+	case CurateRequest, *CurateRequest:
 		return curateSuite(ctx, runner, configuration, settings, version, moduleDir)
-	}
-
-	if settings.Characterise {
+	case CharacteriseRequest, *CharacteriseRequest:
 		return characteriseModule(ctx, runner, configuration, settings, version)
+	default:
+		// run, preview and suggest share the grading pipeline: the mode each
+		// request carries decides preview's shortcuts and the suggest leg.
+		return mutate(ctx, runner, configuration, settings, version, moduleDir)
 	}
-
-	return mutate(ctx, runner, configuration, settings, version, moduleDir)
 }
 
 // mutate is the grading pipeline: gates, generation, selection, execution and
@@ -266,7 +266,7 @@ func mutate(
 	ctx context.Context,
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	version tfexec.Version,
 	moduleDir string,
 ) (report.Report, error) {
@@ -275,7 +275,7 @@ func mutate(
 	// to accept the risk.
 	warnings := make([]string, 0, 1)
 
-	if !settings.Preview {
+	if settings.mode != previewMode {
 		checked, err := checkSafety(configuration, settings)
 		if err != nil {
 			return report.Report{}, err
@@ -302,6 +302,7 @@ func mutate(
 
 	graph := floorGraph(configuration)
 	result := shell(configuration, settings, version.Terraform, moduleDir, prepared, warnings)
+
 	mutants := describe(configuration, graph, settings, generated.Mutants)
 
 	// Suppression runs after the safety gates by construction: the gates are
@@ -320,7 +321,7 @@ func mutate(
 		return report.Report{}, err
 	}
 
-	if settings.Preview {
+	if settings.mode == previewMode {
 		result.Mutants = selected
 		result.Metrics = projectMetrics(oracle.ComputeMetrics(nil))
 
@@ -346,7 +347,7 @@ func mutate(
 
 // prepareWorkRoot refuses a suite with no run blocks and creates the run's
 // temporary directory.
-func prepareWorkRoot(configuration discovery.Configuration, settings Config) (string, error) {
+func prepareWorkRoot(configuration discovery.Configuration, settings config) (string, error) {
 	if len(configuration.Tests.Runs) == 0 {
 		return "", fmt.Errorf("%w: %s declares no run blocks",
 			ErrBaselineNoRuns, configuration.Tests.Dir)
@@ -365,9 +366,9 @@ func prepareWorkRoot(configuration discovery.Configuration, settings Config) (st
 // the whole configuration, and part of the configuration was not read.
 func applyFloor(
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	warnings []string,
-) (Config, []string) {
+) (config, []string) {
 	floor := floorOf(configuration)
 	if floor.active() {
 		settings.staticShortcutsDisabled = true
@@ -406,7 +407,7 @@ func finish(
 
 	result = completed
 
-	if plan.config.Suggest {
+	if plan.config.mode == suggestMode {
 		suggestions, cost, err := suggestAssertions(ctx, plan, result)
 		if err != nil {
 			return report.Report{}, err
@@ -458,7 +459,7 @@ func executeWithCache(
 
 // finalise applies the configured exclusions and defaults, and refuses the
 // gate combinations the truth table forbids before any work is done.
-func finalise(settings Config, configured config.File) (Config, error) {
+func finalise(settings config, configured tfconfig.File) (config, error) {
 	settings = settings.withDefaults()
 	settings.ExcludePaths = append(slices.Clone(settings.ExcludePaths), configured.Exclude.Paths...)
 	settings.ExcludeResources = append(slices.Clone(settings.ExcludeResources), configured.Exclude.Resources...)
@@ -466,23 +467,23 @@ func finalise(settings Config, configured config.File) (Config, error) {
 	// The gate truth table's sampled and write rows: refused before any work
 	// is done.
 	if err := checkSampledGate(settings); err != nil {
-		return Config{}, err
+		return config{}, err
 	}
 
 	if err := checkSuggestCombinations(settings); err != nil {
-		return Config{}, err
+		return config{}, err
 	}
 
 	if err := checkCuratePopulation(settings); err != nil {
-		return Config{}, err
+		return config{}, err
 	}
 
 	if err := checkUntilDryPopulation(settings); err != nil {
-		return Config{}, err
+		return config{}, err
 	}
 
 	if err := checkBaselineWrite(settings); err != nil {
-		return Config{}, err
+		return config{}, err
 	}
 
 	return settings, nil
@@ -493,7 +494,7 @@ func finalise(settings Config, configured config.File) (Config, error) {
 func applyCountLevers(
 	ctx context.Context,
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	result *report.Report,
 	mutants []report.Mutant,
 	generated []mutation.Mutant,
@@ -516,7 +517,7 @@ func build(
 	ctx context.Context,
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	workRoot string,
 ) (warm, mutation.Result, error) {
 	prepared, err := prepare(ctx, runner, configuration, settings, workRoot)
@@ -537,7 +538,7 @@ func build(
 // a verdict.
 func complete(
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	result report.Report,
 	executed []report.Mutant,
 	failures []report.ExecutionError,
@@ -573,7 +574,7 @@ func scopeLabel(full bool) string {
 // fail-on-new and baseline rows arrive with the baseline file (M3b.3); the
 // min-score row is recorded here, labelled partial over any scoped or sampled
 // population.
-func gateOutcomes(settings Config, result report.Report) *report.Gates {
+func gateOutcomes(settings config, result report.Report) *report.Gates {
 	// The gate table's non-Full rows: scoped, sampled, or served even partly
 	// from the cache — each evaluated over what actually ran, labelled
 	// partial.
@@ -605,14 +606,14 @@ func gateOutcomes(settings Config, result report.Report) *report.Gates {
 // any mutant has a verdict.
 func shell(
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	terraformVersion, moduleDir string,
 	prepared warm,
 	warnings []string,
 ) report.Report {
 	return report.Report{
 		SchemaVersion:    report.SchemaVersion,
-		Command:          commandName(settings),
+		Command:          commandName(settings.mode),
 		Module:           moduleDir,
 		ClosureRoot:      configuration.ClosureRoot,
 		TerraformVersion: terraformVersion,
@@ -634,17 +635,18 @@ func shell(
 	}
 }
 
-func commandName(settings Config) report.Command {
-	switch {
-	case settings.Todos:
+func commandName(m mode) report.Command {
+	//nolint:exhaustive // gradeMode is the default: the zero mode is an ordinary run.
+	switch m {
+	case todosMode:
 		return report.CommandTodos
-	case settings.Curate:
+	case curateMode:
 		return report.CommandCurate
-	case settings.Characterise:
+	case characteriseMode:
 		return report.CommandCharacterise
-	case settings.Preview:
+	case previewMode:
 		return report.CommandPreview
-	case settings.Suggest:
+	case suggestMode:
 		return report.CommandSuggest
 	default:
 		return report.CommandRun
@@ -684,7 +686,7 @@ func countAssertions(configuration discovery.Configuration) int {
 func describe(
 	configuration discovery.Configuration,
 	graph *discovery.Graph,
-	settings Config,
+	settings config,
 	generated []mutation.Mutant,
 ) []report.Mutant {
 	exercised := configuration.ExercisedModules()
@@ -714,13 +716,13 @@ func describe(
 			// count and no finding, so the outcome carries the state and
 			// nothing else.
 			entry = project(entry, oracle.NoCoverage(""))
-		case !settings.Preview && !shortcutsDisabled &&
+		case settings.mode != previewMode && !shortcutsDisabled &&
 			conditionallyUncovered(configuration, graph, settings, mutant):
 			// The finer conditional-instantiation claim (M3a.3): the mutated
 			// multiplicity expression is statically zero under every relevant
 			// run. Module-level NoCoverage above remains the strict subset.
 			entry = project(entry, oracle.NoCoverage(conditionallyNoCoverageClaim))
-		case !settings.Preview && !shortcutsDisabled &&
+		case settings.mode != previewMode && !shortcutsDisabled &&
 			staticallyUnobservable(graph, mutant):
 			// A preview keeps Pending — the documented preview contract — so
 			// the shortcut fires only where execution would otherwise run.
@@ -759,18 +761,18 @@ func staticallyUnobservable(graph *discovery.Graph, mutant mutation.Mutant) bool
 }
 
 // Exclude is the site exclusion policy the run was given.
-func (c Config) Exclude() config.Exclude {
-	return config.Exclude{Paths: c.ExcludePaths, Resources: c.ExcludeResources}
+func (c config) Exclude() tfconfig.Exclude {
+	return tfconfig.Exclude{Paths: c.ExcludePaths, Resources: c.ExcludeResources}
 }
 
 // toolVersion is what a generated file's header records: this binary's own
 // version, never Terraform's. The two were confused once, which put a
 // Terraform version in a line reading "Generated by tf-mut characterise".
-func (c Config) toolVersion() string {
+func (c config) toolVersion() string {
 	return buildinfo.Resolve(c.ToolVersion)
 }
 
-func (c Config) withDefaults() Config {
+func (c config) withDefaults() config {
 	if c.TestDirectory == "" {
 		c.TestDirectory = DefaultTestDirectory
 	}
@@ -795,7 +797,7 @@ func (c Config) withDefaults() Config {
 }
 
 // selection is the operator population the configuration asks for.
-func (c Config) selection() mutation.Selection {
+func (c config) selection() mutation.Selection {
 	tier := c.Tier
 	if !tier.Valid() {
 		tier = mutation.TierStandard

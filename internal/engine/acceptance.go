@@ -65,7 +65,7 @@ type acceptanceEntry struct {
 }
 
 // baselinePath resolves the baseline file location.
-func baselinePath(settings Config, moduleDir string) string {
+func baselinePath(settings config, moduleDir string) string {
 	if settings.BaselinePath != "" {
 		if filepath.IsAbs(settings.BaselinePath) {
 			return settings.BaselinePath
@@ -81,7 +81,7 @@ func baselinePath(settings Config, moduleDir string) string {
 // finding as new or accepted, reports stale or unobserved entries per the
 // truth table, writes the baseline where requested, and records the
 // fail-on-new outcome.
-func applyBaselineGate(settings Config, moduleDir string, result *report.Report) error {
+func applyBaselineGate(settings config, moduleDir string, result *report.Report) error {
 	if !settings.FailOnNew && !settings.WriteBaseline {
 		return nil
 	}
@@ -298,7 +298,7 @@ func writeBaseline(path string, result *report.Report) error {
 
 // checkBaselineWrite refuses a write off the full unsampled population,
 // before any work is done.
-func checkBaselineWrite(settings Config) error {
+func checkBaselineWrite(settings config) error {
 	if !settings.WriteBaseline {
 		return nil
 	}
