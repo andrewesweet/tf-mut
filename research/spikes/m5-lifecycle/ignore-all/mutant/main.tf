@@ -14,7 +14,7 @@ resource "terraform_data" "subject" {
   triggers_replace = "fixed"
 
   lifecycle {
-    ignore_changes = [input]
+    ignore_changes = all
   }
 }
 
