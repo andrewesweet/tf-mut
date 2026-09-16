@@ -95,8 +95,9 @@ type Validation struct {
 // consumer that needs the concrete nodes — because it inspects or rewrites the
 // tokens an expression owns, which only the native syntax exposes — names that
 // requirement here, and accepts false when the discovered value is not native
-// syntax. There is no second route: a new assertion against a discovered
-// expression is a boundary violation, not a convenience.
+// syntax. The only other route is ReparsedNative, for the consumer that
+// requires the tokens of a JSON declaration: a new assertion against a
+// discovered expression is a boundary violation, not a convenience.
 //
 // The accessor fails closed. A non-native expression and a nil expression both
 // return false, and a caller that receives false must treat the site as
@@ -110,7 +111,45 @@ func NativeExpression(expr hcl.Expression) (hclsyntax.Expression, bool) {
 	return native, true
 }
 
-// VariableByName returns the module's variable declaration of that name.
+// ReparsedNative is the point-of-use re-parse: the native expression a
+// discovered declaration spells, for the one kind of consumer that genuinely
+// requires its tokens and can wait until it needs them. A native expression
+// is returned as it is. A `.tf.json` declaration is a string holding native
+// syntax — a type constraint outright, a validation condition wrapped in one
+// interpolation, Terraform's own `"${...}"` spelling — and is re-parsed from
+// its own source text, so that a diagnostic still points at the file the
+// author wrote.
+//
+// The accessor fails closed. A declaration spelled any other way — a template
+// directive, more than one interpolation, a string that is not native syntax
+// — returns false, and the caller treats the site as unreadable rather than
+// guess at the syntax it cannot see. The reader never calls this: every
+// consumer that needs only an evaluated expression reads the declaration
+// directly.
+func ReparsedNative(expr hcl.Expression) (hclsyntax.Expression, bool) {
+	if native, ok := NativeExpression(expr); ok {
+		return native, true
+	}
+
+	if expr == nil {
+		return nil, false
+	}
+
+	span := expr.Range()
+
+	source := unwrapInterpolation(jsonSource(span.Filename, expr))
+	if source == "" {
+		return nil, false
+	}
+
+	parsed, diagnostics := hclsyntax.ParseExpression([]byte(source), span.Filename, span.Start)
+	if diagnostics.HasErrors() {
+		return nil, false
+	}
+
+	return parsed, true
+}
+
 // NativeVariables lists the variables declared in native syntax — the view
 // the mutation surface reads, so that reading a JSON declaration never adds
 // or removes a mutant.
@@ -126,6 +165,7 @@ func (m Module) NativeVariables() []Block {
 	return native
 }
 
+// VariableByName returns the module's variable declaration of that name.
 func (m Module) VariableByName(name string) (Block, bool) {
 	for _, variable := range m.Variables {
 		if variable.Name == name {
