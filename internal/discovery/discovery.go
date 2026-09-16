@@ -114,15 +114,21 @@ func NativeExpression(expr hcl.Expression) (hclsyntax.Expression, bool) {
 // ReparsedNative is the point-of-use re-parse: the native expression a
 // discovered declaration spells, for the one kind of consumer that genuinely
 // requires its tokens and can wait until it needs them. A native expression
-// is returned as it is. A `.tf.json` declaration is a string holding native
-// syntax — a type constraint outright, a validation condition wrapped in one
-// interpolation, Terraform's own `"${...}"` spelling — and is re-parsed from
-// its own source text, so that a diagnostic still points at the file the
-// author wrote.
+// is returned as it is. A `.tf.json` declaration is re-parsed from its own
+// source text, so that a diagnostic still points at the file the author
+// wrote.
+//
+// It is correct for exactly the two arguments Terraform defines as native
+// syntax held in a JSON string: a variable's `type` constraint, spelled
+// outright, and a validation `condition`, wrapped in one interpolation —
+// Terraform's own `"${...}"` spelling. Any other JSON string is a literal,
+// and re-parsing a literal yields an expression it never was: `"hello"`
+// parses as a reference to `hello`. A caller with a `default`, a
+// `description` or any other argument reads it through `Value` instead.
 //
 // The accessor fails closed. A declaration spelled any other way — a template
-// directive, more than one interpolation, a string that is not native syntax
-// — returns false, and the caller treats the site as unreadable rather than
+// directive, more than one interpolation, a string that does not parse —
+// returns false, and the caller treats the site as unreadable rather than
 // guess at the syntax it cannot see. The reader never calls this: every
 // consumer that needs only an evaluated expression reads the declaration
 // directly.
