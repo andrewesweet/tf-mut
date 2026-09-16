@@ -45,9 +45,9 @@ type freshPopulation struct {
 	proven authoritativePopulation
 }
 
-// newAuthoritativePopulation is the constructor: the check
-// checkPopulationObserved performed at its single call site, promoted to the
-// one route to the value.
+// newAuthoritativePopulation is the constructor: the observation check curate
+// once performed at its single call site, promoted to the one route to the
+// value.
 //
 // The rule itself — which populations count as fully observed, and why — is
 // stated once, here. refused is the sentinel of the rule the caller serves and

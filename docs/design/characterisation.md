@@ -140,8 +140,10 @@ which is what makes characterisation a mode of tf-mut rather than a separate too
 **Completeness.** Run the mutation loop against the scaffolded suite. Every surviving mutant
 is un-pinned behaviour, and the suggested-assertion engine (§7 of the product design) emits
 the assertion that pins it. `tf-mut characterise --until-dry` iterates scaffold → mutate →
-pin-survivor-suggestions until survivors stop yielding new assertions. Two constraints from
-the adversarial review shape the loop. First (M8): completeness is measured in **assertion
+pin-survivor-suggestions until survivors stop yielding new assertions. A round counts as
+evidence only where it observed its whole population: one in which any mutant timed out or
+failed to evaluate is refused rather than declared dry. Two constraints from the adversarial
+review shape the loop. First (M8): completeness is measured in **assertion
 kills only** (`Killed`, not `KilledByError`) — Terraform's plan-time evaluation kills mutants
 even under an assertion-free suite, so counting errors would give a freshly scaffolded,
 zero-assertion suite a flattering score from iteration zero. Second (M10): the loop **respects
