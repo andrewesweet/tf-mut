@@ -356,6 +356,7 @@ func exerciseDiagnosesAndEvidence(
 	t.Helper()
 
 	mask := fingerprint.NewMask()
+	mask.Spans["resources.terraform_data.app.id"] = fingerprint.SyntaxSpan("", "", true)
 	delta := fingerprint.Delta{Changes: []fingerprint.Change{{
 		Run: "tests/unit.tftest.hcl::applied", Path: "outputs.tier.value",
 		Address: "output.tier", Baseline: `"1"`, Mutant: `"2"`,
@@ -382,7 +383,9 @@ func exerciseDiagnosesAndEvidence(
 		{
 			constant: "IndeterminateVolatility",
 			want:     report.IndeterminateVolatility,
-			outcome:  oracle.SurvivedIndeterminateVolatility(delta, mask, nil),
+			outcome: oracle.SurvivedIndeterminateVolatility(
+				delta, mask, []string{"terraform_data.app.output"},
+			),
 		},
 		{
 			constant: "WeakAssertion",
@@ -504,7 +507,9 @@ func assertEveryWireSpellingIsReachable(t *testing.T, reachable wireReachable) {
 		}
 	}
 
-	for field := range evidenceFieldsWritten(report.Evidence{}) {
+	evidenceType := reflect.TypeFor[report.Evidence]()
+	for index := range evidenceType.NumField() {
+		field := evidenceType.Field(index).Name
 		reason, exempt := exemptions["EvidenceField"][field]
 		if exempt {
 			if reachable.evidenceField[field] {
@@ -659,7 +664,8 @@ func evidenceFieldsWritten(evidence report.Evidence) map[string]bool {
 
 	value := reflect.ValueOf(evidence)
 	for index := range value.NumField() {
-		if !value.Field(index).IsZero() {
+		field := value.Field(index)
+		if !field.IsZero() && (field.Kind() != reflect.Slice || field.Len() > 0) {
 			written[value.Type().Field(index).Name] = true
 		}
 	}
