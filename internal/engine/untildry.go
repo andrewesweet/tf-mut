@@ -52,14 +52,18 @@ func roundLimit(settings config) int {
 }
 
 // untilDry iterates the scaffold against the mutation loop until the survivors
-// stop yielding new assertions at the chosen granularity.
+// stop yielding new assertions at the chosen granularity. It returns the pin
+// set it ended with: each round appends through the context's constructor, and
+// the caller re-projects the result onto the report.
 func untilDry(
 	ctx context.Context,
 	runner tfexec.Runner,
 	stage staging,
 	block *report.Characterisation,
-	scaffold characterise.Scaffold,
-) error {
+	scaffold characterise.SuitePlan,
+	pins []characterise.Pin,
+	scaffolds *scaffoldSet,
+) ([]characterise.Pin, error) {
 	convergence := &report.Convergence{
 		Rounds: 0, NewPinsPerRound: []int{}, StopReason: "bounded",
 	}
@@ -70,7 +74,7 @@ func untilDry(
 		// once before the loop would mean round N+1 grading round N-1's suite,
 		// treating the assertions round N added as merely known, and declaring
 		// the run dry without ever having executed them.
-		added, err := oneRound(ctx, runner, stage, block, scaffold,
+		updated, added, err := oneRound(ctx, runner, stage, block, scaffold, pins, scaffolds,
 			filepath.Join(stage.workRoot, stagingRoot+"-"+strconv.Itoa(round)))
 		if err != nil {
 			// The stop reason is a published value of a closed vocabulary, so
@@ -79,8 +83,10 @@ func untilDry(
 			// on a report rather than an error that discards one.
 			convergence.StopReason = "refused"
 
-			return err
+			return pins, err
 		}
+
+		pins = updated
 
 		convergence.Rounds++
 		convergence.NewPinsPerRound = append(convergence.NewPinsPerRound, added)
@@ -92,7 +98,7 @@ func untilDry(
 		}
 	}
 
-	return nil
+	return pins, nil
 }
 
 // oneRound grades the staged suite and pins whatever the survivors yield.
@@ -101,12 +107,14 @@ func oneRound(
 	runner tfexec.Runner,
 	stage staging,
 	block *report.Characterisation,
-	scaffold characterise.Scaffold,
+	scaffold characterise.SuitePlan,
+	pins []characterise.Pin,
+	scaffolds *scaffoldSet,
 	target string,
-) (int, error) {
-	staged, err := stageSuite(stage, scaffold, block, target)
+) ([]characterise.Pin, int, error) {
+	staged, err := stageSuite(stage, scaffold, pins, target)
 	if err != nil {
-		return 0, err
+		return pins, 0, err
 	}
 
 	graded := stage.settings
@@ -124,18 +132,20 @@ func oneRound(
 		stage.settings.TestDirectory,
 		discovery.Options{SkipJSON: disableJSONReading(stage.settings)})
 	if err != nil {
-		return 0, err
+		return pins, 0, err
 	}
 
 	result, err := mutate(ctx, runner, stagedConfiguration, graded,
 		stage.terraform, staged.ModuleDir)
 	if err != nil {
-		return 0, err
+		return pins, 0, err
 	}
 
-	recordScaffolds(block, result)
+	recordScaffolds(block, scaffolds, result)
 
-	return absorb(block, result), nil
+	updated, added := absorb(block, pins, result)
+
+	return updated, added, nil
 }
 
 // promoteScaffolds verifies each answered scaffold's `expect_failures`
@@ -146,36 +156,40 @@ func oneRound(
 // only if Terraform agrees the failure happened — a run asserting a failure
 // that does not occur is a failing run, which is what makes the check worth
 // running at all. A scaffold nobody answered, and one whose answer did not
-// produce the failure, both stay non-executable.
+// produce the failure, both stay non-executable. The move itself runs through
+// the context's transition — the only route that carries the verification that
+// earned it — and the report carries the projection of the result.
 func promoteScaffolds(
 	ctx context.Context,
 	runner tfexec.Runner,
 	stage staging,
 	block *report.Characterisation,
-	scaffold characterise.Scaffold,
+	scaffold characterise.SuitePlan,
 	answers map[string]string,
+	scaffolds *scaffoldSet,
 ) ([]generated, []string) {
 	promoted := []generated{}
 	warnings := []string{}
 
-	for index, entry := range block.Scaffolds {
-		answer, answered := answers[entry.ID]
+	for _, entry := range scaffolds.all() {
+		answer, answered := answers[entry.ID()]
 		if !answered {
 			continue
 		}
 
 		file, refusal := verifyScaffoldAnswer(ctx, runner, stage, scaffold, entry, answer,
-			filepath.Join(stage.workRoot, "scaffold-"+entry.ID))
+			filepath.Join(stage.workRoot, "scaffold-"+entry.ID()))
 		if refusal != "" {
-			warnings = append(warnings, "scaffold "+entry.ID+" was not promoted: "+refusal)
+			warnings = append(warnings, "scaffold "+entry.ID()+" was not promoted: "+refusal)
 
 			continue
 		}
 
-		block.Scaffolds[index].Status = report.ScaffoldPromoted
-		block.Scaffolds[index].Artefact = ""
+		scaffolds.replace(entry.Promote(characterise.Verified()))
 		promoted = append(promoted, file)
 	}
+
+	block.Scaffolds = projectScaffolds(scaffolds.all())
 
 	return promoted, warnings
 }
@@ -185,15 +199,15 @@ func verifyScaffoldAnswer(
 	ctx context.Context,
 	runner tfexec.Runner,
 	stage staging,
-	scaffold characterise.Scaffold,
-	entry report.Scaffold,
+	scaffold characterise.SuitePlan,
+	entry characterise.Scaffold,
 	answer, target string,
 ) (generated, string) {
 	empty := generated{} //nolint:exhaustruct // the not-promoted sentinel.
 
-	checkable, addressable := characterise.Checkable(entry.Address)
+	checkable, addressable := characterise.Checkable(entry.Address())
 	if !addressable {
-		return empty, entry.Address + " names no object expect_failures can accept"
+		return empty, entry.Address() + " names no object expect_failures can accept"
 	}
 
 	variables, parsed := characterise.AnsweredVariables(answer)
@@ -212,7 +226,7 @@ func verifyScaffoldAnswer(
 	}
 
 	content := characterise.RenderExpectFailures(scaffold, entry, checkable, variables)
-	path := characterise.ScaffoldFile(scaffold.Options.TestDirRel, entry.ID)
+	path := characterise.ScaffoldFile(scaffold.Options.TestDirRel, entry.ID())
 
 	scoped := stage
 	scoped.workRoot = target
@@ -230,6 +244,64 @@ func verifyScaffoldAnswer(
 	return generatedFile(path, content, content, true), ""
 }
 
+// scaffoldSet is the context-side record of the scaffolds the loop discovers,
+// keyed by the construct address that deduplicates them: one scaffold per
+// construct, whatever produced it and whatever round found it. The report
+// block carries the projection; the record carries the context values, so
+// promotion runs through the context's transition and never by re-writing a
+// projected status.
+type scaffoldSet struct {
+	byAddress map[string]characterise.Scaffold
+}
+
+func newScaffoldSet() *scaffoldSet {
+	return &scaffoldSet{byAddress: map[string]characterise.Scaffold{}}
+}
+
+// record adds a scaffold unless its address is already recorded.
+func (s *scaffoldSet) record(entry characterise.Scaffold) {
+	if _, known := s.byAddress[entry.Address()]; known {
+		return
+	}
+
+	s.byAddress[entry.Address()] = entry
+}
+
+// replace swaps a recorded scaffold for its transition result.
+func (s *scaffoldSet) replace(entry characterise.Scaffold) {
+	s.byAddress[entry.Address()] = entry
+}
+
+// all lists every recorded scaffold sorted by address — the order both the
+// artefact and the report publish.
+func (s *scaffoldSet) all() []characterise.Scaffold {
+	entries := make([]characterise.Scaffold, 0, len(s.byAddress))
+
+	for _, entry := range s.byAddress {
+		entries = append(entries, entry)
+	}
+
+	slices.SortFunc(entries, func(left, right characterise.Scaffold) int {
+		return strings.Compare(left.Address(), right.Address())
+	})
+
+	return entries
+}
+
+// scaffolded lists the recorded scaffolds still awaiting an answer, by address.
+// A promoted scaffold has left the artefact: it is test content now.
+func (s *scaffoldSet) scaffolded() []characterise.Scaffold {
+	outstanding := []characterise.Scaffold{}
+
+	for _, entry := range s.all() {
+		if entry.Status() == characterise.StatusScaffolded {
+			outstanding = append(outstanding, entry)
+		}
+	}
+
+	return outstanding
+}
+
 // recordScaffolds turns every construct the oracle cannot assert on into a
 // non-executable scaffold.
 //
@@ -240,33 +312,19 @@ func verifyScaffoldAnswer(
 // touched by `suggest --apply`: the scaffold names the construct and the shape
 // of the check somebody has to write, and stays outside the suite until that
 // check has been written and proven.
-func recordScaffolds(block *report.Characterisation, result report.Report) {
-	known := map[string]bool{}
-	for _, scaffold := range block.Scaffolds {
-		known[scaffold.Address] = true
-	}
-
+func recordScaffolds(block *report.Characterisation, scaffolds *scaffoldSet, result report.Report) {
 	for _, mutant := range result.Mutants {
-		if mutant.State != report.StructurallyUnassertable || known[mutant.Site] {
+		if mutant.State != report.StructurallyUnassertable {
 			continue
 		}
 
-		known[mutant.Site] = true
-
-		block.Scaffolds = append(block.Scaffolds, report.Scaffold{
-			ID:      characterise.Identify("scf-", mutant.Site),
-			Kind:    "expect_failures",
-			Address: mutant.Site,
-			Status:  report.Scaffolded,
-			Artefact: characterise.ArtefactFile(
-				result.TestDirectory, scaffoldScenario,
-			),
-		})
+		scaffolds.record(characterise.Scaffolded(
+			mutant.Site,
+			characterise.ArtefactFile(result.TestDirectory, scaffoldScenario),
+		))
 	}
 
-	slices.SortFunc(block.Scaffolds, func(left, right report.Scaffold) int {
-		return strings.Compare(left.Address, right.Address)
-	})
+	block.Scaffolds = projectScaffolds(scaffolds.all())
 }
 
 // scaffoldScenario names the artefact the scaffolds live in.
@@ -281,8 +339,8 @@ const scaffoldScenario = "scaffolds"
 // the shipped skill tells agents to call routinely.
 func stageSuite(
 	stage staging,
-	scaffold characterise.Scaffold,
-	block *report.Characterisation,
+	scaffold characterise.SuitePlan,
+	pins []characterise.Pin,
 	target string,
 ) (sandbox.Sandbox, error) {
 	// Re-rendered from the pins as they stand, not replayed from the report:
@@ -290,7 +348,7 @@ func stageSuite(
 	// from it would plan a redaction marker.
 	staged := map[string][]byte{}
 
-	for _, file := range pinnedFiles(scaffold, projectScenarios(scaffold.Scenarios), block.Pins) {
+	for _, file := range pinnedFiles(scaffold, scaffold.Scenarios, pins) {
 		if file.entry.Executable {
 			staged[stagedPath(stage.configuration, file.entry.Path)] = file.bytes
 		}
@@ -314,14 +372,20 @@ func stageSuite(
 //
 // Only verified suggestions: an unverified one is a candidate the tool has not
 // proven kills anything, and pinning it would put an unproven assertion into a
-// suite whose whole claim is that everything in it was observed.
-func absorb(block *report.Characterisation, result report.Report) int {
+// suite whose whole claim is that everything in it was observed. The append
+// goes through the context's constructor, and the report block carries the
+// projection of the set the loop now holds.
+func absorb(
+	block *report.Characterisation,
+	pins []characterise.Pin,
+	result report.Report,
+) ([]characterise.Pin, int) {
 	// Keyed by scenario as well as expression: two scenarios legitimately need
 	// the same rendered condition, and a global set would silently drop the
 	// second one.
 	known := map[string]bool{}
-	for _, pin := range block.Pins {
-		known[pin.Scenario+"\x00"+pin.Expression] = true
+	for _, pin := range pins {
+		known[pin.Scenario()+"\x00"+pin.Expression()] = true
 	}
 
 	rung := characterise.Rung(block.Rung)
@@ -348,19 +412,21 @@ func absorb(block *report.Characterisation, result report.Report) int {
 
 		address := assertedAddress(suggestion.Expression)
 
-		block.Pins = append(block.Pins,
-			projectPin(characterise.Pinned(scenario, address, suggestion.Expression, string(level))))
+		pins = append(pins,
+			characterise.Pinned(scenario, address, suggestion.Expression, string(level)))
 	}
 
-	slices.SortFunc(block.Pins, func(left, right report.Pin) int {
-		if order := strings.Compare(left.Scenario, right.Scenario); order != 0 {
+	slices.SortFunc(pins, func(left, right characterise.Pin) int {
+		if order := strings.Compare(left.Scenario(), right.Scenario()); order != 0 {
 			return order
 		}
 
-		return strings.Compare(left.Address, right.Address)
+		return strings.Compare(left.Address(), right.Address())
 	})
 
-	return added
+	block.Pins = projectPins(pins)
+
+	return pins, added
 }
 
 // scenarioForRun maps a suggestion's target run back to the scenario that

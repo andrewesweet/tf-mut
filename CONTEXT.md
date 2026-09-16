@@ -13,7 +13,8 @@ boundary. `internal/oracle` owns the mutant outcome and every diagnosis:
 survivors and terminal outcomes alike are constructed only through its
 constructors, and the population arithmetic computes over outcomes; cache
 rehydration rebuilds a stored verdict through its parsing constructor. The
-judgement points and the input provenance are owned by `internal/characterise`.
+judgement points, the input provenance, the pins, the scaffolds and the scenarios
+are owned by `internal/characterise`, which no longer imports `internal/report`.
 Which tickets of #86 have landed and which are pending is tracked in
 [issue #86](https://github.com/andrewesweet/tf-mut/issues/86), the programme's
 authoritative status; until it completes, current imports and ownership remain

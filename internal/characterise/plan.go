@@ -20,7 +20,7 @@ const defaultScenario = "defaults"
 // points they carry, the transition handles for the answered ones, and the
 // executable assignments the run blocks carry.
 type plan struct {
-	scenarios []ScenarioPlan
+	scenarios []Scenario
 	todos     []Todo
 	answered  map[string]Answered
 	values    map[string]map[string]string
@@ -36,10 +36,10 @@ func Plan(
 	schemas tfexec.Schemas,
 	options Options,
 	planned []discovery.ProviderAlias,
-) Scaffold {
+) SuitePlan {
 	resolved := planScenarios(configuration, options)
 
-	scaffold := Scaffold{
+	scaffold := SuitePlan{
 		Scenarios:        resolved.scenarios,
 		Todos:            resolved.todos,
 		Answered:         resolved.answered,
@@ -58,7 +58,7 @@ func Plan(
 // escalate applies the zero-output contract: at the outputs rung a module with
 // no outputs would pin nothing and certify an empty suite, so the ladder moves
 // up one and says so.
-func escalate(scaffold Scaffold, configuration discovery.Configuration) Scaffold {
+func escalate(scaffold SuitePlan, configuration discovery.Configuration) SuitePlan {
 	if scaffold.Rung != RungOutputs || outputCount(configuration) > 0 {
 		return scaffold
 	}
@@ -100,7 +100,7 @@ func outputCount(configuration discovery.Configuration) int {
 func PlanInputs(
 	configuration discovery.Configuration,
 	options Options,
-) ([]ScenarioPlan, []Todo) {
+) ([]Scenario, []Todo) {
 	resolved := planScenarios(configuration, options)
 
 	return resolved.scenarios, resolved.todos
@@ -125,8 +125,8 @@ func planScenarios(
 	synthesised := synthesiseInputs(root, options)
 
 	base := newScenario(root.Rel, defaultScenario, synthesised.inputs, options)
-	scenarios := []ScenarioPlan{base}
-	values := map[string]map[string]string{base.ID: synthesised.executable}
+	scenarios := []Scenario{base}
+	values := map[string]map[string]string{base.ID(): synthesised.executable}
 
 	// A scenario is only worth expanding once every input resolves: with a
 	// judgement point open there is no executable scenario to vary.
@@ -139,7 +139,7 @@ func planScenarios(
 	if unresolved(synthesised.todos) == 0 {
 		for _, flipped := range flippedScenarios(root, synthesised.inputs, options) {
 			scenarios = append(scenarios, flipped.scenario)
-			values[flipped.scenario.ID] = flipped.values
+			values[flipped.scenario.ID()] = flipped.values
 		}
 	}
 
@@ -149,19 +149,21 @@ func planScenarios(
 	}
 }
 
-// newScenario names a harvest point and derives its identity.
+// newScenario builds a harvest point and derives its identity. It is the one
+// constructor a scenario has: identity, naming, state key and inputs are set
+// here and nowhere else.
 func newScenario(
 	moduleRel, name string,
 	inputs []Input,
 	options Options,
-) ScenarioPlan {
-	scenario := ScenarioPlan{
-		Name:     name,
-		StateKey: RunPrefix + name,
-		File:     ScenarioFile(options.TestDirRel, name),
-		Inputs:   inputs,
+) Scenario {
+	scenario := Scenario{
+		name:     name,
+		stateKey: RunPrefix + name,
+		file:     ScenarioFile(options.TestDirRel, name),
+		inputs:   inputs,
 	}
-	scenario.ID = scenarioID(moduleRel, inputs, scenario.StateKey)
+	scenario.id = scenarioID(moduleRel, inputs, scenario.stateKey)
 
 	return scenario
 }
@@ -452,7 +454,7 @@ func pinnedLiteral(schemas tfexec.Schemas, reference discovery.AttributeRef) (st
 
 // expansion is one flipped scenario and the assignments its run block carries.
 type expansion struct {
-	scenario ScenarioPlan
+	scenario Scenario
 	values   map[string]string
 }
 

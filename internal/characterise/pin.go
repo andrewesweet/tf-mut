@@ -164,7 +164,7 @@ const (
 // `suggest` writes are produced by one contract, so a value that is
 // unrenderable for one is unrenderable for both.
 func PinHarvest(
-	scaffold Scaffold,
+	scaffold SuitePlan,
 	configuration discovery.Configuration,
 	schemas tfexec.Schemas,
 	harvest Harvest,
@@ -203,22 +203,22 @@ func PinHarvest(
 }
 
 // scenarioOf maps a run block name back to the scenario that generated it.
-func scenarioOf(scaffold Scaffold, run string) (ScenarioPlan, bool) {
+func scenarioOf(scaffold SuitePlan, run string) (Scenario, bool) {
 	for _, scenario := range scaffold.Scenarios {
-		if RunPrefix+scenario.Name == run {
+		if RunPrefix+scenario.Name() == run {
 			return scenario, true
 		}
 	}
 
-	return ScenarioPlan{}, false //nolint:exhaustruct // the not-found sentinel.
+	return Scenario{}, false //nolint:exhaustruct // the not-found sentinel.
 }
 
 // valuePins pins the output and configured-attribute values of one payload.
 func valuePins(
-	scaffold Scaffold,
+	scaffold SuitePlan,
 	schemas tfexec.Schemas,
 	payload fingerprint.Payload,
-	scenario ScenarioPlan,
+	scenario Scenario,
 	masked, seen map[string]bool,
 ) []Pin {
 	sensitiveValues := payload.SensitiveRenderings()
@@ -243,7 +243,7 @@ func valuePins(
 			continue
 		}
 
-		key := scenario.ID + "\x00" + expressionAddress(address, attribute)
+		key := scenario.ID() + "\x00" + expressionAddress(address, attribute)
 		if seen[key] {
 			continue
 		}
@@ -262,10 +262,10 @@ func valuePins(
 
 // pinContext is one candidate value and everything the decision needs.
 type pinContext struct {
-	scaffold        Scaffold
+	scaffold        SuitePlan
 	schemas         tfexec.Schemas
 	payload         fingerprint.Payload
-	scenario        ScenarioPlan
+	scenario        Scenario
 	rung            Rung
 	path            string
 	address         string
@@ -282,7 +282,7 @@ func onePin(context pinContext) Pin {
 	expression := expressionAddress(context.address, context.attribute)
 
 	skip := func(reason SkipReason, detail string) Pin {
-		return PinSkipped(context.scenario.ID, expression, string(context.rung), reason, detail)
+		return PinSkipped(context.scenario.ID(), expression, string(context.rung), reason, detail)
 	}
 
 	if context.masked {
@@ -301,10 +301,10 @@ func onePin(context pinContext) Pin {
 	}
 
 	rendered, err := suggest.Express(
-		discovery.RunBlock{Name: RunPrefix + context.scenario.Name}, //nolint:exhaustruct // the adapter reads the address.
+		discovery.RunBlock{Name: RunPrefix + context.scenario.Name()}, //nolint:exhaustruct // the adapter reads the address.
 		context.schemas,
 		fingerprint.Change{
-			Run: RunPrefix + context.scenario.Name, Path: context.path,
+			Run: RunPrefix + context.scenario.Name(), Path: context.path,
 			Address: expression, Baseline: value, Mutant: "", Sensitive: false,
 		},
 	)
@@ -316,7 +316,7 @@ func onePin(context pinContext) Pin {
 		return skip(SkipUnrenderable, err.Error())
 	}
 
-	return Pinned(context.scenario.ID, expression, rendered, string(context.rung))
+	return Pinned(context.scenario.ID(), expression, rendered, string(context.rung))
 }
 
 // mockInvented reports a value the provider computes rather than the
@@ -406,10 +406,10 @@ func expressionAddress(address, attribute string) string {
 // the three forms the M4 rendering contract admits; the number itself is
 // rendered by the same value machinery.
 func countPins(
-	scaffold Scaffold,
+	scaffold SuitePlan,
 	configuration discovery.Configuration,
 	payload fingerprint.Payload,
-	scenario ScenarioPlan,
+	scenario Scenario,
 	seen map[string]bool,
 ) []Pin {
 	if !scaffold.Rung.Includes(RungCounts) {
@@ -447,7 +447,7 @@ func countPins(
 }
 
 // countPin pins one resource collection's instance count.
-func countPin(scenario ScenarioPlan, address string, count int, seen map[string]bool) []Pin {
+func countPin(scenario Scenario, address string, count int, seen map[string]bool) []Pin {
 	expression := "length(" + address + ") == " + strconv.Itoa(count)
 
 	return onlyOnce(scenario, "length("+address+")", expression, seen)
@@ -455,7 +455,7 @@ func countPin(scenario ScenarioPlan, address string, count int, seen map[string]
 
 // keyPin pins one for_each collection's key set.
 func keyPin(
-	scenario ScenarioPlan,
+	scenario Scenario,
 	address string,
 	keys []string,
 	seen map[string]bool,
@@ -476,18 +476,18 @@ func keyPin(
 
 // onlyOnce emits a counts-rung pin the first time its address is seen.
 func onlyOnce(
-	scenario ScenarioPlan,
+	scenario Scenario,
 	address, expression string,
 	seen map[string]bool,
 ) []Pin {
-	key := scenario.ID + "\x00" + address
+	key := scenario.ID() + "\x00" + address
 	if seen[key] {
 		return nil
 	}
 
 	seen[key] = true
 
-	return []Pin{Pinned(scenario.ID, address, expression, string(RungCounts))}
+	return []Pin{Pinned(scenario.ID(), address, expression, string(RungCounts))}
 }
 
 // instancesOf groups a state payload's resource instances by the collection
