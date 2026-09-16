@@ -163,3 +163,15 @@ research/spikes/fixture-b/tests/unit.tftest.hcl
 research/spikes/fixture-c/main.tf
 research/spikes/fixture-c/modules/net/main.tf
 research/spikes/fixture-c/tests/unit.tftest.hcl
+research/spikes/m5-lifecycle/ignore-all/mutant/main.tf
+research/spikes/m5-lifecycle/ignore-all/mutant/tests/unit.tftest.hcl
+research/spikes/m5-lifecycle/ignore-all/original/main.tf
+research/spikes/m5-lifecycle/ignore-all/original/tests/unit.tftest.hcl
+research/spikes/m5-lifecycle/ignore-drop/mutant/main.tf
+research/spikes/m5-lifecycle/ignore-drop/mutant/tests/unit.tftest.hcl
+research/spikes/m5-lifecycle/ignore-drop/original/main.tf
+research/spikes/m5-lifecycle/ignore-drop/original/tests/unit.tftest.hcl
+research/spikes/m5-lifecycle/replace-trigger-drop/mutant/main.tf
+research/spikes/m5-lifecycle/replace-trigger-drop/mutant/tests/unit.tftest.hcl
+research/spikes/m5-lifecycle/replace-trigger-drop/original/main.tf
+research/spikes/m5-lifecycle/replace-trigger-drop/original/tests/unit.tftest.hcl

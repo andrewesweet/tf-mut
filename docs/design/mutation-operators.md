@@ -262,13 +262,19 @@ will fail this tier comprehensively, and the fix is mechanical.
 
 ## Tier 4 — Lifecycle and state safety (`deep`)
 
-| ID | Original | Mutated |
-| --- | --- | --- |
-| `LC-CBD-FLIP` | `create_before_destroy = true` | `false` |
-| `LC-PREVENT-DESTROY-FLIP` | `prevent_destroy = true` | `false` |
-| `LC-IGNORE-DROP` | `ignore_changes = [a, b]` | entry removed / block removed |
-| `LC-IGNORE-ALL` | `ignore_changes = [...]` | `ignore_changes = all` |
-| `LC-REPLACE-TRIGGER-DROP` | `replace_triggered_by = [...]` | entry removed |
+| ID | Original | Mutated | M5-0.1 kill witness |
+| --- | --- | --- | --- |
+| `LC-CBD-FLIP` | `create_before_destroy = true` | `false` | no kill witness under shapes (a)–(e), Terraform v1.15.8 |
+| `LC-PREVENT-DESTROY-FLIP` | `prevent_destroy = true` | `false` | no kill witness under shapes (a)–(e), Terraform v1.15.8 |
+| `LC-IGNORE-DROP` | `ignore_changes = [a, b]` | entry removed / block removed | witnessed under (b) and (e); admitted to M5a |
+| `LC-IGNORE-ALL` | `ignore_changes = [...]` | `ignore_changes = all` | witnessed under (b) and (e); admitted to M5a |
+| `LC-REPLACE-TRIGGER-DROP` | `replace_triggered_by = [...]` | entry removed | witnessed under (e); admitted to M5a |
+
+The witness column records the M5-0.1 measurement
+([`docs/research/16-m5-01-lifecycle-witnesses.md`](../research/16-m5-01-lifecycle-witnesses.md)):
+non-admitted rows carry the exact annotation the decision rule fixes and reopen on a witness;
+admitted rows carry the witnessed shapes whose assertion becomes the matrix row's "Kills when"
+when M5a adds them. Until that change this tier still enables nothing.
 
 These are near-unkillable by plan-mode tests, and that is diagnostic information rather than a
 defect: it tells a team that their safety rails are entirely unverified. They are gated to the
