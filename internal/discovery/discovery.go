@@ -88,7 +88,7 @@ type Validation struct {
 	Range hcl.Range
 }
 
-// NativeExpression is the one named route from a discovered expression to
+// NativeExpression is the first named route from a discovered expression to
 // Terraform's native syntax. Whatever representation the boundary fields
 // (`Attribute.Expr`, `Validation.Condition`) publish, consumers downstream of
 // discovery must not reach through them with their own type assertions. A

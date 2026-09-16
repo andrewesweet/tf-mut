@@ -532,8 +532,9 @@ func jsonSource(path string, expr hcl.Expression) string {
 }
 
 // unwrapInterpolation strips a template that wraps one expression and nothing
-// else. A condition spelled any other way is left alone and will not parse,
-// which is the outcome an unmodelled spelling should have.
+// else. Any other string is left alone: a type constraint, spelled outright,
+// parses as written, and a condition spelled any other way will not, which is
+// the outcome an unmodelled spelling should have.
 func unwrapInterpolation(source string) string {
 	trimmed := strings.TrimSpace(source)
 	if !strings.HasPrefix(trimmed, "${") || !strings.HasSuffix(trimmed, "}") {
