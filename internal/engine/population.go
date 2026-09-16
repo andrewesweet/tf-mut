@@ -45,23 +45,19 @@ type freshPopulation struct {
 	proven authoritativePopulation
 }
 
-// unobservedPopulation names every reason a classified population was not
-// fully observed. Its text is the reasons alone, command-neutral: the command
-// that refused wraps it in its own sentinel and its own remedy.
-type unobservedPopulation struct {
-	reasons []string
-}
-
-func (u unobservedPopulation) Error() string { return strings.Join(u.reasons, "; ") }
-
 // newAuthoritativePopulation is the constructor: the check
 // checkPopulationObserved performed at its single call site, promoted to the
 // one route to the value.
 //
 // The rule itself — which populations count as fully observed, and why — is
-// stated once, here. The refusal it returns is an unobservedPopulation, and
-// the caller spells it in the refusing command's own terms.
-func newAuthoritativePopulation(result report.Report) (authoritativePopulation, error) {
+// stated once, here. refused is the sentinel of the rule the caller serves and
+// rationale is that command's own remedy: the reasons are command-neutral, the
+// refusal is spelled in the refusing command's terms.
+func newAuthoritativePopulation(
+	result report.Report,
+	refused error,
+	rationale string,
+) (authoritativePopulation, error) {
 	reasons := []string{}
 
 	if timeouts := result.Count(report.Timeout); timeouts > 0 {
@@ -75,7 +71,8 @@ func newAuthoritativePopulation(result report.Report) (authoritativePopulation, 
 	}
 
 	if len(reasons) != 0 {
-		return authoritativePopulation{}, unobservedPopulation{reasons: reasons}
+		return authoritativePopulation{}, fmt.Errorf("%w: %s\n%s",
+			refused, strings.Join(reasons, "; "), rationale)
 	}
 
 	return authoritativePopulation{classified: result}, nil

@@ -114,12 +114,11 @@ func applyBaselineGate(settings config, moduleDir string, result *report.Report)
 		// list is the record of what a full, unsampled, freshly executed run
 		// observed, and this is where that claim is earned rather than
 		// assumed from the configuration.
-		authoritative, authErr := newAuthoritativePopulation(*result)
+		authoritative, authErr := newAuthoritativePopulation(*result, ErrBaselineUnobserved,
+			"  The accepted list records what a run observed, and a mutant that never ran\n"+
+				"  was not observed")
 		if authErr != nil {
-			return fmt.Errorf("%w: %v\n"+
-				"  The accepted list records what a run observed, and a mutant that never ran\n"+
-				"  was not observed",
-				ErrBaselineUnobserved, authErr)
+			return authErr
 		}
 
 		fresh, freshErr := newFreshPopulation(authoritative)
