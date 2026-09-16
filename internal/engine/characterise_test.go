@@ -24,6 +24,7 @@ const (
 	untestedAliasesFixture      = "untested-aliases"
 	untestedZeroOutputFixture   = "untested-zero-output"
 	untestedSensitiveFixture    = "untested-sensitive"
+	untestedJSONTypeFixture     = "untested-json-type"
 	untestedJSONVariableFixture = "untested-json-variable"
 	untestedForEachKeysFixture  = "untested-foreach-keys"
 	untestedBranchesFixture     = "untested-branches"
@@ -965,6 +966,60 @@ func TestAJSONDeclaredVariableReachesTheScaffold(t *testing.T) {
 	if !block.Complete || pinCount(block) == 0 {
 		t.Fatalf("the JSON module pinned nothing: complete=%v pins=%d",
 			block.Complete, pinCount(block))
+	}
+}
+
+// TestAJSONDeclaredTypeConstraintReachesTheScaffold stages the JSON reading
+// change: a `.tf.json` variable's type constraint reaches the scaffold as the
+// declaration the author wrote — a JSON expression, not a re-parsed native
+// one — and the typed rung, the consumer that genuinely requires the tokens,
+// re-parses it at its own point of use.
+//
+// Before the change the variable never reached the scaffold at all: the JSON
+// reader dropped the decoded variable on the merge, the synthesiser had no
+// input to resolve, and the generated suite died at plan time on "No value
+// for required variable" — a red scaffold, about a module the tool had read.
+func TestAJSONDeclaredTypeConstraintReachesTheScaffold(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedJSONTypeFixture)
+
+	result, err := engine.Run(t.Context(), characteriseRequest(t, module))
+	if err != nil {
+		t.Fatalf("characterise: %v", err)
+	}
+
+	block := result.Characterisation
+	if block == nil {
+		t.Fatal("no characterisation block")
+	}
+
+	if open := block.OpenTodos(); open > 0 {
+		t.Fatalf("a read JSON-declared type constraint became a judgement point: %d open", open)
+	}
+
+	assigned := false
+
+	for _, scenario := range block.Scenarios {
+		for _, input := range scenario.Inputs {
+			if input.Name != "tags" {
+				continue
+			}
+
+			if input.Provenance != report.FromType {
+				t.Fatalf("tags resolved by %s, want the declared type", input.Provenance)
+			}
+
+			if input.Expression != "[\"tfmut-placeholder\"]" {
+				t.Fatalf("the typed rung synthesised %s", input.Expression)
+			}
+
+			assigned = true
+		}
+	}
+
+	if !assigned {
+		t.Fatal("no scenario carried the typed assignment")
 	}
 }
 

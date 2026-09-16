@@ -105,6 +105,7 @@ func TestTheM45GateCoversEveryNamedRequirement(t *testing.T) {
 		"the validation function table":              "TestTheValidationFunctionTable",
 		"the initial pin set is verified too":        "TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten",
 		"JSON variables reach the scaffold":          "TestAJSONDeclaredVariableReachesTheScaffold",
+		"a JSON type constraint reaches scaffold":    "TestAJSONDeclaredTypeConstraintReachesTheScaffold",
 		"for_each keys needing escapes":              "TestForEachKeysNeedingEscapesStillRenderAGreenSuite",
 		"until-dry refuses a narrowed population":    "TestUntilDryRefusesANarrowedPopulation",
 		"real curate reports validate against 2.3.0": "TestARealCurateReportValidatesAgainstThePublishedSchema",

@@ -445,11 +445,56 @@ func typedValue(variable discovery.Block) (string, bool) {
 		return placeholderString, true
 	}
 
-	return synthesiseType(attribute.Expr, 0)
+	expr, readable := typeConstraint(attribute)
+	if !readable {
+		return "", false
+	}
+
+	return synthesiseType(expr, 0)
 }
+
+// typeConstraint resolves a discovered `type` argument to the expression tree
+// synthesiseType walks.
+//
+// The walk needs native syntax — the forms it synthesises are the call's name
+// and arguments, which only the concrete nodes expose — and the type arrives
+// across the discovery boundary. A `.tf.json` declaration publishes its own
+// JSON expression, whose string value holds the native type syntax
+// Terraform's own contract for `type` prescribes, so the one re-parse the
+// walk genuinely requires happens here, at the point of use: a constraint
+// that does not re-parse fails closed for this rung alone, and every
+// evaluated-expression consumer of the same declaration reads it directly.
 
 // placeholderString is the synthesised value of an unconstrained string.
 const placeholderString = `"tfmut-placeholder"`
+
+// typeConstraint is typeConstraint's native resolution: the declaration's own
+// expression when it already is native syntax, and the native expression its
+// string value spells when it is not.
+func typeConstraint(attribute discovery.Attribute) (hcl.Expression, bool) {
+	if _, native := discovery.NativeExpression(attribute.Expr); native {
+		return attribute.Expr, true
+	}
+
+	value, diagnostics := attribute.Expr.Value(nil)
+	if diagnostics.HasErrors() || value.IsNull() || !value.IsKnown() ||
+		value.Type() != cty.String {
+		return nil, false
+	}
+
+	source := value.AsString()
+	if strings.TrimSpace(source) == "" {
+		return nil, false
+	}
+
+	span := attribute.Range
+	parsed, parseDiagnostics := hclsyntax.ParseExpression([]byte(source), span.Filename, span.Start)
+	if parseDiagnostics.HasErrors() {
+		return nil, false
+	}
+
+	return parsed, true
+}
 
 // nestingLimit bounds the recursion through object and collection types. A
 // deeper type is a judgement point rather than a value nobody would recognise.

@@ -1,0 +1,19 @@
+{
+  "variable": {
+    "tags": {
+      "type": "list(string)"
+    }
+  },
+  "resource": {
+    "terraform_data": {
+      "anchor": {
+        "input": "steady"
+      }
+    }
+  },
+  "output": {
+    "anchor": {
+      "value": "${terraform_data.anchor.output}"
+    }
+  }
+}

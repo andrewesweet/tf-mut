@@ -77,6 +77,7 @@ func TestTheM4GateCoversEveryNamedRequirement(t *testing.T) {
 		"slice: exclusions still hide nothing":    "TestExclusionsCannotHideJSONDeclaredContentUnderTheSlice",
 		"slice: refusal still free":               "TestNoTerraformRunPrecedesAContentDrivenRefusal",
 		"JSON module calls join the closure":      "TestAJSONDeclaredModuleCallJoinsTheClosure",
+		"a JSON type constraint reaches scaffold": "TestAJSONDeclaredTypeConstraintReachesTheScaffold",
 		"unmodelled run arguments keep the floor": "TestAnUnmodelledJSONRunArgumentRetainsTheFloor",
 		"unmodelled nested content keeps floor":   "TestAnUnmodelledNestedTerraformConstructRetainsTheFloor",
 		"suggest reachable through the CLI":       "TestSuggestIsWiredThroughTheCommandLine",

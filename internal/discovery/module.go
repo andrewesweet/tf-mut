@@ -150,6 +150,7 @@ func mergeJSONModule(module *Module, providers map[string]bool, scratch Module, 
 	module.ProviderAliases = append(module.ProviderAliases, scratch.ProviderAliases...)
 	module.JSONResources = append(module.JSONResources, scratch.JSONResources...)
 	module.JSONDataSources = append(module.JSONDataSources, scratch.JSONDataSources...)
+	module.Variables = append(module.Variables, scratch.Variables...)
 
 	for address, references := range scratch.References {
 		module.References[address] = append(module.References[address], references...)
