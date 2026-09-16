@@ -31,7 +31,11 @@ labelled `ready-for-agent`.
    obvious alternative, with experiments
 6a. `docs/research/12-m45-synthesis-rate.md` — the measurement that gated M4.5b, its
    decision rule and the two costs it surfaced. `docs/research/13-m45-exit-gate.md` — what
-   implementing M4.5 measured, decided and deferred
+   implementing M4.5 measured, decided and deferred. `docs/research/15-ddd-structural-exit-gate.md`
+   — what the structural programme (#85, #86) measured, decided and deferred: the consumer
+   census behind the expression boundary, the seam-control count, where the tree deviated
+   from its tickets, the one behaviour change, and the exit position against the review's
+   rubric
 6b. `docs/reviews/2026-08-16-m2-implementation-review.md` and
    `docs/research/08-m2-exit-gate.md` — what implementing M2 measured, decided and deferred,
    the contract sweep from every normative behaviour to its test, and the reproduction map.
