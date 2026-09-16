@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
@@ -112,6 +113,31 @@ func TestCurateRefusesAConfiguredNarrowing(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "false finding") {
 		t.Fatalf("the refusal does not say why: %v", err)
+	}
+}
+
+// TestCurateRefusesAnUnobservedPopulation is the population authority's own
+// refusal, at the seam: timeouts and execution errors both leave mutants
+// unobserved, and an assertion looks like it senses nothing precisely when
+// the mutants that would have proved otherwise never ran.
+func TestCurateRefusesAnUnobservedPopulation(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, curateFixture)
+
+	request := curateRequest(t, module)
+	// A budget no real Terraform invocation can meet, which is the only way
+	// to observe the timeout path without waiting for the production floor.
+	request.TimeoutFactor = 0.0001
+	request.TimeoutFloor = time.Millisecond
+
+	_, err := engine.Run(t.Context(), request)
+	if !errors.Is(err, engine.ErrCuratePopulation) {
+		t.Fatalf("error = %v, want a refusal of the unobserved population", err)
+	}
+
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("the refusal does not name the mutants that never ran: %v", err)
 	}
 }
 

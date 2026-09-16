@@ -127,36 +127,6 @@ func populationRefusals(settings config) []string {
 	return refusals
 }
 
-// checkPopulationObserved refuses a population that did not fully execute.
-//
-// Timeouts and execution errors both leave mutants unobserved. The gate table
-// already distinguishes unobserved from absent for the baseline; curate needs
-// the same distinction for a different reason — an assertion looks like it
-// senses nothing precisely when the mutants that would have proved otherwise
-// never ran.
-func checkPopulationObserved(result report.Report) error {
-	reasons := []string{}
-
-	if timeouts := result.Count(report.Timeout); timeouts > 0 {
-		reasons = append(reasons,
-			strconv.Itoa(timeouts)+" mutant(s) timed out, so their kills were never observed")
-	}
-
-	if len(result.Errors) > 0 {
-		reasons = append(reasons,
-			strconv.Itoa(len(result.Errors))+" mutant(s) could not be evaluated at all")
-	}
-
-	if len(reasons) == 0 {
-		return nil
-	}
-
-	return fmt.Errorf("%w: %s\n"+
-		"  An unobserved mutant is not an absent one, and an empty kill set drawn over\n"+
-		"  mutants that never ran is a false finding",
-		ErrCuratePopulation, strings.Join(reasons, "; "))
-}
-
 // curateSuite runs the full population and reports what the kill sets show.
 func curateSuite(
 	ctx context.Context,
@@ -174,16 +144,16 @@ func curateSuite(
 		return report.Report{}, err
 	}
 
-	// The gate table's distinction, reused rather than restated: a mutant that
-	// did not run is unobserved, not absent, and an empty kill set drawn over
-	// unobserved mutants is a false finding of exactly the kind the population
-	// posture exists to prevent.
-	if err := checkPopulationObserved(result); err != nil {
+	// The population authority: curate's findings are computed over a
+	// population that proved it was fully observed, never over a report that
+	// was merely in hand. An assertion looks like it senses nothing precisely
+	// when the mutants that would have proved otherwise never ran.
+	authoritative, err := newAuthoritativePopulation(result, ErrCuratePopulation)
+	if err != nil {
 		return report.Report{}, err
 	}
 
 	assertions := assertionInventory(configuration)
-	killSets := attributeKills(result, assertions)
 	provenance := assertionProvenance(configuration, assertions)
 
 	// The rung is validated rather than copied through. `--pin` belongs to
@@ -207,7 +177,7 @@ func curateSuite(
 		Rung: string(rung), Complete: true,
 		Scenarios: []report.Scenario{}, Pins: []report.Pin{},
 		Files:    []report.GeneratedFile{},
-		Findings: curateFindings(assertions, killSets, provenance),
+		Findings: curateFindings(authoritative, assertions, provenance),
 		Staged:   true,
 	}
 
@@ -251,14 +221,19 @@ func assertionID(file, run, source string, index int) string {
 	return characterise.Identify("asrt-", file, run, source, strconv.Itoa(index))
 }
 
-// attributeKills records which mutants' deaths each assertion participated in.
+// attributeKills records which mutants' deaths each assertion participated
+// in, over the proven population: the population is read through the proof,
+// never around it.
 //
 // Terraform reports every failed assertion of a run, so participation is read
 // directly rather than reconstructed by isolating assertions one at a time.
 // A killed mutant whose diagnostics name no assertion contributes to no kill
 // set: it died of an evaluation error, which the completeness measure
 // deliberately does not count.
-func attributeKills(result report.Report, assertions []assertion) map[string][]string {
+func attributeKills(
+	authoritative authoritativePopulation,
+	assertions []assertion,
+) map[string][]string {
 	byLine := map[string]string{}
 	for _, declared := range assertions {
 		byLine[declared.File+":"+strconv.Itoa(declared.Line)] = declared.ID
@@ -266,7 +241,7 @@ func attributeKills(result report.Report, assertions []assertion) map[string][]s
 
 	killSets := map[string][]string{}
 
-	for _, mutant := range result.Mutants {
+	for _, mutant := range authoritative.graded().Mutants {
 		if mutant.State != report.Killed {
 			continue
 		}
@@ -335,7 +310,12 @@ func assertionProvenance(
 	return classes
 }
 
-// curateFindings reports where the oracle has power.
+// curateFindings reports where the oracle has power over a proven population.
+//
+// It accepts an authoritativePopulation and is reachable no other way: the
+// empty-kill-set finding is the tool telling an author an assertion senses
+// nothing, and that verdict is false precisely when the mutants that would
+// have died never ran.
 //
 // The until-dry loop adds each generated assertion *because* it kills
 // something nothing else kills, so its output is already near-minimal under
@@ -343,10 +323,11 @@ func assertionProvenance(
 // therefore scoped to hand-written and edited assertions, and to redundancy
 // across scenarios — which is where a suite actually accumulates waste.
 func curateFindings(
+	authoritative authoritativePopulation,
 	assertions []assertion,
-	killSets map[string][]string,
 	provenance map[string]report.AssertionProvenance,
 ) []report.CurateFinding {
+	killSets := attributeKills(authoritative, assertions)
 	findings := []report.CurateFinding{}
 
 	for _, declared := range assertions {

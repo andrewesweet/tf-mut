@@ -143,7 +143,15 @@ func oneRound(
 
 	recordScaffolds(block, scaffolds, result)
 
-	updated, added := absorb(block, pins, result)
+	// The round's survivors are evidence only where the round observed its
+	// whole population: a round that timed mutants out has not shown that the
+	// survivors stopped yielding, only that it stopped waiting.
+	authoritative, err := newAuthoritativePopulation(result, ErrUntilDryPopulation)
+	if err != nil {
+		return pins, 0, err
+	}
+
+	updated, added := absorb(block, pins, authoritative)
 
 	return updated, added, nil
 }
@@ -370,6 +378,11 @@ func stageSuite(
 // absorb takes the verified suggestions the round produced and turns the ones
 // at or below the chosen rung into pins.
 //
+// It accepts an authoritativePopulation and is reachable no other way: the
+// count it returns is the convergence claim's whole evidence, and a zero
+// drawn over mutants that never ran would declare the loop dry over
+// survivors it never observed.
+//
 // Only verified suggestions: an unverified one is a candidate the tool has not
 // proven kills anything, and pinning it would put an unproven assertion into a
 // suite whose whole claim is that everything in it was observed. The append
@@ -378,7 +391,7 @@ func stageSuite(
 func absorb(
 	block *report.Characterisation,
 	pins []characterise.Pin,
-	result report.Report,
+	authoritative authoritativePopulation,
 ) ([]characterise.Pin, int) {
 	// Keyed by scenario as well as expression: two scenarios legitimately need
 	// the same rendered condition, and a global set would silently drop the
@@ -391,7 +404,7 @@ func absorb(
 	rung := characterise.Rung(block.Rung)
 	added := 0
 
-	for _, suggestion := range result.Suggestions {
+	for _, suggestion := range authoritative.graded().Suggestions {
 		scenario, found := scenarioForRun(block, suggestion.TargetRun)
 		if suggestion.Status != report.SuggestionVerified || !found {
 			continue

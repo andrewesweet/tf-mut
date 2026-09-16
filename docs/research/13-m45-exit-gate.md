@@ -161,7 +161,7 @@ Two costs the number carried with it, both flagged for the next review:
 | the staged suite; converges without `--write` | `TestUntilDryConvergesWithoutWritingAByte` |
 | `--until-dry` ladder-respecting | `TestUntilDryRespectsTheGranularityLadder` |
 | `curate` refuses partial populations at configuration time | `TestCurateRefusesAPartialPopulationAtConfigurationTime` |
-| `curate` refuses an unobserved population | `checkPopulationObserved`, exercised through the same case set |
+| `curate` refuses an unobserved population | `TestCurateRefusesAnUnobservedPopulation` |
 | eligibility by provenance; report-only | `TestCurateReportsAnEmptyKillSetWithItsEvidence`, `TestCurateWritesNothing` |
 | kill-set participation measured | `TestOneMutantFailingTwoAssertionsAttributesBoth` |
 | `expect_failures` scaffolds non-executable | `TestUnassertableConstructsBecomeNonExecutableScaffolds` |
