@@ -478,7 +478,8 @@ type Report struct {
 	Selection Selection `json:"selection"`
 	// Sampling is present only on a sampled run (2.1.0).
 	Sampling *Sampling `json:"sampling,omitempty"`
-	// Gates is the gate table's outcomes (2.1.0). Absent in a preview.
+	// Gates is the gate table's outcomes (2.1.0). Present only for the
+	// commands that execute a population: run, suggest and curate.
 	Gates *Gates `json:"gates,omitempty"`
 	// Suggestions is the generated assertion outcome table (2.2.0). Present
 	// only for the suggest command.
