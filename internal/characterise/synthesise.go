@@ -447,7 +447,16 @@ func typedValue(variable discovery.Block) (string, bool) {
 		return placeholderString, true
 	}
 
-	expr, readable := typeConstraint(attribute)
+	// The walk needs native syntax — the forms it synthesises are the call's
+	// name and arguments, which only the concrete nodes expose — and the type
+	// arrives across the discovery boundary. A `.tf.json` declaration
+	// publishes its own JSON expression, whose string value holds the native
+	// type syntax Terraform's own contract for `type` prescribes, so the one
+	// re-parse the walk genuinely requires is named through
+	// discovery.ReparsedNative, at the point of use: a constraint that does
+	// not re-parse fails closed for this rung alone, and every
+	// evaluated-expression consumer of the same declaration reads it directly.
+	expr, readable := discovery.ReparsedNative(attribute.Expr)
 	if !readable {
 		return "", false
 	}
@@ -457,22 +466,6 @@ func typedValue(variable discovery.Block) (string, bool) {
 
 // placeholderString is the synthesised value of an unconstrained string.
 const placeholderString = `"tfmut-placeholder"`
-
-// typeConstraint resolves a discovered `type` argument to the expression tree
-// synthesiseType walks.
-//
-// The walk needs native syntax — the forms it synthesises are the call's name
-// and arguments, which only the concrete nodes expose — and the type arrives
-// across the discovery boundary. A `.tf.json` declaration publishes its own
-// JSON expression, whose string value holds the native type syntax
-// Terraform's own contract for `type` prescribes, so the one re-parse the
-// walk genuinely requires is named through discovery.ReparsedNative, at the
-// point of use: a constraint that does not re-parse fails closed for this
-// rung alone, and every evaluated-expression consumer of the same
-// declaration reads it directly.
-func typeConstraint(attribute discovery.Attribute) (hcl.Expression, bool) {
-	return discovery.ReparsedNative(attribute.Expr)
-}
 
 // nestingLimit bounds the recursion through object and collection types. A
 // deeper type is a judgement point rather than a value nobody would recognise.
