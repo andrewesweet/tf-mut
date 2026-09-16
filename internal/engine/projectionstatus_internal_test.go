@@ -507,9 +507,8 @@ func assertEveryWireSpellingIsReachable(t *testing.T, reachable wireReachable) {
 		}
 	}
 
-	evidenceType := reflect.TypeFor[report.Evidence]()
-	for index := range evidenceType.NumField() {
-		field := evidenceType.Field(index).Name
+	for structField := range reflect.TypeFor[report.Evidence]().Fields() {
+		field := structField.Name
 		reason, exempt := exemptions["EvidenceField"][field]
 		if exempt {
 			if reachable.evidenceField[field] {
