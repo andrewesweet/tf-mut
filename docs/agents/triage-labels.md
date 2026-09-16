@@ -13,3 +13,12 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
 Edit the right-hand column to match whatever vocabulary you actually use.
+
+## Deferred tickets
+
+A ticket whose scope the maintainer defers to a later milestone is closed as not planned with
+its normative body left readable on the closed ticket, and its `ready-for-agent` label is
+removed: a label meaning "fully specified, ready for an AFK agent" must not sit on work that
+is not being actioned. The deferral issue carries the carried-verbatim text and is where the
+work is re-specified and relabelled when it reopens (e.g. #166 for the M5 OpenTofu deferral,
+which closed #154 and #159 as deferred).
