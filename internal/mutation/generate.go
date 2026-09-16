@@ -418,7 +418,7 @@ func (g Generator) generateCalls(module discovery.Module, sources map[string]sou
 			// Inputs for a required variable are kept: deleting one is exactly
 			// the statically invalid mutant the classifier must discard, and
 			// discarding it is a promised behaviour rather than wasted work.
-			if _, declared := child.VariableByName(name); !declared {
+			if _, declared := nativeVariable(child, name); !declared {
 				continue
 			}
 

@@ -173,7 +173,7 @@ func (g Generator) nullInjection(where site, attribute *hclsyntax.Attribute) (ed
 // nullableVariable reports whether a variable accepts null, which is what
 // decides whether VAR-DEFAULT-NULL can fire without being doomed.
 func nullableVariable(where site, module discovery.Module) bool {
-	declaration, found := module.VariableByName(where.variable)
+	declaration, found := nativeVariable(module, where.variable)
 	if !found {
 		return true
 	}
@@ -213,11 +213,24 @@ func blockEdits(source []byte, where site, block *hclsyntax.Block, _ map[string]
 	return edits
 }
 
+// nativeVariable finds a native-syntax variable declaration by name. The
+// mutation surface reads no other: a JSON declaration reaches the inventories
+// and the scaffold, and never gates a mutant.
+func nativeVariable(module discovery.Module, name string) (discovery.Block, bool) {
+	for _, variable := range module.NativeVariables() {
+		if variable.Name == name {
+			return variable, true
+		}
+	}
+
+	return discovery.Block{}, false
+}
+
 // sensitiveVariables names the variables a module declares sensitive.
 func sensitiveVariables(module discovery.Module) map[string]bool {
 	sensitive := map[string]bool{}
 
-	for _, variable := range module.Variables {
+	for _, variable := range module.NativeVariables() {
 		for _, attribute := range variable.Attributes {
 			if attribute.Name == sensitiveArgument && literalBool(attribute.Expr) {
 				sensitive[variable.Name] = true

@@ -1,0 +1,25 @@
+{
+  "variable": {
+    "name": {
+      "type": "string",
+      "validation": [
+        {
+          "condition": "${length(var.name) > 20}",
+          "error_message": "name must be longer than twenty characters"
+        }
+      ]
+    }
+  },
+  "resource": {
+    "terraform_data": {
+      "anchor": {
+        "input": "${var.name}"
+      }
+    }
+  },
+  "output": {
+    "anchor": {
+      "value": "${terraform_data.anchor.output}"
+    }
+  }
+}

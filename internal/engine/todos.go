@@ -149,7 +149,7 @@ func listTodos(
 	settings config,
 	version string,
 ) (report.Report, error) {
-	sources, err := moduleSources(configuration)
+	sources, err := declarationSources(configuration)
 	if err != nil {
 		return report.Report{}, err
 	}

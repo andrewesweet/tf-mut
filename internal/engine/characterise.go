@@ -110,14 +110,10 @@ func characteriseModule(
 		return report.Report{}, err
 	}
 
-	scaffold := seedNoEscalation(configuration, characterise.Plan(configuration, prepared.schemas,
-		characterise.Options{
-			Rung:       rung,
-			TestDirRel: configuration.TestDirRelative(),
-			Version:    settings.toolVersion(),
-			Sources:    prepared.sources,
-			Answers:    answers,
-		}, characterise.Configurations(configuration)))
+	scaffold, err := planScaffold(configuration, settings, prepared, rung, answers)
+	if err != nil {
+		return report.Report{}, err
+	}
 
 	warnings = append(warnings, prepared.warnings...)
 
@@ -181,6 +177,30 @@ func characteriseModule(
 	}
 
 	return result, nil
+}
+
+// planScaffold plans the scaffold over the warmed-up schemas and the
+// declaration sources a judgement point quotes verbatim.
+func planScaffold(
+	configuration discovery.Configuration,
+	settings config,
+	prepared warm,
+	rung characterise.Rung,
+	answers map[string]string,
+) (characterise.SuitePlan, error) {
+	sources, err := declarationSources(configuration)
+	if err != nil {
+		return characterise.SuitePlan{}, err
+	}
+
+	return seedNoEscalation(configuration, characterise.Plan(configuration, prepared.schemas,
+		characterise.Options{
+			Rung:       rung,
+			TestDirRel: configuration.TestDirRelative(),
+			Version:    settings.toolVersion(),
+			Sources:    sources,
+			Answers:    answers,
+		}, characterise.Configurations(configuration))), nil
 }
 
 // seedNoEscalation is an inert test hook beside the escalation it suppresses.

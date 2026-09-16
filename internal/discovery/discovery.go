@@ -70,6 +70,10 @@ type Block struct {
 	// input it accepts — which makes them the one honest source a synthesised
 	// value can be mined from or checked against.
 	Validations []Validation
+	// JSONDeclared marks a variable declared in a `.tf.json` file. It reaches
+	// the inventories and the scaffold; it never gates a mutant, because
+	// reading JSON must not change the population.
+	JSONDeclared bool
 }
 
 // Validation is one validation block on a variable declaration.
@@ -84,15 +88,16 @@ type Validation struct {
 	Range hcl.Range
 }
 
-// NativeExpression is the one named route from a discovered expression to
+// NativeExpression is the first named route from a discovered expression to
 // Terraform's native syntax. Whatever representation the boundary fields
 // (`Attribute.Expr`, `Validation.Condition`) publish, consumers downstream of
 // discovery must not reach through them with their own type assertions. A
 // consumer that needs the concrete nodes — because it inspects or rewrites the
 // tokens an expression owns, which only the native syntax exposes — names that
 // requirement here, and accepts false when the discovered value is not native
-// syntax. There is no second route: a new assertion against a discovered
-// expression is a boundary violation, not a convenience.
+// syntax. The only other route is ReparsedNative, for the consumer that
+// requires the tokens of a JSON declaration: a new assertion against a
+// discovered expression is a boundary violation, not a convenience.
 //
 // The accessor fails closed. A non-native expression and a nil expression both
 // return false, and a caller that receives false must treat the site as
@@ -104,6 +109,66 @@ func NativeExpression(expr hcl.Expression) (hclsyntax.Expression, bool) {
 	}
 
 	return native, true
+}
+
+// ReparsedNative is the point-of-use re-parse: the native expression a
+// discovered declaration spells, for the one kind of consumer that genuinely
+// requires its tokens and can wait until it needs them. A native expression
+// is returned as it is. A `.tf.json` declaration is re-parsed from its own
+// source text, so that a diagnostic still points at the file the author
+// wrote.
+//
+// It is correct for exactly the two arguments Terraform defines as native
+// syntax held in a JSON string: a variable's `type` constraint, spelled
+// outright, and a validation `condition`, wrapped in one interpolation —
+// Terraform's own `"${...}"` spelling. Any other JSON string is a literal,
+// and re-parsing a literal yields an expression it never was: `"hello"`
+// parses as a reference to `hello`. A caller with a `default`, a
+// `description` or any other argument reads it through `Value` instead.
+//
+// The accessor fails closed. A declaration spelled any other way — a template
+// directive, more than one interpolation, a string that does not parse —
+// returns false, and the caller treats the site as unreadable rather than
+// guess at the syntax it cannot see. The reader never calls this: every
+// consumer that needs only an evaluated expression reads the declaration
+// directly.
+func ReparsedNative(expr hcl.Expression) (hclsyntax.Expression, bool) {
+	if native, ok := NativeExpression(expr); ok {
+		return native, true
+	}
+
+	if expr == nil {
+		return nil, false
+	}
+
+	span := expr.Range()
+
+	source := unwrapInterpolation(jsonSource(span.Filename, expr))
+	if source == "" {
+		return nil, false
+	}
+
+	parsed, diagnostics := hclsyntax.ParseExpression([]byte(source), span.Filename, span.Start)
+	if diagnostics.HasErrors() {
+		return nil, false
+	}
+
+	return parsed, true
+}
+
+// NativeVariables lists the variables declared in native syntax — the view
+// the mutation surface reads, so that reading a JSON declaration never adds
+// or removes a mutant.
+func (m Module) NativeVariables() []Block {
+	native := make([]Block, 0, len(m.Variables))
+
+	for _, variable := range m.Variables {
+		if !variable.JSONDeclared {
+			native = append(native, variable)
+		}
+	}
+
+	return native
 }
 
 // VariableByName returns the module's variable declaration of that name.

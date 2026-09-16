@@ -10,8 +10,6 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
-	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/hashicorp/hcl/v2/json"
 )
 
@@ -425,18 +423,19 @@ var jsonVariableSchema = &hcl.BodySchema{
 // native one lands in.
 //
 // Terraform reads `.tf.json` variables exactly as it reads native ones, so a
-// collector that only walked their references left `Module.Variables` empty for
-// a JSON module: characterisation then synthesised no assignment and raised no
-// judgement point, and the run died at plan time on "No value for required
-// variable" — a module the tool had read, and said nothing about.
+// collector that only walked their references left `Module.Variables` empty
+// for a JSON module: characterisation then synthesised no assignment and the
+// run died at plan time on "No value for required variable" — about a module
+// the tool had read.
 //
-// The conversion is a re-parse, because the rest of the tool reads native
-// syntax trees. A JSON type constraint is a *string* holding native type
-// syntax ("list(string)"), and a JSON validation condition is a string holding
-// a template around one. Anything that does not re-parse is left off the block
-// rather than guessed at, and the variable then reaches the reader as a
-// judgement point — the fail-closed direction, and the one the design already
-// reserves for a value the tool will not invent.
+// Each argument is published as the author wrote it. `Attribute.Expr` is the
+// representation-neutral contract, so the attribute carries its own JSON
+// expression — no re-render, no re-parse. A consumer that needs only an
+// evaluated expression reads it through the interface; a consumer that
+// genuinely requires the tokens of a type constraint or a validation
+// condition re-parses the declaration at its own point of use, through
+// ReparsedNative, where a spelling that does not re-parse fails closed for
+// that consumer alone.
 func collectJSONVariable(module *Module, path, relative string, block *hcl.Block) error {
 	if len(block.Labels) != 1 {
 		return nil
@@ -448,22 +447,18 @@ func collectJSONVariable(module *Module, path, relative string, block *hcl.Block
 	}
 
 	discovered := Block{ //nolint:exhaustruct // a variable carries no type, address parts or meta-arguments.
-		Kind:      variableBlock,
-		Name:      block.Labels[0],
-		Address:   variableBlock + "." + block.Labels[0],
-		File:      path,
-		ModuleRel: relative,
-		DefRange:  block.DefRange,
+		Kind:         variableBlock,
+		Name:         block.Labels[0],
+		Address:      variableBlock + "." + block.Labels[0],
+		File:         path,
+		ModuleRel:    relative,
+		DefRange:     block.DefRange,
+		JSONDeclared: true,
 	}
 
 	for name, attribute := range content.Attributes {
-		expr, ok := reparseArgument(name, attribute.Expr)
-		if !ok {
-			continue
-		}
-
 		discovered.Attributes = append(discovered.Attributes, Attribute{
-			Name: name, Range: attribute.Range, Expr: expr,
+			Name: name, Range: attribute.Range, Expr: attribute.Expr,
 		})
 	}
 
@@ -477,37 +472,16 @@ func collectJSONVariable(module *Module, path, relative string, block *hcl.Block
 	return collectJSONReferences(module, path, block.Body)
 }
 
-// reparseArgument re-parses one JSON-declared variable argument as native
-// syntax, which is what every reader downstream of discovery expects.
-//
-// `type` is the special case: Terraform spells a JSON type constraint as a
-// string containing native type syntax, so the string's *contents* are the
-// expression. Every other argument is an ordinary JSON literal, and JSON
-// literal syntax is a subset of HCL expression syntax, so its own source text
-// parses unchanged.
-func reparseArgument(name string, expr hcl.Expression) (hclsyntax.Expression, bool) {
-	var source string
-
-	if name == typeLabel {
-		source = jsonLiteralString(expr)
-	} else {
-		value, diagnostics := expr.Value(nil)
-		if diagnostics.HasErrors() || !value.IsWhollyKnown() {
-			return nil, false
-		}
-
-		source = strings.TrimSpace(string(hclwrite.TokensForValue(value).Bytes()))
-	}
-
-	if source == "" {
-		return nil, false
-	}
-
-	return parseNative(source, expr.Range())
-}
-
 // jsonValidations converts a JSON variable's validation blocks, in declaration
-// order, dropping any whose condition does not re-parse.
+// order, keeping every one that declares a condition.
+//
+// The condition is published as the author wrote it — a JSON template around
+// the expression — under the same representation-neutral contract as
+// `Attribute.Expr`. The static evaluator reads it through `Value`, which the
+// template answers when the bound context supplies the variable; a consumer
+// that requires the tokens of the wrapped expression fails closed on it,
+// individually, rather than the reader deciding for every consumer by
+// re-parsing the declaration.
 func jsonValidations(path string, blocks hcl.Blocks) []Validation {
 	validations := []Validation{}
 
@@ -526,17 +500,8 @@ func jsonValidations(path string, blocks hcl.Blocks) []Validation {
 			continue
 		}
 
-		// A JSON condition is a template around the expression — Terraform's
-		// own `"${var.x != null}"` spelling — so the interpolation markers come
-		// off before the contents are parsed as an expression.
-		expr, ok := parseNative(unwrapInterpolation(jsonSource(path, condition.Expr)),
-			condition.Expr.Range())
-		if !ok {
-			continue
-		}
-
 		validations = append(validations, Validation{
-			Condition: expr, File: path, Range: condition.Expr.Range(),
+			Condition: condition.Expr, File: path, Range: condition.Expr.Range(),
 		})
 	}
 
@@ -567,8 +532,9 @@ func jsonSource(path string, expr hcl.Expression) string {
 }
 
 // unwrapInterpolation strips a template that wraps one expression and nothing
-// else. A condition spelled any other way is left alone and will not parse,
-// which is the outcome an unmodelled spelling should have.
+// else. Any other string is left alone: a type constraint, spelled outright,
+// parses as written, and a condition spelled any other way will not, which is
+// the outcome an unmodelled spelling should have.
 func unwrapInterpolation(source string) string {
 	trimmed := strings.TrimSpace(source)
 	if !strings.HasPrefix(trimmed, "${") || !strings.HasSuffix(trimmed, "}") {
@@ -581,17 +547,6 @@ func unwrapInterpolation(source string) string {
 	}
 
 	return inner
-}
-
-// parseNative parses native expression syntax at the JSON source's position, so
-// that a diagnostic still points at the file the reader is looking at.
-func parseNative(source string, span hcl.Range) (hclsyntax.Expression, bool) {
-	expr, diagnostics := hclsyntax.ParseExpression([]byte(source), span.Filename, span.Start)
-	if diagnostics.HasErrors() {
-		return nil, false
-	}
-
-	return expr, true
 }
 
 func collectJSONExpansion(module *Module, path string, block *hcl.Block) error {

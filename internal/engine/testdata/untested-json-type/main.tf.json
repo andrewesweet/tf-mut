@@ -1,0 +1,34 @@
+{
+  "variable": {
+    "tags": {
+      "type": "list(string)",
+      "validation": [
+        {
+          "condition": "%{ if length(var.tags) == 1 }true%{ else }false%{ endif }",
+          "error_message": "tags must carry exactly one entry"
+        }
+      ]
+    },
+    "owner": {
+      "type": "string",
+      "validation": [
+        {
+          "condition": "%{ if length(var.owner) > 20 }true%{ else }false%{ endif }",
+          "error_message": "owner must be longer than twenty characters"
+        }
+      ]
+    }
+  },
+  "resource": {
+    "terraform_data": {
+      "anchor": {
+        "input": "${join(\",\", var.tags)}-${var.owner}"
+      }
+    }
+  },
+  "output": {
+    "anchor": {
+      "value": "${terraform_data.anchor.output}"
+    }
+  }
+}

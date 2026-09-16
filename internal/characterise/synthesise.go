@@ -334,7 +334,12 @@ func mined(variable discovery.Block) []string {
 	candidates := make([]string, 0, len(variable.Validations))
 
 	for _, validation := range variable.Validations {
-		candidates = append(candidates, mineExpression(validation.Condition, variable.Name)...)
+		condition, readable := discovery.ReparsedNative(validation.Condition)
+		if !readable {
+			continue
+		}
+
+		candidates = append(candidates, mineExpression(condition, variable.Name)...)
 	}
 
 	return candidates
@@ -343,16 +348,13 @@ func mined(variable discovery.Block) []string {
 // mineExpression needs native syntax — the forms it mines are the call's
 // argument structure and the comparison's operator, which only the concrete
 // nodes expose — and the condition arrives across the discovery boundary, so
-// the requirement is named through discovery.NativeExpression. An unreadable
-// condition mines nothing, which is the fail-closed direction: the variable
-// keeps its judgement point rather than gaining a guessed value.
-func mineExpression(expr hcl.Expression, name string) []string {
-	native, readable := discovery.NativeExpression(expr)
-	if !readable {
-		return nil
-	}
-
-	switch typed := native.(type) {
+// the requirement is named through discovery.ReparsedNative: a `.tf.json`
+// condition in the `"${...}"` spelling mines as its native twin does, and
+// one spelled any other way mines nothing, which is the fail-closed
+// direction: the variable keeps its judgement point rather than gaining a
+// guessed value.
+func mineExpression(expr hclsyntax.Expression, name string) []string {
+	switch typed := expr.(type) {
 	case *hclsyntax.FunctionCallExpr:
 		return mineContains(typed, name)
 	case *hclsyntax.BinaryOpExpr:
@@ -445,7 +447,21 @@ func typedValue(variable discovery.Block) (string, bool) {
 		return placeholderString, true
 	}
 
-	return synthesiseType(attribute.Expr, 0)
+	// The walk needs native syntax — the forms it synthesises are the call's
+	// name and arguments, which only the concrete nodes expose — and the type
+	// arrives across the discovery boundary. A `.tf.json` declaration
+	// publishes its own JSON expression, whose string value holds the native
+	// type syntax Terraform's own contract for `type` prescribes, so the one
+	// re-parse the walk genuinely requires is named through
+	// discovery.ReparsedNative, at the point of use: a constraint that does
+	// not re-parse fails closed for this rung alone, and every
+	// evaluated-expression consumer of the same declaration reads it directly.
+	expr, readable := discovery.ReparsedNative(attribute.Expr)
+	if !readable {
+		return "", false
+	}
+
+	return synthesiseType(expr, 0)
 }
 
 // placeholderString is the synthesised value of an unconstrained string.

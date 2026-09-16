@@ -225,6 +225,32 @@ func moduleSources(configuration discovery.Configuration) (map[string][]byte, er
 	return sources, nil
 }
 
+// declarationSources widens the module sources to the `.tf.json` configuration
+// files discovery read, so a judgement point over a JSON-declared variable
+// still quotes its constraint verbatim. The widened map is characterisation's
+// alone: the module sources the mutants overlay stay native.
+func declarationSources(configuration discovery.Configuration) (map[string][]byte, error) {
+	sources, err := moduleSources(configuration)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, file := range configuration.JSONFiles() {
+		if !file.Read || file.Class != discovery.JSONConfiguration {
+			continue
+		}
+
+		content, err := os.ReadFile(file.Path)
+		if err != nil {
+			return nil, fmt.Errorf("reading %s: %w", file.Path, err)
+		}
+
+		sources[file.Path] = content
+	}
+
+	return sources, nil
+}
+
 func describeFailures(failures []tfexec.RunOutcome, diagnostics []tfexec.Diagnostic) string {
 	lines := make([]string, 0, len(failures))
 
