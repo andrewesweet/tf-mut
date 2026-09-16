@@ -1,7 +1,9 @@
 # Harness spikes
 
 Throwaway Terraform fixtures used to verify the harness design before committing to it. Results
-and analysis are in [`../../docs/research/04-harness-spike.md`](../../docs/research/04-harness-spike.md).
+and analysis are in [`../../docs/research/04-harness-spike.md`](../../docs/research/04-harness-spike.md);
+the `m5-lifecycle/` pairs are the M5-0.1 kill witnesses, analysed in
+[`../../docs/research/16-m5-01-lifecycle-witnesses.md`](../../docs/research/16-m5-01-lifecycle-witnesses.md).
 
 Verified against `Terraform v1.15.8 on linux_amd64`.
 
@@ -23,7 +25,8 @@ terraform test
 ```
 
 Only `fixture-b` uses `hashicorp/null`; bootstrap installs its exact locked package into the
-repository-local filesystem mirror. Fixtures A and C use only built-in Terraform resources.
+repository-local filesystem mirror. Fixtures A and C and the `m5-lifecycle/` pairs use only
+built-in Terraform resources.
 
 Generated `.terraform/` directories are ignored. Provider-bearing fixtures commit dependency
 locks and run offline after `just tools-install` populates the mirror.
