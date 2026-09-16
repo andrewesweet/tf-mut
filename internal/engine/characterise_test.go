@@ -970,15 +970,20 @@ func TestAJSONDeclaredVariableReachesTheScaffold(t *testing.T) {
 }
 
 // TestAJSONDeclaredTypeConstraintReachesTheScaffold stages the JSON reading
-// change: a `.tf.json` variable's type constraint reaches the scaffold as the
-// declaration the author wrote — a JSON expression, not a re-parsed native
-// one — and the typed rung, the consumer that genuinely requires the tokens,
-// re-parses it at its own point of use.
+// change on the declaration the old reader could not re-parse: a `.tf.json`
+// validation whose condition is a template directive —
+// `%{ if ... }true%{ else }false%{ endif }` — which Terraform accepts and
+// enforces, and which is not native expression syntax. The reader publishes
+// the condition as the author wrote it; the static evaluator decides it
+// through `Value`, so the typed candidate is proven against it and the
+// variable reaches the scaffold rather than becoming a judgement point.
 //
 // Before the change the variable never reached the scaffold at all: the JSON
 // reader dropped the decoded variable on the merge, the synthesiser had no
 // input to resolve, and the generated suite died at plan time on "No value
 // for required variable" — a red scaffold, about a module the tool had read.
+// The re-parsing reader also dropped the directive condition rather than
+// reading it, so nothing the module said about `tags` was ever checked.
 func TestAJSONDeclaredTypeConstraintReachesTheScaffold(t *testing.T) {
 	t.Parallel()
 
@@ -1007,7 +1012,8 @@ func TestAJSONDeclaredTypeConstraintReachesTheScaffold(t *testing.T) {
 			}
 
 			if input.Provenance != report.FromType {
-				t.Fatalf("tags resolved by %s, want the declared type", input.Provenance)
+				t.Fatalf("tags resolved by %s, want the declared type proven against the directive condition",
+					input.Provenance)
 			}
 
 			if input.Expression != "[\"tfmut-placeholder\"]" {

@@ -1,13 +1,19 @@
 {
   "variable": {
     "tags": {
-      "type": "list(string)"
+      "type": "list(string)",
+      "validation": [
+        {
+          "condition": "%{ if length(var.tags) == 1 }true%{ else }false%{ endif }",
+          "error_message": "tags must carry exactly one entry"
+        }
+      ]
     }
   },
   "resource": {
     "terraform_data": {
       "anchor": {
-        "input": "steady"
+        "input": "${join(\",\", var.tags)}"
       }
     }
   },
