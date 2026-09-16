@@ -641,9 +641,11 @@ is not tested, here is the assertion that would test it" without leaving the PR.
 Adoption on an existing codebase is via `--write-baseline`: accept today's findings into the
 project-local `.tf-mut-baseline.json` (by stable identifier and actionability class), then
 gate with `--fail-on-new` — CI fails on genuinely new findings and on nothing else. Writes
-and staleness reporting require a full, unsampled, freshly executed population; scoped,
-sampled and cached runs evaluate the gate over what actually ran, labelled partial, and
-refuse a rewrite. `--baseline PATH` relocates the file. No flag day.
+and staleness reporting require a full, unsampled, freshly executed and fully observed
+population; scoped, sampled and cached runs evaluate the gate over what actually ran,
+labelled partial, and refuse a rewrite; a run in which any mutant timed out or failed to
+evaluate refuses the write outright, because a mutant that never ran was not observed.
+`--baseline PATH` relocates the file. No flag day.
 
 **The verdict cache and what it stores (M3b.2; M3 spec review M6).** Repeat runs replay
 verdicts from a project-local cache (`.tf-mut-cache/`, `0700`, atomic writes,

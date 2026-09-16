@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
@@ -320,6 +322,32 @@ func TestBaselineWriteIsRefusedOffTheFullPopulation(t *testing.T) {
 
 	if _, err := engine.Run(t.Context(), sampled); !errors.Is(err, engine.ErrBaselineWrite) {
 		t.Fatalf("a sampled baseline write returned %v, want ErrBaselineWrite", err)
+	}
+}
+
+// TestBaselineWriteIsRefusedOverAnUnobservedPopulation: the freshness proof
+// the writer demands is built on the observation proof, so a run that timed
+// mutants out cannot adopt a baseline either. The accepted list is the record
+// of what a run observed, and this run did not finish observing.
+func TestBaselineWriteIsRefusedOverAnUnobservedPopulation(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "skeleton")
+
+	config := baseConfig(t, module)
+	config.WriteBaseline = true
+	// A budget no real Terraform invocation can meet, which is the only way
+	// to observe the timeout path without waiting for the production floor.
+	config.TimeoutFactor = 0.0001
+	config.TimeoutFloor = time.Millisecond
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrBaselineUnobserved) {
+		t.Fatalf("an unobserved baseline write returned %v, want ErrBaselineUnobserved", err)
+	}
+
+	if strings.Contains(err.Error(), "--since") || strings.Contains(err.Error(), "--sample") {
+		t.Fatalf("the refusal names a remedy that does not apply: %v", err)
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/engine"
@@ -1011,6 +1012,32 @@ func TestUntilDryRefusesAConfiguredNarrowing(t *testing.T) {
 	_, err := engine.Run(t.Context(), request)
 	if !errors.Is(err, engine.ErrUntilDryPopulation) {
 		t.Fatalf("error = %v, want the configured narrowing refused before any work", err)
+	}
+}
+
+// TestUntilDryRefusesAnUnobservedPopulation is the population authority's
+// own refusal on the convergence claim: a round that timed mutants out has not
+// shown that the survivors stopped yielding, only that it stopped waiting, so
+// the loop refuses rather than declaring itself dry.
+func TestUntilDryRefusesAnUnobservedPopulation(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedBranchesFixture)
+
+	request := characteriseRequest(t, module)
+	request.UntilDry = true
+	// A budget no real Terraform invocation can meet, which is the only way
+	// to observe the timeout path without waiting for the production floor.
+	request.TimeoutFactor = 0.0001
+	request.TimeoutFloor = time.Millisecond
+
+	_, err := engine.Run(t.Context(), request)
+	if !errors.Is(err, engine.ErrUntilDryPopulation) {
+		t.Fatalf("error = %v, want a refusal of the unobserved population", err)
+	}
+
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("the refusal does not name the mutants that never ran: %v", err)
 	}
 }
 

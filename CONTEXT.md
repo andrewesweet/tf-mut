@@ -84,6 +84,11 @@ currently declared by `internal/report`; they are not invitations to add aliases
   means the verdict was replayed from the incremental cache with evidence rehydrated.
 - **Scored population:** the selected population whose outcomes contribute to the
   reported metrics under the gate rules.
+- **Authoritative population:** a classified population every member of which was
+  observed: no mutant timed out and none failed to evaluate. Curation findings and
+  the until-dry convergence claim are drawn only over one.
+- **Fresh population:** an authoritative population in which no verdict was
+  replayed from the cache. The baseline writer accepts only one.
 - **Metrics:** the derived counts and scores computed from the classified population.
 
 ### Mutation Catalogue

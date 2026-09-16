@@ -40,6 +40,12 @@ var (
 	ErrBaselineWrite = errors.New(
 		"a baseline write requires a full unsampled run: neither --since nor --sample may shape it",
 	)
+	// ErrBaselineUnobserved reports a write requested off a population that
+	// did not finish executing: the accepted list is the record of what a run
+	// observed, and a mutant that never ran was not observed.
+	ErrBaselineUnobserved = errors.New(
+		"a baseline write requires a fully observed run",
+	)
 	// ErrBaselineFile reports a baseline file that could not be read: a
 	// corrupt acceptance list must never fake an empty one.
 	ErrBaselineFile = errors.New("the baseline file could not be read")
@@ -103,12 +109,24 @@ func applyBaselineGate(settings config, moduleDir string, result *report.Report)
 	gate.Path = filepath.Base(path)
 
 	if settings.WriteBaseline {
-		if !full {
-			return fmt.Errorf("%w: this run replayed %d cached verdict(s); use --no-cache",
-				ErrBaselineWrite, result.Population.Cached)
+		// The writer is reachable only through the freshness proof, and the
+		// freshness proof only through the observation proof: the accepted
+		// list is the record of what a full, unsampled, freshly executed run
+		// observed, and this is where that claim is earned rather than
+		// assumed from the configuration.
+		authoritative, authErr := newAuthoritativePopulation(*result, ErrBaselineUnobserved,
+			"  The accepted list records what a run observed, and a mutant that never ran\n"+
+				"  was not observed")
+		if authErr != nil {
+			return authErr
 		}
 
-		if writeErr := writeBaseline(path, result); writeErr != nil {
+		fresh, freshErr := newFreshPopulation(authoritative)
+		if freshErr != nil {
+			return freshErr
+		}
+
+		if writeErr := writeBaseline(path, fresh); writeErr != nil {
 			return writeErr
 		}
 
@@ -251,11 +269,14 @@ func readBaseline(path string) ([]acceptanceEntry, error) {
 	return decoded.Entries, nil
 }
 
-// writeBaseline persists the current findings as the accepted list.
-func writeBaseline(path string, result *report.Report) error {
+// writeBaseline persists the fresh population's findings as the accepted
+// list. It accepts a freshPopulation and is reachable no other way: a list
+// shaped by anything less than a full, unsampled, freshly executed run
+// silently shrinks every gate that reads it.
+func writeBaseline(path string, fresh freshPopulation) error {
 	entries := []acceptanceEntry{}
 
-	for _, mutant := range result.Mutants {
+	for _, mutant := range fresh.graded().Mutants {
 		if !isFinding(mutant) {
 			continue
 		}

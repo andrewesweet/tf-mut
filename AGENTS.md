@@ -155,7 +155,7 @@ this repository contract.
 
 | Package | Responsibility |
 | --- | --- |
-| `internal/engine` | The seam. `Run(ctx, Request) (report.Report, error)` — the closed request set, the internal settings value it produces; version gate, safety gates, baseline, generation, execution, classification, findings; the projections from the oracle and characterisation contexts onto the report DTOs, whose status projection the totality table test holds complete in both directions |
+| `internal/engine` | The seam. `Run(ctx, Request) (report.Report, error)` — the closed request set, the internal settings value it produces; version gate, safety gates, baseline, the population authority, generation, execution, classification, findings; the projections from the oracle and characterisation contexts onto the report DTOs, whose status projection the totality table test holds complete in both directions |
 | `internal/discovery` | `hclsyntax` parsing of modules and `.tftest.hcl` files; the `..`-closure; provider and effect inventories; reference forms. The boundary publishes a representation-neutral expression contract: `Attribute.Expr` and `Validation.Condition` are `hcl.Expression`, and `NativeExpression` is the one named route to native syntax, fail-closed |
 | `internal/mutation` | The operator catalogue and its applicability matrix. Tier 0 is applied through `hclwrite`; Tiers 1–3 rewrite byte ranges, so a mutant differs from the original only in the tokens its operator owns. Content-derived identifiers; deduplication; diffs |
 | `internal/fingerprint` | The oracle's arithmetic: canonical payload projection, the volatile mask, the masked delta. Decides what two runs can honestly be said to have in common, and never a verdict |
