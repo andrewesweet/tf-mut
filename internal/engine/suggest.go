@@ -21,7 +21,7 @@ import (
 var ErrSurvivorSelection = errors.New("no survivor with that identifier")
 
 //nolint:gochecknoglobals // inert production default; external tests scope and restore it.
-var seedSuggestionDefect = func(Config) suggest.Defect { return suggest.DefectNone }
+var seedSuggestionDefect = func(config) suggest.Defect { return suggest.DefectNone }
 
 // suggestibleDiagnoses names the diagnoses a suggestion is generated for.
 //
@@ -132,7 +132,7 @@ func verificationCost(candidates []suggest.Candidate) string {
 
 // selectSurvivors narrows the population to the survivors the caller asked
 // about, and refuses an identifier the population does not carry.
-func selectSurvivors(settings Config, result report.Report) ([]report.Mutant, error) {
+func selectSurvivors(settings config, result report.Report) ([]report.Mutant, error) {
 	if len(settings.SurvivorIDs) == 0 {
 		return result.Survivors(), nil
 	}
@@ -185,8 +185,8 @@ var ErrSuggestCombination = errors.New("contradictory suggest flags")
 //     contract, so a filtered population would let an excluded run's kill be
 //     attributed to a suggestion — the exact laundering the isolated leg
 //     exists to prevent.
-func checkSuggestCombinations(settings Config) error {
-	if !settings.Suggest {
+func checkSuggestCombinations(settings config) error {
+	if settings.mode != suggestMode {
 		return nil
 	}
 

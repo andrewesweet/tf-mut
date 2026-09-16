@@ -72,8 +72,12 @@ If you find a genuine conflict, fix the losing document in the same change.
 
 ## Testing seam (fixed decision — do not reopen per milestone)
 
-One seam, at the top: the engine entry point — configuration in, report out — exercised
-end-to-end against the **real Terraform binary** on fixture modules. No fake Terraform
+One seam, at the top: the engine entry point — `Run(ctx, Request) (report.Report, error)`, a
+closed set of request types in, report out — exercised end-to-end against the **real Terraform
+binary** on fixture modules. The set — `RunRequest`, `PreviewRequest`, `SuggestRequest`,
+`CharacteriseRequest`, `TodosRequest`, `CurateRequest` — is closed by an unexported marker
+method, the request's type is the command, and the settings value the requests produce is
+internal to the engine: tests construct requests, never settings. No fake Terraform
 runner: both reviews proved the correctness risk lives in real Terraform behaviour (inode
 sharing, implicit run-block state, evaluation-time errors, identical static/dynamic
 diagnostics). Tests assert external behaviour only (report states, findings, metrics, exit
@@ -149,7 +153,7 @@ this repository contract.
 
 | Package | Responsibility |
 | --- | --- |
-| `internal/engine` | The seam. `Run(ctx, Request) (Report, error)` — legacy `Config` remains compatible during this expansion; version gate, safety gates, baseline, generation, execution, classification, findings; the projections from the oracle and characterisation contexts onto the report DTOs |
+| `internal/engine` | The seam. `Run(ctx, Request) (report.Report, error)` — the closed request set, the internal settings value it produces; version gate, safety gates, baseline, generation, execution, classification, findings; the projections from the oracle and characterisation contexts onto the report DTOs |
 | `internal/discovery` | `hclsyntax` parsing of modules and `.tftest.hcl` files; the `..`-closure; provider and effect inventories; reference forms. The boundary publishes a representation-neutral expression contract: `Attribute.Expr` and `Validation.Condition` are `hcl.Expression`, and `NativeExpression` is the one named route to native syntax, fail-closed |
 | `internal/mutation` | The operator catalogue and its applicability matrix. Tier 0 is applied through `hclwrite`; Tiers 1–3 rewrite byte ranges, so a mutant differs from the original only in the tokens its operator owns. Content-derived identifiers; deduplication; diffs |
 | `internal/fingerprint` | The oracle's arithmetic: canonical payload projection, the volatile mask, the masked delta. Decides what two runs can honestly be said to have in common, and never a verdict |

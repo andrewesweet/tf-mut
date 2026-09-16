@@ -28,7 +28,7 @@ import (
 // over the argument limit.
 type staging struct {
 	configuration discovery.Configuration
-	settings      Config
+	settings      config
 	prepared      warm
 	workRoot      string
 	// terraform is the version gate's result, carried so that a staged round
@@ -70,7 +70,7 @@ func characteriseModule(
 	ctx context.Context,
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	version tfexec.Version,
 ) (report.Report, error) {
 	rung, answers, err := characteriseInputs(configuration, settings)
@@ -225,7 +225,7 @@ func commit(
 // starts from: the granularity, and the answers in force.
 func characteriseInputs(
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 ) (characterise.Rung, map[string]string, error) {
 	rung, err := characterise.ParseRung(settings.PinRung)
 	if err != nil {
@@ -779,7 +779,7 @@ func stagedPath(configuration discovery.Configuration, moduleRelative string) st
 func checkStagedSafety(
 	configuration discovery.Configuration,
 	staged characterise.Scaffold,
-	settings Config,
+	settings config,
 ) ([]string, error) {
 	warnings, err := floorOf(configuration).checkFloor(settings)
 	if err != nil {

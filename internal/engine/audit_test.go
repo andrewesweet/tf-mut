@@ -64,6 +64,7 @@ func TestExportedEngineTypesDeclareNoSeamControls(t *testing.T) {
 
 	engineDir := filepath.Join(root, internalTree, "engine")
 	fset := token.NewFileSet()
+	audited := map[string]bool{}
 	entries, err := os.ReadDir(engineDir)
 	if err != nil {
 		t.Fatalf("reading exported engine sources in %s: %v", engineDir, err)
@@ -81,12 +82,30 @@ func TestExportedEngineTypesDeclareNoSeamControls(t *testing.T) {
 		if file.Name.Name != "engine" {
 			continue
 		}
-		auditExportedEngineTypes(t, fset, file)
+		for name := range auditExportedEngineTypes(t, fset, file) {
+			audited[name] = true
+		}
+	}
+
+	// The seam's input is the closed request set: every request type has to
+	// sit inside this audit's reach, so a rename or a move cannot silently
+	// take an input type out of it. The settings value the requests produce is
+	// internal, and is deliberately outside this assertion.
+	for _, request := range []string{
+		"RunRequest", "PreviewRequest", "SuggestRequest",
+		"CharacteriseRequest", "TodosRequest", "CurateRequest",
+	} {
+		if !audited[request] {
+			t.Errorf("the engine input %s is not an exported struct in package engine, "+
+				"so the seam-control audit does not cover it", request)
+		}
 	}
 }
 
-func auditExportedEngineTypes(t *testing.T, fset *token.FileSet, file *ast.File) {
+func auditExportedEngineTypes(t *testing.T, fset *token.FileSet, file *ast.File) map[string]bool {
 	t.Helper()
+
+	audited := map[string]bool{}
 
 	for _, declaration := range file.Decls {
 		general, ok := declaration.(*ast.GenDecl)
@@ -97,9 +116,12 @@ func auditExportedEngineTypes(t *testing.T, fset *token.FileSet, file *ast.File)
 			typeSpec, ok := specification.(*ast.TypeSpec)
 			if ok {
 				auditExportedEngineType(t, fset, typeSpec)
+				audited[typeSpec.Name.Name] = true
 			}
 		}
 	}
+
+	return audited
 }
 
 func auditExportedEngineType(t *testing.T, fset *token.FileSet, typeSpec *ast.TypeSpec) {

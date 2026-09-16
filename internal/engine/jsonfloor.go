@@ -93,7 +93,7 @@ func gatesInformedBy(class discovery.JSONClass) []string {
 //
 // The two gates are checked independently: authorising one never lifts the
 // other, because they authorise different risks.
-func (f jsonFloor) checkFloor(config Config) ([]string, error) {
+func (f jsonFloor) checkFloor(config config) ([]string, error) {
 	warnings := []string{}
 
 	gates := []struct {

@@ -56,7 +56,7 @@ type selection struct {
 func selectPopulation(
 	ctx context.Context,
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	mutants []report.Mutant,
 ) (selection, error) {
 	chosen := selection{
@@ -93,7 +93,7 @@ func selectPopulation(
 func applySince(
 	ctx context.Context,
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	mutants []report.Mutant,
 	chosen *selection,
 ) error {
@@ -347,7 +347,7 @@ func owningModule(configuration discovery.Configuration, path string) (string, b
 // applySample keeps a deterministic fraction of the currently selected
 // population: mutants ordered by a seeded hash of their identifier, the first
 // N% kept. The report labels the run non-authoritative.
-func applySample(settings Config, mutants []report.Mutant, chosen *selection) {
+func applySample(settings config, mutants []report.Mutant, chosen *selection) {
 	selectedIndexes := []int{}
 
 	for index := range mutants {
@@ -473,7 +473,7 @@ var ErrSampleRange = errors.New("--sample must be a percentage greater than 0 an
 // checkSampledGate refuses gates over a sampled population without the named
 // unsafe opt-in (the gate truth table's sampled row), and rejects a
 // percentage no sample can honour.
-func checkSampledGate(settings Config) error {
+func checkSampledGate(settings config) error {
 	if settings.HasSample &&
 		(settings.SamplePercent <= 0 || settings.SamplePercent > wholePercent) {
 		return fmt.Errorf("%w: %g", ErrSampleRange, settings.SamplePercent)

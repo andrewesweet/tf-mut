@@ -21,7 +21,7 @@ import (
 type executionPlan struct {
 	runner        tfexec.Runner
 	configuration discovery.Configuration
-	config        Config
+	config        config
 	prepared      warm
 	generated     []mutation.Mutant
 	described     []report.Mutant
@@ -87,7 +87,7 @@ func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []report
 }
 
 // timeoutBudget is max(factor × baseline, floor), per the milestone spec.
-func timeoutBudget(config Config, baseline time.Duration) time.Duration {
+func timeoutBudget(config config, baseline time.Duration) time.Duration {
 	scaled := time.Duration(float64(baseline) * config.TimeoutFactor)
 	if scaled < config.TimeoutFloor {
 		return config.TimeoutFloor

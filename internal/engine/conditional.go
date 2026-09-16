@@ -35,7 +35,7 @@ import (
 func conditionallyUncovered(
 	configuration discovery.Configuration,
 	graph *discovery.Graph,
-	settings Config,
+	settings config,
 	mutant mutation.Mutant,
 ) bool {
 	rootRel := configuration.RootRelative()
@@ -211,7 +211,7 @@ func retargetsRoot(configuration discovery.Configuration, source string) bool {
 // variable resolves.
 func evaluateMultiplicity(
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	run discovery.RunBlock,
 	expr hcl.Expression,
 ) (cty.Value, bool) {
@@ -337,7 +337,7 @@ func supportedOperation(operation *hclsyntax.Operation) bool {
 // would prove zero where Terraform instantiates the block (review of #47).
 func resolveVariable(
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	run discovery.RunBlock,
 	name string,
 ) (cty.Value, bool) {
@@ -470,7 +470,7 @@ func variableFileAttributes(path string) (map[string]hcl.Expression, error) {
 	return assignments, nil
 }
 
-func environmentOverrides(settings Config, name string) bool {
+func environmentOverrides(settings config, name string) bool {
 	key := "TF_VAR_" + name + "="
 
 	for _, entry := range settings.Env {

@@ -15,11 +15,11 @@ import (
 // Its callers are sequential for the hook's complete lifetime.
 func SetStaticShortcutsDisabled(t *testing.T, moduleDir string) {
 	t.Helper()
-	disableStaticShortcuts = func(settings Config) bool {
+	disableStaticShortcuts = func(settings config) bool {
 		return settings.ModuleDir == moduleDir
 	}
 	t.Cleanup(func() {
-		disableStaticShortcuts = func(Config) bool { return false }
+		disableStaticShortcuts = func(config) bool { return false }
 	})
 }
 
@@ -27,11 +27,11 @@ func SetStaticShortcutsDisabled(t *testing.T, moduleDir string) {
 // Its callers are sequential for the hook's complete lifetime.
 func SetJSONReadingDisabled(t *testing.T, moduleDir string) {
 	t.Helper()
-	disableJSONReading = func(settings Config) bool {
+	disableJSONReading = func(settings config) bool {
 		return settings.ModuleDir == moduleDir
 	}
 	t.Cleanup(func() {
-		disableJSONReading = func(Config) bool { return false }
+		disableJSONReading = func(config) bool { return false }
 	})
 }
 
@@ -39,7 +39,7 @@ func SetJSONReadingDisabled(t *testing.T, moduleDir string) {
 // for one module. Its callers are sequential for the hook's complete lifetime.
 func SetSuggestionDefectSeed(t *testing.T, moduleDir string, defect suggest.Defect) {
 	t.Helper()
-	seedSuggestionDefect = func(settings Config) suggest.Defect {
+	seedSuggestionDefect = func(settings config) suggest.Defect {
 		if settings.ModuleDir != moduleDir {
 			return suggest.DefectNone
 		}
@@ -47,7 +47,7 @@ func SetSuggestionDefectSeed(t *testing.T, moduleDir string, defect suggest.Defe
 		return defect
 	}
 	t.Cleanup(func() {
-		seedSuggestionDefect = func(Config) suggest.Defect { return suggest.DefectNone }
+		seedSuggestionDefect = func(config) suggest.Defect { return suggest.DefectNone }
 	})
 }
 
@@ -105,7 +105,7 @@ func SetFinalPinDefectSeed(t *testing.T, moduleDir string) {
 // sequential for the hook's complete lifetime.
 func SetUntilDryRounds(t *testing.T, moduleDir string, rounds int) {
 	t.Helper()
-	seedUntilDryRounds = func(settings Config) int {
+	seedUntilDryRounds = func(settings config) int {
 		if settings.ModuleDir != moduleDir {
 			return 0
 		}
@@ -113,7 +113,7 @@ func SetUntilDryRounds(t *testing.T, moduleDir string, rounds int) {
 		return rounds
 	}
 	t.Cleanup(func() {
-		seedUntilDryRounds = func(Config) int { return 0 }
+		seedUntilDryRounds = func(config) int { return 0 }
 	})
 }
 

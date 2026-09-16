@@ -73,7 +73,7 @@ type cacheEntry struct {
 // --no-cache, or where the cache location cannot be used safely.
 func openCache(
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	prepared warm,
 	terraform tfexec.Version,
 ) *verdictCache {
@@ -120,7 +120,7 @@ func ensureCacheDir(dir string) bool {
 // cacheKey hashes every input that can reach a verdict.
 func cacheKey(
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	prepared warm,
 	terraform tfexec.Version,
 ) (string, error) {
@@ -157,7 +157,7 @@ func cacheKey(
 // footprints. What the probe is for is a change somebody *else* made.
 func InputClosureDigest(
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	prepared warm,
 	excluded map[string]bool,
 ) (string, error) {
@@ -218,7 +218,7 @@ func InputClosureDigest(
 func writeClosure(
 	write func(kind, name, value string),
 	configuration discovery.Configuration,
-	settings Config,
+	settings config,
 	prepared warm,
 	sources map[string][]byte,
 	excluded map[string]bool,
@@ -306,7 +306,7 @@ func writeClosure(
 // resolvedConfiguration serialises the settings that can change a verdict.
 // Jobs is deliberately absent: verdicts are proven independent of
 // parallelism, and a cache keyed on it would miss for no reason.
-func resolvedConfiguration(settings Config) string {
+func resolvedConfiguration(settings config) string {
 	return fmt.Sprintf("%s|%v|%v|%v|%s|%v|%v|%v|%v|%v",
 		settings.TestDirectory, settings.TimeoutFactor, settings.TimeoutFloor,
 		settings.AllowIncompleteScore, settings.Tier,
@@ -318,7 +318,7 @@ func resolvedConfiguration(settings Config) string {
 // plus the run's additions, sorted. Any provider can read any variable, so
 // no allowlist can be sound (re-review of #48): "any doubt is a miss" makes
 // the whole environment the key, and over-inclusion costs only misses.
-func relevantEnvironment(settings Config) []string {
+func relevantEnvironment(settings config) []string {
 	entries := append(append([]string{}, os.Environ()...), settings.Env...)
 
 	slices.Sort(entries)

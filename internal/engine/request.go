@@ -9,10 +9,37 @@ import (
 )
 
 // Request is the closed set of commands the engine performs. The unexported
-// method keeps the set closed: no package outside engine can add a command.
+// method keeps the set closed: no package outside engine can add a command,
+// and the request's type — not a flag on it — is the command. An inapplicable
+// combination of command and options is therefore not representable through
+// the seam at all.
 type Request interface{ isRequest() }
 
 var errInvalidRequest = errors.New("invalid engine request")
+
+// mode is the internal projection of the request type: which command the
+// settings serve. It is unexported, so nothing outside engine can name one —
+// the request types are the only writers, through the settings methods below,
+// and the pipeline's mode-dependent steps (the preview shortcuts, the suggest
+// leg, the curate posture) read it from there.
+type mode int
+
+const (
+	// gradeMode grades a population and reports its verdicts. It is the zero
+	// value, because a zero settings value has always meant an ordinary run.
+	gradeMode mode = iota
+	// previewMode describes a population without executing anything.
+	previewMode
+	// suggestMode grades, then generates and verifies assertions for the
+	// survivors.
+	suggestMode
+	// characteriseMode scaffolds, harvests and pins a first suite.
+	characteriseMode
+	// todosMode lists the open judgement points, running no Terraform.
+	todosMode
+	// curateMode grades a full population and reports redundancy.
+	curateMode
+)
 
 // Common carries the options shared by every engine command.
 type Common struct {
@@ -113,7 +140,6 @@ type CurateRequest struct {
 	NoCache bool
 }
 
-func (Config) isRequest()              {}
 func (RunRequest) isRequest()          {}
 func (PreviewRequest) isRequest()      {}
 func (SuggestRequest) isRequest()      {}
@@ -121,130 +147,132 @@ func (CharacteriseRequest) isRequest() {}
 func (TodosRequest) isRequest()        {}
 func (CurateRequest) isRequest()       {}
 
-func configFor(request Request) (Config, error) {
+// settingsFor validates the request and produces the settings value its type
+// names. This is the one route from the closed request set to the internal
+// settings, so the mode the pipeline reads can never disagree with the type
+// the caller passed.
+func settingsFor(request Request) (config, error) {
 	switch typed := request.(type) {
 	case nil:
-		return Config{}, fmt.Errorf("%w: request must not be nil", errInvalidRequest)
-	case Config:
-		return typed, nil
-	case *Config:
-		if typed == nil {
-			return Config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
-		}
-
-		return *typed, nil
+		return config{}, fmt.Errorf("%w: request must not be nil", errInvalidRequest)
 	case RunRequest:
-		return typed.config(), nil
+		return typed.settings(), nil
 	case *RunRequest:
 		if typed == nil {
-			return Config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+			return config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
 		}
 
-		return typed.config(), nil
+		return typed.settings(), nil
 	case PreviewRequest:
-		return typed.config(), nil
+		return typed.settings(), nil
 	case *PreviewRequest:
 		if typed == nil {
-			return Config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+			return config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
 		}
 
-		return typed.config(), nil
+		return typed.settings(), nil
 	case SuggestRequest:
-		return typed.config(), nil
+		return typed.settings(), nil
 	case *SuggestRequest:
 		if typed == nil {
-			return Config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+			return config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
 		}
 
-		return typed.config(), nil
+		return typed.settings(), nil
 	case CharacteriseRequest:
-		return typed.config(), nil
+		return typed.settings(), nil
 	case *CharacteriseRequest:
 		if typed == nil {
-			return Config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+			return config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
 		}
 
-		return typed.config(), nil
+		return typed.settings(), nil
 	case TodosRequest:
-		return typed.config(), nil
+		return typed.settings(), nil
 	case *TodosRequest:
 		if typed == nil {
-			return Config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+			return config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
 		}
 
-		return typed.config(), nil
+		return typed.settings(), nil
 	case CurateRequest:
-		return typed.config(), nil
+		return typed.settings(), nil
 	case *CurateRequest:
 		if typed == nil {
-			return Config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+			return config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
 		}
 
-		return typed.config(), nil
+		return typed.settings(), nil
 	default:
-		return Config{}, fmt.Errorf("%w: unsupported type %T", errInvalidRequest, request)
+		return config{}, fmt.Errorf("%w: unsupported type %T", errInvalidRequest, request)
 	}
 }
 
-func (r RunRequest) config() Config {
+func (r RunRequest) settings() config {
 	settings := commonConfig(r.Common)
 	settings = populationConfig(settings, r.Population)
 	settings = gateConfig(settings, r.Gate)
 	settings.NoCache = r.NoCache
+
 	return settings
 }
 
-func (r PreviewRequest) config() Config {
+func (r PreviewRequest) settings() config {
 	settings := commonConfig(r.Common)
 	settings = populationConfig(settings, r.Population)
-	settings.Preview = true
+	settings.mode = previewMode
+
 	return settings
 }
 
-func (r SuggestRequest) config() Config {
+func (r SuggestRequest) settings() config {
 	settings := commonConfig(r.Common)
 	settings = populationConfig(settings, r.Population)
 	settings = gateConfig(settings, r.Gate)
 	settings.NoCache = r.NoCache
-	settings.Suggest = true
+	settings.mode = suggestMode
 	settings.SuggestDryRun = r.DryRun
 	settings.SurvivorIDs = r.SurvivorIDs
 	settings.Apply = r.Apply
 	settings.ApplyAll = r.ApplyAll
+
 	return settings
 }
 
-func (r CharacteriseRequest) config() Config {
+func (r CharacteriseRequest) settings() config {
 	settings := commonConfig(r.Common)
-	settings.Characterise = true
+	settings.mode = characteriseMode
 	settings.PinRung = r.PinRung
 	settings.CharacteriseWrite = r.Write
 	settings.CharacteriseForce = r.Force
 	settings.UntilDry = r.UntilDry
 	settings.Resume = r.Resume
 	settings.Answers = r.Answers
+
 	return settings
 }
 
-func (r TodosRequest) config() Config {
+func (r TodosRequest) settings() config {
 	settings := commonConfig(r.Common)
-	settings.Todos = true
+	settings.mode = todosMode
 	settings.PinRung = r.PinRung
 	settings.Answers = r.Answers
 	settings.Resume = r.Resume
+
 	return settings
 }
 
-func (r CurateRequest) config() Config {
+func (r CurateRequest) settings() config {
 	settings := commonConfig(r.Common)
 	settings = gateConfig(settings, r.Gate)
 	settings.NoCache = r.NoCache
-	settings.Curate = true
+	settings.mode = curateMode
+
 	return settings
 }
 
-func commonConfig(c Common) Config {
-	settings := Config{}
+func commonConfig(c Common) config {
+	settings := config{}
 	settings.ModuleDir = c.ModuleDir
 	settings.TestDirectory = c.TestDirectory
 	settings.Jobs = c.Jobs
@@ -261,7 +289,7 @@ func commonConfig(c Common) Config {
 	return settings
 }
 
-func populationConfig(settings Config, p Population) Config {
+func populationConfig(settings config, p Population) config {
 	settings.TestSelection = p.TestSelection
 	settings.Tier = p.Tier
 	settings.IncludeOperators = p.IncludeOperators
@@ -273,10 +301,11 @@ func populationConfig(settings Config, p Population) Config {
 	settings.HasSample = p.HasSample
 	settings.SampleSeed = p.SampleSeed
 	settings.GeneratedFunctions = p.GeneratedFunctions
+
 	return settings
 }
 
-func gateConfig(settings Config, g Gate) Config {
+func gateConfig(settings config, g Gate) config {
 	settings.MinScore = g.MinScore
 	settings.HasMinScore = g.HasMinScore
 	settings.AllowIncompleteScore = g.AllowIncompleteScore
@@ -284,5 +313,6 @@ func gateConfig(settings Config, g Gate) Config {
 	settings.FailOnNew = g.FailOnNew
 	settings.WriteBaseline = g.WriteBaseline
 	settings.BaselinePath = g.BaselinePath
+
 	return settings
 }

@@ -14,7 +14,7 @@ import (
 // Both are decided statically from the parsed configuration, so a refusal is
 // guaranteed to happen before Terraform has evaluated a single resource — which
 // is the whole point of the provisioner gate.
-func checkSafety(configuration discovery.Configuration, config Config) ([]string, error) {
+func checkSafety(configuration discovery.Configuration, config config) ([]string, error) {
 	// The JSON safety floor comes first (M4.0). Both gates are decided from
 	// inventories that unread JSON makes incomplete, so a refusal that depended
 	// on those inventories would be a refusal the tool could not stand behind.

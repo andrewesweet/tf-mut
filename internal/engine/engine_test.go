@@ -50,7 +50,6 @@ func TestRunRefusesNilRequests(t *testing.T) {
 	}
 
 	assertRefused("nil interface", nil)
-	assertRefused("Config pointer", (*engine.Config)(nil))
 	assertRefused("RunRequest pointer", (*engine.RunRequest)(nil))
 	assertRefused("PreviewRequest pointer", (*engine.PreviewRequest)(nil))
 	assertRefused("SuggestRequest pointer", (*engine.SuggestRequest)(nil))

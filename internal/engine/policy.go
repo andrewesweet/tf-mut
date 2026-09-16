@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/andrewesweet/tf-mut/internal/config"
+	tfconfig "github.com/andrewesweet/tf-mut/internal/config"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/oracle"
@@ -29,8 +29,8 @@ const (
 
 // withConfiguration merges `.tf-mut.hcl` into the run's configuration, leaving
 // every scalar the caller set explicitly alone.
-func (c Config) withConfiguration(moduleDir string) (Config, config.File, error) {
-	file, err := config.Load(moduleDir)
+func (c config) withConfiguration(moduleDir string) (config, tfconfig.File, error) {
+	file, err := tfconfig.Load(moduleDir)
 	if err != nil {
 		return c, file, err
 	}
@@ -65,7 +65,7 @@ func (c Config) withConfiguration(moduleDir string) (Config, config.File, error)
 	if file.Operators.Tier != "" && !c.overridden(FlagTier) {
 		c.Tier = mutation.Tier(file.Operators.Tier)
 		if !c.Tier.Valid() {
-			return c, file, fmt.Errorf("%w: %s is not a tier", config.ErrConfig, file.Operators.Tier)
+			return c, file, fmt.Errorf("%w: %s is not a tier", tfconfig.ErrConfig, file.Operators.Tier)
 		}
 	}
 
@@ -75,7 +75,7 @@ func (c Config) withConfiguration(moduleDir string) (Config, config.File, error)
 	return c, file, nil
 }
 
-func (c Config) overridden(flag string) bool {
+func (c config) overridden(flag string) bool {
 	return slices.Contains(c.SetFlags, flag)
 }
 
@@ -92,7 +92,7 @@ func (c Config) overridden(flag string) bool {
 // the first matching mutant would have seen.
 func suppress(
 	configuration discovery.Configuration,
-	exclude config.Exclude,
+	exclude tfconfig.Exclude,
 	described []report.Mutant,
 ) ([]report.Mutant, []report.Suppression, []string) {
 	directives := collectDirectives(configuration)
@@ -160,7 +160,7 @@ func suppress(
 // outcome itself is constructed once every directive has matched, in
 // suppress's second pass.
 func attachDirective(
-	directives []config.Directive,
+	directives []tfconfig.Directive,
 	applied map[int]*report.Suppression,
 	ignored map[int]bool,
 	described []report.Mutant,
@@ -196,7 +196,7 @@ func attachDirective(
 	}
 }
 
-func describeDirective(directive config.Directive) report.Suppression {
+func describeDirective(directive tfconfig.Directive) report.Suppression {
 	return report.Suppression{
 		Kind:      "comment",
 		Operators: directive.Operators,
@@ -212,7 +212,7 @@ func describeDirective(directive config.Directive) report.Suppression {
 	}
 }
 
-func excludedBy(exclude config.Exclude, mutant report.Mutant) (reason, kind string, excluded bool) {
+func excludedBy(exclude tfconfig.Exclude, mutant report.Mutant) (reason, kind string, excluded bool) {
 	if exclude.ExcludesPath(mutant.Range.File) {
 		return "excluded by a configured path", "config-path", true
 	}
@@ -256,8 +256,8 @@ func configured(described []report.Mutant) []report.Suppression {
 }
 
 // collectDirectives reads every module file's suppression comments.
-func collectDirectives(configuration discovery.Configuration) []config.Directive {
-	directives := []config.Directive{}
+func collectDirectives(configuration discovery.Configuration) []tfconfig.Directive {
+	directives := []tfconfig.Directive{}
 
 	for _, module := range configuration.Modules {
 		for _, path := range module.Files {
@@ -271,11 +271,11 @@ func collectDirectives(configuration discovery.Configuration) []config.Directive
 				rel = filepath.ToSlash(relative)
 			}
 
-			directives = append(directives, config.Directives(rel, content)...)
+			directives = append(directives, tfconfig.Directives(rel, content)...)
 		}
 	}
 
-	slices.SortFunc(directives, func(left, right config.Directive) int {
+	slices.SortFunc(directives, func(left, right tfconfig.Directive) int {
 		if left.File != right.File {
 			return strings.Compare(left.File, right.File)
 		}
