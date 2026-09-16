@@ -108,9 +108,11 @@ widened without amending this section.
    asserted through the engine seam.
 4. The M4 suggestion engine's three adapter matrices (`internal/suggest/adapters_test.go`)
    are exercised directly over canonical payload paths and published provider types, for
-   exception 1's own reason: they are contracts about documents and types, and the real
-   binary cannot be driven into each of the fifteen shapes on demand. Every adapter outcome
-   is still asserted through the engine seam (`internal/engine/suggest_test.go`).
+   exception 1's own reason: they are contracts about documents and the context-owned skip
+   reason (`suggest.SkipReason`), not the published `report.SuggestionStatus` the
+   application layer projects, and the real binary cannot be driven into each of the
+   fifteen shapes on demand. Every adapter outcome is still asserted through the engine
+   seam (`internal/engine/suggest_test.go`).
 5. `internal/characterise`'s validation-function table (`functions_test.go`) is exercised
    directly, for exception 1's own reason: it is a contract about *expressions* — eleven
    Terraform function semantics — and driving the real binary into producing each on demand
@@ -153,7 +155,7 @@ this repository contract.
 
 | Package | Responsibility |
 | --- | --- |
-| `internal/engine` | The seam. `Run(ctx, Request) (report.Report, error)` — the closed request set, the internal settings value it produces; version gate, safety gates, baseline, generation, execution, classification, findings; the projections from the oracle and characterisation contexts onto the report DTOs |
+| `internal/engine` | The seam. `Run(ctx, Request) (report.Report, error)` — the closed request set, the internal settings value it produces; version gate, safety gates, baseline, generation, execution, classification, findings; the projections from the oracle and characterisation contexts onto the report DTOs, whose status projection the totality table test holds complete in both directions |
 | `internal/discovery` | `hclsyntax` parsing of modules and `.tftest.hcl` files; the `..`-closure; provider and effect inventories; reference forms. The boundary publishes a representation-neutral expression contract: `Attribute.Expr` and `Validation.Condition` are `hcl.Expression`, and `NativeExpression` is the one named route to native syntax, fail-closed |
 | `internal/mutation` | The operator catalogue and its applicability matrix. Tier 0 is applied through `hclwrite`; Tiers 1–3 rewrite byte ranges, so a mutant differs from the original only in the tokens its operator owns. Content-derived identifiers; deduplication; diffs |
 | `internal/fingerprint` | The oracle's arithmetic: canonical payload projection, the volatile mask, the masked delta. Decides what two runs can honestly be said to have in common, and never a verdict |
