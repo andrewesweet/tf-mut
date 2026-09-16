@@ -17,9 +17,10 @@ import (
 // artefact class rather than a placeholder inside a test file.
 
 const (
-	untestedTodoFixture   = "untested-todo"
-	untestedSecretFixture = "untested-secret-diagnostic"
-	untestedMinedFixture  = "untested-mined"
+	untestedTodoFixture     = "untested-todo"
+	untestedJSONTodoFixture = "untested-json-validation"
+	untestedSecretFixture   = "untested-secret-diagnostic"
+	untestedMinedFixture    = "untested-mined"
 
 	untestedSensitiveAnswerFixture = "untested-sensitive-answer"
 
@@ -190,6 +191,34 @@ func TestTodosListsTheOpenJudgementPointsWithTheirEvidence(t *testing.T) {
 
 	if len(todos[0].Attempted) == 0 {
 		t.Fatal("the listing names no attempted value")
+	}
+}
+
+// TestAJSONDeclaredValidationReachesTheTodoVerbatim holds the listing's
+// verbatim contract over a `.tf.json` declaration: the judgement point quotes
+// the condition as the author wrote it, in the file they wrote it in.
+func TestAJSONDeclaredValidationReachesTheTodoVerbatim(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedJSONTodoFixture)
+
+	request := todosRequest(t, module)
+	result, err := engine.Run(t.Context(), &request)
+	if err != nil {
+		t.Fatalf("todos: %v", err)
+	}
+
+	todos := result.Characterisation.Todos
+	if len(todos) != 1 {
+		t.Fatalf("listed %d judgement points, want one", len(todos))
+	}
+
+	if !strings.Contains(todos[0].Constraint, "length(var.name) > 20") {
+		t.Fatalf("the listing does not carry the JSON constraint verbatim: %q", todos[0].Constraint)
+	}
+
+	if !strings.HasSuffix(todos[0].Range.File, ".tf.json") {
+		t.Fatalf("the listing does not point at the JSON declaration: %+v", todos[0].Range)
 	}
 }
 

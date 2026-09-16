@@ -110,12 +110,17 @@ func characteriseModule(
 		return report.Report{}, err
 	}
 
+	sources, err := declarationSources(configuration)
+	if err != nil {
+		return report.Report{}, err
+	}
+
 	scaffold := seedNoEscalation(configuration, characterise.Plan(configuration, prepared.schemas,
 		characterise.Options{
 			Rung:       rung,
 			TestDirRel: configuration.TestDirRelative(),
 			Version:    settings.toolVersion(),
-			Sources:    prepared.sources,
+			Sources:    sources,
 			Answers:    answers,
 		}, characterise.Configurations(configuration)))
 
