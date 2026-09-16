@@ -431,10 +431,11 @@ var jsonVariableSchema = &hcl.BodySchema{
 // Each argument is published as the author wrote it. `Attribute.Expr` is the
 // representation-neutral contract, so the attribute carries its own JSON
 // expression — no re-render, no re-parse. A consumer that needs only an
-// evaluated expression reads it through the interface; the one consumer that
-// genuinely requires the tokens of a type constraint re-parses the
-// declaration at its own point of use, where a constraint that does not
-// re-parse fails closed for that consumer alone.
+// evaluated expression reads it through the interface; a consumer that
+// genuinely requires the tokens of a type constraint or a validation
+// condition re-parses the declaration at its own point of use, through
+// ReparsedNative, where a spelling that does not re-parse fails closed for
+// that consumer alone.
 func collectJSONVariable(module *Module, path, relative string, block *hcl.Block) error {
 	if len(block.Labels) != 1 {
 		return nil
