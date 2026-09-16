@@ -418,9 +418,7 @@ func (g Generator) generateCalls(module discovery.Module, sources map[string]sou
 			// Inputs for a required variable are kept: deleting one is exactly
 			// the statically invalid mutant the classifier must discard, and
 			// discarding it is a promised behaviour rather than wasted work.
-			// A JSON-declared variable gates nothing: reading the JSON that
-			// declares it must never add a mutant.
-			if variable, declared := child.VariableByName(name); !declared || variable.JSONDeclared {
+			if _, declared := nativeVariable(child, name); !declared {
 				continue
 			}
 

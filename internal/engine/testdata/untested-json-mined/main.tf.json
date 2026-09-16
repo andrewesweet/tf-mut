@@ -1,0 +1,25 @@
+{
+  "variable": {
+    "tier": {
+      "type": "string",
+      "validation": [
+        {
+          "condition": "${contains([\"bronze\", \"silver\", \"gold\"], var.tier)}",
+          "error_message": "tier must be one of the named tiers"
+        }
+      ]
+    }
+  },
+  "resource": {
+    "terraform_data": {
+      "network": {
+        "input": "${var.tier}"
+      }
+    }
+  },
+  "output": {
+    "network": {
+      "value": "${terraform_data.network.output}"
+    }
+  }
+}

@@ -1,6 +1,7 @@
 package characterise
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -95,7 +96,7 @@ func Synthesise(variable discovery.Block, sources map[string][]byte, answer stri
 	// validation quoted a constraint every attempted value passed — on the one
 	// surface whose whole worth is quoting the module's own words to the reader
 	// who has to satisfy them.
-	for _, candidate := range mined(variable) {
+	for _, candidate := range mined(variable, sources) {
 		attempt := check(result, candidate, FromValidation, variable, sources)
 		if attempt.Resolved() {
 			return attempt
@@ -330,29 +331,65 @@ func sourceText(validation discovery.Validation, sources map[string][]byte) stri
 // literal list, and equality with a literal. Everything else — regular
 // expressions, length bounds, `alltrue` over a comprehension — states a
 // property rather than a value, and mining a property is guessing.
-func mined(variable discovery.Block) []string {
+func mined(variable discovery.Block, sources map[string][]byte) []string {
 	candidates := make([]string, 0, len(variable.Validations))
 
 	for _, validation := range variable.Validations {
-		candidates = append(candidates, mineExpression(validation.Condition, variable.Name)...)
+		condition, readable := conditionSyntax(validation, sources)
+		if !readable {
+			continue
+		}
+
+		candidates = append(candidates, mineExpression(condition, variable.Name)...)
 	}
 
 	return candidates
 }
 
-// mineExpression needs native syntax — the forms it mines are the call's
-// argument structure and the comparison's operator, which only the concrete
-// nodes expose — and the condition arrives across the discovery boundary, so
-// the requirement is named through discovery.NativeExpression. An unreadable
-// condition mines nothing, which is the fail-closed direction: the variable
-// keeps its judgement point rather than gaining a guessed value.
-func mineExpression(expr hcl.Expression, name string) []string {
-	native, readable := discovery.NativeExpression(expr)
-	if !readable {
-		return nil
+// conditionSyntax resolves a validation condition to the expression tree the
+// miner walks: the declaration's own expression when it already is native
+// syntax, and the expression a `.tf.json` condition wraps in one
+// interpolation — Terraform's own `"${...}"` spelling — re-parsed from its
+// source at this point of use, the one consumer that genuinely requires the
+// tokens. A condition spelled any other way — a directive, more than one
+// interpolation — mines nothing, which is the fail-closed direction: the
+// variable keeps its judgement point rather than gaining a guessed value.
+func conditionSyntax(
+	validation discovery.Validation,
+	sources map[string][]byte,
+) (hclsyntax.Expression, bool) {
+	if native, readable := discovery.NativeExpression(validation.Condition); readable {
+		return native, true
 	}
 
-	switch typed := native.(type) {
+	var wrapped string
+	if json.Unmarshal([]byte(sourceText(validation, sources)), &wrapped) != nil {
+		return nil, false
+	}
+
+	inner, wrappedOnce := strings.CutPrefix(strings.TrimSpace(wrapped), "${")
+	if !wrappedOnce || !strings.HasSuffix(inner, "}") {
+		return nil, false
+	}
+
+	inner = strings.TrimSuffix(inner, "}")
+	if strings.Contains(inner, "${") || strings.Contains(inner, "%{") {
+		return nil, false
+	}
+
+	parsed, diagnostics := hclsyntax.ParseExpression([]byte(inner), validation.File, validation.Range.Start)
+	if diagnostics.HasErrors() {
+		return nil, false
+	}
+
+	return parsed, true
+}
+
+// mineExpression needs native syntax — the forms it mines are the call's
+// argument structure and the comparison's operator, which only the concrete
+// nodes expose.
+func mineExpression(expr hclsyntax.Expression, name string) []string {
+	switch typed := expr.(type) {
 	case *hclsyntax.FunctionCallExpr:
 		return mineContains(typed, name)
 	case *hclsyntax.BinaryOpExpr:

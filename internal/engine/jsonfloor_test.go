@@ -51,20 +51,21 @@ func floorPreviewRequest(t *testing.T, fixture string) engine.PreviewRequest {
 }
 
 const (
-	jsonProviderFixture      = "json-provider"
-	jsonProvisionerFixture   = "json-provisioner"
-	jsonTestMockFixture      = "json-test-mock"
-	jsonAutoVarFixture       = "json-autovar"
-	jsonMalformedFixture     = "json-malformed"
-	jsonMixedFixture         = "json-mixed"
-	jsonChildVariableFixture = "json-child-variable"
-	jsonProvidersFileName    = "providers.tf.json"
-	jsonEffectsFileName      = "effects.tf.json"
-	jsonTestFileName         = "tests/unit.tftest.json"
-	jsonMalformedFileName    = "broken.tf.json"
-	jsonAutoVarFileName      = "terraform.tfvars.json"
-	realInfrastructureFlag   = "--allow-real-infrastructure"
-	unsandboxedEffectsFlag   = "--allow-unsandboxed-effects"
+	jsonProviderFixture          = "json-provider"
+	jsonProvisionerFixture       = "json-provisioner"
+	jsonTestMockFixture          = "json-test-mock"
+	jsonAutoVarFixture           = "json-autovar"
+	jsonMalformedFixture         = "json-malformed"
+	jsonMixedFixture             = "json-mixed"
+	jsonChildVariableFixture     = "json-child-variable"
+	jsonSensitiveVariableFixture = "json-sensitive-variable"
+	jsonProvidersFileName        = "providers.tf.json"
+	jsonEffectsFileName          = "effects.tf.json"
+	jsonTestFileName             = "tests/unit.tftest.json"
+	jsonMalformedFileName        = "broken.tf.json"
+	jsonAutoVarFileName          = "terraform.tfvars.json"
+	realInfrastructureFlag       = "--allow-real-infrastructure"
+	unsandboxedEffectsFlag       = "--allow-unsandboxed-effects"
 )
 
 //nolint:paralleltest // owns package-global JSON-reading hook for its lifetime.

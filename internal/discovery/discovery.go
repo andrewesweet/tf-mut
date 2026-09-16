@@ -111,6 +111,21 @@ func NativeExpression(expr hcl.Expression) (hclsyntax.Expression, bool) {
 }
 
 // VariableByName returns the module's variable declaration of that name.
+// NativeVariables lists the variables declared in native syntax — the view
+// the mutation surface reads, so that reading a JSON declaration never adds
+// or removes a mutant.
+func (m Module) NativeVariables() []Block {
+	native := make([]Block, 0, len(m.Variables))
+
+	for _, variable := range m.Variables {
+		if !variable.JSONDeclared {
+			native = append(native, variable)
+		}
+	}
+
+	return native
+}
+
 func (m Module) VariableByName(name string) (Block, bool) {
 	for _, variable := range m.Variables {
 		if variable.Name == name {

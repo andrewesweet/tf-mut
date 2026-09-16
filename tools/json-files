@@ -12,6 +12,7 @@ docs/schema/sarif-2.1.0.json
 internal/engine/testdata/json-autovar/terraform.tfvars.json
 internal/engine/testdata/json-child-variable/child/variables.tf.json
 internal/engine/testdata/json-mixed/side.tf.json
+internal/engine/testdata/json-sensitive-variable/variables.tf.json
 internal/engine/testdata/json-module/calls.tf.json
 internal/engine/testdata/json-partial/good.tf.json
 internal/engine/testdata/json-provider/providers.tf.json
@@ -21,6 +22,7 @@ internal/engine/testdata/json-terraform-unmodelled/settings.tf.json
 internal/engine/testdata/json-test-mock/tests/unit.tftest.json
 internal/engine/testdata/json-unmodelled/future.tf.json
 internal/engine/testdata/suggest-json-target/tests/unit.tftest.json
+internal/engine/testdata/untested-json-mined/main.tf.json
 internal/engine/testdata/untested-json-type/main.tf.json
 internal/engine/testdata/untested-json-validation/main.tf.json
 internal/engine/testdata/untested-json-variable/main.tf.json

@@ -265,6 +265,35 @@ func TestAJSONDeclaredChildVariableAddsNoMutant(t *testing.T) {
 	}
 }
 
+// TestAJSONDeclaredSensitiveVariableRemovesNoMutant holds the promise where a
+// declaration would remove a mutant: a native output's sensitivity flip is
+// skipped when the variable it reads is declared sensitive, and a `.tf.json`
+// declaration must not turn reading that file into a removed `OutSensitiveFlip`
+// the unread closure still has.
+//
+//nolint:paralleltest // owns package-global JSON-reading hook for its lifetime.
+func TestAJSONDeclaredSensitiveVariableRemovesNoMutant(t *testing.T) {
+	read := previewRequest(t, copyFixture(t, jsonSensitiveVariableFixture))
+
+	unread := previewRequest(t, copyFixture(t, jsonSensitiveVariableFixture))
+	engine.SetJSONReadingDisabled(t, unread.ModuleDir)
+
+	withJSON, err := engine.Run(t.Context(), read)
+	if err != nil {
+		t.Fatalf("preview with JSON read: %v", err)
+	}
+
+	withoutJSON, err := engine.Run(t.Context(), unread)
+	if err != nil {
+		t.Fatalf("preview with JSON unread: %v", err)
+	}
+
+	if strings.Join(verdicts(withJSON), "\n") != strings.Join(verdicts(withoutJSON), "\n") {
+		t.Fatalf("reading the sensitive JSON variable changed the population:\nread:   %v\nunread: %v",
+			verdicts(withJSON), verdicts(withoutJSON))
+	}
+}
+
 func TestAChangedJSONConfigurationIsACacheKeyDimension(t *testing.T) {
 	t.Parallel()
 	requireProviderMirror(t)

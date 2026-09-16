@@ -17,10 +17,11 @@ import (
 // artefact class rather than a placeholder inside a test file.
 
 const (
-	untestedTodoFixture     = "untested-todo"
-	untestedJSONTodoFixture = "untested-json-validation"
-	untestedSecretFixture   = "untested-secret-diagnostic"
-	untestedMinedFixture    = "untested-mined"
+	untestedTodoFixture      = "untested-todo"
+	untestedJSONTodoFixture  = "untested-json-validation"
+	untestedSecretFixture    = "untested-secret-diagnostic"
+	untestedMinedFixture     = "untested-mined"
+	untestedJSONMinedFixture = "untested-json-mined"
 
 	untestedSensitiveAnswerFixture = "untested-sensitive-answer"
 
@@ -191,6 +192,48 @@ func TestTodosListsTheOpenJudgementPointsWithTheirEvidence(t *testing.T) {
 
 	if len(todos[0].Attempted) == 0 {
 		t.Fatal("the listing names no attempted value")
+	}
+}
+
+// TestAJSONDeclaredValidationIsMinedAsANativeOneIs holds the mined rung over a
+// `.tf.json` declaration: the `"${contains([...], var.tier)}"` spelling names
+// the legal values as outright as the native one does, and the miner reads
+// them from the re-parsed interpolation at its own point of use rather than
+// failing closed into a judgement point the native declaration never raises.
+func TestAJSONDeclaredValidationIsMinedAsANativeOneIs(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedJSONMinedFixture)
+
+	result, err := engine.Run(t.Context(), characteriseRequest(t, module))
+	if err != nil {
+		t.Fatalf("characterise: %v", err)
+	}
+
+	block := result.Characterisation
+	if block.OpenTodos() != 0 {
+		t.Fatalf("a minable JSON constraint still produced a judgement point: %+v", block.Todos)
+	}
+
+	mined := false
+
+	for _, scenario := range block.Scenarios {
+		for _, input := range scenario.Inputs {
+			if input.Name != "tier" {
+				continue
+			}
+
+			if input.Provenance != report.FromValidation || input.Expression != `"bronze"` {
+				t.Fatalf("tier resolved by %s as %s, want the first legal value the JSON constraint names",
+					input.Provenance, input.Expression)
+			}
+
+			mined = true
+		}
+	}
+
+	if !mined {
+		t.Fatal("no scenario carried the mined assignment")
 	}
 }
 
