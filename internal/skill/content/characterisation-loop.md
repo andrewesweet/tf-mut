@@ -105,7 +105,10 @@ are yours to write and yours to maintain.
   scenario.
 - **A partial population for `curate` or `--until-dry`.** A redundancy finding
   or a convergence claim drawn from a scoped or sampled run is a false one.
-  This refusal has **no opt-in**: drop the count lever and run again.
+  This refusal has **no opt-in**: drop the count lever and run again. A run in
+  which any mutant timed out or failed to evaluate is refused for the same
+  reason — an unobserved mutant is not an absent one; raise `--timeout-factor`
+  or fix the error and run again.
 
 The first two have an opt-in flag — `--allow-real-infrastructure` and
 `--allow-unsandboxed-effects`. **Neither is yours to grant.** Report the
