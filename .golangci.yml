@@ -62,6 +62,14 @@ linters:
             - "**/internal/discovery/**"
             - "**/internal/tfexec/**"
             - "**/internal/sandbox/**"
+            # The last two contexts to enter the rule: the Suggestion and
+            # Characterisation contexts own their status vocabularies, and the
+            # application layer projects them onto the published DTOs. The
+            # package globs cover their test files too — there is no !$test
+            # escape hatch, so an adapter test cannot name a publication DTO
+            # any more than the adapters can.
+            - "**/internal/suggest/**"
+            - "**/internal/characterise/**"
           deny:
             - pkg: github.com/andrewesweet/tf-mut/internal/report
               desc: "Publication DTOs are an outer context; preserve the dependency direction in CONTEXT.md."
