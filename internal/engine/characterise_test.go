@@ -969,22 +969,23 @@ func TestAJSONDeclaredVariableReachesTheScaffold(t *testing.T) {
 	}
 }
 
-// TestAJSONDeclaredTypeConstraintReachesTheScaffold stages the JSON reading
-// change on the declaration the old reader could not re-parse: a `.tf.json`
-// validation whose condition is a template directive —
+// TestAJSONDeclaredDirectiveConditionReachesTheScaffold stages the JSON
+// reading change on the declaration the old reader could not re-parse: a
+// `.tf.json` validation whose condition is a template directive —
 // `%{ if ... }true%{ else }false%{ endif }` — which Terraform accepts and
 // enforces, and which is not native expression syntax. The reader publishes
-// the condition as the author wrote it; the static evaluator decides it
-// through `Value`, so the typed candidate is proven against it and the
-// variable reaches the scaffold rather than becoming a judgement point.
+// the condition as the author wrote it and the static evaluator decides it
+// through `Value`: `tags`, whose directive the typed candidate satisfies,
+// reaches the scaffold; `owner`, whose directive it fails, becomes the one
+// judgement point, quoting the directive verbatim with the candidate it
+// refused. A reader that dropped the directive rather than reading it would
+// let `owner` through unchecked, and the case would see no judgement point.
 //
-// Before the change the variable never reached the scaffold at all: the JSON
+// Before the change the variables never reached the scaffold at all: the JSON
 // reader dropped the decoded variable on the merge, the synthesiser had no
 // input to resolve, and the generated suite died at plan time on "No value
 // for required variable" — a red scaffold, about a module the tool had read.
-// The re-parsing reader also dropped the directive condition rather than
-// reading it, so nothing the module said about `tags` was ever checked.
-func TestAJSONDeclaredTypeConstraintReachesTheScaffold(t *testing.T) {
+func TestAJSONDeclaredDirectiveConditionReachesTheScaffold(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, untestedJSONTypeFixture)
@@ -999,8 +1000,21 @@ func TestAJSONDeclaredTypeConstraintReachesTheScaffold(t *testing.T) {
 		t.Fatal("no characterisation block")
 	}
 
-	if open := block.OpenTodos(); open > 0 {
-		t.Fatalf("a read JSON-declared type constraint became a judgement point: %d open", open)
+	if len(block.Todos) != 1 || block.Todos[0].Status != report.TodoOpen {
+		t.Fatalf("the failed directive did not become the one judgement point: %+v", block.Todos)
+	}
+
+	todo := block.Todos[0]
+	if todo.Variable != "owner" {
+		t.Fatalf("the judgement point is over %s, want owner", todo.Variable)
+	}
+
+	if !strings.Contains(todo.Constraint, "%{ if length(var.owner) > 20 }") {
+		t.Fatalf("the judgement point does not quote the directive verbatim: %q", todo.Constraint)
+	}
+
+	if !slices.Contains(todo.Attempted, `"tfmut-placeholder"`) {
+		t.Fatalf("the directive was not decided against the typed candidate: %v", todo.Attempted)
 	}
 
 	assigned := false

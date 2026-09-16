@@ -57,6 +57,9 @@ internal/engine/testdata/json-autovar/main.tf
 internal/engine/testdata/json-autovar/tests/main.tftest.hcl
 internal/engine/testdata/json-malformed/main.tf
 internal/engine/testdata/json-malformed/tests/unit.tftest.hcl
+internal/engine/testdata/json-child-variable/child/main.tf
+internal/engine/testdata/json-child-variable/main.tf
+internal/engine/testdata/json-child-variable/tests/unit.tftest.hcl
 internal/engine/testdata/json-mixed/main.tf
 internal/engine/testdata/json-mixed/tests/unit.tftest.hcl
 internal/engine/testdata/json-module/child-effects/main.tf

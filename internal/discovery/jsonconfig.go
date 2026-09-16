@@ -446,12 +446,13 @@ func collectJSONVariable(module *Module, path, relative string, block *hcl.Block
 	}
 
 	discovered := Block{ //nolint:exhaustruct // a variable carries no type, address parts or meta-arguments.
-		Kind:      variableBlock,
-		Name:      block.Labels[0],
-		Address:   variableBlock + "." + block.Labels[0],
-		File:      path,
-		ModuleRel: relative,
-		DefRange:  block.DefRange,
+		Kind:         variableBlock,
+		Name:         block.Labels[0],
+		Address:      variableBlock + "." + block.Labels[0],
+		File:         path,
+		ModuleRel:    relative,
+		DefRange:     block.DefRange,
+		JSONDeclared: true,
 	}
 
 	for name, attribute := range content.Attributes {

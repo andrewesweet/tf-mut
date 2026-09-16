@@ -8,12 +8,21 @@
           "error_message": "tags must carry exactly one entry"
         }
       ]
+    },
+    "owner": {
+      "type": "string",
+      "validation": [
+        {
+          "condition": "%{ if length(var.owner) > 20 }true%{ else }false%{ endif }",
+          "error_message": "owner must be longer than twenty characters"
+        }
+      ]
     }
   },
   "resource": {
     "terraform_data": {
       "anchor": {
-        "input": "${join(\",\", var.tags)}"
+        "input": "${join(\",\", var.tags)}-${var.owner}"
       }
     }
   },

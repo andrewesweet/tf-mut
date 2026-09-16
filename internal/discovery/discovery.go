@@ -70,6 +70,10 @@ type Block struct {
 	// input it accepts — which makes them the one honest source a synthesised
 	// value can be mined from or checked against.
 	Validations []Validation
+	// JSONDeclared marks a variable declared in a `.tf.json` file. It reaches
+	// the inventories and the scaffold; it never gates a mutant, because
+	// reading JSON must not change the population.
+	JSONDeclared bool
 }
 
 // Validation is one validation block on a variable declaration.

@@ -453,8 +453,13 @@ func typedValue(variable discovery.Block) (string, bool) {
 	return synthesiseType(expr, 0)
 }
 
+// placeholderString is the synthesised value of an unconstrained string.
+const placeholderString = `"tfmut-placeholder"`
+
 // typeConstraint resolves a discovered `type` argument to the expression tree
-// synthesiseType walks.
+// synthesiseType walks: the declaration's own expression when it already is
+// native syntax, and the native expression its string value spells when it is
+// not.
 //
 // The walk needs native syntax — the forms it synthesises are the call's name
 // and arguments, which only the concrete nodes expose — and the type arrives
@@ -464,13 +469,6 @@ func typedValue(variable discovery.Block) (string, bool) {
 // walk genuinely requires happens here, at the point of use: a constraint
 // that does not re-parse fails closed for this rung alone, and every
 // evaluated-expression consumer of the same declaration reads it directly.
-
-// placeholderString is the synthesised value of an unconstrained string.
-const placeholderString = `"tfmut-placeholder"`
-
-// typeConstraint is typeConstraint's native resolution: the declaration's own
-// expression when it already is native syntax, and the native expression its
-// string value spells when it is not.
 func typeConstraint(attribute discovery.Attribute) (hcl.Expression, bool) {
 	if _, native := discovery.NativeExpression(attribute.Expr); native {
 		return attribute.Expr, true
