@@ -30,7 +30,10 @@ are #85's; the record disagrees with itself by one case there — #90's pull req
 127 passed and one skipped against the unchanged recipe — and this document does not
 resolve which count was taken how. The one addition to both recipes is
 `TestAJSONDeclaredDirectiveConditionReachesTheScaffold`, the case that gates the programme's
-one authorised behaviour change (§6). Every other `-run` pattern is byte-identical to the
+one authorised behaviour change (§6). The remaining three M4.5 cases are subtest growth,
+not new names: between the two points `TestAClosureChangeInsideTheRenameWindowIsCaught`
+became a three-case `t.Run` table (`change only`, `file only`, `file then change`), and
+`gotestsum` counts each subtest as a case. Every other `-run` pattern is byte-identical to the
 fixed point, and `TestTheHonestyGateNamesOnlyTestsThatExist`,
 `TestTheM3GateNamesOnlyTestsThatExist`, `TestTheM4GateNamesOnlyTestsThatExist` and
 `TestTheM45GateNamesOnlyTestsThatExist` passed on every landing without an edit to their
