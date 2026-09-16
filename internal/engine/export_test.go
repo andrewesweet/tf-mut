@@ -7,7 +7,6 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
-	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
 )
 
@@ -56,8 +55,8 @@ func SetSuggestionDefectSeed(t *testing.T, moduleDir string, defect suggest.Defe
 func SetMissingMockSeed(t *testing.T, moduleDir, missingConfiguration string) {
 	t.Helper()
 	seedMissingMock = func(configuration discovery.Configuration,
-		staged characterise.Scaffold,
-	) characterise.Scaffold {
+		staged characterise.SuitePlan,
+	) characterise.SuitePlan {
 		if configuration.ModuleDir != moduleDir || missingConfiguration == "" {
 			return staged
 		}
@@ -72,8 +71,8 @@ func SetMissingMockSeed(t *testing.T, moduleDir, missingConfiguration string) {
 	}
 	t.Cleanup(func() {
 		seedMissingMock = func(_ discovery.Configuration,
-			staged characterise.Scaffold,
-		) characterise.Scaffold {
+			staged characterise.SuitePlan,
+		) characterise.SuitePlan {
 			return staged
 		}
 	})
@@ -83,19 +82,20 @@ func SetMissingMockSeed(t *testing.T, moduleDir, missingConfiguration string) {
 // is sequential for the hook's complete lifetime.
 func SetFinalPinDefectSeed(t *testing.T, moduleDir string) {
 	t.Helper()
-	seedFinalPinDefect = func(configuration discovery.Configuration, pins []report.Pin) []report.Pin {
+	seedFinalPinDefect = func(configuration discovery.Configuration, pins []characterise.Pin) []characterise.Pin {
 		if configuration.ModuleDir != moduleDir || len(pins) == 0 {
 			return pins
 		}
 
 		defect := pins[0]
-		defect.ID = characterise.PinID(defect.Scenario, defect.Address, "seeded")
-		defect.Expression = defect.Address + ` == "tf-mut-seeded-final-pin-defect"`
 
-		return append(slices.Clone(pins), defect)
+		return append(slices.Clone(pins), characterise.Pinned(
+			defect.Scenario(), defect.Address(),
+			defect.Address()+` == "tf-mut-seeded-final-pin-defect"`, defect.Rung(),
+		))
 	}
 	t.Cleanup(func() {
-		seedFinalPinDefect = func(_ discovery.Configuration, pins []report.Pin) []report.Pin {
+		seedFinalPinDefect = func(_ discovery.Configuration, pins []characterise.Pin) []characterise.Pin {
 			return pins
 		}
 	})
@@ -121,19 +121,20 @@ func SetUntilDryRounds(t *testing.T, moduleDir string, rounds int) {
 // is sequential for the hook's complete lifetime.
 func SetInitialPinDefectSeed(t *testing.T, moduleDir string) {
 	t.Helper()
-	seedInitialPinDefect = func(configuration discovery.Configuration, pins []report.Pin) []report.Pin {
+	seedInitialPinDefect = func(configuration discovery.Configuration, pins []characterise.Pin) []characterise.Pin {
 		if configuration.ModuleDir != moduleDir || len(pins) == 0 {
 			return pins
 		}
 
 		defect := pins[0]
-		defect.ID = characterise.PinID(defect.Scenario, defect.Address, "seeded-initial")
-		defect.Expression = defect.Address + ` == "tf-mut-seeded-initial-pin-defect"`
 
-		return append(slices.Clone(pins), defect)
+		return append(slices.Clone(pins), characterise.Pinned(
+			defect.Scenario(), defect.Address(),
+			defect.Address()+` == "tf-mut-seeded-initial-pin-defect"`, defect.Rung(),
+		))
 	}
 	t.Cleanup(func() {
-		seedInitialPinDefect = func(_ discovery.Configuration, pins []report.Pin) []report.Pin {
+		seedInitialPinDefect = func(_ discovery.Configuration, pins []characterise.Pin) []characterise.Pin {
 			return pins
 		}
 	})
@@ -144,8 +145,8 @@ func SetInitialPinDefectSeed(t *testing.T, moduleDir string) {
 func SetNoEscalationSeed(t *testing.T, moduleDir string) {
 	t.Helper()
 	seedNoEscalation = func(configuration discovery.Configuration,
-		scaffold characterise.Scaffold,
-	) characterise.Scaffold {
+		scaffold characterise.SuitePlan,
+	) characterise.SuitePlan {
 		if configuration.ModuleDir != moduleDir {
 			return scaffold
 		}
@@ -158,8 +159,8 @@ func SetNoEscalationSeed(t *testing.T, moduleDir string) {
 	}
 	t.Cleanup(func() {
 		seedNoEscalation = func(_ discovery.Configuration,
-			scaffold characterise.Scaffold,
-		) characterise.Scaffold {
+			scaffold characterise.SuitePlan,
+		) characterise.SuitePlan {
 			return scaffold
 		}
 	})

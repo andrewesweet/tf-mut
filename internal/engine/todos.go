@@ -195,7 +195,7 @@ func listTodos(
 // evidence the transition demands is the verification leg that passed. Every
 // other point is carried through untouched.
 func promoted(
-	scaffold characterise.Scaffold,
+	scaffold characterise.SuitePlan,
 	verification characterise.Verification,
 ) []characterise.Todo {
 	todos := make([]characterise.Todo, len(scaffold.Todos))

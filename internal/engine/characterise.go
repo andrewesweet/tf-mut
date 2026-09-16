@@ -53,8 +53,8 @@ var ErrWriteRefused = errors.New("refusing to write the generated suite")
 //
 //nolint:gochecknoglobals // test seam, inert outside the suite.
 var seedMissingMock = func(_ discovery.Configuration,
-	staged characterise.Scaffold,
-) characterise.Scaffold {
+	staged characterise.SuitePlan,
+) characterise.SuitePlan {
 	return staged
 }
 
@@ -134,7 +134,9 @@ func characteriseModule(
 		prepared: prepared, workRoot: workRoot, terraform: version,
 	}
 
-	block, files, err := scaffoldSuite(ctx, runner, stage, scaffold)
+	var block report.Characterisation
+
+	pins, files, err := scaffoldSuite(ctx, runner, stage, scaffold, &block)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -150,7 +152,7 @@ func characteriseModule(
 	// evidence for it. What the loop genuinely cannot run over is a scaffold
 	// with an unresolved judgement point, because there is no executable suite.
 	if settings.UntilDry && unresolvedTodos(block.Todos) == 0 {
-		closed, refused, err := closeTheGap(ctx, runner, stage, &block, scaffold, answers)
+		closed, refused, err := closeTheGap(ctx, runner, stage, &block, scaffold, pins, answers)
 		if err != nil {
 			return report.Report{}, err
 		}
@@ -186,8 +188,8 @@ func characteriseModule(
 //
 //nolint:gochecknoglobals // test seam, inert outside the suite.
 var seedNoEscalation = func(_ discovery.Configuration,
-	scaffold characterise.Scaffold,
-) characterise.Scaffold {
+	scaffold characterise.SuitePlan,
+) characterise.SuitePlan {
 	return scaffold
 }
 
@@ -244,7 +246,7 @@ func characteriseInputs(
 // Tests replace it with the false pin needed to prove the verifier is load-bearing.
 //
 //nolint:gochecknoglobals // test seam, inert outside the suite.
-var seedFinalPinDefect = func(_ discovery.Configuration, pins []report.Pin) []report.Pin {
+var seedFinalPinDefect = func(_ discovery.Configuration, pins []characterise.Pin) []characterise.Pin {
 	return pins
 }
 
@@ -262,7 +264,8 @@ func closeTheGap(
 	runner tfexec.Runner,
 	stage staging,
 	block *report.Characterisation,
-	scaffold characterise.Scaffold,
+	scaffold characterise.SuitePlan,
+	pins []characterise.Pin,
 	answers map[string]string,
 ) ([]generated, []string, error) {
 	// A refused loop is a *reported* outcome and not a swallowed error: the
@@ -275,7 +278,13 @@ func closeTheGap(
 	// Terraform crash, a staging failure or a mutation-engine failure is an
 	// operational failure, and turning one into a warning plus an incomplete
 	// report exits 1 where the published contract says 2.
-	if err := untilDry(ctx, runner, stage, block, scaffold); err != nil {
+	// The scaffold record travels through the loop — rounds record into it —
+	// and on to promotion and the artefact, so every move runs through the
+	// context's constructors and transition.
+	scaffolds := newScaffoldSet()
+
+	updated, err := untilDry(ctx, runner, stage, block, scaffold, pins, scaffolds)
+	if err != nil {
 		if !errors.Is(err, ErrBaselineRed) {
 			return nil, nil, err
 		}
@@ -285,41 +294,46 @@ func closeTheGap(
 		return nil, []string{err.Error()}, nil
 	}
 
-	promoted, refusals := promoteScaffolds(ctx, runner, stage, block, scaffold, answers)
-
-	block.Pins = seedFinalPinDefect(stage.configuration, block.Pins)
+	promoted, refusals := promoteScaffolds(ctx, runner, stage, block, scaffold, answers, scaffolds)
 
 	// The final leg's evidence is not carried further: the judgement points
-	// were promoted on the leg above, and this leg re-proves the pin set the
-	// loop ended with.
-	if _, err := verifyScaffold(ctx, runner, stage, scaffold, block.Pins, "verify-final"); err != nil {
+	// and scaffolds were promoted on the legs above, and this leg re-proves
+	// the pin set the loop ended with.
+	pins = seedFinalPinDefect(stage.configuration, updated)
+	block.Pins = projectPins(pins)
+
+	if _, err := verifyScaffold(ctx, runner, stage, scaffold, pins, "verify-final"); err != nil {
 		return nil, nil, err
 	}
 
-	return append(append(pinnedFiles(scaffold, projectScenarios(scaffold.Scenarios), block.Pins),
+	return append(append(pinnedFiles(scaffold, scaffold.Scenarios, pins),
 		promoted...),
-		scaffoldArtefact(scaffold, block)...), refusals, nil
+		scaffoldArtefact(scaffold, scaffolds)...), refusals, nil
 }
 
 // seedInitialPinDefect is an inert test hook beside the initial verifier it drives.
 // Tests replace it with the false pin needed to prove the verifier is load-bearing.
 //
 //nolint:gochecknoglobals // test seam, inert outside the suite.
-var seedInitialPinDefect = func(_ discovery.Configuration, pins []report.Pin) []report.Pin {
+var seedInitialPinDefect = func(_ discovery.Configuration, pins []characterise.Pin) []characterise.Pin {
 	return pins
 }
 
-// scaffoldSuite harvests, pins and verifies the planned scaffold.
+// scaffoldSuite harvests, pins and verifies the planned scaffold, filling the
+// report block stage by stage and returning the context pins everything
+// downstream — the renderer, the verifier, the until-dry loop — continues
+// from.
 func scaffoldSuite(
 	ctx context.Context,
 	runner tfexec.Runner,
 	stage staging,
-	scaffold characterise.Scaffold,
-) (report.Characterisation, []generated, error) {
-	scenarios := projectScenarios(scaffold.Scenarios)
-	block := report.Characterisation{ //nolint:exhaustruct // filled in below, stage by stage.
+	scaffold characterise.SuitePlan,
+	block *report.Characterisation,
+) ([]characterise.Pin, []generated, error) {
+	*block = report.Characterisation{ //nolint:exhaustruct // filled in below, stage by stage.
 		Rung: string(scaffold.Rung), Complete: false,
-		Scenarios: scenarios, Pins: []report.Pin{}, Todos: projectTodos(scaffold.Todos),
+		Scenarios: projectScenarios(scaffold.Scenarios), Pins: []report.Pin{},
+		Todos: projectTodos(scaffold.Todos),
 		Files: []report.GeneratedFile{}, Staged: !stage.settings.CharacteriseWrite,
 	}
 
@@ -333,28 +347,38 @@ func scaffoldSuite(
 	// artefact is the editable surface, and promotion after verification is the
 	// only route from it into test content.
 	if openTodos(scaffold.Todos) > 0 {
-		files := artefactFiles(scaffold, scenarios, scaffold.Todos)
+		files := artefactFiles(scaffold, scaffold.Scenarios, scaffold.Todos)
 		block.Files = entriesOf(files)
 
-		return block, files, nil
+		return nil, files, nil
 	}
 
 	harvest, err := harvestScaffold(ctx, runner, stage, scaffold)
 	if err != nil {
-		return rejectAnswers(block, scaffold, err)
+		rejected, refused, failure := rejectAnswers(*block, scaffold, err)
+		*block = rejected
+
+		return nil, refused, failure
 	}
 
-	block.Pins = seedInitialPinDefect(
+	// The pins the context harvested are what everything downstream consumes:
+	// the renderer, the verifier and the defect-seeding hooks all read the
+	// context values, and the report block carries their projection.
+	pins := seedInitialPinDefect(
 		stage.configuration,
-		projectPins(characterise.PinHarvest(scaffold, stage.configuration, stage.prepared.schemas, harvest)),
+		characterise.PinHarvest(scaffold, stage.configuration, stage.prepared.schemas, harvest),
 	)
+	block.Pins = projectPins(pins)
 
-	files := pinnedFiles(scaffold, scenarios, block.Pins)
+	files := pinnedFiles(scaffold, scaffold.Scenarios, pins)
 	block.Files = entriesOf(files)
 
-	verification, err := verifyScaffold(ctx, runner, stage, scaffold, block.Pins, "verify")
+	verification, err := verifyScaffold(ctx, runner, stage, scaffold, pins, "verify")
 	if err != nil {
-		return rejectAnswers(block, scaffold, err)
+		rejected, refused, failure := rejectAnswers(*block, scaffold, err)
+		*block = rejected
+
+		return nil, refused, failure
 	}
 
 	// Promotion is what verification earns, and nothing else: an answer is
@@ -367,7 +391,7 @@ func scaffoldSuite(
 	// zero-output contract exists to prevent.
 	block.Complete = pinnedCount(block.Pins) > 0
 
-	return block, files, nil
+	return pins, files, nil
 }
 
 // openTodos counts the judgement points still awaiting an answer.
@@ -430,7 +454,7 @@ func pinnedCount(pins []report.Pin) int {
 // it.
 func rejectAnswers(
 	block report.Characterisation,
-	scaffold characterise.Scaffold,
+	scaffold characterise.SuitePlan,
 	failure error,
 ) (report.Characterisation, []generated, error) {
 	// Only a red suite is evidence about an answer. `harvestScaffold` and
@@ -469,7 +493,7 @@ func rejectAnswers(
 	}
 
 	block.Todos = projectTodos(todos)
-	files := artefactFiles(scaffold, projectScenarios(scaffold.Scenarios), todos)
+	files := artefactFiles(scaffold, scaffold.Scenarios, todos)
 	block.Pins = []report.Pin{}
 	block.Files = entriesOf(files)
 	block.Complete = false
@@ -480,8 +504,8 @@ func rejectAnswers(
 // artefactFiles renders the non-executable artefact for every scenario whose
 // inputs are not fully resolved.
 func artefactFiles(
-	scaffold characterise.Scaffold,
-	scenarios []report.Scenario,
+	scaffold characterise.SuitePlan,
+	scenarios []characterise.Scenario,
 	todos []characterise.Todo,
 ) []generated {
 	files := make([]generated, 0, len(scenarios))
@@ -491,7 +515,7 @@ func artefactFiles(
 		// and nothing in it is ever planned.
 		content := characterise.RenderArtefact(scaffold, scenario, todos)
 		files = append(files, generatedFile(
-			characterise.ArtefactFile(scaffold.Options.TestDirRel, scenario.Name),
+			characterise.ArtefactFile(scaffold.Options.TestDirRel, scenario.Name()),
 			content, content, false,
 		))
 	}
@@ -550,18 +574,11 @@ func entriesOf(files []generated) []report.GeneratedFile {
 
 // scaffoldArtefact renders the non-executable file the scaffolds live in.
 func scaffoldArtefact(
-	scaffold characterise.Scaffold,
-	block *report.Characterisation,
+	scaffold characterise.SuitePlan,
+	scaffolds *scaffoldSet,
 ) []generated {
 	// A promoted scaffold has left the artefact: it is test content now.
-	outstanding := []report.Scaffold{}
-
-	for _, entry := range block.Scaffolds {
-		if entry.Status == report.Scaffolded {
-			outstanding = append(outstanding, entry)
-		}
-	}
-
+	outstanding := scaffolds.scaffolded()
 	if len(outstanding) == 0 {
 		return nil
 	}
@@ -576,15 +593,15 @@ func scaffoldArtefact(
 
 // pinnedFiles renders the executable suite.
 func pinnedFiles(
-	scaffold characterise.Scaffold,
-	scenarios []report.Scenario,
-	pins []report.Pin,
+	scaffold characterise.SuitePlan,
+	scenarios []characterise.Scenario,
+	pins []characterise.Pin,
 ) []generated {
 	files := make([]generated, 0, len(scenarios))
 
 	for _, scenario := range scenarios {
-		one := []report.Scenario{scenario}
-		files = append(files, generatedFile(scenario.File,
+		one := []characterise.Scenario{scenario}
+		files = append(files, generatedFile(scenario.File(),
 			characterise.Render(scaffold, one, pins, characterise.Executable),
 			characterise.Render(scaffold, one, pins, characterise.Redacted), true))
 	}
@@ -603,7 +620,7 @@ func harvestScaffold(
 	ctx context.Context,
 	runner tfexec.Runner,
 	stage staging,
-	scaffold characterise.Scaffold,
+	scaffold characterise.SuitePlan,
 ) (characterise.Harvest, error) {
 	staged := stagedScaffold(stage.configuration, scaffold, nil)
 
@@ -650,23 +667,25 @@ var seedSharedFileOrder = func(discovery.Configuration) string { return "" }
 // keys buy.
 func stagedScaffold(
 	configuration discovery.Configuration,
-	scaffold characterise.Scaffold,
-	pins []report.Pin,
+	scaffold characterise.SuitePlan,
+	pins []characterise.Pin,
 ) map[string][]byte {
 	staged := map[string][]byte{}
 	sharedFileOrder := seedSharedFileOrder(configuration)
 
 	if sharedFileOrder == "" {
-		for _, scenario := range projectScenarios(scaffold.Scenarios) {
-			staged[stagedPath(configuration, scenario.File)] = characterise.Render(
-				scaffold, []report.Scenario{scenario}, pins, characterise.Executable,
+		for _, scenario := range scaffold.Scenarios {
+			staged[stagedPath(configuration, scenario.File())] = characterise.Render(
+				scaffold, []characterise.Scenario{scenario}, pins, characterise.Executable,
 			)
 		}
 
 		return staged
 	}
 
-	ordered := projectScenarios(scaffold.Scenarios)
+	// Cloned, not aliased: the order is the staged suite's, and reversing the
+	// plan's own slice would reorder the harvest points the report publishes.
+	ordered := slices.Clone(scaffold.Scenarios)
 	if sharedFileOrder == "reverse" {
 		slices.Reverse(ordered)
 	}
@@ -685,8 +704,8 @@ func verifyScaffold(
 	ctx context.Context,
 	runner tfexec.Runner,
 	stage staging,
-	scaffold characterise.Scaffold,
-	pins []report.Pin,
+	scaffold characterise.SuitePlan,
+	pins []characterise.Pin,
 	name string,
 ) (characterise.Verification, error) {
 	staged := stagedScaffold(stage.configuration, scaffold, pins)
@@ -778,7 +797,7 @@ func stagedPath(configuration discovery.Configuration, moduleRelative string) st
 // widen that grammar and this comment stops being true.
 func checkStagedSafety(
 	configuration discovery.Configuration,
-	staged characterise.Scaffold,
+	staged characterise.SuitePlan,
 	settings config,
 ) ([]string, error) {
 	warnings, err := floorOf(configuration).checkFloor(settings)
@@ -837,7 +856,7 @@ func checkStagedSafety(
 // writes none, or writes it under the wrong alias.
 func unmockedConfigurations(
 	configuration discovery.Configuration,
-	staged characterise.Scaffold,
+	staged characterise.SuitePlan,
 ) ([]string, error) {
 	rendered, err := discovery.MocksIn(characterise.RenderMocks(staged))
 	if err != nil {

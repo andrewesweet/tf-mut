@@ -121,11 +121,11 @@ type Options struct {
 	Answers map[string]string
 }
 
-// Scaffold is the planned suite: what would be written, and the entities the
+// SuitePlan is the planned suite: what would be written, and the entities the
 // report describes it with.
-type Scaffold struct {
+type SuitePlan struct {
 	// Scenarios are the harvest points, in deterministic order.
-	Scenarios []ScenarioPlan
+	Scenarios []Scenario
 	// Todos are the judgement points the deterministic pipeline could not
 	// resolve. A scenario with an open TODO is not executable, so the scaffold
 	// travels as a non-executable artefact until one is answered.
@@ -229,28 +229,45 @@ func PinID(scenario, address, expression string) string {
 	return Identify("pin-", scenario, address, expression)
 }
 
-// ScenarioPlan is one planned harvest point: its identity, its naming, and
-// the input assignments the synthesis pipeline resolved for it.
-//
-// It is the planning record the application layer projects onto the published
-// scenario DTO at the report boundary. The scenario lifecycle itself —
-// scaffolded, promoted — is a separate entity, and does not move into this
-// context here.
-type ScenarioPlan struct {
-	// ID is a hash over the module, the input assignment set and the state
-	// key. Two scenarios with the same inputs in the same module are the same
-	// scenario, whatever they are named.
-	ID   string
-	Name string
-	// StateKey isolates the scenario's Terraform state from every other
+// Scenario is one harvest point: its identity, its naming, and the input
+// assignments the synthesis pipeline resolved for it. Its fields are
+// unexported: a scenario exists only where the planner built one, so its
+// identity — a hash over the module, the input assignment set and the state
+// key — and its inputs are arithmetic and vocabulary this context owns, and
+// the application layer projects them onto the published scenario DTO at the
+// report boundary.
+type Scenario struct {
+	id string
+	// name names the scenario and, through the naming contract, its file and
+	// run block.
+	name string
+	// stateKey isolates the scenario's Terraform state from every other
 	// generated scenario, so its pins describe creates rather than updates.
-	StateKey string
-	// File is the generated test file, relative to the module directory.
-	File string
-	// Inputs are the assignments the run block carries, in the published
+	stateKey string
+	// file is the generated test file, relative to the module directory.
+	file string
+	// inputs are the assignments the run block carries, in the published
 	// (redacted) rendering.
-	Inputs []Input
+	inputs []Input
 }
+
+// ID returns a hash over the module, the input assignment set and the state
+// key. Two scenarios with the same inputs in the same module are the same
+// scenario, whatever they are named.
+func (s Scenario) ID() string { return s.id }
+
+// Name returns the scenario's name.
+func (s Scenario) Name() string { return s.name }
+
+// StateKey returns the isolated state the scenario's runs write.
+func (s Scenario) StateKey() string { return s.stateKey }
+
+// File returns the generated test file, relative to the module directory.
+func (s Scenario) File() string { return s.file }
+
+// Inputs returns the assignments the run block carries, in the published
+// (redacted) rendering.
+func (s Scenario) Inputs() []Input { return s.inputs }
 
 // scenarioID is a hash over the module, the input assignment set and the
 // state key: two scenarios with the same inputs in the same module are the

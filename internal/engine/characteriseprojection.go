@@ -14,26 +14,23 @@ import (
 // — the context publishes the marker in place of the value, and the report
 // carries what it is given.
 //
-// The scenario projection is the interim half: the scenario lifecycle itself
-// moves into the context with #108, and until then the planned scenario
-// (identity, naming, state key, published inputs) is what the engine projects.
+// projectScenarios maps the context's harvest points onto the published
+// scenario DTOs, field for field: identity, naming, state key and published
+// inputs are the context's arithmetic, and this is where they are spelled.
+func projectScenarios(scenarios []characterise.Scenario) []report.Scenario {
+	projected := make([]report.Scenario, 0, len(scenarios))
 
-// projectScenarios maps the planned harvest points onto the published
-// scenario DTOs, field for field.
-func projectScenarios(plans []characterise.ScenarioPlan) []report.Scenario {
-	scenarios := make([]report.Scenario, 0, len(plans))
-
-	for _, plan := range plans {
-		scenarios = append(scenarios, report.Scenario{
-			ID:       plan.ID,
-			Name:     plan.Name,
-			StateKey: plan.StateKey,
-			File:     plan.File,
-			Inputs:   projectInputs(plan.Inputs),
+	for _, scenario := range scenarios {
+		projected = append(projected, report.Scenario{
+			ID:       scenario.ID(),
+			Name:     scenario.Name(),
+			StateKey: scenario.StateKey(),
+			File:     scenario.File(),
+			Inputs:   projectInputs(scenario.Inputs()),
 		})
 	}
 
-	return scenarios
+	return projected
 }
 
 // projectInputs maps the context's inputs onto the published DTO. The
@@ -122,6 +119,47 @@ func projectPinSkipReason(reason characterise.SkipReason) report.PinStatus {
 		return report.PinSkippedVolatile
 	case characterise.SkipMockInvented:
 		return report.PinSkippedMockInvented
+	}
+
+	return ""
+}
+
+// projectScaffolds maps the context's scaffolds onto the published DTOs, in
+// the order the context's record carries.
+func projectScaffolds(scaffolds []characterise.Scaffold) []report.Scaffold {
+	projected := make([]report.Scaffold, 0, len(scaffolds))
+
+	for _, scaffold := range scaffolds {
+		projected = append(projected, projectScaffold(scaffold))
+	}
+
+	return projected
+}
+
+// projectScaffold maps one construct scaffold onto the published DTO. A
+// promoted scaffold carries no artefact — the context cleared it at the
+// transition — and the DTO's omitempty spelling falls out of that.
+func projectScaffold(scaffold characterise.Scaffold) report.Scaffold {
+	return report.Scaffold{
+		ID:       scaffold.ID(),
+		Kind:     scaffold.Kind(),
+		Address:  scaffold.Address(),
+		Status:   projectScaffoldStatus(scaffold.Status()),
+		Artefact: scaffold.Artefact(),
+	}
+}
+
+// projectScaffoldStatus translates the Characterisation context's scaffold
+// state vocabulary into the published wire spelling. It is exhaustive over the
+// context's closed set; the states are reachable only through the constructors
+// and the transition, so a state the context gains is a compile-time demand on
+// this table.
+func projectScaffoldStatus(status characterise.ScaffoldStatus) report.ScaffoldStatus {
+	switch status {
+	case characterise.StatusScaffolded:
+		return report.Scaffolded
+	case characterise.StatusPromoted:
+		return report.ScaffoldPromoted
 	}
 
 	return ""

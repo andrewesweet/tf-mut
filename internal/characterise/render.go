@@ -9,8 +9,6 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
-
-	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
 // Redacted and Executable name the two renderings of one generated file.
@@ -32,14 +30,14 @@ const (
 // renderer then produces the pinned file, so the bytes that were verified and
 // the bytes that are written are one sequence.
 func Render(
-	scaffold Scaffold,
-	scenarios []report.Scenario,
-	pins []report.Pin,
+	scaffold SuitePlan,
+	scenarios []Scenario,
+	pins []Pin,
 	redacted bool,
 ) []byte {
 	names := make([]string, 0, len(scenarios))
 	for _, scenario := range scenarios {
-		names = append(names, scenario.Name)
+		names = append(names, scenario.Name())
 	}
 
 	builder := strings.Builder{}
@@ -51,7 +49,7 @@ func Render(
 	}
 
 	for _, scenario := range scenarios {
-		values := scaffold.Values[scenario.ID]
+		values := scaffold.Values[scenario.ID()]
 		if redacted {
 			values = nil
 		}
@@ -69,7 +67,7 @@ func Render(
 // produces rather than the plan that produced them: what a scaffold *intends*
 // to mock is the set discovery found, and comparing that set with itself can
 // never separate them. The gate parses this instead.
-func RenderMocks(scaffold Scaffold) []byte {
+func RenderMocks(scaffold SuitePlan) []byte {
 	builder := strings.Builder{}
 
 	for _, mock := range scaffold.Mocks {
@@ -129,36 +127,36 @@ func renderDefaults(builder *strings.Builder, block string, defaults MockDefault
 // marker.
 func renderRun(
 	builder *strings.Builder,
-	scenario report.Scenario,
+	scenario Scenario,
 	values map[string]string,
-	pins []report.Pin,
+	pins []Pin,
 ) {
-	builder.WriteString(`run "` + RunPrefix + scenario.Name + `" {` + "\n")
+	builder.WriteString(`run "` + RunPrefix + scenario.Name() + `" {` + "\n")
 	builder.WriteString("  command   = apply\n")
-	builder.WriteString(`  state_key = "` + scenario.StateKey + `"` + "\n")
+	builder.WriteString(`  state_key = "` + scenario.StateKey() + `"` + "\n")
 
-	if len(scenario.Inputs) > 0 {
+	if len(scenario.Inputs()) > 0 {
 		builder.WriteString("\n  variables {\n")
 
 		width := 0
-		for _, input := range scenario.Inputs {
-			width = max(width, len(input.Name))
+		for _, input := range scenario.Inputs() {
+			width = max(width, len(input.Name()))
 		}
 
-		for _, input := range scenario.Inputs {
-			assignment := input.Expression
-			if executable, found := values[input.Name]; found {
+		for _, input := range scenario.Inputs() {
+			assignment := input.Expression()
+			if executable, found := values[input.Name()]; found {
 				assignment = executable
 			}
 
-			builder.WriteString("    " + pad(input.Name, width) + " = " + assignment + "\n")
+			builder.WriteString("    " + pad(input.Name(), width) + " = " + assignment + "\n")
 		}
 
 		builder.WriteString("  }\n")
 	}
 
 	for _, pin := range pins {
-		if pin.Status != report.Pinned || pin.Scenario != scenario.ID {
+		if !pin.IsPinned() || pin.Scenario() != scenario.ID() {
 			continue
 		}
 
@@ -169,9 +167,9 @@ func renderRun(
 		// every string-keyed instance was uncharacterisable at the configured
 		// rung while the assertion expression beside it was perfectly valid.
 		builder.WriteString("\n  assert {\n")
-		builder.WriteString("    condition     = " + pin.Expression + "\n")
+		builder.WriteString("    condition     = " + pin.Expression() + "\n")
 		builder.WriteString("    error_message = " +
-			renderValue(cty.StringVal("characterised "+pin.Address+" changed")) + "\n")
+			renderValue(cty.StringVal("characterised "+pin.Address()+" changed")) + "\n")
 		builder.WriteString("  }\n")
 	}
 
@@ -185,9 +183,9 @@ func renderRun(
 // what lets three contracts hold at once — a TODO fails loudly, the suite on
 // disk is green by construction, and the file an agent edits is the file the
 // resume reads.
-func RenderArtefact(scaffold Scaffold, scenario report.Scenario, todos []Todo) []byte {
+func RenderArtefact(scaffold SuitePlan, scenario Scenario, todos []Todo) []byte {
 	builder := strings.Builder{}
-	builder.WriteString(GeneratedHeader(scaffold.Options.Version, scenario.Name))
+	builder.WriteString(GeneratedHeader(scaffold.Options.Version, scenario.Name()))
 	builder.WriteString(strings.Join([]string{
 		"#",
 		"# This file is NOT executable. `terraform test` never reads it.",
@@ -239,7 +237,7 @@ func oneLine(text string) string {
 // verified, so it stays outside the suite until that check exists and has been
 // proven — which is the whole reason skeleton generation was moved out of a
 // milestone that would have shipped it as test content.
-func RenderScaffolds(scaffold Scaffold, scaffolds []report.Scaffold) []byte {
+func RenderScaffolds(scaffold SuitePlan, scaffolds []Scaffold) []byte {
 	builder := strings.Builder{}
 	builder.WriteString(GeneratedHeader(scaffold.Options.Version, "scaffolds"))
 	builder.WriteString(strings.Join([]string{
@@ -252,13 +250,13 @@ func RenderScaffolds(scaffold Scaffold, scaffolds []report.Scaffold) []byte {
 	}, "\n"))
 
 	for _, entry := range scaffolds {
-		builder.WriteString("\nscaffold " + `"` + entry.ID + `" {` + "\n")
-		builder.WriteString("  kind    = \"" + entry.Kind + "\"\n")
-		builder.WriteString("  address = \"" + entry.Address + "\"\n")
+		builder.WriteString("\nscaffold " + `"` + entry.ID() + `" {` + "\n")
+		builder.WriteString("  kind    = \"" + entry.Kind() + "\"\n")
+		builder.WriteString("  address = \"" + entry.Address() + "\"\n")
 		builder.WriteString("\n  # Proposed shape:\n")
-		builder.WriteString("  #   run \"expect_" + identifierOf(entry.Address) + "\" {\n")
+		builder.WriteString("  #   run \"expect_" + identifierOf(entry.Address()) + "\" {\n")
 		builder.WriteString("  #     command         = plan\n")
-		builder.WriteString("  #     expect_failures = [" + entry.Address + "]\n")
+		builder.WriteString("  #     expect_failures = [" + entry.Address() + "]\n")
 		builder.WriteString("  #   }\n")
 		builder.WriteString("}\n")
 	}
@@ -280,20 +278,20 @@ func identifierOf(address string) string {
 // happen is a failing run block, which is exactly what makes the verification
 // worth running.
 func RenderExpectFailures(
-	scaffold Scaffold,
-	entry report.Scaffold,
+	scaffold SuitePlan,
+	entry Scaffold,
 	checkable string,
 	variables map[string]string,
 ) []byte {
 	builder := strings.Builder{}
-	builder.WriteString(GeneratedHeader(scaffold.Options.Version, entry.ID))
+	builder.WriteString(GeneratedHeader(scaffold.Options.Version, entry.ID()))
 
 	for _, mock := range scaffold.Mocks {
 		builder.WriteString("\n")
 		renderMock(&builder, mock)
 	}
 
-	builder.WriteString("\nrun \"" + ExpectPrefix + identifierOf(entry.Address) + "\" {\n")
+	builder.WriteString("\nrun \"" + ExpectPrefix + identifierOf(entry.Address()) + "\" {\n")
 	builder.WriteString("  command = plan\n")
 
 	names := make([]string, 0, len(variables))
