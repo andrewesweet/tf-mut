@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -65,6 +66,14 @@ const (
 	// censusRootTestRoot is the manifest's test-root value for a suite
 	// colocated with the module subdirectory.
 	censusRootTestRoot = "root"
+)
+
+// errFetchStatus and errDigestMismatch are the fetch stage's two static
+// failures; each is wrapped with the module and the observed value so the
+// operational row's reason carries both.
+var (
+	errFetchStatus    = errors.New("unexpected HTTP status")
+	errDigestMismatch = errors.New("archive digest does not match the pin")
 )
 
 // benchmarkModule is one manifest entry.
@@ -418,7 +427,7 @@ func fetchPinnedRepository(t *testing.T, module benchmarkModule, cache string) (
 	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("fetching %s: %s", module.Name, response.Status)
+		return "", fmt.Errorf("fetching %s: %w: %s", module.Name, errFetchStatus, response.Status)
 	}
 
 	archive, err := io.ReadAll(response.Body)
@@ -428,8 +437,8 @@ func fetchPinnedRepository(t *testing.T, module benchmarkModule, cache string) (
 
 	sum := sha256.Sum256(archive)
 	if hex.EncodeToString(sum[:]) != module.SHA256 {
-		return "", fmt.Errorf("%s: digest %s does not match the pinned %s",
-			module.Name, hex.EncodeToString(sum[:]), module.SHA256)
+		return "", fmt.Errorf("%s: %w: got %s, pinned %s",
+			module.Name, errDigestMismatch, hex.EncodeToString(sum[:]), module.SHA256)
 	}
 
 	if err := os.MkdirAll(target, 0o750); err != nil {
