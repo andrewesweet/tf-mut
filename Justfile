@@ -152,7 +152,7 @@ gate-m5:
     mkdir -p "{{ artifact_dir }}/test"
     mise exec -- gotestsum --format testname --junitfile "{{ artifact_dir }}/test/gate-m5.xml" \
       --raw-command -- go test ./internal/engine/ ./cmd/tf-mut/ \
-      -json -count=1 -run '^(TestTheIgnoreDropWitnessKillsThroughTheSeam|TestTheIgnoreAllWitnessKillsThroughTheSeam|TestTheReplaceTriggerWitnessKillsThroughTheSeam|TestEveryAdmittedLifecycleOperatorHasASiteInTheOfflineFixture|TestALifecycleMutantWithAnIdenticalFingerprintIsStructurallyUnassertable|TestModuleLevelNoCoverageKeepsItsPrecedenceOverALifecycleMutant|TestConditionalNoCoverageKeepsItsPrecedenceOverALifecycleMutant|TestDeepIncludesStandardAndStandardExcludesTheLifecycleOperators|TestThePseudoTestedCountStaysOverTheExtremeTier|TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperators|TestEveryEnabledOperatorHasAGenerationSite|TestEveryEnabledOperatorHasAMatrixRow|TestEveryMatrixRowNamesAnEnabledOperator|TestTheMatrixFixtureGeneratesOnlyParseableMutants|TestAUserPackGeneratesClassifiesAndSuggestsThroughTheSeam|TestOriginsNameThePackEntryOnACollapsedBooleanFlip|TestDisablingOriginAggregationTurnsTheOriginsCaseRed|TestReversingOwnershipLosesNoContributor|TestEveryPackContractRowIsRefusedByName|TestAnUnsupportedAttributeFormIsANoOpInThePackSummary|TestSchemaEvidenceRefusesAnUndescribedAttribute|TestATypeIncompatibleReplacementFindsNoSite|TestFlagAndConfiguredPacksMergeAsAUnion|TestAConfiguredPackSelectionIsRefusedOnCurateAndUntilDry|TestALanguageOperatorOwnsARowAPackEntryAlsoProduces|TestThePackFlagIsRefusedByNameOnCharacteriseTodosAndCurate|TestPacksAreWiredThroughTheCommandLine|TestAnEditedUserPackIsACacheMiss|TestAStaleVerifiedPackSuggestionIsRefused|TestAChangedPackFileForcesTheFullPopulationUnderSince|TestAChangedPackOutsideTheClosureForcesTheFullPopulationUnderSince|TestNoPackEntersTheStandardPopulation|TestEveryPackOperatorHasASiteInTheOfflineFixture|TestARealPackReportValidatesAgainstThePublishedSchema|TestTheOpportunityCensusClassifiesUndecidableConstraints|TestTheOpportunityCensusClassifiesRefusedTypedCandidates|TestTheOpportunityCensusClassifiesMissingTypedCandidates|TestTheOpportunityCensusWithholdsRedactedEvidence|TestTheCensusDenominatorCountsJSONDeclaredVariables|TestAnEmptyJSONStratumIsPublishedAsUnmeasured|TestTheMinedCountsSplitByStratum|TestTheCensusReadingIsInternallyConsistent)$'
+      -json -count=1 -run '^(TestTheIgnoreDropWitnessKillsThroughTheSeam|TestTheIgnoreAllWitnessKillsThroughTheSeam|TestTheReplaceTriggerWitnessKillsThroughTheSeam|TestEveryAdmittedLifecycleOperatorHasASiteInTheOfflineFixture|TestALifecycleMutantWithAnIdenticalFingerprintIsStructurallyUnassertable|TestModuleLevelNoCoverageKeepsItsPrecedenceOverALifecycleMutant|TestConditionalNoCoverageKeepsItsPrecedenceOverALifecycleMutant|TestDeepIncludesStandardAndStandardExcludesTheLifecycleOperators|TestThePseudoTestedCountStaysOverTheExtremeTier|TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperators|TestEveryEnabledOperatorHasAGenerationSite|TestEveryEnabledOperatorHasAMatrixRow|TestEveryMatrixRowNamesAnEnabledOperator|TestTheMatrixFixtureGeneratesOnlyParseableMutants|TestAUserPackGeneratesClassifiesAndSuggestsThroughTheSeam|TestOriginsNameThePackEntryOnACollapsedBooleanFlip|TestDisablingOriginAggregationTurnsTheOriginsCaseRed|TestReversingOwnershipLosesNoContributor|TestEveryPackContractRowIsRefusedByName|TestAnUnsupportedAttributeFormIsANoOpInThePackSummary|TestSchemaEvidenceRefusesAnUndescribedAttribute|TestATypeIncompatibleReplacementFindsNoSite|TestFlagAndConfiguredPacksMergeAsAUnion|TestAConfiguredPackSelectionIsRefusedOnCurateAndUntilDry|TestALanguageOperatorOwnsARowAPackEntryAlsoProduces|TestThePackFlagIsRefusedByNameOnCharacteriseTodosAndCurate|TestPacksAreWiredThroughTheCommandLine|TestAnEditedUserPackIsACacheMiss|TestAStaleVerifiedPackSuggestionIsRefused|TestAChangedPackFileForcesTheFullPopulationUnderSince|TestAChangedPackOutsideTheClosureForcesTheFullPopulationUnderSince|TestNoPackEntersTheStandardPopulation|TestEveryPackOperatorHasASiteInTheOfflineFixture|TestARealPackReportValidatesAgainstThePublishedSchema|TestTheOpportunityCensusClassifiesUndecidableConstraints|TestTheOpportunityCensusClassifiesRefusedTypedCandidates|TestTheOpportunityCensusClassifiesMissingTypedCandidates|TestTheOpportunityCensusWithholdsRedactedEvidence|TestTheCensusDenominatorCountsJSONDeclaredVariables|TestAnEmptyJSONStratumIsPublishedAsUnmeasured|TestTheMinedCountsSplitByStratum|TestTheCensusReadingIsInternallyConsistent|TestTheRepairCandidateTableIsPinnedAndUsesTodoConstraints|TestTheRepairPrototypeMapsOnlyOneStructuredInputAndRetriesOnce|TestTheRepairPrototypeUsesTodosForLookupAndStructuredFieldsForMapping|TestARepairPrototypeGateRefusalInvokesOnlyVersion|TestASecretOnlyInARepairFailedAttemptReachesNoPublishedArtefact)$'
 
 # Run fixed-seed Go/property/corpus tests and offline real-Terraform fixtures.
 test: _test-go _test-terraform
@@ -185,12 +185,14 @@ test-race:
 # The M5-0.4 census belongs to measure-census: at 8h wall clock
 # (docs/research/17) it would blow this suite's default timeout. The M5-0.5a
 # opportunity census belongs to measure-opportunities for the same reason:
-# its wall clock is archive fetching, not Terraform (it runs none).
+# its wall clock is archive fetching, not Terraform (it runs none). The repair
+# prototype belongs to measure-repair because it stages real characterisation
+# scenarios over the pinned corpus.
 # Run opt-in integration-tag tests that may use credentials or real providers.
 test-integration:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mise exec -- gotestsum --format testname --raw-command -- \
-      go test ./... -json -count=1 -tags=integration -skip '^TestTheBenchmarkCorpusCensus$|^TestTheOpportunityCensusOverThePinnedCorpora$'
+      go test ./... -json -count=1 -tags=integration -skip '^TestTheBenchmarkCorpusCensus$|^TestTheOpportunityCensusOverThePinnedCorpora$|^TestTheRepairPrototypeOverThePinnedOpportunities$'
 
 # Measure the synthesis rate over the pinned public-module corpus (M4.5-0).
 measure-synthesis:
@@ -218,6 +220,15 @@ measure-opportunities:
     mkdir -p "{{ artifact_dir }}/measurement"
     mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
       -timeout 2h -run '^TestTheOpportunityCensusOverThePinnedCorpora$'
+
+# Run the M5-0.5b throwaway repair table over the 14 pinned opportunities.
+# Network-gated: the variable licenses archive fetching and nothing else —
+# each staged characterisation keeps both product safety opt-ins false.
+measure-repair:
+    test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
+    mkdir -p "{{ artifact_dir }}/measurement"
+    mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
+      -timeout 2h -run '^TestTheRepairPrototypeOverThePinnedOpportunities$'
 
 # Run opt-in realistically sized performance benchmarks.
 test-performance:

@@ -91,6 +91,14 @@ func TestTheM5GateCoversEveryNamedRequirement(t *testing.T) {
 		"empty JSON stratum unmeasured":      "TestAnEmptyJSONStratumIsPublishedAsUnmeasured",
 		"mined count splits by stratum":      "TestTheMinedCountsSplitByStratum",
 		"census reading is consistent":       "TestTheCensusReadingIsInternallyConsistent",
+
+		// M5-0.5b: the repair prototype's offline table, adapter and
+		// acceptance pairs. The live corpus run stays in measure-repair.
+		"repair table is pinned before execution":  "TestTheRepairCandidateTableIsPinnedAndUsesTodoConstraints",
+		"structured input mapping is fail-closed":  "TestTheRepairPrototypeMapsOnlyOneStructuredInputAndRetriesOnce",
+		"todo lookup differs from runtime mapping": "TestTheRepairPrototypeUsesTodosForLookupAndStructuredFieldsForMapping",
+		"repair refusal is version-only":           "TestARepairPrototypeGateRefusalInvokesOnlyVersion",
+		"failed repair attempts stay redacted":     "TestASecretOnlyInARepairFailedAttemptReachesNoPublishedArtefact",
 	}
 
 	assertGateCovers(t, "M5", m5GatedTests(t), required)
