@@ -16,7 +16,8 @@ Every operator obeys the same five rules.
    inspect in order to kill it. This is what powers the survivor diagnosis and the suggested
    assertion (see `product-design.md` §7).
 5. **Tiered.** Operators belong to `smoke`, `standard` or `deep`. Tiers exist so the tool can
-   be fast by default and thorough on request.
+   be fast by default and thorough on request. The pack form operators belong to Tier 5, which
+   is not a breadth tier: a pack is selected by name, never by `--tier`.
 
 Notation: **site** = the AST node the operator fires on. Every mutant records file, line,
 column, operator ID, site description and a one-line unified diff.
@@ -306,6 +307,62 @@ Checkov, tfsec/Trivy and the CIS benchmarks. Each rule describes a misconfigurat
 matters; inverting it is a ready-made, curated, realistic mutation. That gives the packs a
 maintained upstream instead of a hand-written list.
 
+### The pack mechanism (M5c.1)
+
+**A pack is data, not operators.** The catalogue gains exactly the operators of the **form
+vocabulary** — `PACK-FLIP` (a boolean literal inverted) and `PACK-REPLACE` (one literal replaced
+by another); a third, `PACK-WIDEN-CIDR` (any CIDR literal to `0.0.0.0/0`), only if the M5-0.3
+census finds entries needing it — each with its own matrix row and offline generation site. Pack
+entries parameterise those operators. "One row per enabled operator" stays true; SARIF's one rule
+per operator stays meaningful. The offline witness is a user-defined pack over
+`terraform_data.input` (schema type `dynamic`, optional) in `internal/engine/testdata/packs`; it
+proves the mechanism, not any shipped pack. No shipped pack is embedded yet: `security-aws` is
+M5c.2, admitted by the M5-0.3 census run against this mechanism.
+
+**Deduplication unchanged; provenance preserved as origins.** Deduplication is by mutated file
+content and the entry sorting earliest wins; the form operators sort after every language
+operator, so a language operator — `BOOL-LITERAL-FLIP`, `NUM-ZERO`, `STR-EMPTY` — owns every row
+a pack entry also produced, whatever its identifier spells. M5c keeps the algorithm and the mutant identity exactly as
+they are — no baseline moves, no cached verdict changes — and adds **origins**: every
+`(operator, pack, entry)` whose rewrite produced the surviving bytes is recorded on the surviving
+mutant, **sorted and deduplicated by `(pack, entry)`**, whichever operator owns the row;
+aggregation is independent of the winner, so a language-operator row and a pack-operator row
+carry origins the same way. Two packs, or two entries of one pack with different identifiers,
+requesting identical bytes both appear. The report's `tier` and `operator` are the survivor's;
+`origins` is present exactly when at least one pack entry contributed. Witness counting publishes
+both pre- and post-deduplication figures (M5-0.3). The red proof for the gate case **disables
+origin aggregation**, not merely the sort order: reversing ownership must lose no contributor.
+
+**The pack contract.** These tables are normative; every row is pinned through the seam in
+`internal/engine/pack_test.go` and carried by `just gate-m5`.
+
+| Rule | Contract |
+| --- | --- |
+| File shape | an HCL file parsed with the same library as `.tf-mut.hcl`, containing only `entry "ID" { … }` blocks — one labelled block per entry, no other block type, no top-level attributes; **literal values only** — no expressions, functions, variables or interpolation; a file with anything else is a configuration error naming the position |
+| Entry identity | the label `ID` is author-supplied, `[a-z0-9-]+`, unique within the pack (a repeated label is a configuration error naming both ranges), and stable across reordering; an origin's wire identity is the pair `(pack, entry)` where `entry` is that label; renaming a label is a new identity and the pack document says so |
+| Entry fields | `resource_type`, `attribute`, `form`, `from`, `to`, `source_rule`, `source_licence`; the last two are required for shipped packs and optional for user packs; two entries of one pack with identical `(resource_type, attribute, form, from, to)` but different labels are **allowed** and both become origins |
+| Site matching | a site is a top-level argument assignment in a `resource` body of the entry's `resource_type` whose value is a **single literal token equal to `from` after HCL literal decoding** (for `widen-cidr`, any string literal that parses as a CIDR other than `to`); nested blocks, `dynamic` bodies, meta-arguments, `data` bodies and string-internal structure are out of M5's scope, and an entry naming one is a no-op recorded in `preview`'s pack summary |
+| Evidence required | the loaded provider schema describes the attribute on that resource type, **and** the entry's `to` literal is of the schema-declared type, where a schema type of `dynamic` accepts any literal kind and a concrete type must match; otherwise no site |
+| Registration | shipped packs are embedded in the binary under reserved names; a user pack is registered by a `pack "NAME" { file = "PATH" }` block in `.tf-mut.hcl`, `PATH` resolved relative to the module root; a user pack may not shadow a reserved name |
+| Selection and composition | `--pack NAME[,NAME]` on `run`, `preview` and `suggest`, and `operators { packs = [...] }` in configuration, by name only; the two lists are **merged as a union**, deduplicated by name; an unknown name is refused at configuration time with exit 2; the flag is refused by name on `characterise`, `todos` and `curate`, and configuration-narrowed populations stay refused at configuration time for `curate` and `--until-dry`, as the maintainer's ruling on #97 records. Pack selection is orthogonal to `--tier`; `--operator`/`--exclude-operator` act on the form operators by identifier; a pack is disabled by not selecting it |
+| Snapshot rules | the selected pack names and, for a user pack, the file's bytes join the resolved-configuration dimension of the cache key and the input-closure digest the write protocols re-check, so a pack edit is a miss and a stale verified suggestion is refused; a changed user-pack file forces the full population under `--since`, as a changed `.tf-mut.hcl` does — each selected pack is diffed on its own from its own directory, independent of the closure root, and a pack outside any git work tree forces the full population too |
+
+| Form | Constraints, checked at load | Operator |
+| --- | --- | --- |
+| `flip` | `from` is the literal `true` or `false` and `to` is the other, anything else is an error | `PACK-FLIP` |
+| `replace` | `from` and `to` are literals of the same kind (string, number or bool), `to` differs from `from`, and a `from` equal to `to` is an error naming the no-op | `PACK-REPLACE` |
+| `widen-cidr` | **deferred to the M5-0.3 census (#161)**: `from` is the sentinel `any-cidr`, `to` is `0.0.0.0/0`; not a loadable form until the census finds entries needing it | `PACK-WIDEN-CIDR` (not enabled) |
+
+The one reserved name is `security-aws`, the pack M5c.2 ships; each further pack reserves its
+name in the change that ships it, never ahead of it. **Scoring**: when a pack is enabled its mutants enter the scored set like any
+Tier 1–3 mutant; no pack is ever in `standard`, and admission of any pack to a default is a
+separate evidence-carrying change, exactly the M3e posture. **Suggestions**: a pack survivor
+reaches the suggestion engine through the existing fail-closed address, rendering and sensitivity
+adapters and gets a suggestion where those render one and the same closed skip reason where they
+do not; nothing pack-specific is built there and no per-survivor suggestion is promised.
+**Suppression**: the existing operator, path and resource exclusions apply to pack mutants
+unchanged.
+
 ---
 
 ## Applicability matrix
@@ -407,12 +464,17 @@ waste.
 | `LC-IGNORE-DROP` | An entry of `ignore_changes = [ … ]` inside a `resource`'s `lifecycle` block | — | A lone entry's removal takes the whole argument line, because the kill witnesses recorded the argument's removal rather than a list whose emptiness models no fault | `ignore_changes = all`, which `LC-IGNORE-ALL` owns; an empty list, which has no entry to drop | `Killed` where a day-two run pair shares one `state_key` and the second run asserts the attribute held — `terraform_data.<subject>.input == "old"` (shapes (b) and (e)); an identical fingerprint is `StructurallyUnassertable`, never `Unobservable` |
 | `LC-IGNORE-ALL` | `ignore_changes = [ … ]` with at least one entry | — | — | `ignore_changes = all`, which models no fault; an empty list, which has no entry to widen | `Killed` where a day-two run pair shares one `state_key` and the second run asserts the attribute moved — `terraform_data.<subject>.input == "new"` (shapes (b) and (e)); an identical fingerprint is `StructurallyUnassertable` |
 | `LC-REPLACE-TRIGGER-DROP` | An entry of `replace_triggered_by = [ … ]` inside a `resource`'s `lifecycle` block | — | A lone entry's removal takes the whole argument line, as `LC-IGNORE-DROP` | — | `Killed` where a second apply over one `state_key` changes the trigger and the assertion compares instance ids — `terraform_data.<subject>.id != run.<first>.subject_id` (shape (e)); an identical fingerprint is `StructurallyUnassertable` — the empty canonical delta beside a real phase-one kill is the recorded M5-0.1 finding |
+| `PACK-FLIP` | A top-level argument assignment in a `resource` body of a selected pack entry's `resource_type` and `attribute`, whose value is the single boolean literal token equal to the entry's `from`; form `flip` | The loaded provider schema describes the attribute on the resource type, and its declared type is `bool` or `dynamic` | The literal becomes the entry's `to`; the mutant carries the `(pack, entry)` origins that asked for it | Nested blocks, `dynamic` bodies, meta-arguments, `data` bodies and string-internal structure (out of M5's scope: a no-op in `preview`'s pack summary); attributes the schema does not describe; a boolean the language operator also flips, where `BOOL-LITERAL-FLIP` owns the row and this entry is one of its origins | `Killed` where an assertion reads the attribute; a survivor is diagnosed from its delta like any Tier 1–3 mutant |
+| `PACK-REPLACE` | As above for a string, number or boolean literal equal to the entry's `from`; form `replace` | The schema describes the attribute, and the entry's `to` is of the declared type — `dynamic` accepts any literal kind, a concrete type must match | The literal becomes the entry's `to`, rendered as an HCL literal; origins as above | As above; a rewrite a language operator also produces (`NUM-ZERO` for a `to` of `0`, `STR-EMPTY` for `""`), where that operator owns the row and the entry is an origin | `Killed` where an assertion reads the attribute |
 
-### Tier 4 and the packs
+### Tier 4, Tier 5 and the packs
 
 Three rows belong to Tier 4 — the lifecycle operators M5-0.1 admitted on their kill witnesses,
-enabled under `--tier deep`, which includes everything `standard` enables. No row belongs to a
-domain pack: packs land behind `--pack` selection, never inside a tier.
+enabled under `--tier deep`, which includes everything `standard` enables. Two rows belong to
+Tier 5 — the pack form operators — and to no breadth tier: packs land behind `--pack` selection,
+never inside a tier, and the form operators fire only where a selected pack's entry
+parameterises them. Their generation site is the `packs` fixture, witnessed in isolation because
+a language operator owns every row a pack entry also produces.
 
 ## Suppression
 
@@ -441,7 +503,7 @@ estimates were 3–8× low.
 | 2 — meta-arguments (`standard`) | 10 | 20–60 |
 | 3 — contract (`standard`) | 15 | 40–120 |
 | 4 — lifecycle (`deep`) | 3 enabled of 5 designed | 5–20 |
-| 5 — domain packs (opt-in) | ~30 per pack | 0–50 |
+| 5 — domain packs (opt-in) | 2 form operators, parameterised by ~30 entries per pack | 0–50 |
 
 Duration depends dominantly on provider schema size and test selection, not on operator count
 (review C1). With the two-phase execution and run-block selection of the product design, the

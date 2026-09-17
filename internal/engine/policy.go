@@ -35,6 +35,17 @@ func (c config) withConfiguration(moduleDir string) (config, tfconfig.File, erro
 		return c, file, err
 	}
 
+	// Pack selection is the union of the flag and the configured list, and a
+	// selected pack is loaded here — before any Terraform runs — so an unknown
+	// name, a shadowed reserved name or a file outside the contract is a
+	// configuration error whether or not a `.tf-mut.hcl` exists at all.
+	c.Packs = selectedPacks(c.Packs, file.Operators.Packs)
+
+	c.loadedPacks, err = resolvePacks(moduleDir, c.Packs, file.Packs)
+	if err != nil {
+		return c, file, err
+	}
+
 	if !file.Present {
 		return c, file, nil
 	}

@@ -132,6 +132,14 @@ type config struct {
 	// FN-FAMILY-SWAP joins the population. Never part of standard until the
 	// published admission measurement, in a separate change.
 	GeneratedFunctions bool
+	// Packs names the selected domain packs: the union of the flag and the
+	// configured list, deduplicated by name. Selection is by name only;
+	// packs are resolved and loaded by the configuration step, whose product
+	// is loadedPacks below.
+	Packs []string
+	// loadedPacks are the selected packs, loaded and checked against the
+	// contract.
+	loadedPacks []mutation.Pack
 	// staticShortcutsDisabled records the invocation-local JSON safety floor.
 	staticShortcutsDisabled bool
 	// SuggestDryRun prints the candidate patches and verifies nothing. It is
@@ -178,6 +186,13 @@ var disableStaticShortcuts = func(config) bool { return false }
 
 //nolint:gochecknoglobals // test seam, inert outside the suite.
 var disableJSONReading = func(config) bool { return false }
+
+// seedGenerationDefect is the inert test hook beside the generator it drives:
+// the red proofs for the origins gate cases seed a deliberately wrong
+// generation through it and nowhere else.
+//
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedGenerationDefect = func(config) mutation.Defect { return mutation.DefectNone }
 
 // Operational failures. Every one of them aborts the run: none of them can be
 // reported as a mutant verdict without misleading the reader.
@@ -299,6 +314,13 @@ func mutate(
 	}
 
 	warnings = append(append(warnings, prepared.warnings...), generated.Warnings...)
+
+	// Preview's pack summary: an entry that found no site — no literal of its
+	// form, no schema evidence, or a shape outside M5's scope — is a no-op,
+	// and the person deciding what a pack covers is told so.
+	if settings.mode == previewMode {
+		warnings = append(warnings, describeUnmatched(generated.UnmatchedEntries)...)
+	}
 
 	graph := floorGraph(configuration)
 	result := shell(configuration, settings, version.Terraform, moduleDir, prepared, warnings)
@@ -529,6 +551,8 @@ func build(
 		Configuration: configuration,
 		Schemas:       prepared.schemas,
 		Selection:     settings.selection(),
+		Packs:         settings.loadedPacks,
+		Defect:        seedGenerationDefect(settings),
 	}.Generate()
 
 	return prepared, generated, err
@@ -706,8 +730,9 @@ func describe(
 				Start: report.Position{Line: mutant.Range.Start.Line, Column: mutant.Range.Start.Column},
 				End:   report.Position{Line: mutant.Range.End.Line, Column: mutant.Range.End.Column},
 			},
-			Diff: mutant.Diff,
-			Runs: []report.RunOutcome{},
+			Diff:    mutant.Diff,
+			Runs:    []report.RunOutcome{},
+			Origins: projectOrigins(mutant.Origins),
 		}
 
 		switch {
@@ -735,6 +760,36 @@ func describe(
 		}
 
 		described = append(described, entry)
+	}
+
+	return described
+}
+
+// projectOrigins projects the generator's origins onto the published DTO:
+// present exactly when at least one pack entry contributed, never empty.
+func projectOrigins(origins []mutation.Origin) []report.Origin {
+	if len(origins) == 0 {
+		return nil
+	}
+
+	projected := make([]report.Origin, 0, len(origins))
+	for _, origin := range origins {
+		projected = append(projected, report.Origin{
+			Operator: string(origin.Operator), Pack: origin.Pack, Entry: origin.Entry,
+		})
+	}
+
+	return projected
+}
+
+// describeUnmatched renders preview's pack summary, one line per entry that
+// produced nothing.
+func describeUnmatched(unmatched []mutation.Origin) []string {
+	described := make([]string, 0, len(unmatched))
+	for _, origin := range unmatched {
+		described = append(described, fmt.Sprintf("pack %q: entry %q (%s) matched no site: no top-level "+
+			"resource argument of its type and attribute holds its literal, or the schema does not "+
+			"describe the attribute at the entry's type", origin.Pack, origin.Entry, origin.Operator))
 	}
 
 	return described

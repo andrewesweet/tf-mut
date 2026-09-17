@@ -98,6 +98,12 @@ currently declared by `internal/report`; they are not invitations to add aliases
 - **Site:** the owned source location at which an operator generates a mutant.
 - **Generated mutant:** a content-derived mutation candidate.
 - **Diff:** the source change owned by a generated mutant.
+- **Pack entry:** data, not an operator — a `(resource_type, attribute, form, from, to)`
+  record under an author-supplied label that parameterises one form operator, loaded from a
+  pack file under the normative contract and selected by pack name.
+- **Origin:** the `(operator, pack, entry)` whose rewrite produced a generated mutant's
+  bytes; aggregated onto the deduplication survivor, sorted and deduplicated by
+  `(pack, entry)`, and never part of the mutant's identity.
 
 ### Suggestion
 

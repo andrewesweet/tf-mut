@@ -8,15 +8,18 @@ import (
 // Tier is the operator breadth band an operator belongs to.
 type Tier string
 
-// The tiers the tool can be asked for. `deep` exists as a name so that
-// configuration can refer to it; no Tier 4 operator ships in this milestone.
+// The tiers the tool can be asked for. `pack` is Tier 5: it names the domain
+// packs' operators in a report, is selected per pack through `--pack` and
+// never through `--tier`, and no tier selection includes it.
 const (
 	// TierSmoke is Tier 0: the extreme operators.
 	TierSmoke Tier = "smoke"
 	// TierStandard is Tiers 1 to 3: expressions, meta-arguments and contracts.
 	TierStandard Tier = "standard"
-	// TierDeep is Tier 4 and above: lifecycle and state safety.
+	// TierDeep is Tier 4: lifecycle and state safety.
 	TierDeep Tier = "deep"
+	// TierPack is Tier 5: the domain packs' form operators, opt-in per pack.
+	TierPack Tier = "pack"
 )
 
 // Includes reports whether a tier selection enables the operators of another.
@@ -24,9 +27,10 @@ func (t Tier) Includes(other Tier) bool {
 	return t.rank() >= other.rank()
 }
 
-// Valid reports whether the tier names a band the tool knows.
+// Valid reports whether the tier names a band a run can select. The pack tier
+// is not one: packs are selected by name, never by breadth.
 func (t Tier) Valid() bool {
-	return t.rank() > rankUnknown
+	return t.rank() > rankUnknown && t.rank() < rankPack
 }
 
 // The breadth ordering of the tiers, so that a selection can include everything
@@ -36,6 +40,7 @@ const (
 	rankSmoke
 	rankStandard
 	rankDeep
+	rankPack
 )
 
 func (t Tier) rank() int {
@@ -46,6 +51,8 @@ func (t Tier) rank() int {
 		return rankStandard
 	case TierDeep:
 		return rankDeep
+	case TierPack:
+		return rankPack
 	default:
 		return rankUnknown
 	}
@@ -509,6 +516,28 @@ func lifecycleEntries() []Entry {
 	}
 }
 
+// killerReadsAttribute is the killer the pack form operators share: the fault
+// is in one argument, and the assertion that catches it reads that argument.
+const killerReadsAttribute = "an assertion reads the attribute"
+
+// packEntries is the Tier 5 table: the form vocabulary a pack entry
+// parameterises. A pack is data, so the catalogue gains exactly these; each
+// mutant they produce carries the (pack, entry) origins that asked for it.
+func packEntries() []Entry {
+	return []Entry{
+		// Tier 5 — domain packs (opt-in per pack).
+		{
+			PackFlip, TierPack, "Inverts a boolean literal a pack entry names on its resource type and attribute",
+			killerReadsAttribute, true, "",
+		},
+		{
+			PackReplace, TierPack,
+			"Replaces a literal a pack entry names with the fault the entry models",
+			killerReadsAttribute, true, "",
+		},
+	}
+}
+
 // catalogueCapacity sizes the assembled table; the audit tests hold the real
 // count against the applicability matrix.
 const catalogueCapacity = 99
@@ -523,6 +552,7 @@ func buildCatalogue() map[Operator]Entry {
 	entries = append(entries, metaEntries()...)
 	entries = append(entries, contractEntries()...)
 	entries = append(entries, lifecycleEntries()...)
+	entries = append(entries, packEntries()...)
 
 	table := make(map[Operator]Entry, len(entries))
 	for _, entry := range entries {

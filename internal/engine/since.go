@@ -106,7 +106,12 @@ func applySince(
 		Mode: report.SelectionSince, Ref: settings.Since, ForcedFull: "",
 	}
 
-	if forced := fullPopulationTrigger(changes); forced != "" {
+	forced := changedPack(ctx, settings)
+	if forced == "" {
+		forced = fullPopulationTrigger(changes)
+	}
+
+	if forced != "" {
 		// The full population runs, and the report says why.
 		chosen.metadata.ForcedFull = forced
 
@@ -169,7 +174,7 @@ func changedPaths(ctx context.Context, closureRoot, ref string) ([]change, error
 
 	// The committed range needs a merge base; its absence is an error too.
 	committed, err := gitRun(ctx, closureRoot,
-		"diff", "--name-status", "--find-renames", "--relative", "-z", ref+"...HEAD")
+		gitDiff, "--name-status", "--find-renames", "--relative", "-z", ref+"...HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("%w: no merge base between %q and HEAD", ErrSinceRef, ref)
 	}
@@ -177,8 +182,8 @@ func changedPaths(ctx context.Context, closureRoot, ref string) ([]change, error
 	changes = append(changes, parseNameStatus(committed)...)
 
 	for _, args := range [][]string{
-		{"diff", "--name-status", "--find-renames", "--relative", "-z", "--cached"},
-		{"diff", "--name-status", "--find-renames", "--relative", "-z"},
+		{gitDiff, "--name-status", "--find-renames", "--relative", "-z", "--cached"},
+		{gitDiff, "--name-status", "--find-renames", "--relative", "-z"},
 	} {
 		output, diffErr := gitRun(ctx, closureRoot, args...)
 		if diffErr != nil {
@@ -268,6 +273,50 @@ func parseNameStatus(output string) []change {
 	}
 
 	return changes
+}
+
+// gitDiff is the git subcommand every change listing runs.
+const gitDiff = "diff"
+
+// changedPack reports the first selected user pack whose file changed since
+// the ref, or is outside any git work tree, as the reason the full population
+// runs. A pack is data that decides the population, as `.tf-mut.hcl` does,
+// and it is registered by a path the closure does not bound, so each pack is
+// diffed on its own, from its own directory, rather than looked for in the
+// closure's diff; a pack git cannot account for fails closed to the full
+// population.
+func changedPack(ctx context.Context, settings config) string {
+	for _, pack := range settings.loadedPacks {
+		if packChanged(ctx, pack.Path, settings.Since) {
+			return pack.Path + " (pack file)"
+		}
+	}
+
+	return ""
+}
+
+func packChanged(ctx context.Context, path, ref string) bool {
+	dir, base := filepath.Split(path)
+	if dir == "" {
+		dir = "."
+	}
+
+	if _, err := gitRun(ctx, dir, "rev-parse", "--is-inside-work-tree"); err != nil {
+		return true
+	}
+
+	for _, args := range [][]string{
+		{gitDiff, "--name-only", "-z", ref + "...HEAD", "--", base},
+		{gitDiff, "--name-only", "-z", "HEAD", "--", base},
+		{"ls-files", "--others", "-z", "--", base},
+	} {
+		output, err := gitRun(ctx, dir, args...)
+		if err != nil || strings.TrimSpace(output) != "" {
+			return true
+		}
+	}
+
+	return false
 }
 
 // fullPopulationTrigger returns the changed file class that forces the full

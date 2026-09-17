@@ -124,6 +124,10 @@ func populationRefusals(settings config) []string {
 			"--generated-functions changes the operator population")
 	}
 
+	if len(settings.Packs) > 0 {
+		refusals = append(refusals, "a pack selection changes the operator population")
+	}
+
 	return refusals
 }
 

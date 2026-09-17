@@ -27,6 +27,10 @@ type edit struct {
 	site string
 	// resource is the managed resource address the site belongs to.
 	resource string
+	// pack and entry name the pack entry that parameterised the edit, and are
+	// empty for every language operator.
+	pack  string
+	entry string
 }
 
 // span is the source range the edit covers, which is what the report shows.

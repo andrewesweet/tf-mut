@@ -23,8 +23,9 @@ package report
 // `pack`, and the per-mutant `origins` pack provenance — an origin is one
 // (operator, pack, entry) whose rewrite produced the mutant's bytes, present
 // exactly when at least one pack entry contributed, sorted and deduplicated
-// by (pack, entry). No pack ships yet, so no binary emits `origins` or a
-// `pack`-tier mutant until the pack work that first consumes the schema lands.
+// by (pack, entry). M5c.1 populates both: a user-defined pack selected by
+// name produces `pack`-tier mutants, and every row a pack entry's rewrite
+// produced — whichever operator owns it — carries its origins.
 const SchemaVersion = "2.4.0"
 
 // Command names what produced a report.
@@ -265,6 +266,21 @@ type Mutant struct {
 	// Provenance records why the mutant is in this run and how its verdict
 	// was obtained (2.1.0).
 	Provenance *Provenance `json:"provenance,omitempty"`
+	// Origins is the pack provenance (2.4.0): every (operator, pack, entry)
+	// whose rewrite produced this mutant's bytes, sorted and deduplicated by
+	// (pack, entry). Present exactly when at least one pack entry produced
+	// the bytes — never empty, and always present on a pack-tier mutant.
+	Origins []Origin `json:"origins,omitempty"`
+}
+
+// Origin is one pack entry whose rewrite produced a mutant's bytes: the form
+// operator the entry parameterised, the pack's name and the entry's
+// author-supplied label. The pair (pack, entry) is the origin's stable wire
+// identity.
+type Origin struct {
+	Operator string `json:"operator"`
+	Pack     string `json:"pack"`
+	Entry    string `json:"entry"`
 }
 
 // The selection modes a mutant's provenance can name.

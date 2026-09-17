@@ -7,8 +7,26 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
+	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
 )
+
+// SetGenerationDefectSeed makes generation perform one known defect for one
+// module: the red proofs for the origins gate cases. Its callers are
+// sequential for the hook's complete lifetime.
+func SetGenerationDefectSeed(t *testing.T, moduleDir string, defect mutation.Defect) {
+	t.Helper()
+	seedGenerationDefect = func(settings config) mutation.Defect {
+		if settings.ModuleDir != moduleDir {
+			return mutation.DefectNone
+		}
+
+		return defect
+	}
+	t.Cleanup(func() {
+		seedGenerationDefect = func(config) mutation.Defect { return mutation.DefectNone }
+	})
+}
 
 // SetStaticShortcutsDisabled makes one module classify every mutant by execution.
 // Its callers are sequential for the hook's complete lifetime.
