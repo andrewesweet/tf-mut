@@ -215,6 +215,7 @@ func classify(
 		if !validation.Valid {
 			verdict.Diagnostics = append(verdict.Diagnostics,
 				diagnostics(validation.Diagnostics)...)
+			slices.SortFunc(verdict.Diagnostics, compareDiagnostics)
 
 			return project(verdict, oracle.Invalid(oracleDiagnostics(verdict.Diagnostics))), nil
 		}

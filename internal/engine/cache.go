@@ -526,7 +526,8 @@ func rehydrated(mutant *report.Mutant, entry cacheEntry) bool {
 
 	*mutant = project(*mutant, outcome)
 	mutant.Runs = entry.Runs
-	mutant.Diagnostics = entry.Diagnostics
+	mutant.Diagnostics = slices.Clone(entry.Diagnostics)
+	slices.SortFunc(mutant.Diagnostics, compareDiagnostics)
 	mutant.ExecutedRuns = entry.ExecutedRuns
 	mutant.Validated = entry.Validated
 

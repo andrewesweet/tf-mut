@@ -112,16 +112,21 @@ func TestEveryEnabledOperatorHasAGenerationSite(t *testing.T) {
 func TestTheMatrixFixtureGeneratesOnlyParseableMutants(t *testing.T) {
 	t.Parallel()
 
-	result := preview(t, copyFixture(t, "operators"), nil)
+	for name, only := range map[string][]string{
+		"operators": nil,
+		"lifecycle": admittedLifecycleOperators,
+	} {
+		result := preview(t, copyFixture(t, name), only)
 
-	for _, warning := range result.Warnings {
-		if strings.Contains(warning, "unparseable") {
-			t.Fatalf("an operator emitted a mutant that does not parse: %s", warning)
+		for _, warning := range result.Warnings {
+			if strings.Contains(warning, "unparseable") {
+				t.Fatalf("an operator emitted a mutant of %s that does not parse: %s", name, warning)
+			}
 		}
-	}
 
-	if len(result.Mutants) == 0 {
-		t.Fatal("the matrix fixture generated nothing")
+		if len(result.Mutants) == 0 {
+			t.Fatalf("the %s fixture generated nothing", name)
+		}
 	}
 }
 
