@@ -185,3 +185,4 @@ internal/engine/testdata/preview-refusal-import/main.tf
 internal/engine/testdata/preview-refusal-import/tests/unit.tftest.hcl
 internal/engine/testdata/preview-refusal-nosuite/main.tf
 internal/engine/testdata/preview-refusal-unparseable/tests/unit.tftest.hcl
+internal/engine/testdata/untested-notype/main.tf
