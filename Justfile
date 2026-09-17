@@ -182,9 +182,9 @@ test-race:
       --junitfile "{{ artifact_dir }}/test/race.xml" --raw-command -- \
       go test ./... -json -count=1 -race -shuffle=424242
 
-# Run opt-in integration-tag tests that may use credentials or real providers.
 # The M5-0.4 census belongs to measure-census: at 8h wall clock
-# (docs/research/16) it would blow this suite's default timeout.
+# (docs/research/17) it would blow this suite's default timeout.
+# Run opt-in integration-tag tests that may use credentials or real providers.
 test-integration:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mise exec -- gotestsum --format testname --raw-command -- \
