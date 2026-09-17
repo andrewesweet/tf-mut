@@ -21,6 +21,9 @@ import (
 
 const matrixPath = "docs/design/mutation-operators.md"
 
+// operatorsFixture is the main matrix fixture, the one most tests preview.
+const operatorsFixture = "operators"
+
 // matrixRow matches the operator column of the matrix table.
 func matrixRow() *regexp.Regexp {
 	return regexp.MustCompile("(?m)^\\| `([A-Z][A-Z0-9-]+)` \\|")
@@ -70,7 +73,7 @@ func TestEveryEnabledOperatorHasAGenerationSite(t *testing.T) {
 	// the repository's convention for a mirror-backed fixture.
 	requireProviderMirror(t)
 
-	fixtures := []string{"operators", "dynamic", "mocked-aliases", "lifecycle"}
+	fixtures := []string{operatorsFixture, "dynamic", "mocked-aliases", "lifecycle"}
 
 	modules := make([]string, 0, len(fixtures))
 	fired := map[string]bool{}
@@ -113,8 +116,8 @@ func TestTheMatrixFixtureGeneratesOnlyParseableMutants(t *testing.T) {
 	t.Parallel()
 
 	for name, only := range map[string][]string{
-		"operators": nil,
-		"lifecycle": admittedLifecycleOperators,
+		operatorsFixture: nil,
+		"lifecycle":      admittedLifecycleOperators,
 	} {
 		result := preview(t, copyFixture(t, name), only)
 

@@ -38,7 +38,7 @@ func discover(t *testing.T, moduleDir string) discovery.Configuration {
 func TestEveryGenerationSiteMapsIntoTheGraph(t *testing.T) {
 	t.Parallel()
 
-	for _, fixture := range []string{"operators", "dynamic"} {
+	for _, fixture := range []string{operatorsFixture, "dynamic"} {
 		module := copyFixture(t, fixture)
 		configuration := discover(t, module)
 		graph := configuration.BuildGraph()
