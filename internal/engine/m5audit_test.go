@@ -80,6 +80,17 @@ func TestTheM5GateCoversEveryNamedRequirement(t *testing.T) {
 		"no pack in standard":                  "TestNoPackEntersTheStandardPopulation",
 		"pack operators have offline sites":    "TestEveryPackOperatorHasASiteInTheOfflineFixture",
 		"pack reports validate against 2.4.0":  "TestARealPackReportValidatesAgainstThePublishedSchema",
+
+		// M5-0.5a: the opportunity census's classification vocabulary,
+		// denominator rules and counts.
+		"undecidable constraint classifies":  "TestTheOpportunityCensusClassifiesUndecidableConstraints",
+		"refused typed candidate classifies": "TestTheOpportunityCensusClassifiesRefusedTypedCandidates",
+		"missing typed candidate classifies": "TestTheOpportunityCensusClassifiesMissingTypedCandidates",
+		"sensitive evidence withheld":        "TestTheOpportunityCensusWithholdsRedactedEvidence",
+		"JSON variables in the denominator":  "TestTheCensusDenominatorCountsJSONDeclaredVariables",
+		"empty JSON stratum unmeasured":      "TestAnEmptyJSONStratumIsPublishedAsUnmeasured",
+		"mined count splits by stratum":      "TestTheMinedCountsSplitByStratum",
+		"census reading is consistent":       "TestTheCensusReadingIsInternallyConsistent",
 	}
 
 	assertGateCovers(t, "M5", m5GatedTests(t), required)

@@ -209,7 +209,7 @@ func censusM45Module(ctx context.Context, t *testing.T, module opportunityM45Mod
 func censusM5Module(ctx context.Context, t *testing.T, module benchmarkModule) opportunityRow {
 	t.Helper()
 
-	root, retries, fetchErr := fetchPinnedCommitArchive(ctx, t, module)
+	root, retries, fetchErr := fetchPinnedRepositoryRetry(ctx, t, module)
 	if fetchErr != nil {
 		return opportunityRow{
 			Corpus: opportunityM5CorpusName, Module: module.Name, Ref: module.Commit,
@@ -339,59 +339,21 @@ func fetchTagArchive(ctx context.Context, t *testing.T, module opportunityM45Mod
 	return rootPath, nil
 }
 
-// fetchPinnedCommitArchive downloads a commit-pinned archive, checks its
-// digest and extracts it, sharing the M5-0.4 census's cache directory,
-// target layout and marker file — the two censuses read the same pinned
-// bytes, so one fetch serves both. The second return counts the retries.
-func fetchPinnedCommitArchive(
+// fetchPinnedRepositoryRetry adapts the M5 manifest entry onto the M5-0.4
+// census's commit-pinned fetcher, which already caches, digest-checks and
+// extracts, and counts the retries it spends.
+func fetchPinnedRepositoryRetry(
 	ctx context.Context, t *testing.T, module benchmarkModule,
 ) (root string, retries int, err error) {
 	t.Helper()
 
-	root, err = fetchCommitArchive(ctx, t, module)
+	root, err = fetchPinnedRepository(ctx, t, module, censusArchives)
 	if err != nil {
 		retries++
-		root, err = fetchCommitArchive(ctx, t, module)
+		root, err = fetchPinnedRepository(ctx, t, module, censusArchives)
 	}
 
 	return root, retries, err
-}
-
-func fetchCommitArchive(ctx context.Context, t *testing.T, module benchmarkModule) (string, error) {
-	t.Helper()
-
-	target := filepath.Join(censusArchives, module.Name)
-	marker := filepath.Join(target, ".census-extracted")
-
-	if extracted, err := os.ReadFile(marker); err == nil { //nolint:gosec // a census-owned temporary path.
-		return filepath.Join(target, string(extracted)), nil
-	}
-
-	url := fmt.Sprintf("https://codeload.github.com/%s/tar.gz/%s",
-		module.Repository, module.Commit)
-
-	archive, err := fetchArchive(ctx, t, module.Name, url)
-	if err != nil {
-		return "", err
-	}
-
-	sum := sha256.Sum256(archive)
-	if hex.EncodeToString(sum[:]) != module.SHA256 {
-		return "", fmt.Errorf("%s: %w: got %s, pinned %s",
-			module.Name, errDigestMismatch, hex.EncodeToString(sum[:]), module.SHA256)
-	}
-
-	if err := os.MkdirAll(target, 0o750); err != nil {
-		t.Fatalf("creating %s: %v", target, err)
-	}
-
-	rootPath := extract(t, archive, target)
-
-	if err := os.WriteFile(marker, []byte(filepath.Base(rootPath)), 0o600); err != nil {
-		t.Fatalf("marking %s extracted: %v", module.Name, err)
-	}
-
-	return rootPath, nil
 }
 
 // fetchArchive downloads one archive over the corpus user agent.

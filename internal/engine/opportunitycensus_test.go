@@ -443,6 +443,7 @@ func countInvocation(row *opportunityRow, strata map[string]bool, outcome report
 	}
 
 	row.Defaults = row.Variables - row.Mined - row.Typed - row.Todos
+	row.JSONDefaults = row.JSONVariables - row.JSONMined - row.JSONTyped - row.JSONTodos
 }
 
 // TestTheOpportunityCensusClassifiesUndecidableConstraints holds the
@@ -719,8 +720,15 @@ func TestTheCensusReadingIsInternallyConsistent(t *testing.T) {
 	read := readOpportunityRow(t, untestedTodoFixture)
 
 	row := read.row
-	if row.Variables != row.Defaults+row.Mined+row.Typed+row.Todos {
-		t.Fatalf("the reading lost an input: %+v", row)
+	// The defaults column is the remainder of the inputs no rung placed, so
+	// the total identity holds by construction; what can drift is the fold
+	// from rows to strata and the rung columns themselves. The strata summary
+	// of one native row must equal that row's own columns, and the fixture's
+	// known shape must survive the reading.
+	summary := summariseStrata([]opportunityRow{row})
+	if summary.Native.Reached != row.Mined+row.Typed+row.Todos ||
+		summary.Native.Fired != row.Mined || summary.JSON != nil {
+		t.Fatalf("the strata fold disagrees with the row: row %+v, summary %+v", row, summary)
 	}
 
 	if row.Defaults != 0 || row.Todos != 1 || len(row.Opportunities) != 1 {
