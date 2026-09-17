@@ -219,7 +219,10 @@ granularity ladder — the rest is sequencing existing parts.
 measurements outrank the prose above. The minable-validation share turned out to matter less
 than the *reachability* of the mining rung at all: over the pinned public-module corpus,
 mining was reached four times and fired zero, because 605 of 609 resolved inputs came from the
-module's own declared default (`docs/research/12-m45-synthesis-rate.md`). And the `configured` rung generates no
+module's own declared default (`docs/research/12-m45-synthesis-rate.md`). The M5-0.5a census
+over both pinned corpora repeated the count — reached 58, fired 0 — and left the fourth rung's
+fourteen opportunities to the stage-2 prototype (`docs/research/19-m5-opportunity-census.md`);
+the preference order stands unchanged. And the `configured` rung generates no
 schema-typed *collection* pin at all — the M4 rendering contract refuses them — so the ladder
 documents four measured skip classes instead (`docs/research/13-m45-exit-gate.md` §3).
 
