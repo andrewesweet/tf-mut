@@ -182,11 +182,13 @@ test-race:
       --junitfile "{{ artifact_dir }}/test/race.xml" --raw-command -- \
       go test ./... -json -count=1 -race -shuffle=424242
 
+# The M5-0.4 census belongs to measure-census: at 8h wall clock
+# (docs/research/17) it would blow this suite's default timeout.
 # Run opt-in integration-tag tests that may use credentials or real providers.
 test-integration:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mise exec -- gotestsum --format testname --raw-command -- \
-      go test ./... -json -count=1 -tags=integration
+      go test ./... -json -count=1 -tags=integration -skip '^TestTheBenchmarkCorpusCensus$'
 
 # Measure the synthesis rate over the pinned public-module corpus (M4.5-0).
 measure-synthesis:
@@ -194,6 +196,16 @@ measure-synthesis:
     mkdir -p "{{ artifact_dir }}/measurement"
     mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
       -run '^TestTheSynthesisRateOverThePinnedCorpus$'
+
+# Run the M5-0.4 module-admission census over the pinned benchmark corpus.
+# Network-gated: the variable licenses archive fetching and nothing else —
+# no census request bypasses a safety gate. Runs can take hours; the timeout
+# is generous on purpose.
+measure-census:
+    test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
+    mkdir -p "{{ artifact_dir }}/measurement"
+    mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
+      -timeout 12h -run '^TestTheBenchmarkCorpusCensus$'
 
 # Run opt-in realistically sized performance benchmarks.
 test-performance:

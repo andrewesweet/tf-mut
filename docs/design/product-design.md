@@ -811,8 +811,8 @@ optimisation of the skills themselves on a public legacy-module corpus.
 
 **M5 — Breadth.** Domain packs seeded from Checkov/tfsec rule catalogues, OpenTofu parity,
 Tier 4 lifecycle operators, and a published benchmark over a public-repository corpus —
-directly comparable to Oasis's 23-repository evaluation, which is the fair way to make the
-comparison.
+a side-by-side evaluation on Oasis's axes with stated limitations, pinned and measured
+before any comparability claim is made.
 
 ---
 

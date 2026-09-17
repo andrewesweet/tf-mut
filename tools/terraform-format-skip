@@ -2,3 +2,7 @@
 # This one is unformatted on purpose: it proves the run warns that mutant
 # diffs may span more than one line when the source is not canonical.
 internal/engine/testdata/unformatted/main.tf
+# This one cannot be formatted on purpose: it is the M5-0.4 census's
+# unparseable-source refusal fixture (issue #155), whose main.tf carries a
+# deliberately invalid expression, and terraform fmt fails on it.
+internal/engine/testdata/preview-refusal-unparseable/main.tf
