@@ -13,7 +13,7 @@ import (
 )
 
 // schemaPath is the published contract the JSON reporter promises to keep.
-const schemaPath = "../../docs/schema/report-2.3.0.json"
+const schemaPath = "../../docs/schema/report-2.4.0.json"
 
 func TestPublishedSchemaMatchesTheReportersVersion(t *testing.T) {
 	t.Parallel()
@@ -47,6 +47,74 @@ func TestReportValidatesAgainstThePublishedSchema(t *testing.T) {
 	if problems := validate(loadSchema(t), loadSchema(t), document, "$"); len(problems) > 0 {
 		t.Fatalf("report does not validate against %s:\n  %s", schemaPath, strings.Join(problems, "\n  "))
 	}
+}
+
+// TestSchemaRejectsOriginsWithoutAPackContribution is the 2.4.0 rejection
+// case: `origins` is present exactly when at least one pack entry produced
+// the mutant's bytes, so a document carrying the field with nothing in it —
+// the only origins-bearing document this binary can produce while no pack
+// exists — is invalid against the file it ships with.
+func TestSchemaRejectsOriginsWithoutAPackContribution(t *testing.T) {
+	t.Parallel()
+
+	document := injectedDocument(t, sampleReport(), func(mutant map[string]any) {
+		mutant["origins"] = []any{}
+	})
+
+	if problems := validate(loadSchema(t), loadSchema(t), document, "$"); len(problems) == 0 {
+		t.Fatal("the schema accepted origins without a pack contribution")
+	}
+}
+
+// TestSchemaRejectsAPackTierMutantWithoutOrigins holds the other direction of
+// the encoded presence rule: a pack-tier mutant's bytes a pack entry produced
+// by definition, so the row must carry its origins.
+func TestSchemaRejectsAPackTierMutantWithoutOrigins(t *testing.T) {
+	t.Parallel()
+
+	document := injectedDocument(t, sampleReport(), func(mutant map[string]any) {
+		mutant["tier"] = "pack"
+	})
+
+	if problems := validate(loadSchema(t), loadSchema(t), document, "$"); len(problems) == 0 {
+		t.Fatal("the schema accepted a pack-tier mutant without origins")
+	}
+}
+
+// injectedDocument marshals the report, injects one member into its first
+// mutant, and hands back the document for validation — the shape a consumer
+// reads, not a second report model.
+func injectedDocument(t *testing.T, value report.Report, inject func(mutant map[string]any)) any {
+	t.Helper()
+
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("encoding report: %v", err)
+	}
+
+	document := any(nil)
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatalf("decoding report: %v", err)
+	}
+
+	object, ok := document.(map[string]any)
+	if !ok {
+		t.Fatal("the document is not an object")
+	}
+
+	mutants, ok := object["mutants"].([]any)
+	if !ok || len(mutants) == 0 {
+		t.Fatal("the document carries no mutants")
+	}
+
+	mutant, ok := mutants[0].(map[string]any)
+	if !ok {
+		t.Fatal("the first mutant is not an object")
+	}
+
+	inject(mutant)
+
+	return document
 }
 
 func TestSchemaRejectsAnUnknownState(t *testing.T) {
@@ -403,9 +471,10 @@ func loadSchemaFile(t *testing.T, path string) map[string]any {
 }
 
 // validate is a deliberately small JSON Schema checker covering the keywords
-// the published schema uses: type, required, properties, items, enum, const and
-// local $ref. A dependency-free checker keeps the build chain's allow-list
-// intact, and the schema is ours, so its vocabulary is ours to bound.
+// the published schema uses: type, required, properties, items, minItems, enum,
+// const, local $ref and the if/then presence rules. A dependency-free checker
+// keeps the build chain's allow-list intact, and the schema is ours, so its
+// vocabulary is ours to bound.
 func validate(root, schema map[string]any, document any, path string) []string {
 	if reference, ok := schema["$ref"].(string); ok {
 		return validate(root, resolve(root, reference), document, path)
@@ -419,6 +488,13 @@ func validate(root, schema map[string]any, document any, path string) []string {
 
 	if allowed, ok := schema["enum"].([]any); ok && !slices.Contains(allowed, document) {
 		problems = append(problems, fmt.Sprintf("%s: %v is not one of %v", path, document, allowed))
+	}
+
+	if minimum, ok := schema["minItems"].(float64); ok {
+		if items, isArray := document.([]any); isArray && len(items) < int(minimum) {
+			problems = append(problems, fmt.Sprintf("%s: carries %d item(s), fewer than the %d required",
+				path, len(items), int(minimum)))
+		}
 	}
 
 	if clauses, ok := schema["allOf"].([]any); ok {

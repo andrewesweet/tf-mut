@@ -15,8 +15,13 @@ import (
 // TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperators
 // is the M5a headline proof: the operator-matrix fixture's standard report from
 // a binary built at the merge-base with the default branch and one built from
-// this tree are identical under matched cache-off legs, with
-// baseline.duration_ms excluded and nothing else excluded.
+// this tree are identical under matched cache-off legs, with two exclusions
+// and nothing beyond them: `baseline.duration_ms`, the timing the gate exists
+// to ignore, and the `schema_version` stamp, whose movement is governed
+// entirely by the schema contract itself (the published file's constant, the
+// suite's validation of real documents against it) and not by this gate.
+// Every other field's content is compared, so a bump that moved anything but
+// the stamp still goes red.
 //
 // One normalisation applies to both legs: each mutant's diagnostics are put
 // into a canonical order before the comparison. Terraform's parallel
@@ -74,6 +79,7 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperator
 		}
 
 		delete(baseline, "duration_ms")
+		delete(document, "schema_version")
 		canonicaliseDiagnosticOrder(document)
 	}
 
