@@ -131,6 +131,24 @@ const (
 		"dependency exists to guarantee, or accept the mutant"
 )
 
+// The lifecycle fixes: each names the witnessed day-two run-block shape and
+// the killing assertion, and points an apply-mode leg at the safety gates
+// rather than implying this tool authorises the apply.
+const (
+	fixIgnoreDrop = "add a day-two run pair: an apply-mode run, then a second run sharing its " +
+		"state_key that passes a changed value and asserts the ignored attribute held, such as " +
+		"`terraform_data.subject.input == \"old\"` (kill-witnessed under run-block shapes (b) and (e)); " +
+		"an apply-mode run stays subject to the safety gates"
+	fixIgnoreAll = "add a day-two run pair: an apply-mode run, then a second run sharing its " +
+		"state_key that passes a changed value and asserts the attribute move the over-broad " +
+		"ignore must prevent, such as `terraform_data.subject.input == \"new\"` (kill-witnessed " +
+		"under run-block shapes (b) and (e)); an apply-mode run stays subject to the safety gates"
+	fixReplaceTriggerDrop = "add a day-two apply/apply pair over one state_key whose second apply " +
+		"changes the trigger, and assert the resource was replaced, such as " +
+		"`terraform_data.subject.id != run.first.subject_id` (kill-witnessed under run-block shape (e)); " +
+		"an apply-mode run stays subject to the safety gates"
+)
+
 // extremeEntries is the Tier 0 table.
 func extremeEntries() []Entry {
 	return []Entry{
@@ -468,9 +486,32 @@ func contractEntries() []Entry {
 	}
 }
 
+// lifecycleEntries is the Tier 4 table. Three operators are admitted on the
+// M5-0.1 kill witnesses; the catalogue's sense of non-projecting is what keeps
+// an identical fingerprint at StructurallyUnassertable instead of Unobservable.
+func lifecycleEntries() []Entry {
+	return []Entry{
+		// Tier 4 — lifecycle.
+		{
+			LCIgnoreDrop, TierDeep, "Drops an ignore_changes entry so the frozen attribute updates again",
+			"a day-two run pair asserts the attribute held at its old value", false, fixIgnoreDrop,
+		},
+		{
+			LCIgnoreAll, TierDeep, "Widens ignore_changes to the all keyword",
+			"a day-two run pair asserts the attribute moved to its new value", false, fixIgnoreAll,
+		},
+		{
+			LCReplaceTriggerDrop, TierDeep,
+			"Drops replace_triggered_by so a trigger change no longer replaces the resource",
+			"a second apply over one state_key changes the trigger and an assertion compares the instance ids",
+			false, fixReplaceTriggerDrop,
+		},
+	}
+}
+
 // catalogueCapacity sizes the assembled table; the audit tests hold the real
 // count against the applicability matrix.
-const catalogueCapacity = 96
+const catalogueCapacity = 99
 
 // buildCatalogue assembles the flat per-tier tables into the catalogue.
 func buildCatalogue() map[Operator]Entry {
@@ -481,6 +522,7 @@ func buildCatalogue() map[Operator]Entry {
 	entries = append(entries, projectionEntries()...)
 	entries = append(entries, metaEntries()...)
 	entries = append(entries, contractEntries()...)
+	entries = append(entries, lifecycleEntries()...)
 
 	table := make(map[Operator]Entry, len(entries))
 	for _, entry := range entries {

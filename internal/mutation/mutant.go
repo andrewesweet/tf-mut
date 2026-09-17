@@ -123,6 +123,13 @@ const (
 	OutSensitiveFlip       Operator = "OUT-SENSITIVE-FLIP"
 )
 
+// The Tier 4 lifecycle operators, admitted on the M5-0.1 kill witnesses.
+const (
+	LCIgnoreDrop         Operator = "LC-IGNORE-DROP"
+	LCIgnoreAll          Operator = "LC-IGNORE-ALL"
+	LCReplaceTriggerDrop Operator = "LC-REPLACE-TRIGGER-DROP"
+)
+
 // Mutant is one generated mutation of one file.
 type Mutant struct {
 	// ID is a stable content-derived identifier for the mutation site.

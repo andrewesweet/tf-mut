@@ -55,15 +55,13 @@ internal/engine/testdata/foreach/main.tf
 internal/engine/testdata/foreach/tests/unit.tftest.hcl
 internal/engine/testdata/json-autovar/main.tf
 internal/engine/testdata/json-autovar/tests/main.tftest.hcl
-internal/engine/testdata/json-malformed/main.tf
-internal/engine/testdata/json-malformed/tests/unit.tftest.hcl
 internal/engine/testdata/json-child-variable/child/main.tf
 internal/engine/testdata/json-child-variable/main.tf
 internal/engine/testdata/json-child-variable/tests/unit.tftest.hcl
+internal/engine/testdata/json-malformed/main.tf
+internal/engine/testdata/json-malformed/tests/unit.tftest.hcl
 internal/engine/testdata/json-mixed/main.tf
 internal/engine/testdata/json-mixed/tests/unit.tftest.hcl
-internal/engine/testdata/json-sensitive-variable/main.tf
-internal/engine/testdata/json-sensitive-variable/tests/unit.tftest.hcl
 internal/engine/testdata/json-module/child-effects/main.tf
 internal/engine/testdata/json-module/child-provider/main.tf
 internal/engine/testdata/json-module/main.tf
@@ -75,6 +73,8 @@ internal/engine/testdata/json-provider/tests/unit.tftest.hcl
 internal/engine/testdata/json-provisioner/main.tf
 internal/engine/testdata/json-provisioner/tests/unit.tftest.hcl
 internal/engine/testdata/json-run-unmodelled/main.tf
+internal/engine/testdata/json-sensitive-variable/main.tf
+internal/engine/testdata/json-sensitive-variable/tests/unit.tftest.hcl
 internal/engine/testdata/json-terraform-unmodelled/main.tf
 internal/engine/testdata/json-terraform-unmodelled/tests/unit.tftest.hcl
 internal/engine/testdata/json-test-mock/main.tf
@@ -84,6 +84,8 @@ internal/engine/testdata/killset-reversed/main.tf
 internal/engine/testdata/killset-reversed/tests/unit.tftest.hcl
 internal/engine/testdata/killset/main.tf
 internal/engine/testdata/killset/tests/unit.tftest.hcl
+internal/engine/testdata/lifecycle/main.tf
+internal/engine/testdata/lifecycle/tests/unit.tftest.hcl
 internal/engine/testdata/mocked-aliases/main.tf
 internal/engine/testdata/mocked-aliases/tests/unit.tftest.hcl
 internal/engine/testdata/mocked-null/main.tf
@@ -142,9 +144,9 @@ internal/engine/testdata/unmocked/main.tf
 internal/engine/testdata/unmocked/tests/unit.tftest.hcl
 internal/engine/testdata/untested-aliases/main.tf
 internal/engine/testdata/untested-branches/main.tf
-internal/engine/testdata/untested-lifecycle-persistence/main.tf
 internal/engine/testdata/untested-configuration-aliases/main.tf
 internal/engine/testdata/untested-foreach-keys/main.tf
+internal/engine/testdata/untested-lifecycle-persistence/main.tf
 internal/engine/testdata/untested-mined/main.tf
 internal/engine/testdata/untested-secret-diagnostic/main.tf
 internal/engine/testdata/untested-sensitive-answer/main.tf

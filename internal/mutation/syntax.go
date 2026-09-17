@@ -108,10 +108,11 @@ func (g Generator) attributeEdits(
 	where site,
 	attribute *hclsyntax.Attribute,
 ) []edit {
-	// Tier 4 owns the lifecycle settings, and this milestone does not ship it.
-	// A precondition inside the same block is Tier 3's and passes through.
+	// The admitted Tier 4 lifecycle operators own their arguments; every other
+	// lifecycle setting keeps the drop (M5a). A precondition inside the same
+	// block is Tier 3's and passes through.
 	if where.lifecycle && !where.contract {
-		return nil
+		return lifecycleEdits(source, where, attribute)
 	}
 
 	if where.contract {
