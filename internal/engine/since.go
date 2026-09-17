@@ -106,7 +106,7 @@ func applySince(
 		Mode: report.SelectionSince, Ref: settings.Since, ForcedFull: "",
 	}
 
-	if forced := fullPopulationTrigger(changes); forced != "" {
+	if forced := fullPopulationTrigger(changes, packPaths(configuration.ClosureRoot, settings)); forced != "" {
 		// The full population runs, and the report says why.
 		chosen.metadata.ForcedFull = forced
 
@@ -270,14 +270,32 @@ func parseNameStatus(output string) []change {
 	return changes
 }
 
+// packPaths maps the selected user packs' files, closure-relative, so a
+// change to one is recognised as a change to the configuration: a pack is
+// data that decides the population, as `.tf-mut.hcl` does.
+func packPaths(closureRoot string, settings config) map[string]bool {
+	paths := map[string]bool{}
+
+	for _, pack := range settings.loadedPacks {
+		if rel, err := filepath.Rel(closureRoot, pack.Path); err == nil {
+			paths[filepath.ToSlash(rel)] = true
+		}
+	}
+
+	return paths
+}
+
 // fullPopulationTrigger returns the changed file class that forces the full
 // population, or empty. "Changed configuration" is exactly #33's list: any
-// non-.tf class change cannot be scoped.
-func fullPopulationTrigger(changes []change) string {
+// non-.tf class change cannot be scoped — and, since M5c.1, a selected user
+// pack's file.
+func fullPopulationTrigger(changes []change, packs map[string]bool) string {
 	for _, changed := range changes {
 		name := filepath.Base(changed.path)
 
 		switch {
+		case packs[filepath.ToSlash(changed.path)]:
+			return changed.path + " (pack file)"
 		case strings.HasSuffix(name, ".tftest.hcl") || strings.HasSuffix(name, ".tftest.json"):
 			return changed.path + " (test file)"
 		case strings.HasSuffix(name, ".tfvars") || strings.HasSuffix(name, ".tfvars.json"):

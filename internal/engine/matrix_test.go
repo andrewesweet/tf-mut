@@ -102,6 +102,25 @@ func TestEveryEnabledOperatorHasAGenerationSite(t *testing.T) {
 		fired[mutant.Operator] = true
 	}
 
+	// The pack form operators' sites live in the packs fixture and fire only
+	// where a selected pack's entry parameterises them (M5c.1); a language
+	// operator owns every row a pack entry also produced, so each form
+	// operator is witnessed in isolation, as isolatedSite does.
+	for _, operator := range []mutation.Operator{mutation.PackFlip, mutation.PackReplace} {
+		packed := previewRequest(t, copyFixture(t, "packs"))
+		packed.Packs = []string{"acme"}
+		packed.IncludeOperators = []string{string(operator)}
+
+		packResult, err := engine.Run(t.Context(), packed)
+		if err != nil {
+			t.Fatalf("packs preview: %v", err)
+		}
+
+		for _, mutant := range packResult.Mutants {
+			fired[mutant.Operator] = true
+		}
+	}
+
 	for _, entry := range mutation.Catalogue() {
 		if fired[string(entry.Operator)] || isolatedSite(t, modules, entry.Operator) {
 			continue

@@ -1563,3 +1563,79 @@ func judgementPointFixture(t *testing.T) string {
 
 	return module
 }
+
+// packFlagArgument is the pack selection as the command line spells it.
+const packFlagArgument = "--pack"
+
+// TestThePackFlagIsRefusedByNameOnCharacteriseTodosAndCurate is the M5c.1
+// by-name refusal: the characterise, todos and curate requests have no field
+// for a pack selection, so the parser refuses the flag rather than accepting
+// and ignoring it.
+func TestThePackFlagIsRefusedByNameOnCharacteriseTodosAndCurate(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{characteriseCommand, todosCommand, curateCommand} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			stderr := bytes.Buffer{}
+
+			code := run([]string{command, packFlagArgument, "acme", t.TempDir()},
+				"test", &bytes.Buffer{}, &stderr)
+			if code != report.ExitOperational {
+				t.Fatalf("exit code = %d, want %d: %s", code, report.ExitOperational, stderr.String())
+			}
+
+			if !strings.Contains(stderr.String(), errInapplicableFlag.Error()) ||
+				!strings.Contains(stderr.String(), packFlagArgument+" is not a "+command+" flag") {
+				t.Fatalf("the refusal is not the parser's, by name: %s", stderr.String())
+			}
+		})
+	}
+}
+
+// TestPacksAreWiredThroughTheCommandLine: `--pack` reaches the engine on
+// preview, the pack mutants come back with their tier and origins, and an
+// unknown name is refused at configuration time with exit 2.
+func TestPacksAreWiredThroughTheCommandLine(t *testing.T) {
+	t.Parallel()
+
+	module := filepath.Join(t.TempDir(), "packs")
+	if err := os.CopyFS(module, os.DirFS("../../internal/engine/testdata/packs")); err != nil {
+		t.Fatalf("copying fixture: %v", err)
+	}
+
+	stdout := bytes.Buffer{}
+	stderr := bytes.Buffer{}
+
+	code := run([]string{previewCommand, packFlagArgument, "acme,second", reporterFlag, reporterJSON, module},
+		"test", &stdout, &stderr)
+	if code != report.ExitClean {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+
+	packTier := 0
+	origins := 0
+
+	for _, mutant := range decodeReport(t, stdout.Bytes()).Mutants {
+		if mutant.Tier == "pack" {
+			packTier++
+		}
+
+		if len(mutant.Origins) > 0 {
+			origins++
+		}
+	}
+
+	if packTier == 0 || origins <= packTier {
+		t.Fatalf("pack-tier mutants = %d, origin-bearing mutants = %d; the packs did not reach the engine",
+			packTier, origins)
+	}
+
+	stderr.Reset()
+
+	code = run([]string{previewCommand, packFlagArgument, "nobody", module}, "test", &bytes.Buffer{}, &stderr)
+	if code != exitUsage || !strings.Contains(stderr.String(), `pack "nobody" is not registered`) {
+		t.Fatalf("an unknown pack exited %d with %q, want exit 2 naming it", code, stderr.String())
+	}
+}

@@ -263,6 +263,13 @@ func writeClosure(
 		write("json", file.Rel, hashBytes(content))
 	}
 
+	// The selected user packs' bytes: a pack is data that decides the
+	// population, so an edit to one is a miss and a stale write is refused,
+	// exactly as an edit to `.tf-mut.hcl` is.
+	for _, pack := range settings.loadedPacks {
+		write("pack", pack.Name, pack.Digest)
+	}
+
 	// The dependency lock, where one exists.
 	if prepared.lockFile != "" {
 		content, err := os.ReadFile(prepared.lockFile)
@@ -307,11 +314,12 @@ func writeClosure(
 // Jobs is deliberately absent: verdicts are proven independent of
 // parallelism, and a cache keyed on it would miss for no reason.
 func resolvedConfiguration(settings config) string {
-	return fmt.Sprintf("%s|%v|%v|%v|%s|%v|%v|%v|%v|%v",
+	return fmt.Sprintf("%s|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v",
 		settings.TestDirectory, settings.TimeoutFactor, settings.TimeoutFloor,
 		settings.AllowIncompleteScore, settings.Tier,
 		settings.IncludeOperators, settings.ExcludeOperators,
-		settings.ExcludePaths, settings.ExcludeResources, settings.TestSelection)
+		settings.ExcludePaths, settings.ExcludeResources, settings.TestSelection,
+		settings.Packs)
 }
 
 // relevantEnvironment is the whole effective environment — the process's

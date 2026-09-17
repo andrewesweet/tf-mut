@@ -33,6 +33,9 @@ type site struct {
 	lifecycle bool
 	// dynamic marks an attribute inside a dynamic block.
 	dynamic bool
+	// nested marks an attribute inside a nested block of any kind, which the
+	// pack site rule — a top-level argument assignment — excludes.
+	nested bool
 }
 
 // The block kinds walkBlocks distinguishes.
@@ -71,7 +74,7 @@ func contextOf(block *hclsyntax.Block) (site, bool) {
 	base := site{
 		address: "", resource: "", kind: block.Type,
 		blockType: "", variable: "", attributeName: "",
-		contract: false, lifecycle: false, dynamic: false,
+		contract: false, lifecycle: false, dynamic: false, nested: false,
 	}
 
 	switch block.Type {
@@ -147,6 +150,7 @@ func walkBlock(where site, block *hclsyntax.Block, attributes visitor, blocks bl
 		nestedSite.contract = where.contract || isContractBlock(nested.Type)
 		nestedSite.lifecycle = where.lifecycle || nested.Type == "lifecycle"
 		nestedSite.dynamic = where.dynamic || nested.Type == "dynamic"
+		nestedSite.nested = true
 
 		walkBlock(nestedSite, nested, attributes, blocks)
 	}

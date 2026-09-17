@@ -44,6 +44,11 @@ type File struct {
 	Exclude Exclude
 	// Reporters are the configured outputs, merged additively with the flags.
 	Reporters []Reporter
+	// Packs are the user-defined domain packs registered by name, each
+	// pointing at its file relative to the module root. Registration is not
+	// selection: a registered pack is enabled by `operators { packs }` or the
+	// `--pack` flag, merged as a union.
+	Packs []Pack
 }
 
 // Settings are the scalars the `tf-mut` block carries. Each is a pointer so
@@ -57,11 +62,12 @@ type Settings struct {
 	AllowIncompleteScore *bool
 }
 
-// Operators selects the population by tier and identifier.
+// Operators selects the population by tier, identifier and pack name.
 type Operators struct {
 	Tier    string
 	Include []string
 	Exclude []string
+	Packs   []string
 }
 
 // Exclude removes sites by path glob and by resource address.
@@ -76,12 +82,19 @@ type Reporter struct {
 	Path string
 }
 
+// Pack is one registered user-defined pack: `pack "NAME" { file = "PATH" }`.
+type Pack struct {
+	Name string
+	File string
+}
+
 // The block types the file may declare.
 const (
 	blockSettings  = "tf-mut"
 	blockOperators = "operators"
 	blockExclude   = "exclude"
 	blockReporter  = "reporter"
+	blockPack      = "pack"
 )
 
 // Load reads the configuration at a module root, if there is one.
@@ -112,9 +125,10 @@ func Load(moduleDir string) (File, error) {
 		Present:   true,
 		Path:      path,
 		Settings:  Settings{}, //nolint:exhaustruct // filled from the blocks below.
-		Operators: Operators{Tier: "", Include: nil, Exclude: nil},
+		Operators: Operators{Tier: "", Include: nil, Exclude: nil, Packs: nil},
 		Exclude:   Exclude{Paths: nil, Resources: nil},
 		Reporters: []Reporter{},
+		Packs:     []Pack{},
 	}
 
 	if err := decodeBlocks(body, &file); err != nil {
@@ -132,7 +146,7 @@ func decodeBlocks(body *hclsyntax.Body, file *File) error {
 	}
 
 	for _, block := range body.Blocks {
-		if block.Type != blockReporter && seen[block.Type] {
+		if block.Type != blockReporter && block.Type != blockPack && seen[block.Type] {
 			return fmt.Errorf("%w: %s is declared more than once, and the tool will not guess "+
 				"which one you meant", ErrConfig, block.Type)
 		}
@@ -157,6 +171,8 @@ func decodeBlock(block *hclsyntax.Block, file *File) error {
 		return decodeExclude(block, &file.Exclude)
 	case blockReporter:
 		return decodeReporter(block, file)
+	case blockPack:
+		return decodePack(block, file)
 	default:
 		return fmt.Errorf("%w: unknown block %q", ErrConfig, block.Type)
 	}
@@ -223,6 +239,8 @@ func decodeOperators(block *hclsyntax.Block, operators *Operators) error {
 			operators.Include, err = asStrings(name, value)
 		case "exclude":
 			operators.Exclude, err = asStrings(name, value)
+		case "packs":
+			operators.Packs, err = asStrings(name, value)
 		default:
 			err = fmt.Errorf("%w: unknown operators setting %q", ErrConfig, name)
 		}
@@ -288,6 +306,46 @@ func decodeReporter(block *hclsyntax.Block, file *File) error {
 	}
 
 	file.Reporters = append(file.Reporters, reporter)
+
+	return nil
+}
+
+// decodePack registers one user-defined pack by name. The file is checked
+// against the pack contract when the pack is selected, not here: registration
+// is a name, selection is what loads it.
+func decodePack(block *hclsyntax.Block, file *File) error {
+	if len(block.Labels) != 1 {
+		return fmt.Errorf("%w: a pack block needs exactly one label, its name", ErrConfig)
+	}
+
+	pack := Pack{Name: block.Labels[0], File: ""}
+
+	for name, attribute := range block.Body.Attributes {
+		value, err := evaluate(attribute)
+		if err != nil {
+			return err
+		}
+
+		if name != "file" {
+			return fmt.Errorf("%w: unknown pack setting %q", ErrConfig, name)
+		}
+
+		if pack.File, err = asString(name, value); err != nil {
+			return err
+		}
+	}
+
+	if pack.File == "" {
+		return fmt.Errorf("%w: pack %q names no file", ErrConfig, pack.Name)
+	}
+
+	for _, existing := range file.Packs {
+		if existing.Name == pack.Name {
+			return fmt.Errorf("%w: pack %q is declared more than once", ErrConfig, pack.Name)
+		}
+	}
+
+	file.Packs = append(file.Packs, pack)
 
 	return nil
 }

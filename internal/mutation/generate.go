@@ -59,6 +59,24 @@ type Selection struct {
 	GeneratedFamilies bool
 }
 
+// Defect is a deliberately wrong generation the generator can be made to
+// perform, so the gate cases about origins can be proven able to fail. The
+// engine seeds it from a test hook and nowhere else.
+type Defect string
+
+const (
+	// DefectNone is the ordinary generator.
+	DefectNone Defect = ""
+	// DefectDropOrigins disables origin aggregation: the deduplication winner
+	// keeps only the origins of its own rewrite, so a language-operator row a
+	// pack entry also produced loses the entry.
+	DefectDropOrigins Defect = "drop-origins"
+	// DefectReverseOwnership reverses the operator order at one site, so the
+	// later-sorting operator owns the row instead. Aggregation is independent
+	// of the winner, so no contributor may be lost under it.
+	DefectReverseOwnership Defect = "reverse-ownership"
+)
+
 // Enabled reports whether an operator is in the selected population.
 func (s Selection) Enabled(operator Operator) bool {
 	if slices.Contains(s.Exclude, string(operator)) {
@@ -74,6 +92,14 @@ func (s Selection) Enabled(operator Operator) bool {
 
 	if len(s.Include) > 0 {
 		return slices.Contains(s.Include, string(operator))
+	}
+
+	// Tier 5 is selected per pack, never by breadth: a pack operator is
+	// generated only where a selected pack's entry parameterises it, and no
+	// tier includes it. --operator and --exclude-operator act on it by
+	// identifier above, like any other.
+	if TierOf(operator) == TierPack {
+		return true
 	}
 
 	tier := s.Tier
@@ -92,12 +118,21 @@ type Generator struct {
 	Schemas tfexec.Schemas
 	// Selection is the operator population the run asked for.
 	Selection Selection
+	// Packs are the selected domain packs whose entries parameterise the
+	// form operators. Empty means no pack operator is generated at all.
+	Packs []Pack
+	// Defect is the seeded generation defect; DefectNone outside a test hook.
+	Defect Defect
 }
 
 // Result is the generated population and what generation learned about itself.
 type Result struct {
 	Mutants  []Mutant
 	Warnings []string
+	// UnmatchedEntries are the selected pack entries that produced no mutant:
+	// no site of their form, no schema evidence, or a shape outside M5's
+	// scope. Preview publishes them as its pack summary.
+	UnmatchedEntries []Origin
 }
 
 // Generate returns the deduplicated mutant population in deterministic order.
@@ -131,7 +166,11 @@ func (g Generator) Generate() (Result, error) {
 		}
 	}
 
-	return Result{Mutants: deduplicate(sortMutants(enabled)), Warnings: warnings}, nil
+	return Result{
+		Mutants:          deduplicate(sortMutants(enabled, g.Defect), g.Defect),
+		Warnings:         warnings,
+		UnmatchedEntries: g.unmatchedEntries(mutants),
+	}, nil
 }
 
 type sourceFile struct {
@@ -581,7 +620,14 @@ func generatedRank(operator Operator) int {
 	return 0
 }
 
-func sortMutants(mutants []Mutant) []Mutant {
+func sortMutants(mutants []Mutant, defect Defect) []Mutant {
+	// The seeded ownership reversal flips the operator tiebreak alone, so the
+	// later-sorting operator wins deduplication at every shared site.
+	direction := 1
+	if defect == DefectReverseOwnership {
+		direction = -1
+	}
+
 	slices.SortStableFunc(mutants, func(left, right Mutant) int {
 		if left.File != right.File {
 			return strings.Compare(left.File, right.File)
@@ -599,7 +645,7 @@ func sortMutants(mutants []Mutant) []Mutant {
 		}
 
 		if left.Operator != right.Operator {
-			return strings.Compare(string(left.Operator), string(right.Operator))
+			return direction * strings.Compare(string(left.Operator), string(right.Operator))
 		}
 
 		return strings.Compare(left.Site, right.Site)
@@ -609,22 +655,58 @@ func sortMutants(mutants []Mutant) []Mutant {
 }
 
 // deduplicate drops mutants that rewrite the same file to the same content.
-func deduplicate(mutants []Mutant) []Mutant {
-	seen := map[string]bool{}
+//
+// The algorithm and the survivor's identity are exactly what they were before
+// packs existed: the entry sorting earliest wins. What a dropped duplicate
+// leaves behind is its origins — every (operator, pack, entry) whose rewrite
+// produced the surviving bytes is recorded on the survivor, sorted and
+// deduplicated by (pack, entry), whichever operator owns the row.
+func deduplicate(mutants []Mutant, defect Defect) []Mutant {
+	seen := map[string]int{}
 	unique := []Mutant{}
 
 	for _, mutant := range mutants {
 		digest := sha256.Sum256(mutant.Mutated)
 		key := mutant.File + ":" + string(digest[:])
 
-		if seen[key] {
+		if index, found := seen[key]; found {
+			if defect != DefectDropOrigins {
+				unique[index].Origins = append(unique[index].Origins, mutant.Origins...)
+			}
+
 			continue
 		}
 
-		seen[key] = true
+		seen[key] = len(unique)
+		mutant.Origins = slices.Clone(mutant.Origins)
 
 		unique = append(unique, mutant)
 	}
 
+	for index := range unique {
+		unique[index].Origins = canonicalOrigins(unique[index].Origins)
+	}
+
 	return unique
+}
+
+// canonicalOrigins sorts origins by (pack, entry) and keeps one per pair. A
+// nil result stands for "no pack contributed", which is what the report's
+// presence rule turns on.
+func canonicalOrigins(origins []Origin) []Origin {
+	if len(origins) == 0 {
+		return nil
+	}
+
+	slices.SortFunc(origins, func(left, right Origin) int {
+		if left.Pack != right.Pack {
+			return strings.Compare(left.Pack, right.Pack)
+		}
+
+		return strings.Compare(left.Entry, right.Entry)
+	})
+
+	return slices.CompactFunc(origins, func(left, right Origin) bool {
+		return left.Pack == right.Pack && left.Entry == right.Entry
+	})
 }

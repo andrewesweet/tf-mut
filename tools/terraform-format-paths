@@ -107,6 +107,8 @@ internal/engine/testdata/oracle/main.tf
 internal/engine/testdata/oracle/tests/unit.tftest.hcl
 internal/engine/testdata/out-of-cone/main.tf
 internal/engine/testdata/out-of-cone/tests/main.tftest.hcl
+internal/engine/testdata/packs/main.tf
+internal/engine/testdata/packs/tests/unit.tftest.hcl
 internal/engine/testdata/policy/generated.tf
 internal/engine/testdata/policy/main.tf
 internal/engine/testdata/policy/tests/unit.tftest.hcl

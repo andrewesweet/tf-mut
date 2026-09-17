@@ -118,6 +118,25 @@ func (s Schemas) AttributeType(kind, resourceType, attribute string) (cty.Type, 
 	return decoded, true
 }
 
+// Describes reports whether a provider schema describes the named argument
+// at all, and the type it declares — `cty.DynamicPseudoType` for Terraform's
+// `dynamic`, which AttributeType above deliberately withholds. This is the
+// pack contract's evidence: an entry fires only where the schema describes
+// the attribute and the entry's replacement is of the declared type.
+func (s Schemas) Describes(kind, resourceType, attribute string) (cty.Type, bool) {
+	described, found := s.attribute(kind, resourceType, attribute)
+	if !found || len(described.Type) == 0 {
+		return cty.NilType, false
+	}
+
+	decoded, err := ctyjson.UnmarshalType(described.Type)
+	if err != nil {
+		return cty.NilType, false
+	}
+
+	return decoded, true
+}
+
 // Computed reports whether the named argument of a managed resource or data
 // source is one the provider fills in.
 //

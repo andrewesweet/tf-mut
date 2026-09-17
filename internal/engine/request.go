@@ -70,6 +70,9 @@ type Population struct {
 	HasSample          bool
 	SampleSeed         int64
 	GeneratedFunctions bool
+	// Packs names the domain packs to enable, merged as a union with the
+	// configured `operators { packs }` list and deduplicated by name.
+	Packs []string
 }
 
 // Gate carries the acceptance policy applied to a completed population.
@@ -301,6 +304,7 @@ func populationConfig(settings config, p Population) config {
 	settings.HasSample = p.HasSample
 	settings.SampleSeed = p.SampleSeed
 	settings.GeneratedFunctions = p.GeneratedFunctions
+	settings.Packs = p.Packs
 
 	return settings
 }

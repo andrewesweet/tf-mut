@@ -7,14 +7,15 @@ import (
 	"testing"
 )
 
-// The M5a closure rule, enforced the way M2's, M3's, M4's and M4.5's are:
+// The M5 closure rule, enforced the way M2's, M3's, M4's and M4.5's are:
 // `just gate-m5` has to name its cases and every name has to resolve to a
-// test that exists, so the gate can never go green by naming nothing.
+// test that exists, so the gate can never go green by naming nothing. M5a's
+// lifecycle cases and M5c.1's pack cases are both carried here.
 
 const m5GateRecipe = "gate-m5:"
 
 // minimumM5GateCases guards against a recipe edit that empties the gate.
-const minimumM5GateCases = 12
+const minimumM5GateCases = 30
 
 func TestTheM5GateNamesOnlyTestsThatExist(t *testing.T) {
 	t.Parallel()
@@ -25,7 +26,9 @@ func TestTheM5GateNamesOnlyTestsThatExist(t *testing.T) {
 			len(named))
 	}
 
-	declared := testDeclarations(t)
+	// The by-name flag refusal lives beside the flag table in cmd, so the
+	// declarations walk covers both trees, as the M4 audit's does.
+	declared := m4TestDeclarations(t)
 
 	for _, name := range named {
 		if !declared[name] {
@@ -55,6 +58,27 @@ func TestTheM5GateCoversEveryNamedRequirement(t *testing.T) {
 		"catalogue rows and matrix agree":    "TestEveryEnabledOperatorHasAMatrixRow",
 		"matrix rows name enabled ops":       "TestEveryMatrixRowNamesAnEnabledOperator",
 		"Tier 4 mutants parse":               "TestTheMatrixFixtureGeneratesOnlyParseableMutants",
+
+		// M5c.1: the pack mechanism and the user-defined pack surface.
+		"pack generates, classifies, suggests": "TestAUserPackGeneratesClassifiesAndSuggestsThroughTheSeam",
+		"origins on a collapsed boolean flip":  "TestOriginsNameThePackEntryOnACollapsedBooleanFlip",
+		"red proof: aggregation disabled":      "TestDisablingOriginAggregationTurnsTheOriginsCaseRed",
+		"reversed ownership loses nothing":     "TestReversingOwnershipLosesNoContributor",
+		"every contract row refused by name":   "TestEveryPackContractRowIsRefusedByName",
+		"unsupported form is a summary no-op":  "TestAnUnsupportedAttributeFormIsANoOpInThePackSummary",
+		"schema evidence refuses undescribed":  "TestSchemaEvidenceRefusesAnUndescribedAttribute",
+		"type-incompatible to finds no site":   "TestATypeIncompatibleReplacementFindsNoSite",
+		"flag and configuration union":         "TestFlagAndConfiguredPacksMergeAsAUnion",
+		"configured narrowing refused":         "TestAConfiguredPackSelectionIsRefusedOnCurateAndUntilDry",
+		"only grading requests carry packs":    "TestOnlyTheGradingRequestsCarryAPackSelection",
+		"--pack refused by name":               "TestThePackFlagIsRefusedByNameOnCharacteriseTodosAndCurate",
+		"--pack wired, unknown exits 2":        "TestPacksAreWiredThroughTheCommandLine",
+		"edited pack is a cache miss":          "TestAnEditedUserPackIsACacheMiss",
+		"stale verified suggestion refused":    "TestAStaleVerifiedPackSuggestionIsRefused",
+		"changed pack forces full population":  "TestAChangedPackFileForcesTheFullPopulationUnderSince",
+		"no pack in standard":                  "TestNoPackEntersTheStandardPopulation",
+		"pack operators have offline sites":    "TestEveryPackOperatorHasASiteInTheOfflineFixture",
+		"pack reports validate against 2.4.0":  "TestARealPackReportValidatesAgainstThePublishedSchema",
 	}
 
 	assertGateCovers(t, "M5", m5GatedTests(t), required)

@@ -150,6 +150,10 @@ type Mutant struct {
 	Diff string
 	// Mutated is the rewritten file content.
 	Mutated []byte
+	// Origins are the pack entries whose rewrite produced these bytes, sorted
+	// and deduplicated by (pack, entry); nil where no pack contributed. They
+	// sit beside the identity and are never part of it.
+	Origins []Origin
 }
 
 // idLength is the number of hexadecimal characters in a mutant identifier.

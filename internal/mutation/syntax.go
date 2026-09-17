@@ -84,7 +84,18 @@ func (e edit) mutant(module discovery.Module, source sourceFile, mutated []byte)
 		Range:     span,
 		Diff:      UnifiedDiff(source.rel, source.content, mutated),
 		Mutated:   mutated,
+		Origins:   e.origins(),
 	}
+}
+
+// origins is the single origin a pack-parameterised edit carries into the
+// population, before deduplication aggregates it onto the survivor.
+func (e edit) origins() []Origin {
+	if e.pack == "" {
+		return nil
+	}
+
+	return []Origin{{Operator: e.operator, Pack: e.pack, Entry: e.entry}}
 }
 
 // fileEdits offers every operator every construct of one module file.
@@ -146,7 +157,7 @@ func (g Generator) expressionOperators(source []byte, where site, attribute *hcl
 		edits = append(edits, injected)
 	}
 
-	return edits
+	return append(edits, g.packEdits(where, attribute)...)
 }
 
 // nullInjection replaces a schema-optional argument's value with null.
