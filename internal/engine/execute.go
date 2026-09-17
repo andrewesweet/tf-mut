@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -214,6 +215,7 @@ func classify(
 		if !validation.Valid {
 			verdict.Diagnostics = append(verdict.Diagnostics,
 				diagnostics(validation.Diagnostics)...)
+			slices.SortFunc(verdict.Diagnostics, compareDiagnostics)
 
 			return project(verdict, oracle.Invalid(oracleDiagnostics(verdict.Diagnostics))), nil
 		}
@@ -280,5 +282,42 @@ func diagnostics(source []tfexec.Diagnostic) []report.Diagnostic {
 		converted = append(converted, entry)
 	}
 
+	// Terraform's parallel evaluation emits one plan's errors in a
+	// nondeterministic order, and a report that varied run to run in everything
+	// but that order would break the before-and-after proofs the baseline
+	// honesty rests on. The recorded list is the same set either way; the
+	// canonical order is what makes the set observable.
+	slices.SortFunc(converted, compareDiagnostics)
+
 	return converted
+}
+
+func compareDiagnostics(left, right report.Diagnostic) int {
+	return cmp.Or(
+		cmp.Compare(left.TestFile, right.TestFile),
+		cmp.Compare(left.TestRun, right.TestRun),
+		cmp.Compare(left.Severity, right.Severity),
+		cmp.Compare(left.Summary, right.Summary),
+		cmp.Compare(left.Detail, right.Detail),
+		compareDiagnosticRanges(left.Range, right.Range),
+	)
+}
+
+func compareDiagnosticRanges(left, right *report.Range) int {
+	switch {
+	case left == nil && right == nil:
+		return 0
+	case left == nil:
+		return 1
+	case right == nil:
+		return -1
+	}
+
+	return cmp.Or(
+		cmp.Compare(left.File, right.File),
+		cmp.Compare(left.Start.Line, right.Start.Line),
+		cmp.Compare(left.Start.Column, right.Start.Column),
+		cmp.Compare(left.End.Line, right.End.Line),
+		cmp.Compare(left.End.Column, right.End.Column),
+	)
 }

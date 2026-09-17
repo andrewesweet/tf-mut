@@ -245,7 +245,9 @@ type Mutant struct {
 	Verdict *Verdict `json:"verdict,omitempty"`
 	// Runs records the per-run outcomes orthogonally to the aggregate state.
 	Runs []RunOutcome `json:"runs"`
-	// Diagnostics are the Terraform diagnostics the mutant produced.
+	// Diagnostics are the Terraform diagnostics the mutant produced, in the
+	// engine's canonical order (test file, run, severity, summary, detail,
+	// range) rather than Terraform's nondeterministic stream order.
 	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
 	// ExecutedRuns is the number of run blocks that actually executed.
 	ExecutedRuns int `json:"executed_runs"`

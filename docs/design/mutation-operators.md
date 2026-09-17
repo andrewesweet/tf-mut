@@ -273,8 +273,9 @@ will fail this tier comprehensively, and the fix is mechanical.
 The witness column records the M5-0.1 measurement
 ([`docs/research/16-m5-01-lifecycle-witnesses.md`](../research/16-m5-01-lifecycle-witnesses.md)):
 non-admitted rows carry the exact annotation the decision rule fixes and reopen on a witness;
-admitted rows carry the witnessed shapes whose assertion becomes the matrix row's "Kills when"
-when M5a adds them. Until that change this tier still enables nothing.
+admitted rows carry the witnessed shapes whose assertion the matrix row's "Kills when" and the
+catalogue fix text both name. M5a admits the three witnessed rows; the two unadmitted ones stay
+dropped.
 
 These are near-unkillable by plan-mode tests, and that is diagnostic information rather than a
 defect: it tells a team that their safety rails are entirely unverified. They are gated to the
@@ -403,11 +404,15 @@ waste.
 | `CHECK-REMOVE` | A `check` block containing at least one `assert` | The number of assertions the check declares | Where the check declares one assertion the whole `check` block is removed, because Terraform rejects a check with none and the mutant would be 100% `Invalid`; where it declares several, one assertion is removed at a time | `check` blocks with no assertion; `assert` blocks in test files, which are never mutated | `StructurallyUnassertable` unless the check is exercised |
 | `CHECK-NEGATE` | `condition` inside a `check`'s `assert` | As above | — | — | `Killed` where a run block exercises the check |
 | `OUT-SENSITIVE-FLIP` | `sensitive = true` in an `output` | The literal is exactly `true`, and the output's value reads no variable the module declares sensitive | — | `sensitive = false`; outputs whose value reads a sensitive variable, where Terraform refuses the non-sensitive output outright and the mutant is doomed | Rarely killed: a sensitivity pseudo-test detector |
+| `LC-IGNORE-DROP` | An entry of `ignore_changes = [ … ]` inside a `resource`'s `lifecycle` block | — | A lone entry's removal takes the whole argument line, because the kill witnesses recorded the argument's removal rather than a list whose emptiness models no fault | `ignore_changes = all`, which `LC-IGNORE-ALL` owns; an empty list, which has no entry to drop | `Killed` where a day-two run pair shares one `state_key` and the second run asserts the attribute held — `terraform_data.<subject>.input == "old"` (shapes (b) and (e)); an identical fingerprint is `StructurallyUnassertable`, never `Unobservable` |
+| `LC-IGNORE-ALL` | `ignore_changes = [ … ]` with at least one entry | — | — | `ignore_changes = all`, which models no fault; an empty list, which has no entry to widen | `Killed` where a day-two run pair shares one `state_key` and the second run asserts the attribute moved — `terraform_data.<subject>.input == "new"` (shapes (b) and (e)); an identical fingerprint is `StructurallyUnassertable` |
+| `LC-REPLACE-TRIGGER-DROP` | An entry of `replace_triggered_by = [ … ]` inside a `resource`'s `lifecycle` block | — | A lone entry's removal takes the whole argument line, as `LC-IGNORE-DROP` | — | `Killed` where a second apply over one `state_key` changes the trigger and the assertion compares instance ids — `terraform_data.<subject>.id != run.<first>.subject_id` (shape (e)); an identical fingerprint is `StructurallyUnassertable` — the empty canonical delta beside a real phase-one kill is the recorded M5-0.1 finding |
 
 ### Tier 4 and the packs
 
-No row above belongs to Tier 4 or to a domain pack. `--tier deep` is accepted as a name so that
-configuration can refer to it, and it currently enables nothing beyond `standard`.
+Three rows belong to Tier 4 — the lifecycle operators M5-0.1 admitted on their kill witnesses,
+enabled under `--tier deep`, which includes everything `standard` enables. No row belongs to a
+domain pack: packs land behind `--pack` selection, never inside a tier.
 
 ## Suppression
 
@@ -435,7 +440,7 @@ estimates were 3–8× low.
 | 1 — language (`standard`) | ~35 | 800–1500 |
 | 2 — meta-arguments (`standard`) | 10 | 20–60 |
 | 3 — contract (`standard`) | 15 | 40–120 |
-| 4 — lifecycle (`deep`) | 5 | 5–20 |
+| 4 — lifecycle (`deep`) | 3 enabled of 5 designed | 5–20 |
 | 5 — domain packs (opt-in) | ~30 per pack | 0–50 |
 
 Duration depends dominantly on provider schema size and test selection, not on operator count

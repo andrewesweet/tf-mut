@@ -28,8 +28,8 @@ type site struct {
 	// contract marks an attribute inside a validation, pre/postcondition or
 	// check assertion, which Tier 3 owns.
 	contract bool
-	// lifecycle marks an attribute inside a lifecycle block. Tier 4 owns those,
-	// and this milestone does not ship it.
+	// lifecycle marks an attribute inside a lifecycle block. The admitted Tier
+	// 4 operators own its arguments (M5a); unadmitted ones keep the drop.
 	lifecycle bool
 	// dynamic marks an attribute inside a dynamic block.
 	dynamic bool

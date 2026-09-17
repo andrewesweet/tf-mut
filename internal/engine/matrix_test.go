@@ -21,6 +21,9 @@ import (
 
 const matrixPath = "docs/design/mutation-operators.md"
 
+// operatorsFixture is the main matrix fixture, the one most tests preview.
+const operatorsFixture = "operators"
+
 // matrixRow matches the operator column of the matrix table.
 func matrixRow() *regexp.Regexp {
 	return regexp.MustCompile("(?m)^\\| `([A-Z][A-Z0-9-]+)` \\|")
@@ -58,17 +61,19 @@ func TestEveryMatrixRowNamesAnEnabledOperator(t *testing.T) {
 func TestEveryEnabledOperatorHasAGenerationSite(t *testing.T) {
 	t.Parallel()
 
-	// The matrix's fixtures. Two operators need a shape the main fixture cannot
-	// carry: an alias needs a real provider to configure, and a dynamic block
-	// needs a provider whose schema declares a nested block type, which neither
-	// offline provider has.
+	// The matrix's fixtures. Three operators need a shape the older fixtures
+	// cannot carry: an alias needs a real provider to configure, a dynamic
+	// block needs a provider whose schema declares a nested block type, which
+	// neither offline provider has, and the Tier 4 lifecycle operators need
+	// the `ignore_changes` and `replace_triggered_by` shapes the lifecycle
+	// fixture stages under their kill witnesses.
 	//
 	// `mocked-aliases` needs the provider mirror, so without it the alias
 	// operator has no site anywhere and the case skips rather than failing —
 	// the repository's convention for a mirror-backed fixture.
 	requireProviderMirror(t)
 
-	fixtures := []string{"operators", "dynamic", "mocked-aliases"}
+	fixtures := []string{operatorsFixture, "dynamic", "mocked-aliases", "lifecycle"}
 
 	modules := make([]string, 0, len(fixtures))
 	fired := map[string]bool{}
@@ -110,16 +115,21 @@ func TestEveryEnabledOperatorHasAGenerationSite(t *testing.T) {
 func TestTheMatrixFixtureGeneratesOnlyParseableMutants(t *testing.T) {
 	t.Parallel()
 
-	result := preview(t, copyFixture(t, "operators"), nil)
+	for name, only := range map[string][]string{
+		operatorsFixture: nil,
+		"lifecycle":      admittedLifecycleOperators,
+	} {
+		result := preview(t, copyFixture(t, name), only)
 
-	for _, warning := range result.Warnings {
-		if strings.Contains(warning, "unparseable") {
-			t.Fatalf("an operator emitted a mutant that does not parse: %s", warning)
+		for _, warning := range result.Warnings {
+			if strings.Contains(warning, "unparseable") {
+				t.Fatalf("an operator emitted a mutant of %s that does not parse: %s", name, warning)
+			}
 		}
-	}
 
-	if len(result.Mutants) == 0 {
-		t.Fatal("the matrix fixture generated nothing")
+		if len(result.Mutants) == 0 {
+			t.Fatalf("the %s fixture generated nothing", name)
+		}
 	}
 }
 
