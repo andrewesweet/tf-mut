@@ -3,6 +3,7 @@
 package engine_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -241,11 +242,11 @@ func runCensusPair(t *testing.T, module benchmarkModule) censusModuleRow {
 		Commit:     module.Commit,
 	}
 
-	archive, fetchErr := fetchPinnedRepository(t, module, censusArchives)
+	archive, fetchErr := fetchPinnedRepository(t.Context(), t, module, censusArchives)
 	if fetchErr != nil {
 		row.Retries++
 		row.OperationalReason = censusReason(fetchErr)
-		archive, fetchErr = fetchPinnedRepository(t, module, censusArchives)
+		archive, fetchErr = fetchPinnedRepository(t.Context(), t, module, censusArchives)
 	}
 
 	if fetchErr != nil {
@@ -397,7 +398,10 @@ func loadBenchmarkCorpus(t *testing.T) benchmarkCorpus {
 // is that the census cannot drift. An already-extracted archive is reused,
 // with the extracted root recorded in a marker file, so one measurement run
 // fetches each repository once.
-func fetchPinnedRepository(t *testing.T, module benchmarkModule, cache string) (string, error) {
+func fetchPinnedRepository(
+	ctx context.Context, t *testing.T, module benchmarkModule,
+	cache string, //nolint:unparam // the census cache directory is the only cache this harness has.
+) (string, error) {
 	t.Helper()
 
 	target := filepath.Join(cache, module.Name)
@@ -410,7 +414,7 @@ func fetchPinnedRepository(t *testing.T, module benchmarkModule, cache string) (
 	url := fmt.Sprintf("https://codeload.github.com/%s/tar.gz/%s",
 		module.Repository, module.Commit)
 
-	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("building the request for %s: %w", module.Name, err)
 	}

@@ -1,7 +1,7 @@
 # M5-0.5a — the opportunity census and the mining count
 
 The static opportunity census over both pinned corpora — the M4.5 synthesis corpus and
-the M5 benchmark corpus — run on 21 September 2026 with Terraform v1.15.8 available
+the M5 benchmark corpus — run on 17 September 2026 with Terraform v1.15.8 available
 (`mise exec -- just measure-opportunities`, seconds of wall clock: the census runs no
 Terraform at all).
 
@@ -48,8 +48,10 @@ the refused typed candidate, and the outcome splits the fourth rung's gaps into
 undecidable constraints (answered), refused typed candidates (refused again), and
 withheld evidence (the sensitive-redaction outcome, published with its diagnostic
 redacted). The offline gates pin all four classifications, the denominator rules, the
-unmeasured-stratum rule, the stratum split and the conservation identity against
-fixture modules; the harness asserts the same identities over the live rows.
+unmeasured-stratum rule and the rows-to-strata fold against fixture modules; over the
+live rows the harness asserts one identity the manifests cannot vouch for alone — each
+benchmark module's recorded `json_declared` flag, re-checked against the pinned
+directory.
 
 The denominator is the root module's declared inputs as the discovery boundary
 publishes them — native and `.tf.json` together — and each opportunity carries the
@@ -78,8 +80,12 @@ Across the 32 measured modules, **999 declared inputs** produced **14 opportunit
 | M5 benchmark | 23 | 22 | 1 | 302 | 248 | 0 | 40 | 14 | 14 |
 | both | 33 | 32 | 1 | 999 | 941 | 0 | 44 | 14 | 14 |
 
-The rows conserve in both corpora: inputs = defaults + mined + typed + todos, exactly
-(697 = 693 + 0 + 4 + 0; 302 = 248 + 0 + 40 + 14). Every input in the synthesis corpus
+One arithmetic statement is construction, not evidence, and is stated as such: the
+defaults column is *derived* as the remainder of inputs the mined, typed and todo rungs
+did not place, so `inputs = defaults + mined + typed + todos` holds by definition
+(697 = 693 + 0 + 4 + 0; 302 = 248 + 0 + 40 + 14). What the census measures is the
+placements themselves: the mined rung placed nothing anywhere, the typed rung placed 44
+inputs, and the todo listing left 14. Every input in the synthesis corpus
 resolves from its own default but 4 — `terraform-aws-rds` (1) and
 `terraform-google-network` (3) — and both are placed by the typed rung; no synthesis
 module leaves an opportunity at all.
