@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -470,5 +471,42 @@ func TestThePseudoTestedCountStaysOverTheExtremeTier(t *testing.T) {
 	if !slices.Equal(smokeFindings, deepFindings) {
 		t.Fatalf("the pseudo-tested findings moved from smoke to deep: smoke %v, deep %v",
 			smokeFindings, deepFindings)
+	}
+}
+
+// TestARealDeepReportValidatesAgainstThePublishedSchema validates a real deep
+// run against the published file: since M5a the deep population carries Tier 4
+// lifecycle mutants, so the emitted operators must be named in the schema's
+// enumeration and the whole document must satisfy every rule the file
+// encodes — including the schema_version the binary stamps.
+func TestARealDeepReportValidatesAgainstThePublishedSchema(t *testing.T) {
+	t.Parallel()
+
+	result := lifecycleDeep(t)
+
+	deep := 0
+	for _, mutant := range result.Mutants {
+		if mutant.Tier == string(mutation.TierDeep) && slices.Contains(admittedLifecycleOperators, mutant.Operator) {
+			deep++
+		}
+	}
+
+	if deep == 0 {
+		t.Fatal("the deep run produced no Tier 4 lifecycle mutant; the validation proves nothing")
+	}
+
+	builder := strings.Builder{}
+	if err := report.WriteJSON(&builder, result); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	document := any(nil)
+	if err := json.Unmarshal([]byte(builder.String()), &document); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+
+	schema := loadPublishedSchema(t)
+	if problems := validateAgainst(schema, schema, document, "$"); len(problems) > 0 {
+		t.Fatalf("the real deep report does not validate:\n  %s", strings.Join(problems, "\n  "))
 	}
 }

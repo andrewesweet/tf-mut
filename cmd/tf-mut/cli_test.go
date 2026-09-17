@@ -353,7 +353,7 @@ func assertReadmeVocabulary(t *testing.T, readme string, reporters []string) {
 
 	schemaPath := "docs/schema/report-" + report.SchemaVersion + ".json"
 	schemaRow := "| [`" + schemaPath + "`](" + schemaPath +
-		") | The versioned JSON report schema the `json` reporter emits, including characterisation |"
+		") | The versioned JSON report schema the `json` reporter emits, including the pack tier and origins provenance |"
 	containsToken(t, readme, schemaRow, "README emitted schema row")
 
 	reporterPattern := "(?m)^\\| `--reporter ([^`]+)` \\| " +

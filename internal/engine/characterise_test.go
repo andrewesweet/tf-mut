@@ -507,7 +507,7 @@ func TestASensitiveValueReachesNoGeneratedArtefact(t *testing.T) {
 }
 
 // TestARealCharacterisationReportValidatesAgainstThePublishedSchema is the
-// 2.3.0 contract proved over engine-produced documents rather than
+// published contract proved over engine-produced documents rather than
 // hand-written ones, per interesting shape.
 func TestARealCharacterisationReportValidatesAgainstThePublishedSchema(t *testing.T) {
 	t.Parallel()

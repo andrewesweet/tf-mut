@@ -19,7 +19,13 @@ package report
 // and the until-dry convergence evidence. Its status vocabularies are closed:
 // extending one is a minor version with the consumer contract documented, not
 // a silently additive change.
-const SchemaVersion = "2.3.0"
+// 2.4.0 is the M5 additive revision: the tier enumeration extended with
+// `pack`, and the per-mutant `origins` pack provenance — an origin is one
+// (operator, pack, entry) whose rewrite produced the mutant's bytes, present
+// exactly when at least one pack entry contributed, sorted and deduplicated
+// by (pack, entry). No pack ships yet, so no binary emits `origins` or a
+// `pack`-tier mutant until the pack work that first consumes the schema lands.
+const SchemaVersion = "2.4.0"
 
 // Command names what produced a report.
 type Command string
