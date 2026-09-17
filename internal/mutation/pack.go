@@ -41,14 +41,12 @@ var ErrPack = errors.New("pack is not usable")
 var entryLabel = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 // reservedPackNames are the shipped packs' names. No shipped pack is embedded
-// yet — `security-aws` arrives with M5c.2 on the M5-0.3 census — but the
-// names are reserved now so a user pack registered today cannot be shadowed
-// by a shipped one tomorrow.
+// yet — `security-aws` arrives with M5c.2 on the M5-0.3 census — but its name
+// is reserved now so a user pack registered today cannot be shadowed by it
+// tomorrow. A further pack reserves its name in the change that ships it.
 //
 //nolint:gochecknoglobals // an immutable list.
-var reservedPackNames = []string{
-	"security-aws", "security-azure", "security-gcp", "capacity", "compliance",
-}
+var reservedPackNames = []string{"security-aws"}
 
 // ReservedPackNames lists the names a user pack may not take.
 func ReservedPackNames() []string {

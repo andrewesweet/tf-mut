@@ -3,6 +3,7 @@ package engine_test
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -687,6 +688,65 @@ func TestAChangedPackFileForcesTheFullPopulationUnderSince(t *testing.T) {
 	if len(result.Mutants) != len(full.Mutants) || result.Selection.ForcedFull == "" {
 		t.Fatalf("a pack edit selected %d of %d mutants (forced: %q); it must force the full population",
 			len(result.Mutants), len(full.Mutants), result.Selection.ForcedFull)
+	}
+}
+
+// TestAChangedPackOutsideTheClosureForcesTheFullPopulationUnderSince: a pack
+// is registered by a path the closure does not bound, so an edit to one
+// living outside the closure root must force the full population exactly as
+// one inside it does. The pack is diffed on its own, not sought in the
+// closure's diff, where it could never appear.
+func TestAChangedPackOutsideTheClosureForcesTheFullPopulationUnderSince(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	module := filepath.Join(root, "envs", "prod")
+	copyFixtureInto(t, packsFixture, module)
+
+	shared := filepath.Join(root, "shared", "acme.hcl")
+	if err := os.MkdirAll(filepath.Dir(shared), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	writeFile(t, shared, readFile(t, filepath.Join(module, acmePackFile)))
+	writeFile(t, filepath.Join(module, packConfigFile),
+		"pack \"acme\" {\n  file = \"../../shared/acme.hcl\"\n}\n")
+
+	git(t, root, "init", "--quiet", "--initial-branch=main")
+	git(t, root, "add", "--all")
+	commit(t, root, "initial")
+
+	full := packPreview(t, module, acmePack)
+
+	appendFile(t, shared, "\n# touched\n")
+
+	request := previewRequest(t, module)
+	request.Packs = []string{acmePack}
+	request.Since = sinceHead
+
+	result, err := engine.Run(t.Context(), request)
+	if err != nil {
+		t.Fatalf("since preview: %v", err)
+	}
+
+	if len(result.Mutants) != len(full.Mutants) || !strings.Contains(result.Selection.ForcedFull, "pack file") {
+		t.Fatalf("an out-of-closure pack edit selected %d of %d mutants (forced: %q); it must force the full population",
+			len(result.Mutants), len(full.Mutants), result.Selection.ForcedFull)
+	}
+
+	git(t, root, "add", "--all")
+	commit(t, root, "pack edit")
+
+	request.Since = sinceHead
+
+	settled, err := engine.Run(t.Context(), request)
+	if err != nil {
+		t.Fatalf("since preview after commit: %v", err)
+	}
+
+	if settled.Selection.ForcedFull != "" || len(settled.Mutants) != 0 {
+		t.Fatalf("with the pack committed and nothing changed, %d mutants were selected (forced: %q)",
+			len(settled.Mutants), settled.Selection.ForcedFull)
 	}
 }
 

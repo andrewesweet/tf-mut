@@ -352,8 +352,8 @@ origin aggregation**, not merely the sort order: reversing ownership must lose n
 | `replace` | `from` and `to` are literals of the same kind (string, number or bool), `to` differs from `from`, and a `from` equal to `to` is an error naming the no-op | `PACK-REPLACE` |
 | `widen-cidr` | **deferred to the M5-0.3 census (#161)**: `from` is the sentinel `any-cidr`, `to` is `0.0.0.0/0`; not a loadable form until the census finds entries needing it | `PACK-WIDEN-CIDR` (not enabled) |
 
-The reserved names are `security-aws`, `security-azure`, `security-gcp`, `capacity` and
-`compliance`. **Scoring**: when a pack is enabled its mutants enter the scored set like any
+The one reserved name is `security-aws`, the pack M5c.2 ships; each further pack reserves its
+name in the change that ships it, never ahead of it. **Scoring**: when a pack is enabled its mutants enter the scored set like any
 Tier 1–3 mutant; no pack is ever in `standard`, and admission of any pack to a default is a
 separate evidence-carrying change, exactly the M3e posture. **Suggestions**: a pack survivor
 reaches the suggestion engine through the existing fail-closed address, rendering and sensitivity

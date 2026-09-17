@@ -76,6 +76,7 @@ func TestTheM5GateCoversEveryNamedRequirement(t *testing.T) {
 		"edited pack is a cache miss":          "TestAnEditedUserPackIsACacheMiss",
 		"stale verified suggestion refused":    "TestAStaleVerifiedPackSuggestionIsRefused",
 		"changed pack forces full population":  "TestAChangedPackFileForcesTheFullPopulationUnderSince",
+		"out-of-closure pack forces full":      "TestAChangedPackOutsideTheClosureForcesTheFullPopulationUnderSince",
 		"no pack in standard":                  "TestNoPackEntersTheStandardPopulation",
 		"pack operators have offline sites":    "TestEveryPackOperatorHasASiteInTheOfflineFixture",
 		"pack reports validate against 2.4.0":  "TestARealPackReportValidatesAgainstThePublishedSchema",
