@@ -273,6 +273,9 @@ func TestTheRepairPrototypeMapsOnlyOneStructuredInputAndRetriesOnce(t *testing.T
 		{name: "one validation range", diagnostics: []repairDiagnostic{{
 			Range: diagnosticRange("main.tf", 10, 30),
 		}}, want: repairVariableRegion, mapped: true},
+		{name: "child module file with the root basename", diagnostics: []repairDiagnostic{{
+			Range: diagnosticRange("modules/net/main.tf", 10, 30),
+		}}},
 		{name: "two traversals", diagnostics: []repairDiagnostic{{
 			Snippet: &repairSnippet{Values: []repairSnippetValue{
 				{Traversal: repairTraversalCIDR}, {Traversal: "var.region"},
