@@ -222,9 +222,12 @@ mining was reached four times and fired zero, because 605 of 609 resolved inputs
 module's own declared default (`docs/research/12-m45-synthesis-rate.md`). The M5-0.5a census
 over both pinned corpora repeated the count — reached 58, fired 0 — and left the fourth rung's
 fourteen opportunities to the stage-2 prototype (`docs/research/19-m5-opportunity-census.md`);
-the preference order stands unchanged. And the `configured` rung generates no
-schema-typed *collection* pin at all — the M4 rendering contract refuses them — so the ladder
-documents four measured skip classes instead (`docs/research/13-m45-exit-gate.md` §3).
+that prototype measured an empty cohort — seven modules no-candidate, one refused before
+execution — so the decision rule's insufficient branch fired
+(`docs/research/20-m5-repair-prototype.md`) and the preference order stands unchanged. And
+the `configured` rung generates no schema-typed *collection* pin at all — the M4 rendering
+contract refuses them — so the ladder documents four measured skip classes instead
+(`docs/research/13-m45-exit-gate.md` §3).
 
 M4.5 also owns the work the M4 spec review's C4 relocated here:
 `StructurallyUnassertable` **skeleton generation**, which was removed from M4 because it
