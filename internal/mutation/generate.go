@@ -611,17 +611,26 @@ func findNthBlock(file *hclwrite.File, blockType string, index int) *hclwrite.Bl
 	return nil
 }
 
+// The deduplication ownership order: curated language operators first, generated ones
+// after them, and the pack form operators last.
+const (
+	ownerCurated   = 0
+	ownerGenerated = 1
+	ownerPack      = 2
+)
+
 // generatedRank orders generated operators after curated ones, and the pack
 // form operators after every language operator, so a language operator owns
 // every row a pack entry also produces regardless of identifier spelling.
 func generatedRank(operator Operator) int {
+	//nolint:exhaustive // every language operator is curated: the default arm.
 	switch operator {
 	case PackFlip, PackReplace:
-		return 2
+		return ownerPack
 	case FnFamilySwap:
-		return 1
+		return ownerGenerated
 	default:
-		return 0
+		return ownerCurated
 	}
 }
 

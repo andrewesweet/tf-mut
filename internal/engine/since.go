@@ -174,7 +174,7 @@ func changedPaths(ctx context.Context, closureRoot, ref string) ([]change, error
 
 	// The committed range needs a merge base; its absence is an error too.
 	committed, err := gitRun(ctx, closureRoot,
-		"diff", "--name-status", "--find-renames", "--relative", "-z", ref+"...HEAD")
+		gitDiff, "--name-status", "--find-renames", "--relative", "-z", ref+"...HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("%w: no merge base between %q and HEAD", ErrSinceRef, ref)
 	}
@@ -182,8 +182,8 @@ func changedPaths(ctx context.Context, closureRoot, ref string) ([]change, error
 	changes = append(changes, parseNameStatus(committed)...)
 
 	for _, args := range [][]string{
-		{"diff", "--name-status", "--find-renames", "--relative", "-z", "--cached"},
-		{"diff", "--name-status", "--find-renames", "--relative", "-z"},
+		{gitDiff, "--name-status", "--find-renames", "--relative", "-z", "--cached"},
+		{gitDiff, "--name-status", "--find-renames", "--relative", "-z"},
 	} {
 		output, diffErr := gitRun(ctx, closureRoot, args...)
 		if diffErr != nil {
@@ -275,6 +275,9 @@ func parseNameStatus(output string) []change {
 	return changes
 }
 
+// gitDiff is the git subcommand every change listing runs.
+const gitDiff = "diff"
+
 // changedPack reports the first selected user pack whose file changed since
 // the ref, or is outside any git work tree, as the reason the full population
 // runs. A pack is data that decides the population, as `.tf-mut.hcl` does,
@@ -303,8 +306,8 @@ func packChanged(ctx context.Context, path, ref string) bool {
 	}
 
 	for _, args := range [][]string{
-		{"diff", "--name-only", "-z", ref + "...HEAD", "--", base},
-		{"diff", "--name-only", "-z", "HEAD", "--", base},
+		{gitDiff, "--name-only", "-z", ref + "...HEAD", "--", base},
+		{gitDiff, "--name-only", "-z", "HEAD", "--", base},
 		{"ls-files", "--others", "-z", "--", base},
 	} {
 		output, err := gitRun(ctx, dir, args...)

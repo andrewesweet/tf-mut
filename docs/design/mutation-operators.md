@@ -320,8 +320,9 @@ proves the mechanism, not any shipped pack. No shipped pack is embedded yet: `se
 M5c.2, admitted by the M5-0.3 census run against this mechanism.
 
 **Deduplication unchanged; provenance preserved as origins.** Deduplication is by mutated file
-content and the entry sorting earliest wins, so a language operator such as `BOOL-LITERAL-FLIP`
-owns a row a pack entry also produced. M5c keeps the algorithm and the mutant identity exactly as
+content and the entry sorting earliest wins; the form operators sort after every language
+operator, so a language operator — `BOOL-LITERAL-FLIP`, `NUM-ZERO`, `STR-EMPTY` — owns every row
+a pack entry also produced, whatever its identifier spells. M5c keeps the algorithm and the mutant identity exactly as
 they are — no baseline moves, no cached verdict changes — and adds **origins**: every
 `(operator, pack, entry)` whose rewrite produced the surviving bytes is recorded on the surviving
 mutant, **sorted and deduplicated by `(pack, entry)`**, whichever operator owns the row;
@@ -344,7 +345,7 @@ origin aggregation**, not merely the sort order: reversing ownership must lose n
 | Evidence required | the loaded provider schema describes the attribute on that resource type, **and** the entry's `to` literal is of the schema-declared type, where a schema type of `dynamic` accepts any literal kind and a concrete type must match; otherwise no site |
 | Registration | shipped packs are embedded in the binary under reserved names; a user pack is registered by a `pack "NAME" { file = "PATH" }` block in `.tf-mut.hcl`, `PATH` resolved relative to the module root; a user pack may not shadow a reserved name |
 | Selection and composition | `--pack NAME[,NAME]` on `run`, `preview` and `suggest`, and `operators { packs = [...] }` in configuration, by name only; the two lists are **merged as a union**, deduplicated by name; an unknown name is refused at configuration time with exit 2; the flag is refused by name on `characterise`, `todos` and `curate`, and configuration-narrowed populations stay refused at configuration time for `curate` and `--until-dry`, as the maintainer's ruling on #97 records. Pack selection is orthogonal to `--tier`; `--operator`/`--exclude-operator` act on the form operators by identifier; a pack is disabled by not selecting it |
-| Snapshot rules | the selected pack names and, for a user pack, the file's bytes join the resolved-configuration dimension of the cache key and the input-closure digest the write protocols re-check, so a pack edit is a miss and a stale verified suggestion is refused; a changed user-pack file forces the full population under `--since`, as a changed `.tf-mut.hcl` does |
+| Snapshot rules | the selected pack names and, for a user pack, the file's bytes join the resolved-configuration dimension of the cache key and the input-closure digest the write protocols re-check, so a pack edit is a miss and a stale verified suggestion is refused; a changed user-pack file forces the full population under `--since`, as a changed `.tf-mut.hcl` does — each selected pack is diffed on its own from its own directory, independent of the closure root, and a pack outside any git work tree forces the full population too |
 
 | Form | Constraints, checked at load | Operator |
 | --- | --- | --- |
