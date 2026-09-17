@@ -9,6 +9,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/engine"
+	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
@@ -27,6 +28,10 @@ import (
 // init and schema (operational), the baseline (red-baseline,
 // unsupported-payload-version, no-suite), execution (scored-incomplete,
 // scored).
+//
+// These four offline tests are this ticket's gate fixtures. They are not yet
+// named in a gate recipe: the M5 gate recipe arrives with its own later
+// ticket and names them there under the audited-by-name rule.
 
 // censusRow is one module's published row outcome from the total vocabulary.
 type censusRow string
@@ -95,7 +100,7 @@ func classifyRow(runErr error, runResult report.Report) censusRow {
 		return rowNoSuite
 	case errors.Is(runErr, engine.ErrBaselineRed):
 		return rowRedBaseline
-	case errors.Is(runErr, engine.ErrTerraformVersion):
+	case errors.Is(runErr, fingerprint.ErrFormatVersion):
 		return rowUnsupportedPayloadVersion
 	default:
 		return rowOperational
@@ -104,8 +109,9 @@ func classifyRow(runErr error, runResult report.Report) censusRow {
 
 // censusRun is the census's run invocation: --no-cache --tier standard,
 // through the seam. The preview invocation is previewRequest with the same
-// common; preview is cache-free by construction, and the harness sets
-// NoCache on it only to match the published invocation line.
+// common; PreviewRequest carries no NoCache field because preview is
+// cache-free by construction, which is what --no-cache on the published
+// invocation line asks for.
 func censusRun(t *testing.T, moduleDir string) engine.RunRequest {
 	t.Helper()
 
@@ -123,7 +129,7 @@ func censusRun(t *testing.T, moduleDir string) engine.RunRequest {
 func TestTheThreePreviewRefusalsLeaveThePopulationUnknown(t *testing.T) {
 	t.Parallel()
 
-	for name := range map[string]string{
+	for name, want := range map[string]string{
 		"preview-refusal-nosuite":     "baseline executed no run blocks",
 		"preview-refusal-import":      "configuration declares a construct this version does not model",
 		"preview-refusal-unparseable": "configuration could not be parsed",
@@ -144,21 +150,10 @@ func TestTheThreePreviewRefusalsLeaveThePopulationUnknown(t *testing.T) {
 				t.Fatal("the population is known on a preview refusal")
 			}
 
-			if !strings.Contains(fact.Reason, wantReason(name)) {
+			if !strings.Contains(fact.Reason, want) {
 				t.Fatalf("refusal reason %q does not name the refusal", fact.Reason)
 			}
 		})
-	}
-}
-
-func wantReason(fixture string) string {
-	switch fixture {
-	case "preview-refusal-nosuite":
-		return "baseline executed no run blocks"
-	case "preview-refusal-import":
-		return "configuration declares a construct this version does not model"
-	default:
-		return "configuration could not be parsed"
 	}
 }
 
@@ -269,7 +264,7 @@ func TestTheRowVocabularyMapsEveryStageSentinel(t *testing.T) {
 		{rowUnsandboxedEffects, engine.ErrUnsandboxedEffects},
 		{rowNoSuite, engine.ErrBaselineNoRuns},
 		{rowRedBaseline, engine.ErrBaselineRed},
-		{rowUnsupportedPayloadVersion, engine.ErrTerraformVersion},
+		{rowUnsupportedPayloadVersion, fingerprint.ErrFormatVersion},
 	} {
 		if got := classifyRow(mapped.sentinel, report.Report{}); got != mapped.want {
 			t.Errorf("sentinel %v classified %q, want %q", mapped.sentinel, got, mapped.want)
@@ -282,7 +277,9 @@ func TestTheRowVocabularyMapsEveryStageSentinel(t *testing.T) {
 		}
 	}
 
-	if got := classifyRow(os.ErrNotExist, report.Report{}); got != rowOperational {
-		t.Errorf("an unclaimed error classified %q, want %q", got, rowOperational)
+	for _, unclaimed := range []error{os.ErrNotExist, engine.ErrTerraformVersion} {
+		if got := classifyRow(unclaimed, report.Report{}); got != rowOperational {
+			t.Errorf("unclaimed error %v classified %q, want %q", unclaimed, got, rowOperational)
+		}
 	}
 }

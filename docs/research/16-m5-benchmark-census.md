@@ -5,7 +5,9 @@ against Terraform v1.15.8 (`mise exec -- just measure-census`, 8h wall clock).
 
 It pins the 23 repositories of Oasis's published evaluation and asks the only question
 M5-0.4 is allowed to ask of them: which pinned modules does the shipped tool admit into a
-scored population? Every module gets two invocations, always both, in this order — the
+scored population? (The harness drives the engine seam, `engine.Run`, that the shipped
+binary wraps — the repository's fixed testing decision and the M4.5-0 precedent — so the
+rows classify from the typed stage sentinels the seam returns.) Every module gets two invocations, always both, in this order — the
 preview invocation, whose own outcome decides **population availability**; the run
 invocation (`--no-cache --tier standard`), whose own outcome decides the **row outcome**
 in M5d's total vocabulary. Neither is inferred from the other, and the corpus rows below

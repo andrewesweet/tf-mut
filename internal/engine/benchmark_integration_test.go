@@ -46,6 +46,13 @@ import (
 // over the pinned corpus, published with both denominators (all pinned
 // modules and modules with known populations) and the count of unknown
 // populations — and nothing about comparability with Oasis's numbers.
+//
+// The two invocations go through the engine seam, engine.Run, rather than
+// the built binary: the seam is the repository's fixed testing decision, the
+// M4.5-0 corpus measurement set the precedent, and the row vocabulary is
+// classified from the typed stage sentinels only the seam returns. The CLI
+// adds only .tf-mut.hcl loading and exit-code projection over the same
+// engine, so no safety gate differs between the two.
 
 const (
 	censusManifest = "../../research/corpus/m5-benchmark.json"
@@ -124,12 +131,11 @@ func TestTheBenchmarkCorpusCensus(t *testing.T) {
 	completed := loadCompletedRows(t)
 
 	for _, module := range loaded.Modules {
-		if _, done := completed[module.Name]; done {
+		if done, ok := completed[module.Name]; ok && done.Commit == module.Commit {
 			continue
 		}
 
-		archive := fetchPinnedRepository(t, module, censusArchives)
-		row := runCensusPair(t, module, archive)
+		row := runCensusPair(t, module)
 		recordCompletedRow(t, row)
 
 		t.Logf("%s: population known=%v size=%d row=%s", row.Module, row.PopulationKnown, row.PopulationSize, row.Row)
@@ -215,16 +221,34 @@ func assembleMeasurement(t *testing.T, loaded benchmarkCorpus, completed map[str
 	return measurement
 }
 
-// censusRow makes the module's two invocations and publishes their pair.
-func runCensusPair(t *testing.T, module benchmarkModule, archive string) censusModuleRow {
+// runCensusPair makes the module's two invocations and publishes their pair.
+// A fetch or digest failure is the operational outcome of the vocabulary's
+// first stage: retried once, published as a fact about this run, never an
+// abort.
+func runCensusPair(t *testing.T, module benchmarkModule) censusModuleRow {
 	t.Helper()
 
-	moduleDir := filepath.Join(archive, filepath.FromSlash(module.ModuleSubdir))
 	row := censusModuleRow{
 		Module:     module.Name,
 		Repository: module.Repository,
 		Commit:     module.Commit,
 	}
+
+	archive, fetchErr := fetchPinnedRepository(t, module, censusArchives)
+	if fetchErr != nil {
+		row.Retries = 1
+		archive, fetchErr = fetchPinnedRepository(t, module, censusArchives)
+	}
+
+	if fetchErr != nil {
+		row.Row = string(rowOperational)
+		row.UnknownReason = censusReason(fetchErr)
+		row.OperationalReason = censusReason(fetchErr)
+
+		return row
+	}
+
+	moduleDir := filepath.Join(archive, filepath.FromSlash(module.ModuleSubdir))
 
 	// Invocation one: the preview invocation decides availability. Preview
 	// is cache-free by construction, so there is no cache switch to set.
@@ -369,14 +393,14 @@ func loadBenchmarkCorpus(t *testing.T) benchmarkCorpus {
 // is that the census cannot drift. An already-extracted archive is reused,
 // with the extracted root recorded in a marker file, so one measurement run
 // fetches each repository once.
-func fetchPinnedRepository(t *testing.T, module benchmarkModule, cache string) string {
+func fetchPinnedRepository(t *testing.T, module benchmarkModule, cache string) (string, error) {
 	t.Helper()
 
 	target := filepath.Join(cache, module.Name)
 	marker := filepath.Join(target, ".census-extracted")
 
 	if root, err := os.ReadFile(marker); err == nil { //nolint:gosec // a census-owned temporary path.
-		return filepath.Join(target, string(root))
+		return filepath.Join(target, string(root)), nil
 	}
 
 	url := fmt.Sprintf("https://codeload.github.com/%s/tar.gz/%s",
@@ -384,7 +408,7 @@ func fetchPinnedRepository(t *testing.T, module benchmarkModule, cache string) s
 
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
 	if err != nil {
-		t.Fatalf("building the request for %s: %v", module.Name, err)
+		return "", fmt.Errorf("building the request for %s: %w", module.Name, err)
 	}
 
 	request.Header.Set("User-Agent", corpusUserAgent)
@@ -393,23 +417,23 @@ func fetchPinnedRepository(t *testing.T, module benchmarkModule, cache string) s
 
 	response, err := client.Do(request)
 	if err != nil {
-		t.Fatalf("fetching %s: %v", module.Name, err)
+		return "", fmt.Errorf("fetching %s: %w", module.Name, err)
 	}
 
 	defer func() { _ = response.Body.Close() }()
 
 	if response.StatusCode != http.StatusOK {
-		t.Fatalf("fetching %s: %s", module.Name, response.Status)
+		return "", fmt.Errorf("fetching %s: %s", module.Name, response.Status)
 	}
 
 	archive, err := io.ReadAll(response.Body)
 	if err != nil {
-		t.Fatalf("reading %s: %v", module.Name, err)
+		return "", fmt.Errorf("reading %s: %w", module.Name, err)
 	}
 
 	sum := sha256.Sum256(archive)
 	if hex.EncodeToString(sum[:]) != module.SHA256 {
-		t.Fatalf("%s: digest %s does not match the pinned %s",
+		return "", fmt.Errorf("%s: digest %s does not match the pinned %s",
 			module.Name, hex.EncodeToString(sum[:]), module.SHA256)
 	}
 
@@ -424,7 +448,7 @@ func fetchPinnedRepository(t *testing.T, module benchmarkModule, cache string) s
 		t.Fatalf("marking %s extracted: %v", module.Name, err)
 	}
 
-	return filepath.Join(target, root)
+	return filepath.Join(target, root), nil
 }
 
 // archiveRoot names the single top-level directory the archive leads with.
