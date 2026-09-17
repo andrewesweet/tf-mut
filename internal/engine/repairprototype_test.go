@@ -78,15 +78,17 @@ const (
 
 	repairInputVerified    = "verified"
 	repairInputRefuted     = "refuted"
-	repairInputBlocked     = "blocked"
 	repairInputNoCandidate = "no-candidate"
-	repairInputCandidate   = "candidate"
+	repairInputUnmeasured  = "unmeasured"
 
 	repairMappingMapped     = "mapped"
 	repairMappingUnmappable = "unmappable"
 )
 
-var errRepairTableDigest = errors.New("repair candidate table does not match its pinned digest")
+var (
+	errRepairTableDigest        = errors.New("repair candidate table does not match its pinned digest")
+	errRepairNoCharacterisation = errors.New("todos report carries no characterisation block")
+)
 
 type repairCandidateTable struct {
 	Version   int                   `json:"version"`
@@ -110,7 +112,6 @@ type repairInputDefinition struct {
 	Name             string
 	Type             string
 	HasDefault       bool
-	Sensitive        bool
 	ValidationRanges []report.Range
 }
 
@@ -476,7 +477,8 @@ func TestASecretOnlyInARepairFailedAttemptReachesNoPublishedArtefact(t *testing.
 		mapping = repairMappingMapped
 	}
 
-	row := refutedRepairRow("sensitive-fixture", "", []string{todos[0].Variable}, failed, mapping)
+	row := repairModuleRow{Module: "sensitive-fixture", Opportunities: []string{todos[0].Variable}, Attempts: 1}
+	setRefutedRepairRow(&row, row.Opportunities, failed, mapping)
 	table, err := loadRepairCandidateTable()
 	if err != nil {
 		t.Fatal(err)
@@ -713,10 +715,7 @@ func diagnosticInsideRange(diagnostic repairDiagnosticRange, validation report.R
 }
 
 func sameRepairFile(left, right string) bool {
-	left = filepath.ToSlash(filepath.Clean(left))
-	right = filepath.ToSlash(filepath.Clean(right))
-
-	return left == right || strings.HasSuffix(left, "/"+right) || strings.HasSuffix(right, "/"+left)
+	return filepath.ToSlash(filepath.Clean(left)) == filepath.ToSlash(filepath.Clean(right))
 }
 
 func positionAtOrAfter(line, column int, start report.Position) bool {
@@ -785,9 +784,6 @@ func repairInputDefinitions(
 			case "type":
 				definition.Type = repairExpressionSource(t,
 					attribute.Expr.Range().Filename, attribute.Expr.Range())
-			case "sensitive":
-				value, valueDiagnostics := attribute.Expr.Value(nil)
-				definition.Sensitive = !valueDiagnostics.HasErrors() && value.Type() == cty.Bool && value.True()
 			default:
 				// No other variable attribute informs this prototype.
 			}
@@ -838,13 +834,22 @@ func projectRepairRange(t *testing.T, moduleDir string, sourceRange hcl.Range) r
 func listRepairTodos(t *testing.T, common engine.Common) []report.Todo {
 	t.Helper()
 
-	result, err := engine.Run(t.Context(), &engine.TodosRequest{Common: common})
+	todos, err := repairTodos(t.Context(), common)
 	if err != nil {
 		t.Fatalf("listing repair opportunities: %v", err)
 	}
 
+	return todos
+}
+
+func repairTodos(ctx context.Context, common engine.Common) ([]report.Todo, error) {
+	result, err := engine.Run(ctx, &engine.TodosRequest{Common: common})
+	if err != nil {
+		return nil, err
+	}
+
 	if result.Characterisation == nil {
-		t.Fatal("the todos report carries no characterisation block")
+		return nil, errRepairNoCharacterisation
 	}
 
 	open := []report.Todo{}
@@ -854,7 +859,7 @@ func listRepairTodos(t *testing.T, common engine.Common) []report.Todo {
 		}
 	}
 
-	return open
+	return open, nil
 }
 
 func runRepairAttempt(
@@ -1058,27 +1063,26 @@ func (r repairRecorder) diagnosticsSince(t *testing.T, before int) []repairDiagn
 	return diagnostics
 }
 
-func refutedRepairRow(
-	module, ref string,
-	opportunities []string,
-	failed, mapping string,
-) repairModuleRow {
-	inputs := make([]repairInputResult, 0, len(opportunities))
+func setRefutedRepairRow(row *repairModuleRow, names []string, failed, mapping string) {
+	row.Outcome = repairOutcomeRefuted
+	row.FailedInput = failed
+	row.Mapping = mapping
+	row.Inputs = repairStatuses(names, failed, repairInputUnmeasured)
+}
 
-	for _, name := range opportunities {
-		status := repairInputBlocked
-		if name == failed {
+func repairStatuses(names []string, failed, other string) []repairInputResult {
+	inputs := make([]repairInputResult, 0, len(names))
+
+	for _, name := range names {
+		status := other
+		if failed != "" && name == failed {
 			status = repairInputRefuted
 		}
 
 		inputs = append(inputs, repairInputResult{Name: name, Status: status})
 	}
 
-	return repairModuleRow{
-		Module: module, Ref: ref, Opportunities: slices.Clone(opportunities),
-		Outcome: repairOutcomeRefuted, Inputs: inputs, FailedInput: failed,
-		Mapping: mapping, Attempts: 1,
-	}
+	return inputs
 }
 
 func repairDecision(totals repairTotals) string {

@@ -21,8 +21,6 @@ import (
 
 const repairPrototypeOutput = "../../.artifacts/measurement/m5-repair-prototype.json"
 
-var errRepairNoCharacterisation = errors.New("todos report carries no characterisation block")
-
 var repairOpportunityCounts = map[string]int{ //nolint:gochecknoglobals // the census-pinned population.
 	"aws-platform-starter":             4,
 	"genai-idp-terraform":              4,
@@ -116,7 +114,7 @@ func measureRepairModule(
 ) (row repairModuleRow) {
 	t.Helper()
 
-	root, _, fetchErr := fetchPinnedCommitArchive(ctx, t, module)
+	root, _, fetchErr := fetchPinnedRepositoryRetry(ctx, t, module)
 	if fetchErr != nil {
 		return repairModuleRow{
 			Module: module.Name, Ref: module.Commit,
@@ -162,26 +160,6 @@ func measureRepairModule(
 	return row
 }
 
-func repairTodos(ctx context.Context, common engine.Common) ([]report.Todo, error) {
-	result, err := engine.Run(ctx, &engine.TodosRequest{Common: common})
-	if err != nil {
-		return nil, err
-	}
-
-	if result.Characterisation == nil {
-		return nil, errRepairNoCharacterisation
-	}
-
-	open := []report.Todo{}
-	for _, todo := range result.Characterisation.Todos {
-		if todo.Status == report.TodoOpen {
-			open = append(open, todo)
-		}
-	}
-
-	return open, nil
-}
-
 func executeRepairScenario(
 	ctx context.Context,
 	t *testing.T,
@@ -218,7 +196,7 @@ func executeRepairScenario(
 		candidates[todo.Variable] = selected
 		identifiers[todo.Variable] = todo.ID
 		row.Inputs = append(row.Inputs,
-			repairInputResult{Name: todo.Variable, Status: repairInputCandidate})
+			repairInputResult{Name: todo.Variable, Status: repairInputUnmeasured})
 	}
 
 	if !allCandidates {
@@ -313,28 +291,6 @@ func classifyRepairAttempt(
 	row.Inputs = repairStatuses(names, "", repairInputVerified)
 
 	return true
-}
-
-func setRefutedRepairRow(row *repairModuleRow, names []string, failed, mapping string) {
-	row.Outcome = repairOutcomeRefuted
-	row.FailedInput = failed
-	row.Mapping = mapping
-	row.Inputs = repairStatuses(names, failed, repairInputBlocked)
-}
-
-func repairStatuses(names []string, failed, other string) []repairInputResult {
-	inputs := make([]repairInputResult, 0, len(names))
-
-	for _, name := range names {
-		status := other
-		if failed != "" && name == failed {
-			status = repairInputRefuted
-		}
-
-		inputs = append(inputs, repairInputResult{Name: name, Status: status})
-	}
-
-	return inputs
 }
 
 func repairTodoNames(todos []report.Todo) []string {
