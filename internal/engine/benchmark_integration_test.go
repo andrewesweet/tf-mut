@@ -3,12 +3,9 @@
 package engine_test
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -99,10 +96,11 @@ type censusModuleRow struct {
 	UnknownReason   string `json:"unknown_population_reason,omitempty"`
 	// Row outcome, decided by the run invocation.
 	Row string `json:"row_outcome"`
-	// Reason is the run invocation's own error text for an operational row,
-	// truncated, published as part of the fact about this run.
+	// OperationalReason is the first attempt's error text, truncated, when the
+	// row needed a retry at the fetch or run stage; empty when it did not.
 	OperationalReason string `json:"operational_reason,omitempty"`
-	// Retries counts operational re-invocations of the run stage.
+	// Retries counts operational re-invocations across the fetch and run
+	// stages.
 	Retries int `json:"operational_retries"`
 }
 
@@ -131,7 +129,7 @@ func TestTheBenchmarkCorpusCensus(t *testing.T) {
 	completed := loadCompletedRows(t)
 
 	for _, module := range loaded.Modules {
-		if done, ok := completed[module.Name]; ok && done.Commit == module.Commit {
+		if done, ok := completed[module.Name]; ok && done.Commit == module.Commit && done.Row != string(rowOperational) {
 			continue
 		}
 
@@ -236,14 +234,14 @@ func runCensusPair(t *testing.T, module benchmarkModule) censusModuleRow {
 
 	archive, fetchErr := fetchPinnedRepository(t, module, censusArchives)
 	if fetchErr != nil {
-		row.Retries = 1
+		row.Retries++
+		row.OperationalReason = censusReason(fetchErr)
 		archive, fetchErr = fetchPinnedRepository(t, module, censusArchives)
 	}
 
 	if fetchErr != nil {
 		row.Row = string(rowOperational)
 		row.UnknownReason = censusReason(fetchErr)
-		row.OperationalReason = censusReason(fetchErr)
 
 		return row
 	}
@@ -273,16 +271,13 @@ func runCensusPair(t *testing.T, module benchmarkModule) censusModuleRow {
 
 	runResult, runErr := engine.Run(t.Context(), run)
 	if classifyRow(runErr, runResult) == rowOperational {
-		row.Retries = 1
+		row.Retries++
 		row.OperationalReason = censusReason(runErr)
 
 		runResult, runErr = engine.Run(t.Context(), run)
 	}
 
 	row.Row = string(classifyRow(runErr, runResult))
-	if row.Row == string(rowOperational) {
-		row.OperationalReason = censusReason(runErr)
-	}
 
 	return row
 }
@@ -441,44 +436,11 @@ func fetchPinnedRepository(t *testing.T, module benchmarkModule, cache string) (
 		t.Fatalf("creating %s: %v", target, err)
 	}
 
-	root := archiveRoot(t, archive)
-	extract(t, archive, target)
+	rootPath := extract(t, archive, target)
 
-	if err := os.WriteFile(marker, []byte(root), 0o600); err != nil {
+	if err := os.WriteFile(marker, []byte(filepath.Base(rootPath)), 0o600); err != nil {
 		t.Fatalf("marking %s extracted: %v", module.Name, err)
 	}
 
-	return filepath.Join(target, root), nil
-}
-
-// archiveRoot names the single top-level directory the archive leads with.
-func archiveRoot(t *testing.T, archive []byte) string {
-	t.Helper()
-
-	reader, err := gzip.NewReader(strings.NewReader(string(archive)))
-	if err != nil {
-		t.Fatalf("opening the archive: %v", err)
-	}
-
-	defer func() { _ = reader.Close() }()
-
-	entries := tar.NewReader(reader)
-
-	for {
-		header, readErr := entries.Next()
-		if errors.Is(readErr, io.EOF) {
-			t.Fatal("the archive has no root directory")
-		}
-
-		if readErr != nil {
-			t.Fatalf("reading the archive: %v", readErr)
-		}
-
-		name := filepath.Clean(header.Name)
-		if name == "pax_global_header" {
-			continue
-		}
-
-		return strings.Split(name, string(filepath.Separator))[0]
-	}
+	return rootPath, nil
 }

@@ -248,9 +248,11 @@ named.
   the other `untested-*` fixtures — the modules characterisation is exercised against — are
   `terraform_data`-based and offline like the rest. `aws-mocked` is
   network-gated behind the `integration` tag. Every fixture is in the Terraform format manifest
-  except `unformatted`, which is named in `tools/terraform-format-skip` with its reason: an
-  unformatted fixture makes `hclwrite` re-align the file it round-trips, which silently turns
-  every Tier 0 mutant's diff into a whole-file one.
+  except two named in `tools/terraform-format-skip`, each with its reason: `unformatted`,
+  because an unformatted fixture makes `hclwrite` re-align the file it round-trips, which
+  silently turns every Tier 0 mutant's diff into a whole-file one; and
+  `preview-refusal-unparseable/main.tf`, the M5-0.4 census's unparseable-source refusal
+  fixture, whose deliberately invalid expression `terraform fmt` cannot format.
 - Intentionally malformed JSON fixtures are named in `tools/json-files-skip` with their
   reason, mirroring the Terraform format skip file; everything else with a `.json`
   extension must be in `tools/json-files`.

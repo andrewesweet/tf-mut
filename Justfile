@@ -183,10 +183,12 @@ test-race:
       go test ./... -json -count=1 -race -shuffle=424242
 
 # Run opt-in integration-tag tests that may use credentials or real providers.
+# The M5-0.4 census belongs to measure-census: at 8h wall clock
+# (docs/research/16) it would blow this suite's default timeout.
 test-integration:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mise exec -- gotestsum --format testname --raw-command -- \
-      go test ./... -json -count=1 -tags=integration
+      go test ./... -json -count=1 -tags=integration -skip '^TestTheBenchmarkCorpusCensus$'
 
 # Measure the synthesis rate over the pinned public-module corpus (M4.5-0).
 measure-synthesis:
