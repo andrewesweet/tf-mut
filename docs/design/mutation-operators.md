@@ -440,7 +440,7 @@ estimates were 3–8× low.
 | 1 — language (`standard`) | ~35 | 800–1500 |
 | 2 — meta-arguments (`standard`) | 10 | 20–60 |
 | 3 — contract (`standard`) | 15 | 40–120 |
-| 4 — lifecycle (`deep`) | 5 | 5–20 |
+| 4 — lifecycle (`deep`) | 3 enabled of 5 designed | 5–20 |
 | 5 — domain packs (opt-in) | ~30 per pack | 0–50 |
 
 Duration depends dominantly on provider schema size and test selection, not on operator count

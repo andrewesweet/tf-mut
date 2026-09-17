@@ -41,34 +41,20 @@ func TestTheM5GateCoversEveryNamedRequirement(t *testing.T) {
 	// proves it. A gate that stopped running one of these would still be
 	// green, which is precisely the failure this catches.
 	required := map[string]string{
-		"the LC-IGNORE-DROP witness kills through the seam":
-			"TestTheIgnoreDropWitnessKillsThroughTheSeam",
-		"the LC-IGNORE-ALL witness kills through the seam":
-			"TestTheIgnoreAllWitnessKillsThroughTheSeam",
-		"the LC-REPLACE-TRIGGER-DROP witness kills":
-			"TestTheReplaceTriggerWitnessKillsThroughTheSeam",
-		"every admitted operator has an offline site":
-			"TestEveryAdmittedLifecycleOperatorHasASiteInTheOfflineFixture",
-		"identical fingerprints are StructurallyUnassertable":
-			"TestALifecycleMutantWithAnIdenticalFingerprintIsStructurallyUnassertable",
-		"module-level NoCoverage outranks the lifecycle shape":
-			"TestModuleLevelNoCoverageKeepsItsPrecedenceOverALifecycleMutant",
-		"conditional NoCoverage outranks the lifecycle shape":
-			"TestConditionalNoCoverageKeepsItsPrecedenceOverALifecycleMutant",
-		"deep includes standard, standard excludes Tier 4":
-			"TestDeepIncludesStandardAndStandardExcludesTheLifecycleOperators",
-		"the pseudo-tested count stays over the extreme tier":
-			"TestThePseudoTestedCountStaysOverTheExtremeTier",
-		"the matrix fixture's standard report is invariant":
-			"TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperators",
-		"the matrix sweep holds the Tier 4 sites":
-			"TestEveryEnabledOperatorHasAGenerationSite",
-		"the catalogue rows and the matrix agree":
-			"TestEveryEnabledOperatorHasAMatrixRow",
-		"the matrix rows name enabled operators":
-			"TestEveryMatrixRowNamesAnEnabledOperator",
-		"the Tier 4 mutants parse":
-			"TestTheMatrixFixtureGeneratesOnlyParseableMutants",
+		"the LC-IGNORE-DROP witness kills through the seam":    "TestTheIgnoreDropWitnessKillsThroughTheSeam",
+		"the LC-IGNORE-ALL witness kills through the seam":     "TestTheIgnoreAllWitnessKillsThroughTheSeam",
+		"the LC-REPLACE-TRIGGER-DROP witness kills":            "TestTheReplaceTriggerWitnessKillsThroughTheSeam",
+		"every admitted operator has an offline site":          "TestEveryAdmittedLifecycleOperatorHasASiteInTheOfflineFixture",
+		"identical fingerprints are StructurallyUnassertable":  "TestALifecycleMutantWithAnIdenticalFingerprintIsStructurallyUnassertable",
+		"module-level NoCoverage outranks the lifecycle shape": "TestModuleLevelNoCoverageKeepsItsPrecedenceOverALifecycleMutant",
+		"conditional NoCoverage outranks the lifecycle shape":  "TestConditionalNoCoverageKeepsItsPrecedenceOverALifecycleMutant",
+		"deep includes standard, standard excludes Tier 4":     "TestDeepIncludesStandardAndStandardExcludesTheLifecycleOperators",
+		"the pseudo-tested count stays over the extreme tier":  "TestThePseudoTestedCountStaysOverTheExtremeTier",
+		"the matrix fixture's standard report is invariant":    "TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperators",
+		"the matrix sweep holds the Tier 4 sites":              "TestEveryEnabledOperatorHasAGenerationSite",
+		"the catalogue rows and the matrix agree":              "TestEveryEnabledOperatorHasAMatrixRow",
+		"the matrix rows name enabled operators":               "TestEveryMatrixRowNamesAnEnabledOperator",
+		"the Tier 4 mutants parse":                             "TestTheMatrixFixtureGeneratesOnlyParseableMutants",
 	}
 
 	assertGateCovers(t, "M5", m5GatedTests(t), required)
