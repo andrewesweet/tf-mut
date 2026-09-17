@@ -1,0 +1,221 @@
+{
+  "description": "The pinned benchmark corpus of the M5-0.4 census: the 23 repositories of Oasis's published evaluation (DegenerateUSER/Oasis), each pinned at its default-branch HEAD commit on 2026-09-17 together with the SHA-256 of the GitHub source archive at that commit. One census module per repository.",
+  "provenance": {
+    "source": "https://github.com/DegenerateUSER/Oasis",
+    "what_oasis_publishes": "the 23 repository names in benchmarks/README.md and report_draft.md, and raw GitHub search output under evidence/ that resolves each name to its org/repo; Oasis publishes no commit identifiers, archive digests or module subdirectories",
+    "pin_method": "each repository pinned at its default-branch HEAD commit on 2026-09-17; archive fetched from codeload.github.com at that commit and digested with SHA-256; the digest makes the pin drift-proof in both directions",
+    "selection_method": "Oasis's repository list is published, so no independent candidate selection was made; the org/repo resolution of every one of the 23 names comes from Oasis's own published evidence/gh_search_candidates_raw.txt, and each resolution is unique and still public at the pin date. dpdesi/serverless-architecture-patterns pins its default branch feat/subsystem-composition; every other repository pins main."
+  },
+  "module_rule": "The census module within each repository is the test-equipped module directory nearest the archive root. Concretely, over every directory of the archive: a gradable pairing is a directory that carries at least one .tf file (the module subdirectory) together with a test root that is either that directory itself (root-colocated) or one flat subdirectory of it carrying at least one .tftest.hcl file. The pairing with the shallowest module subdirectory wins; ties break lexicographically by subdirectory, then test root. The rule is mechanical and reproducible from the archive alone; Oasis's own evaluation ran at repository level over every test-equipped module root, which is one axis on which the side-by-side comparison is limited, and the limitation is published with the census.",
+  "test_root_semantics": "root means the suite is colocated with the module subdirectory; any other value is the flat subdirectory of the module subdirectory that carries the suite, passed to the engine as its TestDirectory.",
+  "json_stratum": "json_declared records whether the module subdirectory carries root .tf.json declarations. At the 2026-09-17 pin no module in the corpus carries any, and no repository in it carries any .tf.json or .tftest.json file at all: the corpus's JSON stratum is empty, so the #82 census's JSON-declared denominator is zero over this corpus.",
+  "modules": [
+    {
+      "name": "aws-platform-starter",
+      "repository": "renanfenrich/aws-platform-starter",
+      "commit": "596d99d273174a21ea2c92d5dd90f467ab45706e",
+      "sha256": "ca59838a603f890ecb835ef6c8f55ceaef72e23f8c461ef9de075eff3ef70c72",
+      "module_subdirectory": "bootstrap",
+      "test_root": "root",
+      "json_declared": false
+    },
+    {
+      "name": "aws-terraform-infrastructure",
+      "repository": "theusc6/aws-terraform-infrastructure",
+      "commit": "ec0c1f15aab6a869dfd4540b3abe0e309314b20d",
+      "sha256": "1419b430d1434718149ea1cbf731a72b66a881df151b5ba2dfd5fa31b7227780",
+      "module_subdirectory": "environments/dev",
+      "test_root": "tests",
+      "json_declared": false
+    },
+    {
+      "name": "cloud-native-deployment-platform",
+      "repository": "MPeets/cloud-native-deployment-platform",
+      "commit": "e3e7717f2743267dd1fdd6d906ec464623f32490",
+      "sha256": "b549eb40fe07421bbb88366f3bdcf16553cc5ae758c45fc3de9574c5ddcd94a2",
+      "module_subdirectory": "infra/modules/alb",
+      "test_root": "root",
+      "json_declared": false
+    },
+    {
+      "name": "conf-data-processing-architecture-reference",
+      "repository": "google-ads-confidential-computing/conf-data-processing-architecture-reference",
+      "commit": "3e7b98e34cd5f78a1a45bf28a31c455fd9c9a95b",
+      "sha256": "df63387c2cb95e678d6671aeb0c0dbb0e1fd0a1e7e631a0ffece6e4dfb1165b6",
+      "module_subdirectory": "coordinator/terraform/gcp/applications/multipartykeyhosting_primary",
+      "test_root": "root",
+      "json_declared": false
+    },
+    {
+      "name": "eks-vulnerable-infra",
+      "repository": "K8RVIS/eks-vulnerable-infra",
+      "commit": "20578f5815fa43e0ad8f4dac1e6235db51885e48",
+      "sha256": "bcf8066c70bb4c3104bcf07beacaa11764105957ac0e3b77a2921ffe8fb659d9",
+      "module_subdirectory": "bootstrap",
+      "test_root": "tests",
+      "json_declared": false
+    },
+    {
+      "name": "genai-idp-terraform",
+      "repository": "awslabs/genai-idp-terraform",
+      "commit": "371185356d563a0037799034478589893d53685a",
+      "sha256": "3eae73932eae486c2d265bc990e2ff953d69835f99a77d49b3fcb64f3a2889ff",
+      "module_subdirectory": ".",
+      "test_root": "tests",
+      "json_declared": false
+    },
+    {
+      "name": "platform-design",
+      "repository": "100rd/platform-design",
+      "commit": "1243d3748ea8426a667a9469fd10a60849d3421c",
+      "sha256": "84b3c9e17420ea9487d8dc82d1b8899a34f0bac014a3dd4a48d4f6c3649da68a",
+      "module_subdirectory": "terraform/modules/argocd",
+      "test_root": "root",
+      "json_declared": false
+    },
+    {
+      "name": "platform-tools",
+      "repository": "uktrade/platform-tools",
+      "commit": "a5c093bfe851ab10c96322d09cc386dee1eabb17",
+      "sha256": "adcc5a37781f3a4cab4694f1c0079ff77acbd1b308f7409174fba5daae358963",
+      "module_subdirectory": "terraform/application-load-balancer",
+      "test_root": "tests",
+      "json_declared": false
+    },
+    {
+      "name": "psoxy",
+      "repository": "Worklytics/psoxy",
+      "commit": "6952fc955565aa704297a7ab584bf8745ae8a97e",
+      "sha256": "a2e5b80b272ae4bd4cc7c1824a26d862941e9968cbc0498e11d0d569a356c66b",
+      "module_subdirectory": "infra/modules/aws",
+      "test_root": "root",
+      "json_declared": false
+    },
+    {
+      "name": "server-terraform",
+      "repository": "CircleCI-Public/server-terraform",
+      "commit": "d9ceb98b1497b34743fe6fe8d32e0af8881b4bb1",
+      "sha256": "443ff7ffbadda8457ffe03737af5ce01486c5eeba39a500b4b1a2f3171ba1e8c",
+      "module_subdirectory": "nomad-aws",
+      "test_root": "tests",
+      "json_declared": false
+    },
+    {
+      "name": "serverless-architecture-patterns",
+      "repository": "dpdesi/serverless-architecture-patterns",
+      "commit": "d0890d3e50fc13b9f7aa2bde4bb5d708da1ba485",
+      "sha256": "d7386ccdae7b363b346a7b8563a22598a8a15368fe169c9de240e5e5d4b2b985",
+      "module_subdirectory": "modules/composition/subsystem",
+      "test_root": "root",
+      "json_declared": false
+    },
+    {
+      "name": "terraform-aws-compliance",
+      "repository": "appvia/terraform-aws-compliance",
+      "commit": "adaf6e53e4c6c727845689588b24f2e827060e31",
+      "sha256": "9b1247a70d3e0f140e53645d256280eeade972887c089aa8972d30ae9fdd5ecc",
+      "module_subdirectory": ".",
+      "test_root": "tests",
+      "json_declared": false
+    },
+    {
+      "name": "terraform-aws-lb",
+      "repository": "so1omon563/terraform-aws-lb",
+      "commit": "5dd4569ad914044f4847209a0f32423fc4bb64c5",
+      "sha256": "ed8367ee6a3415729a8842ed33c98f69132bb2a3f24ab42af88ec4b6b30fb243",
+      "module_subdirectory": ".",
+      "test_root": "root",
+      "json_declared": false
+    },
+    {
+      "name": "terraform-aws-oidc-github",
+      "repository": "unfunco/terraform-aws-oidc-github",
+      "commit": "4d068a46aed06d24bdd1873d783d4a7efe66862e",
+      "sha256": "b549b26c556d2f19b16ed79f2679b7c31485ff8e8d6a222c8b41104e4cbf10f7",
+      "module_subdirectory": ".",
+      "test_root": "root",
+      "json_declared": false
+    },
+    {
+      "name": "terraform-aws-security-group",
+      "repository": "so1omon563/terraform-aws-security-group",
+      "commit": "0ccf6abeabc80a5f189737ea73a94e4c9c06549b",
+      "sha256": "343aaafbd64aab79ff5ab87423c09063376d0a98b17d3cc6ca969c0b9897fb6b",
+      "module_subdirectory": ".",
+      "test_root": "root",
+      "json_declared": false
+    },
+    {
+      "name": "terraform-aws-sonarqube",
+      "repository": "nearform/terraform-aws-sonarqube",
+      "commit": "24b3aee4e4c62f7f4abd1120b8f527303c7c3b8c",
+      "sha256": "47fd7d8c0c9c2e76893f480e0e2e3778079a8d6ded4d676155c2669c7cc7cdb1",
+      "module_subdirectory": ".",
+      "test_root": "root",
+      "json_declared": false
+    },
+    {
+      "name": "terraform-aws-static-site",
+      "repository": "thu-san/terraform-aws-static-site",
+      "commit": "ca94a5dbe97b9937201fe20971f2c7b3518acabe",
+      "sha256": "55e9384d029531702010ff0e4605d711aca3abc41fb9b585cdcf6546997ce459",
+      "module_subdirectory": ".",
+      "test_root": "test",
+      "json_declared": false
+    },
+    {
+      "name": "terraform-aws-vpc",
+      "repository": "so1omon563/terraform-aws-vpc",
+      "commit": "d115d13636bc788145eb98283e0b037cddd84dae",
+      "sha256": "ee816afda83bbbe9d9160329f077b4171b9809890b2f29bea8176b043f015c09",
+      "module_subdirectory": "test/basic-usage",
+      "test_root": "root",
+      "json_declared": false
+    },
+    {
+      "name": "terraform-datadog-users",
+      "repository": "masterpointio/terraform-datadog-users",
+      "commit": "f5575b9205e26822b5ca0aae9570713465c1e9a5",
+      "sha256": "d66411a2955ece407cf5f32a57c87c7d521e2cb25e879d67ca04fb9b29b71569",
+      "module_subdirectory": ".",
+      "test_root": "tests",
+      "json_declared": false
+    },
+    {
+      "name": "terraform-duplocloud-components",
+      "repository": "duplocloud/terraform-duplocloud-components",
+      "commit": "4a3bb43f7070b79f51bbd4ab75c3f8b3259fcd31",
+      "sha256": "33dce5c7e4ea0e39489c3db1acedc7e8356e092ca5eeb753988ff12f7a22f206",
+      "module_subdirectory": "examples/configuration",
+      "test_root": "root",
+      "json_declared": false
+    },
+    {
+      "name": "terraform-mongodbatlas-project",
+      "repository": "terraform-mongodbatlas-modules/terraform-mongodbatlas-project",
+      "commit": "adabc13eea096058d0f919031223f862625b0cd5",
+      "sha256": "abe2bc411cbc63b251296298ba5838ef0f8eaccb898329e0c35453a87eed0bee",
+      "module_subdirectory": ".",
+      "test_root": "tests",
+      "json_declared": false
+    },
+    {
+      "name": "terraform-postgres-config-dbs-users-roles",
+      "repository": "masterpointio/terraform-postgres-config-dbs-users-roles",
+      "commit": "302ae4d7588ccf09b42bc5dd49c2fc4e4fddf49d",
+      "sha256": "d19a67c901f35aab32da01192d7f741932d809a06c1d5619a334d33b60dc857d",
+      "module_subdirectory": ".",
+      "test_root": "tests",
+      "json_declared": false
+    },
+    {
+      "name": "tofu-modules",
+      "repository": "nullplatform/tofu-modules",
+      "commit": "3f36cf58cef52c8c784460ba43a0d9c4c1f61753",
+      "sha256": "2fb6611bb6118e5363ea6a43617afe3b8562e7ca030346d862acd231788da47d",
+      "module_subdirectory": "nullplatform/account",
+      "test_root": "tests",
+      "json_declared": false
+    }
+  ]
+}

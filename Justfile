@@ -195,6 +195,16 @@ measure-synthesis:
     mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
       -run '^TestTheSynthesisRateOverThePinnedCorpus$'
 
+# Run the M5-0.4 module-admission census over the pinned benchmark corpus.
+# Network-gated: the variable licenses archive fetching and nothing else —
+# no census request bypasses a safety gate. Runs can take hours; the timeout
+# is generous on purpose.
+measure-census:
+    test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
+    mkdir -p "{{ artifact_dir }}/measurement"
+    mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
+      -timeout 12h -run '^TestTheBenchmarkCorpusCensus$'
+
 # Run opt-in realistically sized performance benchmarks.
 test-performance:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
