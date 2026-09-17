@@ -120,6 +120,7 @@ internal/engine/testdata/provisioner/main.tf
 internal/engine/testdata/provisioner/tests/unit.tftest.hcl
 internal/engine/testdata/red-baseline/main.tf
 internal/engine/testdata/red-baseline/tests/unit.tftest.hcl
+internal/engine/testdata/repair-diagnostic/main.tf
 internal/engine/testdata/redundant-in-resource/main.tf
 internal/engine/testdata/redundant-in-resource/tests/main.tftest.hcl
 internal/engine/testdata/removed-scoped/main.tf
