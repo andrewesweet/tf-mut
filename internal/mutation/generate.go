@@ -611,13 +611,18 @@ func findNthBlock(file *hclwrite.File, blockType string, index int) *hclwrite.Bl
 	return nil
 }
 
-// generatedRank orders generated operators after curated ones.
+// generatedRank orders generated operators after curated ones, and the pack
+// form operators after every language operator, so a language operator owns
+// every row a pack entry also produces regardless of identifier spelling.
 func generatedRank(operator Operator) int {
-	if operator == FnFamilySwap {
+	switch operator {
+	case PackFlip, PackReplace:
+		return 2
+	case FnFamilySwap:
 		return 1
+	default:
+		return 0
 	}
-
-	return 0
 }
 
 func sortMutants(mutants []Mutant, defect Defect) []Mutant {
@@ -641,7 +646,7 @@ func sortMutants(mutants []Mutant, defect Defect) []Mutant {
 		// after every curated one at the same site, so the content-dedup
 		// below keeps the curated entry.
 		if generatedRank(left.Operator) != generatedRank(right.Operator) {
-			return generatedRank(left.Operator) - generatedRank(right.Operator)
+			return direction * (generatedRank(left.Operator) - generatedRank(right.Operator))
 		}
 
 		if left.Operator != right.Operator {

@@ -42,3 +42,11 @@ entry "note-drop" {
   from          = "keep"
   to            = "dropped"
 }
+
+entry "label-empty" {
+  resource_type = "terraform_data"
+  attribute     = "input"
+  form          = "replace"
+  from          = "named"
+  to            = ""
+}

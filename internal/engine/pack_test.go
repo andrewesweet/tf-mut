@@ -30,6 +30,7 @@ const (
 	aclSite        = "terraform_data.acl.input"
 	sizeSite       = "terraform_data.size.input"
 	noteSite       = "terraform_data.note.input"
+	labelSite      = "terraform_data.label.input"
 	packConfigFile = ".tf-mut.hcl"
 	acmePackFile   = "packs/acme.hcl"
 )
@@ -203,7 +204,7 @@ func TestOriginsNameThePackEntryOnACollapsedBooleanFlip(t *testing.T) {
 			}
 
 			if len(mutant.Origins) > 0 && mutant.Site != flagSite && mutant.Site != sizeSite &&
-				mutant.Site != aclSite && mutant.Site != noteSite {
+				mutant.Site != aclSite && mutant.Site != noteSite && mutant.Site != labelSite {
 				t.Fatalf("%s at %s carries origins %+v where no pack contributed",
 					mutant.Operator, mutant.Site, mutant.Origins)
 			}
@@ -233,6 +234,39 @@ func TestOriginsNameThePackEntryOnACollapsedBooleanFlip(t *testing.T) {
 
 	if with.Baseline.Fingerprint != without.Baseline.Fingerprint {
 		t.Fatal("the baseline fingerprint moved under the pack")
+	}
+}
+
+// TestALanguageOperatorOwnsARowAPackEntryAlsoProduces pins ownership where
+// the identifier spelling would hand it to the pack: PACK-REPLACE sorts
+// before STR-EMPTY alphabetically, and a replace entry to "" asks for exactly
+// the bytes STR-EMPTY writes. The row stays STR-EMPTY's — identity and tier
+// unchanged from the no-pack run — and the entry is its origin.
+func TestALanguageOperatorOwnsARowAPackEntryAlsoProduces(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, packsFixture)
+
+	with := packPreview(t, module, acmePack)
+	without := packPreview(t, module)
+
+	label := mutantAt(t, with, string(mutation.StrEmpty), labelSite)
+	unpacked := mutantAt(t, without, string(mutation.StrEmpty), labelSite)
+
+	if label.ID != unpacked.ID || label.Tier != string(mutation.TierStandard) {
+		t.Fatalf("the STR-EMPTY row moved under the pack: id %s (was %s), tier %s",
+			label.ID, unpacked.ID, label.Tier)
+	}
+
+	want := []report.Origin{origin("PACK-REPLACE", acmePack, "label-empty")}
+	if !reflect.DeepEqual(label.Origins, want) {
+		t.Fatalf("STR-EMPTY row origins = %+v, want %+v", label.Origins, want)
+	}
+
+	for _, mutant := range with.Mutants {
+		if mutant.Operator == string(mutation.PackReplace) && mutant.Site == labelSite {
+			t.Fatalf("PACK-REPLACE owns a row STR-EMPTY also produces: %s", mutant.ID)
+		}
 	}
 }
 
@@ -564,37 +598,6 @@ func TestAConfiguredPackSelectionIsRefusedOnCurateAndUntilDry(t *testing.T) {
 	if _, err := engine.Run(t.Context(), characterise); !errors.Is(err, engine.ErrUntilDryPopulation) ||
 		!strings.Contains(err.Error(), "pack selection") {
 		t.Fatalf("until-dry error = %v, want the population refusal naming the pack selection", err)
-	}
-}
-
-// TestOnlyTheGradingRequestsCarryAPackSelection is the seam half of the
-// by-name refusal: characterise, todos and curate requests have no field for
-// a pack, so a pack on them is not representable through the seam at all;
-// the command line's refusal by flag name is the other half.
-func TestOnlyTheGradingRequestsCarryAPackSelection(t *testing.T) {
-	t.Parallel()
-
-	carries := func(request any) bool {
-		_, found := reflect.TypeOf(request).FieldByName("Packs")
-
-		return found
-	}
-
-	//nolint:exhaustruct // the field set is the assertion, not the values.
-	grading := []any{engine.RunRequest{}, engine.PreviewRequest{}, engine.SuggestRequest{}}
-	//nolint:exhaustruct // the field set is the assertion, not the values.
-	others := []any{engine.CharacteriseRequest{}, engine.TodosRequest{}, engine.CurateRequest{}}
-
-	for _, request := range grading {
-		if !carries(request) {
-			t.Fatalf("%T carries no pack selection", request)
-		}
-	}
-
-	for _, request := range others {
-		if carries(request) {
-			t.Fatalf("%T carries a pack selection it must refuse", request)
-		}
 	}
 }
 

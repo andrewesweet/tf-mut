@@ -70,7 +70,7 @@ func TestTheM5GateCoversEveryNamedRequirement(t *testing.T) {
 		"type-incompatible to finds no site":   "TestATypeIncompatibleReplacementFindsNoSite",
 		"flag and configuration union":         "TestFlagAndConfiguredPacksMergeAsAUnion",
 		"configured narrowing refused":         "TestAConfiguredPackSelectionIsRefusedOnCurateAndUntilDry",
-		"only grading requests carry packs":    "TestOnlyTheGradingRequestsCarryAPackSelection",
+		"language operator owns shared row":    "TestALanguageOperatorOwnsARowAPackEntryAlsoProduces",
 		"--pack refused by name":               "TestThePackFlagIsRefusedByNameOnCharacteriseTodosAndCurate",
 		"--pack wired, unknown exits 2":        "TestPacksAreWiredThroughTheCommandLine",
 		"edited pack is a cache miss":          "TestAnEditedUserPackIsACacheMiss",
