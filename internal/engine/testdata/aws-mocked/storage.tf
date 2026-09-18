@@ -1,3 +1,11 @@
+# M5-0.3: the enabled security-aws seed entries for KMS key rotation share
+# this literal witness. The pack provenance keeps both source rules visible
+# after their identical bytes are deduplicated.
+resource "aws_kms_key" "artifacts" {
+  description         = "Encrypt the tf-mut fixture artifacts"
+  enable_key_rotation = true
+}
+
 resource "aws_s3_bucket" "artifacts" {
   bucket        = local.bucket_name
   force_destroy = !local.is_production

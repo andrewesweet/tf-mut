@@ -311,10 +311,11 @@ maintained upstream instead of a hand-written list.
 
 **A pack is data, not operators.** The catalogue gains exactly the operators of the **form
 vocabulary** — `PACK-FLIP` (a boolean literal inverted) and `PACK-REPLACE` (one literal replaced
-by another); a third, `PACK-WIDEN-CIDR` (any CIDR literal to `0.0.0.0/0`), only if the M5-0.3
-census finds entries needing it — each with its own matrix row and offline generation site. Pack
-entries parameterise those operators. "One row per enabled operator" stays true; SARIF's one rule
-per operator stays meaningful. The offline witness is a user-defined pack over
+by another). The M5-0.3 census found one scalar entry needing a third,
+`PACK-WIDEN-CIDR` (any IPv4 CIDR literal to `0.0.0.0/0`), but did not load or measure it; #176 is
+the explicit implementation and admission follow-up. Every enabled form gets its own matrix row
+and offline generation site. Pack entries parameterise those operators. "One row per enabled
+operator" stays true; SARIF's one rule per operator stays meaningful. The offline witness is a user-defined pack over
 `terraform_data.input` (schema type `dynamic`, optional) in `internal/engine/testdata/packs`; it
 proves the mechanism, not any shipped pack. No shipped pack is embedded yet: `security-aws` is
 M5c.2, admitted by the M5-0.3 census run against this mechanism.
@@ -351,7 +352,7 @@ origin aggregation**, not merely the sort order: reversing ownership must lose n
 | --- | --- | --- |
 | `flip` | `from` is the literal `true` or `false` and `to` is the other, anything else is an error | `PACK-FLIP` |
 | `replace` | `from` and `to` are literals of the same kind (string, number or bool), `to` differs from `from`, and a `from` equal to `to` is an error naming the no-op | `PACK-REPLACE` |
-| `widen-cidr` | **deferred to the M5-0.3 census (#161)**: `from` is the sentinel `any-cidr`, `to` is `0.0.0.0/0`; not a loadable form until the census finds entries needing it | `PACK-WIDEN-CIDR` (not enabled) |
+| `widen-cidr` | **required by M5-0.3 but deferred to #176**: Trivy `AWS-0104` supplies the scalar `aws_vpc_security_group_egress_rule.cidr_ipv4` candidate; proposed `from` is the sentinel `any-cidr`, `to` is `0.0.0.0/0`; nested/list-valued CIDRs, adjacent-port predicates and IPv6 remain excluded; not yet a loadable form | `PACK-WIDEN-CIDR` (not enabled) |
 
 The one reserved name is `security-aws`, the pack M5c.2 ships; each further pack reserves its
 name in the change that ships it, never ahead of it. **Scoring**: when a pack is enabled its mutants enter the scored set like any
