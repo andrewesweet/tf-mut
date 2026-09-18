@@ -287,6 +287,12 @@ const gitDiff = "diff"
 // population.
 func changedPack(ctx context.Context, settings config) string {
 	for _, pack := range settings.loadedPacks {
+		// A shipped pack's bytes are in the binary: there is no file to diff,
+		// and it cannot change between the ref and HEAD.
+		if pack.Embedded {
+			continue
+		}
+
 		if packChanged(ctx, pack.Path, settings.Since) {
 			return pack.Path + " (pack file)"
 		}

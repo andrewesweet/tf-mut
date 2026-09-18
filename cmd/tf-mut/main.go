@@ -102,8 +102,9 @@ Flags for run, preview and suggest:
   --sample N                   Run a deterministic N% sample (non-authoritative)
   --seed N                     Seed for --sample (default 0)
   --generated-functions        Opt in to the generated function-family operators
-  --pack NAME[,NAME]           Enable these domain packs, registered by name in .tf-mut.hcl;
-                               merged as a union with the configured packs list
+  --pack NAME[,NAME]           Enable these domain packs by name: a shipped pack such as
+                               security-aws, or one registered in .tf-mut.hcl; merged as a
+                               union with the configured packs list
   --operator ID[,ID]           Restrict generation to these operators
   --exclude-operator ID[,ID]   Remove operators from the population
   --exclude-path GLOB[,GLOB]   Remove sites in matching files
@@ -258,7 +259,7 @@ func declareFlags(set *flag.FlagSet) flagValues {
 		baselinePath: set.String("baseline", "", "baseline file location"),
 		generatedFunctions: set.Bool(generatedFunctionsFlag, false,
 			"opt in to the generated function-family operators"),
-		packs:   set.String(packFlag, "", "enable these domain packs by registered name"),
+		packs:   set.String(packFlag, "", "enable these domain packs by name (shipped or registered)"),
 		outputs: declareOutputFlag(set),
 		dryRun: set.Bool("dry-run", false,
 			"print the candidate patches and verify nothing"),

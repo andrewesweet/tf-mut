@@ -40,15 +40,9 @@ var ErrPack = errors.New("pack is not usable")
 // entryLabel is the grammar of an entry's author-supplied identifier.
 var entryLabel = regexp.MustCompile(`^[a-z0-9-]+$`)
 
-// reservedPackNames are the shipped packs' names. No shipped pack is embedded
-// yet — `security-aws` arrives with M5c.2 on the M5-0.3 census — but its name
-// is reserved now so a user pack registered today cannot be shadowed by it
-// tomorrow. A further pack reserves its name in the change that ships it.
-//
-//nolint:gochecknoglobals // an immutable list.
-var reservedPackNames = []string{"security-aws"}
-
-// ReservedPackNames lists the names a user pack may not take.
+// ReservedPackNames lists the names a user pack may not take: the names of
+// the shipped packs, derived from the embedded pack files (shipped.go), so a
+// pack reserves its name in the change that ships it, never ahead of it.
 func ReservedPackNames() []string {
 	return append([]string{}, reservedPackNames...)
 }
@@ -60,6 +54,9 @@ type Pack struct {
 	Path    string
 	Digest  string
 	Entries []PackEntry
+	// Embedded marks a shipped pack: its bytes are in the binary, so it has
+	// no user-edited file behind it and cannot change between two refs.
+	Embedded bool
 }
 
 // PackEntry is one entry of a pack: the site it scopes to, the form it takes

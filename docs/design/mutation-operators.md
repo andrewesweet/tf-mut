@@ -290,22 +290,17 @@ Oasis-style semantic faults, kept deliberately separate from the language catalo
 they are provider-specific and their coverage of any given module is patchy by nature. Enabled
 per pack, never by default.
 
-| Pack | Examples |
+| Pack | Status |
 | --- | --- |
-| `security-aws` | `acl` private → public-read; `storage_encrypted`/`encrypted` true → false; `block_public_*` true → false; restrictive CIDR → `0.0.0.0/0`; `publicly_accessible` false → true; `deletion_protection` true → false; `versioning` enabled → disabled; IAM policy `Effect` Deny → Allow, `Action` narrowed → `*` |
-| `security-azure` | Equivalent flags on `azurerm_*` |
-| `security-gcp` | Equivalent flags on `google_*` |
-| `capacity` | Instance sizing drift, `min_size`/`desired_capacity`/`replicas` reductions |
-| `compliance` | Required tag/label removal; environment tag `prod` → `dev` |
+| `security-aws` | **shipped** (M5c.2): exactly the 10 entries the M5-0.3 census witnessed and admitted, of 115 loadable candidates; the pack document is [pack-security-aws.md](pack-security-aws.md) |
+| `security-azure`, `security-gcp`, `capacity`, `compliance` | not in M5; each follows the same admission path in later work — a seed census, an admission decision against the measured rule, then the seeded pack |
 
 Each pack entry follows Oasis's `(resource_type, attribute)` scoping model, which is the right
 call and should be adopted directly: an attribute name alone is not enough context to know
-whether mutating it models a real fault.
-
-An additional source these packs should draw on: the rule catalogues already published by
-Checkov, tfsec/Trivy and the CIS benchmarks. Each rule describes a misconfiguration that
-matters; inverting it is a ready-made, curated, realistic mutation. That gives the packs a
-maintained upstream instead of a hand-written list.
+whether mutating it models a real fault. The upstream the shipped pack draws on is the rule
+catalogue Checkov and Trivy already publish: each rule describes a misconfiguration that
+matters; inverting it is a ready-made, curated, realistic mutation, and the entry carries the
+upstream rule identifier and the catalogue's licence.
 
 ### The pack mechanism (M5c.1)
 
@@ -317,8 +312,13 @@ the explicit implementation and admission follow-up. Every enabled form gets its
 and offline generation site. Pack entries parameterise those operators. "One row per enabled
 operator" stays true; SARIF's one rule per operator stays meaningful. The offline witness is a user-defined pack over
 `terraform_data.input` (schema type `dynamic`, optional) in `internal/engine/testdata/packs`; it
-proves the mechanism, not any shipped pack. No shipped pack is embedded yet: `security-aws` is
-M5c.2, admitted by the M5-0.3 census run against this mechanism.
+proves the mechanism, not any shipped pack. The shipped pack is `security-aws` (M5c.2):
+embedded in the binary under its reserved name, parsed by the same `ParsePack` contract a user
+pack goes through — a shipped pack that fails its own contract is an init-time failure with a
+test, never a silent skip — and selected by `--pack security-aws` with no registration and no
+pack block. Its witnessed set is **not empty**: exactly the ten entries the M5-0.3 census
+admitted ship, and the [pack document](pack-security-aws.md) lists witnessed and unwitnessed
+entries with both witness counts.
 
 **Deduplication unchanged; provenance preserved as origins.** Deduplication is by mutated file
 content and the entry sorting earliest wins; the form operators sort after every language
@@ -354,8 +354,10 @@ origin aggregation**, not merely the sort order: reversing ownership must lose n
 | `replace` | `from` and `to` are literals of the same kind (string, number or bool), `to` differs from `from`, and a `from` equal to `to` is an error naming the no-op | `PACK-REPLACE` |
 | `widen-cidr` | **required by M5-0.3 but deferred to #176**: Trivy `AWS-0104` supplies the scalar `aws_vpc_security_group_egress_rule.cidr_ipv4` candidate; proposed `from` is the sentinel `any-cidr`, `to` is `0.0.0.0/0`; nested/list-valued CIDRs, adjacent-port predicates and IPv6 remain excluded; not yet a loadable form | `PACK-WIDEN-CIDR` (not enabled) |
 
-The one reserved name is `security-aws`, the pack M5c.2 ships; each further pack reserves its
-name in the change that ships it, never ahead of it. **Scoring**: when a pack is enabled its mutants enter the scored set like any
+The one reserved name is `security-aws`, and its pack ships; the reserved names are derived
+from the embedded pack files, so each further pack reserves its name in the change that ships
+it, never ahead of it. A user pack named `security-aws` is refused by name while the shipped
+pack still loads. **Scoring**: when a pack is enabled its mutants enter the scored set like any
 Tier 1–3 mutant; no pack is ever in `standard`, and admission of any pack to a default is a
 separate evidence-carrying change, exactly the M3e posture. **Suggestions**: a pack survivor
 reaches the suggestion engine through the existing fail-closed address, rendering and sensitivity
@@ -504,7 +506,7 @@ estimates were 3–8× low.
 | 2 — meta-arguments (`standard`) | 10 | 20–60 |
 | 3 — contract (`standard`) | 15 | 40–120 |
 | 4 — lifecycle (`deep`) | 3 enabled of 5 designed | 5–20 |
-| 5 — domain packs (opt-in) | 2 form operators, parameterised by ~30 entries per pack | 0–50 |
+| 5 — domain packs (opt-in) | 2 form operators; the shipped `security-aws` enables 10 of the census's 115 candidates | 0–50 |
 
 Duration depends dominantly on provider schema size and test selection, not on operator count
 (review C1). With the two-phase execution and run-block selection of the product design, the

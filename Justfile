@@ -147,12 +147,14 @@ gate-m45:
 # Run the M5 offline gates: the Tier 4 lifecycle witnesses, their classification
 # pairs, the tier arithmetic, the matrix rows and the standard-report invariance proof (M5a);
 # the pack mechanism — the user-defined pack through preview, run and suggest, origins and
-# both red proofs, every pack-contract row, the by-name refusals and the snapshot rules (M5c.1).
+# both red proofs, every pack-contract row, the by-name refusals and the snapshot rules (M5c.1);
+# the shipped security-aws pack — the admitted-list pin, unregistered resolution, the
+# shadowing refusal and the shipped contract (M5c.2).
 gate-m5:
     mkdir -p "{{ artifact_dir }}/test"
     mise exec -- gotestsum --format testname --junitfile "{{ artifact_dir }}/test/gate-m5.xml" \
-      --raw-command -- go test ./internal/engine/ ./cmd/tf-mut/ \
-      -json -count=1 -run '^(TestTheIgnoreDropWitnessKillsThroughTheSeam|TestTheIgnoreAllWitnessKillsThroughTheSeam|TestTheReplaceTriggerWitnessKillsThroughTheSeam|TestEveryAdmittedLifecycleOperatorHasASiteInTheOfflineFixture|TestALifecycleMutantWithAnIdenticalFingerprintIsStructurallyUnassertable|TestModuleLevelNoCoverageKeepsItsPrecedenceOverALifecycleMutant|TestConditionalNoCoverageKeepsItsPrecedenceOverALifecycleMutant|TestDeepIncludesStandardAndStandardExcludesTheLifecycleOperators|TestThePseudoTestedCountStaysOverTheExtremeTier|TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperators|TestEveryEnabledOperatorHasAGenerationSite|TestEveryEnabledOperatorHasAMatrixRow|TestEveryMatrixRowNamesAnEnabledOperator|TestTheMatrixFixtureGeneratesOnlyParseableMutants|TestAUserPackGeneratesClassifiesAndSuggestsThroughTheSeam|TestOriginsNameThePackEntryOnACollapsedBooleanFlip|TestDisablingOriginAggregationTurnsTheOriginsCaseRed|TestReversingOwnershipLosesNoContributor|TestEveryPackContractRowIsRefusedByName|TestAnUnsupportedAttributeFormIsANoOpInThePackSummary|TestSchemaEvidenceRefusesAnUndescribedAttribute|TestATypeIncompatibleReplacementFindsNoSite|TestFlagAndConfiguredPacksMergeAsAUnion|TestAConfiguredPackSelectionIsRefusedOnCurateAndUntilDry|TestALanguageOperatorOwnsARowAPackEntryAlsoProduces|TestThePackFlagIsRefusedByNameOnCharacteriseTodosAndCurate|TestPacksAreWiredThroughTheCommandLine|TestAnEditedUserPackIsACacheMiss|TestAStaleVerifiedPackSuggestionIsRefused|TestAChangedPackFileForcesTheFullPopulationUnderSince|TestAChangedPackOutsideTheClosureForcesTheFullPopulationUnderSince|TestNoPackEntersTheStandardPopulation|TestEveryPackOperatorHasASiteInTheOfflineFixture|TestARealPackReportValidatesAgainstThePublishedSchema|TestTheOpportunityCensusClassifiesUndecidableConstraints|TestTheOpportunityCensusClassifiesRefusedTypedCandidates|TestTheOpportunityCensusClassifiesMissingTypedCandidates|TestTheOpportunityCensusWithholdsRedactedEvidence|TestTheCensusDenominatorCountsJSONDeclaredVariables|TestAnEmptyJSONStratumIsPublishedAsUnmeasured|TestTheMinedCountsSplitByStratum|TestTheCensusReadingIsInternallyConsistent|TestTheRepairCandidateTableIsPinnedAndUsesTodoConstraints|TestTheRepairPrototypeMapsOnlyOneStructuredInputAndRetriesOnce|TestTheRepairPrototypeUsesTodosForLookupAndStructuredFieldsForMapping|TestARepairPrototypeGateRefusalInvokesOnlyVersion|TestASecretOnlyInARepairFailedAttemptReachesNoPublishedArtefact)$'
+      --raw-command -- go test ./internal/engine/ ./internal/mutation/ ./cmd/tf-mut/ \
+      -json -count=1 -run '^(TestTheIgnoreDropWitnessKillsThroughTheSeam|TestTheIgnoreAllWitnessKillsThroughTheSeam|TestTheReplaceTriggerWitnessKillsThroughTheSeam|TestEveryAdmittedLifecycleOperatorHasASiteInTheOfflineFixture|TestALifecycleMutantWithAnIdenticalFingerprintIsStructurallyUnassertable|TestModuleLevelNoCoverageKeepsItsPrecedenceOverALifecycleMutant|TestConditionalNoCoverageKeepsItsPrecedenceOverALifecycleMutant|TestDeepIncludesStandardAndStandardExcludesTheLifecycleOperators|TestThePseudoTestedCountStaysOverTheExtremeTier|TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperators|TestEveryEnabledOperatorHasAGenerationSite|TestEveryEnabledOperatorHasAMatrixRow|TestEveryMatrixRowNamesAnEnabledOperator|TestTheMatrixFixtureGeneratesOnlyParseableMutants|TestAUserPackGeneratesClassifiesAndSuggestsThroughTheSeam|TestOriginsNameThePackEntryOnACollapsedBooleanFlip|TestDisablingOriginAggregationTurnsTheOriginsCaseRed|TestReversingOwnershipLosesNoContributor|TestEveryPackContractRowIsRefusedByName|TestAnUnsupportedAttributeFormIsANoOpInThePackSummary|TestSchemaEvidenceRefusesAnUndescribedAttribute|TestATypeIncompatibleReplacementFindsNoSite|TestFlagAndConfiguredPacksMergeAsAUnion|TestAConfiguredPackSelectionIsRefusedOnCurateAndUntilDry|TestALanguageOperatorOwnsARowAPackEntryAlsoProduces|TestThePackFlagIsRefusedByNameOnCharacteriseTodosAndCurate|TestPacksAreWiredThroughTheCommandLine|TestAnEditedUserPackIsACacheMiss|TestAStaleVerifiedPackSuggestionIsRefused|TestAChangedPackFileForcesTheFullPopulationUnderSince|TestAChangedPackOutsideTheClosureForcesTheFullPopulationUnderSince|TestNoPackEntersTheStandardPopulation|TestEveryPackOperatorHasASiteInTheOfflineFixture|TestARealPackReportValidatesAgainstThePublishedSchema|TestTheOpportunityCensusClassifiesUndecidableConstraints|TestTheOpportunityCensusClassifiesRefusedTypedCandidates|TestTheOpportunityCensusClassifiesMissingTypedCandidates|TestTheOpportunityCensusWithholdsRedactedEvidence|TestTheCensusDenominatorCountsJSONDeclaredVariables|TestAnEmptyJSONStratumIsPublishedAsUnmeasured|TestTheMinedCountsSplitByStratum|TestTheCensusReadingIsInternallyConsistent|TestTheRepairCandidateTableIsPinnedAndUsesTodoConstraints|TestTheRepairPrototypeMapsOnlyOneStructuredInputAndRetriesOnce|TestTheRepairPrototypeUsesTodosForLookupAndStructuredFieldsForMapping|TestARepairPrototypeGateRefusalInvokesOnlyVersion|TestASecretOnlyInARepairFailedAttemptReachesNoPublishedArtefact|TestTheShippedSecurityAWSPackShipsExactlyTheAdmittedEntries|TestTheShippedSecurityAWSPackResolvesWithoutRegistration|TestAUserPackCannotShadowTheShippedSecurityAWSPack|TestTheShippedPackSelectionLeavesTheDefaultPopulationAlone|TestEveryShippedPackSatisfiesTheUserPackContract)$'
 
 # Run fixed-seed Go/property/corpus tests and offline real-Terraform fixtures.
 test: _test-go _test-terraform
@@ -193,7 +195,7 @@ test-integration:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mise exec -- gotestsum --format testname --raw-command -- \
       go test ./... -json -count=1 -tags=integration \
-      -skip '^(TestTheBenchmarkCorpusCensus|TestTheSecurityAWSPackAdmissionMeasurement|TestTheOpportunityCensusOverThePinnedCorpora|TestTheRepairPrototypeOverThePinnedOpportunities)$'
+      -skip '^(TestTheBenchmarkCorpusCensus|TestTheSecurityAWSPackAdmissionMeasurement|TestTheOpportunityCensusOverThePinnedCorpora|TestTheRepairPrototypeOverThePinnedOpportunities|TestTheShippedSecurityAWSPackIsWitnessedOnAWSMocked)$'
 
 # Measure the synthesis rate over the pinned public-module corpus (M4.5-0).
 measure-synthesis:
@@ -212,14 +214,15 @@ measure-census:
     mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
       -timeout 12h -run '^TestTheBenchmarkCorpusCensus$'
 
-# Re-execute the M5-0.3 security-aws seed census, admission measurement and
-# checked-in real-provider witnesses. Network-gated because the gate loads the
+# Re-execute the M5-0.3 security-aws seed census, admission measurement,
+# checked-in real-provider witnesses, and the M5c.2 shipped-pack acceptance
+# witness. Network-gated because the gate loads the
 # realistically sized hashicorp/aws schema; no request bypasses a safety gate.
 measure-security-aws:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mkdir -p "{{ artifact_dir }}/measurement"
     mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
-      -timeout 12h -run '^(TestTheSecurityAWSCandidatePackIsLoadableAndHasStableIdentities|TestTheSecurityAWSPackAdmissionMeasurement|TestEveryEnabledSecurityAWSEntryHasARealProviderWitness)$'
+      -timeout 12h -run '^(TestTheSecurityAWSCandidatePackIsLoadableAndHasStableIdentities|TestTheSecurityAWSPackAdmissionMeasurement|TestEveryEnabledSecurityAWSEntryHasARealProviderWitness|TestTheShippedSecurityAWSPackIsWitnessedOnAWSMocked)$'
 
 # Run the M5-0.5a opportunity census and mined-rung count over both pinned
 # corpora. Network-gated: the variable licenses archive fetching and nothing

@@ -45,6 +45,14 @@ func resolvePacks(moduleDir string, selected []string, registered []tfconfig.Pac
 			return registration.Name == name
 		})
 		if index < 0 {
+			// A shipped pack resolves by its reserved name alone: no pack block
+			// in the configuration selects it, and none may declare it.
+			if pack, shipped := mutation.ShippedPack(name); shipped {
+				packs = append(packs, pack)
+
+				continue
+			}
+
 			return nil, fmt.Errorf("%w: pack %q is not registered: no pack block in %s declares it "+
 				"and no shipped pack has that name", tfconfig.ErrConfig, name, tfconfig.FileName)
 		}
