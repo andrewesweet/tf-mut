@@ -192,7 +192,8 @@ test-race:
 test-integration:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mise exec -- gotestsum --format testname --raw-command -- \
-      go test ./... -json -count=1 -tags=integration -skip '^TestTheBenchmarkCorpusCensus$|^TestTheOpportunityCensusOverThePinnedCorpora$|^TestTheRepairPrototypeOverThePinnedOpportunities$'
+      go test ./... -json -count=1 -tags=integration \
+      -skip '^(TestTheBenchmarkCorpusCensus|TestTheSecurityAWSPackAdmissionMeasurement|TestTheOpportunityCensusOverThePinnedCorpora|TestTheRepairPrototypeOverThePinnedOpportunities)$'
 
 # Measure the synthesis rate over the pinned public-module corpus (M4.5-0).
 measure-synthesis:
@@ -210,6 +211,15 @@ measure-census:
     mkdir -p "{{ artifact_dir }}/measurement"
     mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
       -timeout 12h -run '^TestTheBenchmarkCorpusCensus$'
+
+# Re-execute the M5-0.3 security-aws seed census, admission measurement and
+# checked-in real-provider witnesses. Network-gated because the gate loads the
+# realistically sized hashicorp/aws schema; no request bypasses a safety gate.
+measure-security-aws:
+    test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
+    mkdir -p "{{ artifact_dir }}/measurement"
+    mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
+      -timeout 12h -run '^(TestTheSecurityAWSCandidatePackIsLoadableAndHasStableIdentities|TestTheSecurityAWSPackAdmissionMeasurement|TestEveryEnabledSecurityAWSEntryHasARealProviderWitness)$'
 
 # Run the M5-0.5a opportunity census and mined-rung count over both pinned
 # corpora. Network-gated: the variable licenses archive fetching and nothing
