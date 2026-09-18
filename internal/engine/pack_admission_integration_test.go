@@ -349,14 +349,20 @@ func TestTheSecurityAWSPackAdmissionMeasurement(t *testing.T) {
 	measurement := assemblePackAdmission(t, packDigest, rows)
 	publishPackAdmission(t, measurement)
 
-	enabled := 0
+	var enabled []string
 	for _, entry := range measurement.Entries {
 		if entry.Decision == "enabled" {
-			enabled++
+			enabled = append(enabled, entry.ID)
 		}
 	}
 
-	t.Logf("security-aws admission: %d enabled of %d loadable candidates", enabled, len(measurement.Entries))
+	slices.Sort(enabled)
+	want := slices.Sorted(slices.Values(admittedSecurityAWSEntries))
+	if !slices.Equal(enabled, want) {
+		t.Errorf("enabled entries = %v, want the published admittedSecurityAWSEntries %v", enabled, want)
+	}
+
+	t.Logf("security-aws admission: %d enabled of %d loadable candidates", len(enabled), len(measurement.Entries))
 }
 
 // TestEveryEnabledSecurityAWSEntryHasARealProviderWitness re-executes the
