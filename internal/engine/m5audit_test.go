@@ -81,6 +81,13 @@ func TestTheM5GateCoversEveryNamedRequirement(t *testing.T) {
 		"pack operators have offline sites":    "TestEveryPackOperatorHasASiteInTheOfflineFixture",
 		"pack reports validate against 2.4.0":  "TestARealPackReportValidatesAgainstThePublishedSchema",
 
+		// M5c.2: the shipped security-aws pack.
+		"shipped pack equals admitted list":   "TestTheShippedSecurityAWSPackShipsExactlyTheAdmittedEntries",
+		"shipped pack resolves unregistered":  "TestTheShippedSecurityAWSPackResolvesWithoutRegistration",
+		"user pack cannot shadow shipped":     "TestAUserPackCannotShadowTheShippedSecurityAWSPack",
+		"shipped pack leaves default alone":   "TestTheShippedPackSelectionLeavesTheDefaultPopulationAlone",
+		"shipped pack satisfies the contract": "TestEveryShippedPackSatisfiesTheUserPackContract",
+
 		// M5-0.5a: the opportunity census's classification vocabulary,
 		// denominator rules and counts.
 		"undecidable constraint classifies":  "TestTheOpportunityCensusClassifiesUndecidableConstraints",

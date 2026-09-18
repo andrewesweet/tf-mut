@@ -441,8 +441,8 @@ func packContractRows() map[string]packContractRow {
 			names:    []string{"\"nobody\" is not registered"},
 		},
 		"shadowed reserved name": {
-			config: "pack \"security-aws\" {\n  file = \"packs/acme.hcl\"\n}\n",
-			names:  []string{"security-aws", "shadows the reserved name"},
+			config: "pack \"" + shippedSecurityAWSName + "\" {\n  file = \"packs/acme.hcl\"\n}\n",
+			names:  []string{shippedSecurityAWSName, "shadows the reserved name"},
 		},
 	}
 }

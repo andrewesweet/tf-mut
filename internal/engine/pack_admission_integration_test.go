@@ -209,20 +209,9 @@ var securityAWSCandidates = []securityAWSCandidate{ //nolint:gochecknoglobals //
 	trivyFlip("trivy-aws-0180", "AWS-0180", "aws_db_instance", "publicly_accessible", false),
 }
 
-// Filled from the published measurement after the decision rule is applied.
-// M5c.2 consumes this evidence; this ticket does not embed a shipped pack.
-var admittedSecurityAWSEntries = []string{ //nolint:gochecknoglobals // immutable admission result.
-	"checkov-aws-7",
-	"checkov-aws-53",
-	"checkov-aws-54",
-	"checkov-aws-55",
-	"checkov-aws-56",
-	"trivy-aws-0065",
-	"trivy-aws-0086",
-	"trivy-aws-0087",
-	"trivy-aws-0091",
-	"trivy-aws-0093",
-}
+// The admitted list of record, `admittedSecurityAWSEntries`, lives beside the
+// shipped-pack pin in `pack_shipped_test.go` so one list governs the
+// measurement, the golden test and the shipped file.
 
 type packAdmissionEntry struct {
 	ID              string   `json:"entry"`
