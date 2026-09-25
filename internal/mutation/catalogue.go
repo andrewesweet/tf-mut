@@ -535,12 +535,17 @@ func packEntries() []Entry {
 			"Replaces a literal a pack entry names with the fault the entry models",
 			killerReadsAttribute, true, "",
 		},
+		{
+			PackWidenCIDR, TierPack,
+			"Widens any IPv4 CIDR literal a pack entry names to the IPv4 any-prefix",
+			killerReadsAttribute, true, "",
+		},
 	}
 }
 
 // catalogueCapacity sizes the assembled table; the audit tests hold the real
 // count against the applicability matrix.
-const catalogueCapacity = 99
+const catalogueCapacity = 100
 
 // buildCatalogue assembles the flat per-tier tables into the catalogue.
 func buildCatalogue() map[Operator]Entry {

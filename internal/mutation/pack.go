@@ -21,17 +21,29 @@ import (
 // table in docs/design/mutation-operators.md, checked at load so that a pack
 // that could never fire is a configuration error rather than a silent zero.
 
-// The pack form operators. PACK-WIDEN-CIDR and its `widen-cidr` form are
-// deferred to the M5-0.3 census (#161).
+// The pack form operators. PACK-WIDEN-CIDR and its `widen-cidr` form were
+// specified by the M5-0.3 census (#161) and implemented and admitted by #176.
 const (
-	PackFlip    Operator = "PACK-FLIP"
-	PackReplace Operator = "PACK-REPLACE"
+	PackFlip      Operator = "PACK-FLIP"
+	PackReplace   Operator = "PACK-REPLACE"
+	PackWidenCIDR Operator = "PACK-WIDEN-CIDR"
 )
 
 // The forms a pack entry may declare.
 const (
-	FormFlip    = "flip"
-	FormReplace = "replace"
+	FormFlip      = "flip"
+	FormReplace   = "replace"
+	FormWidenCIDR = "widen-cidr"
+)
+
+// The widen-cidr ends: `from` is exactly the sentinel — every CIDR the form
+// can fire on, because the literal itself carries the site value — and `to`
+// is exactly the IPv4 any-prefix. The form is IPv4-only: IPv6 prefixes,
+// list-valued and nested CIDRs and adjacent-port predicates stay out of
+// scope, and a second target would be a separate design and census.
+const (
+	WidenCIDRSentinel = "any-cidr"
+	WidenCIDRAnyIPv4  = "0.0.0.0/0"
 )
 
 // ErrPack reports a pack file the tool refuses to load.
@@ -76,13 +88,18 @@ type PackEntry struct {
 	SourceLicence string
 }
 
-// Operator is the form operator the entry parameterises.
+// Operator is the form operator the entry parameterises. Every form the
+// closed vocabulary names maps to its own operator; ParsePack has already
+// refused anything else by the time an entry is in play.
 func (e PackEntry) Operator() Operator {
-	if e.Form == FormFlip {
+	switch e.Form {
+	case FormFlip:
 		return PackFlip
+	case FormWidenCIDR:
+		return PackWidenCIDR
+	default:
+		return PackReplace
 	}
-
-	return PackReplace
 }
 
 // Origin is one (operator, pack, entry) whose rewrite produced a mutant's
@@ -322,9 +339,21 @@ func checkForm(entry PackEntry, rng hcl.Range) error {
 		}
 
 		return nil
+	case FormWidenCIDR:
+		if entry.From.Type() != cty.String || entry.From.AsString() != WidenCIDRSentinel {
+			return fmt.Errorf("%w: %s: entry %q: widen-cidr needs the sentinel from %q; got %s",
+				ErrPack, rng, entry.ID, WidenCIDRSentinel, describeLiteral(entry.From))
+		}
+
+		if entry.To.Type() != cty.String || entry.To.AsString() != WidenCIDRAnyIPv4 {
+			return fmt.Errorf("%w: %s: entry %q: widen-cidr needs the IPv4 any-prefix to %q; got %s",
+				ErrPack, rng, entry.ID, WidenCIDRAnyIPv4, describeLiteral(entry.To))
+		}
+
+		return nil
 	default:
-		return fmt.Errorf("%w: %s: entry %q: form %q is not one of %s, %s",
-			ErrPack, rng, entry.ID, entry.Form, FormFlip, FormReplace)
+		return fmt.Errorf("%w: %s: entry %q: form %q is not one of %s, %s, %s",
+			ErrPack, rng, entry.ID, entry.Form, FormFlip, FormReplace, FormWidenCIDR)
 	}
 }
 

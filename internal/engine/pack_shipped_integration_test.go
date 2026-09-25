@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
+	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
@@ -14,10 +15,11 @@ import (
 // witness: `--pack security-aws`, with no registration anywhere, on preview,
 // run and suggest — one invocation each — over the checked-in aws-mocked
 // fixture. Every admitted entry must appear in the origins of the row its
-// bytes collapsed onto, no attributed mutant may be Invalid, the default
-// population must be exactly the no-pack population (BOOL-LITERAL-FLIP owns
-// every row a pack flip also produces, so the pack adds origins and no rows),
-// and every entry must be reachable from a verified suggestion.
+// bytes collapsed onto, no attributed mutant may be Invalid, every no-pack
+// row must survive under the same identifier (the pack adds origins for rows
+// a language operator owns), the population may grow by exactly the rows the
+// pack operators own — the widen-cidr entry's bytes no language operator
+// produces — and every entry must be reachable from a verified suggestion.
 //
 //nolint:paralleltest // shares the integration provider cache with the other legs.
 func TestTheShippedSecurityAWSPackIsWitnessedOnAWSMocked(t *testing.T) {
@@ -25,8 +27,11 @@ func TestTheShippedSecurityAWSPackIsWitnessedOnAWSMocked(t *testing.T) {
 
 	module := copyFixture(t, awsMockedFixture)
 
-	// Preview: the population is unchanged by the pack; the pack's ten
-	// entries ride the language operator's rows as origins.
+	// Preview: every no-pack row survives, and the growth is exactly the rows
+	// the pack operators own: the flip entries' bytes are owned by
+	// BOOL-LITERAL-FLIP, so they ride existing rows as origins, while the
+	// widen-cidr entry's `0.0.0.0/0` is a rewrite no language operator
+	// produces, so its row is new.
 	network := networkConfig(t, module)
 
 	preview := previewRequest(t, module)
@@ -45,14 +50,21 @@ func TestTheShippedSecurityAWSPackIsWitnessedOnAWSMocked(t *testing.T) {
 		t.Fatalf("preview without the pack: %v", err)
 	}
 
-	if len(withPack.Mutants) != len(withoutPack.Mutants) {
-		t.Fatalf("the shipped pack changed the population: %d mutants, was %d",
-			len(withPack.Mutants), len(withoutPack.Mutants))
+	ownedRows := 0
+	for _, mutant := range withPack.Mutants {
+		if mutant.Operator == string(mutation.PackWidenCIDR) && mutant.Tier == string(mutation.TierPack) {
+			ownedRows++
+		}
+	}
+
+	if len(withPack.Mutants) != len(withoutPack.Mutants)+ownedRows {
+		t.Fatalf("the shipped pack changed the population by %d, want exactly its %d owned rows: %d mutants, was %d",
+			len(withPack.Mutants)-len(withoutPack.Mutants), ownedRows, len(withPack.Mutants), len(withoutPack.Mutants))
 	}
 
 	seen, invalid := collectShippedOrigins(t, withPack)
 
-	for _, entry := range admittedSecurityAWSEntries {
+	for _, entry := range shippedSecurityAWSEntries() {
 		if !seen[entry] {
 			t.Errorf("shipped entry %q has no aws-mocked witness", entry)
 		}
@@ -83,9 +95,9 @@ func TestTheShippedSecurityAWSPackIsWitnessedOnAWSMocked(t *testing.T) {
 	// Suggest: every shipped entry is reachable from a verified suggestion —
 	// the entry's own survivor the suggestion's assertion kills, or another
 	// survivor the same assertion also kills. The fixture asserts neither the
-	// KMS rotation nor the public-access flags, so their rows are unasserted
-	// faults; a verified assertion at the site typically kills the language
-	// operator's row and the pack-attributed row together.
+	// KMS rotation, the public-access flags nor the egress CIDR, so their
+	// rows are unasserted faults; a verified assertion at the site typically
+	// kills the language operator's row and the pack-attributed row together.
 	suggest := suggestRequest(t, module)
 	suggest.Common = network.Common
 	suggest.Packs = []string{shippedSecurityAWSName}

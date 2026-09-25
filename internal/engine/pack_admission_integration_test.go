@@ -72,7 +72,8 @@ func replacement(id, rule, resourceType, attribute, from, to string) securityAWS
 
 // securityAWSCandidates is the loadable flip/replace slice of the offline
 // census. The document also records the CIDR rows that need PACK-WIDEN-CIDR;
-// that deferred form cannot appear in this user pack.
+// #176 measures those in a dedicated pack and measurement, so they stay out
+// of this user pack.
 var securityAWSCandidates = []securityAWSCandidate{ //nolint:gochecknoglobals // immutable measurement pin.
 	checkovFlip("checkov-aws-131-lb", "CKV_AWS_131", "aws_lb", "drop_invalid_header_fields", true),
 	checkovFlip("checkov-aws-131-alb", "CKV_AWS_131", "aws_alb", "drop_invalid_header_fields", true),
@@ -562,8 +563,13 @@ func packAdmissionSite(target string, mutant report.Mutant) string {
 }
 
 func renderSecurityAWSCensusPack() string {
+	return renderCandidatePack(securityAWSCandidates)
+}
+
+// renderCandidatePack renders any candidate slice in the user-pack format.
+func renderCandidatePack(candidates []securityAWSCandidate) string {
 	builder := strings.Builder{}
-	for _, candidate := range securityAWSCandidates {
+	for _, candidate := range candidates {
 		fmt.Fprintf(&builder, "entry %q {\n", candidate.ID)
 		fmt.Fprintf(&builder, "  resource_type = %q\n", candidate.ResourceType)
 		fmt.Fprintf(&builder, "  attribute = %q\n", candidate.Attribute)
@@ -579,13 +585,21 @@ func renderSecurityAWSCensusPack() string {
 
 func stageSecurityAWSCensusPack(t *testing.T, module, content string) {
 	t.Helper()
+	stageUserPack(t, module, securityAWSCensusPack, "security-aws-census.hcl", content)
+}
+
+// stageUserPack registers a candidate pack as a user pack on a module copy:
+// the pack file under tf-mut-packs/ and the registration appended to
+// .tf-mut.hcl.
+func stageUserPack(t *testing.T, module, name, file, content string) {
+	t.Helper()
 
 	directory := filepath.Join(module, "tf-mut-packs")
 	if err := os.MkdirAll(directory, 0o750); err != nil {
 		t.Fatalf("creating the census pack directory: %v", err)
 	}
 
-	packPath := filepath.Join(directory, "security-aws-census.hcl")
+	packPath := filepath.Join(directory, file)
 	if err := os.WriteFile(packPath, []byte(content), 0o600); err != nil {
 		t.Fatalf("writing the census pack: %v", err)
 	}
@@ -596,8 +610,8 @@ func stageSecurityAWSCensusPack(t *testing.T, module, content string) {
 		t.Fatalf("reading the module configuration: %v", err)
 	}
 
-	registration := "\npack \"" + securityAWSCensusPack + "\" {\n" +
-		"  file = \"tf-mut-packs/security-aws-census.hcl\"\n}\n"
+	registration := "\npack \"" + name + "\" {\n" +
+		"  file = \"tf-mut-packs/" + file + "\"\n}\n"
 	//nolint:gosec // configPath is under the disposable module copy made by the measurement.
 	if err := os.WriteFile(configPath, append(config, registration...), 0o600); err != nil {
 		t.Fatalf("registering the census pack: %v", err)
@@ -611,8 +625,21 @@ func assemblePackAdmission(
 ) packAdmissionMeasurement {
 	t.Helper()
 
+	return assembleCandidatePackAdmission(t, securityAWSCensusPack, packDigest, securityAWSCandidates, rows)
+}
+
+// assembleCandidatePackAdmission folds the per-target rows into the published
+// measurement and applies the admission decision rule per entry.
+func assembleCandidatePackAdmission(
+	t *testing.T,
+	packName, packDigest string,
+	candidates []securityAWSCandidate,
+	rows map[string]packAdmissionTarget,
+) packAdmissionMeasurement {
+	t.Helper()
+
 	measurement := packAdmissionMeasurement{
-		CandidatePack: securityAWSCensusPack, PackDigest: packDigest,
+		CandidatePack: packName, PackDigest: packDigest,
 		Targets: []packAdmissionTarget{}, Entries: []packAdmissionEntry{},
 	}
 
@@ -628,7 +655,7 @@ func assemblePackAdmission(
 		}
 	}
 
-	for _, candidate := range securityAWSCandidates {
+	for _, candidate := range candidates {
 		entry := packAdmissionEntry{
 			ID: candidate.ID, SourceRule: candidate.SourceRule, SourceLicence: candidate.SourceLicence,
 			ResourceType: candidate.ResourceType, Attribute: candidate.Attribute,
@@ -672,8 +699,14 @@ func assemblePackAdmission(
 
 func loadPackAdmissionRows(t *testing.T) map[string]packAdmissionTarget {
 	t.Helper()
+	return loadAdmissionRows(t, packAdmissionRows)
+}
 
-	content, err := os.ReadFile(packAdmissionRows)
+// loadAdmissionRows reads one crash-safe side-car, tolerating its absence.
+func loadAdmissionRows(t *testing.T, path string) map[string]packAdmissionTarget {
+	t.Helper()
+
+	content, err := os.ReadFile(path)
 	if err != nil {
 		return map[string]packAdmissionTarget{}
 	}
@@ -694,15 +727,21 @@ func loadPackAdmissionRows(t *testing.T) map[string]packAdmissionTarget {
 
 func recordPackAdmissionRow(t *testing.T, row packAdmissionTarget) {
 	t.Helper()
+	recordAdmissionRow(t, packAdmissionRows, row)
+}
 
-	if err := os.MkdirAll(filepath.Dir(packAdmissionRows), 0o750); err != nil {
+// recordAdmissionRow appends one row to a crash-safe side-car.
+func recordAdmissionRow(t *testing.T, path string, row packAdmissionTarget) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatalf("creating the admission measurement directory: %v", err)
 	}
 	encoded, err := json.Marshal(row)
 	if err != nil {
 		t.Fatalf("encoding the admission row: %v", err)
 	}
-	file, err := os.OpenFile(packAdmissionRows, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		t.Fatalf("opening the admission side-car: %v", err)
 	}

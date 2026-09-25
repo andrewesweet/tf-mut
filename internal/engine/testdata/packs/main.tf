@@ -12,6 +12,7 @@
 #   label  input = "named"    STR-EMPTY owns the row although PACK-REPLACE
 #                             sorts first by name; acme's label-empty entry
 #                             asks for the same "" and is its origin
+#   cidr   input = "10.0.0.0/8" PACK-WIDEN-CIDR owns the row (acme, cidr-any)
 
 resource "terraform_data" "flag" {
   input = true
@@ -33,6 +34,10 @@ resource "terraform_data" "label" {
   input = "named"
 }
 
+resource "terraform_data" "cidr" {
+  input = "10.0.0.0/8"
+}
+
 output "flag" {
   value = terraform_data.flag.input
 }
@@ -51,4 +56,8 @@ output "note" {
 
 output "label" {
   value = terraform_data.label.input
+}
+
+output "cidr" {
+  value = terraform_data.cidr.input
 }

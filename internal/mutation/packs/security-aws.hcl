@@ -1,9 +1,11 @@
-// The shipped `security-aws` pack (M5c.2). These are exactly the ten entries
-// the M5-0.3 seed census and admission measurement enabled
-// (docs/research/18-m5-pack-seed-census.md, "Per-entry result"): every one
-// produced bytes on the measured corpus with a zero invalid rate, and the
-// 105 loadable candidates that produced no bytes stay published as
-// unwitnessed, not enabled. Each entry carries its upstream rule identifier
+// The shipped `security-aws` pack (M5c.2). These are exactly the eleven
+// entries the M5-0.3 seed census and admission measurement enabled
+// (docs/research/18-m5-pack-seed-census.md, "Per-entry result") plus the one
+// scalar candidate the census deferred to its dedicated form: #176 implemented
+// PACK-WIDEN-CIDR and admitted `trivy-aws-0104` by its own measurement. Every
+// entry produced bytes on the measured corpus with a zero invalid rate, and
+// the 104 remaining loadable candidates that produced no bytes stay published
+// as unwitnessed, not enabled. Each entry carries its upstream rule identifier
 // and the licence of the catalogue it was derived from.
 
 // Checkov CKV_AWS_7: KMS key rotation disabled.
@@ -111,5 +113,19 @@ entry "trivy-aws-0093" {
   from           = true
   to             = false
   source_rule    = "AWS-0093"
+  source_licence = "MIT"
+}
+
+// Trivy AWS-0104: a security-group egress rule opened to the whole internet.
+// The one scalar candidate the census deferred to #176's PACK-WIDEN-CIDR: the
+// entry fires on any top-level scalar IPv4 CIDR other than `0.0.0.0/0` itself
+// and widens it to the any-prefix.
+entry "trivy-aws-0104" {
+  resource_type  = "aws_vpc_security_group_egress_rule"
+  attribute      = "cidr_ipv4"
+  form           = "widen-cidr"
+  from           = "any-cidr"
+  to             = "0.0.0.0/0"
+  source_rule    = "AWS-0104"
   source_licence = "MIT"
 }

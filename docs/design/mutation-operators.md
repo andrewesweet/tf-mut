@@ -292,7 +292,7 @@ per pack, never by default.
 
 | Pack | Status |
 | --- | --- |
-| `security-aws` | **shipped** (M5c.2): exactly the 10 entries the M5-0.3 census witnessed and admitted, of 115 loadable candidates; the pack document is [pack-security-aws.md](pack-security-aws.md) |
+| `security-aws` | **shipped** (M5c.2): exactly the 11 entries the M5-0.3 census witnessed and admitted plus the one scalar candidate #176 admitted under its own form, of 115 loadable candidates; the pack document is [pack-security-aws.md](pack-security-aws.md) |
 | `security-azure`, `security-gcp`, `capacity`, `compliance` | not in M5; each follows the same admission path in later work — a seed census, an admission decision against the measured rule, then the seeded pack |
 
 Each pack entry follows Oasis's `(resource_type, attribute)` scoping model, which is the right
@@ -305,10 +305,10 @@ upstream rule identifier and the catalogue's licence.
 ### The pack mechanism (M5c.1)
 
 **A pack is data, not operators.** The catalogue gains exactly the operators of the **form
-vocabulary** — `PACK-FLIP` (a boolean literal inverted) and `PACK-REPLACE` (one literal replaced
-by another). The M5-0.3 census found one scalar entry needing a third,
-`PACK-WIDEN-CIDR` (any IPv4 CIDR literal to `0.0.0.0/0`), but did not load or measure it; #176 is
-the explicit implementation and admission follow-up. Every enabled form gets its own matrix row
+vocabulary** — `PACK-FLIP` (a boolean literal inverted), `PACK-REPLACE` (one literal replaced
+by another) and `PACK-WIDEN-CIDR` (any scalar IPv4 CIDR literal to `0.0.0.0/0`). The M5-0.3
+census found the scalar entry the third form expresses and deferred it; #176 implemented and
+measured it, and its entry ships. Every enabled form gets its own matrix row
 and offline generation site. Pack entries parameterise those operators. "One row per enabled
 operator" stays true; SARIF's one rule per operator stays meaningful. The offline witness is a user-defined pack over
 `terraform_data.input` (schema type `dynamic`, optional) in `internal/engine/testdata/packs`; it
@@ -316,8 +316,8 @@ proves the mechanism, not any shipped pack. The shipped pack is `security-aws` (
 embedded in the binary under its reserved name, parsed by the same `ParsePack` contract a user
 pack goes through — a shipped pack that fails its own contract is an init-time failure with a
 test, never a silent skip — and selected by `--pack security-aws` with no registration and no
-pack block. Its witnessed set is **not empty**: exactly the ten entries the M5-0.3 census
-admitted ship, and the [pack document](pack-security-aws.md) lists witnessed and unwitnessed
+pack block. Its witnessed set is **not empty**: exactly the eleven entries — the ten the M5-0.3 census
+admitted plus the #176 widen-cidr entry — and the [pack document](pack-security-aws.md) lists witnessed and unwitnessed
 entries with both witness counts.
 
 **Deduplication unchanged; provenance preserved as origins.** Deduplication is by mutated file
@@ -342,7 +342,7 @@ origin aggregation**, not merely the sort order: reversing ownership must lose n
 | File shape | an HCL file parsed with the same library as `.tf-mut.hcl`, containing only `entry "ID" { … }` blocks — one labelled block per entry, no other block type, no top-level attributes; **literal values only** — no expressions, functions, variables or interpolation; a file with anything else is a configuration error naming the position |
 | Entry identity | the label `ID` is author-supplied, `[a-z0-9-]+`, unique within the pack (a repeated label is a configuration error naming both ranges), and stable across reordering; an origin's wire identity is the pair `(pack, entry)` where `entry` is that label; renaming a label is a new identity and the pack document says so |
 | Entry fields | `resource_type`, `attribute`, `form`, `from`, `to`, `source_rule`, `source_licence`; the last two are required for shipped packs and optional for user packs; two entries of one pack with identical `(resource_type, attribute, form, from, to)` but different labels are **allowed** and both become origins |
-| Site matching | a site is a top-level argument assignment in a `resource` body of the entry's `resource_type` whose value is a **single literal token equal to `from` after HCL literal decoding** (for `widen-cidr`, any string literal that parses as a CIDR other than `to`); nested blocks, `dynamic` bodies, meta-arguments, `data` bodies and string-internal structure are out of M5's scope, and an entry naming one is a no-op recorded in `preview`'s pack summary |
+| Site matching | a site is a top-level argument assignment in a `resource` body of the entry's `resource_type` whose value is a **single literal token equal to `from` after HCL literal decoding** (for `widen-cidr`, any string literal that parses as an IPv4 CIDR other than `to`); nested blocks, `dynamic` bodies, meta-arguments, `data` bodies and string-internal structure are out of M5's scope, and an entry naming one is a no-op recorded in `preview`'s pack summary |
 | Evidence required | the loaded provider schema describes the attribute on that resource type, **and** the entry's `to` literal is of the schema-declared type, where a schema type of `dynamic` accepts any literal kind and a concrete type must match; otherwise no site |
 | Registration | shipped packs are embedded in the binary under reserved names; a user pack is registered by a `pack "NAME" { file = "PATH" }` block in `.tf-mut.hcl`, `PATH` resolved relative to the module root; a user pack may not shadow a reserved name |
 | Selection and composition | `--pack NAME[,NAME]` on `run`, `preview` and `suggest`, and `operators { packs = [...] }` in configuration, by name only; the two lists are **merged as a union**, deduplicated by name; an unknown name is refused at configuration time with exit 2; the flag is refused by name on `characterise`, `todos` and `curate`, and configuration-narrowed populations stay refused at configuration time for `curate` and `--until-dry`, as the maintainer's ruling on #97 records. Pack selection is orthogonal to `--tier`; `--operator`/`--exclude-operator` act on the form operators by identifier; a pack is disabled by not selecting it |
@@ -352,7 +352,7 @@ origin aggregation**, not merely the sort order: reversing ownership must lose n
 | --- | --- | --- |
 | `flip` | `from` is the literal `true` or `false` and `to` is the other, anything else is an error | `PACK-FLIP` |
 | `replace` | `from` and `to` are literals of the same kind (string, number or bool), `to` differs from `from`, and a `from` equal to `to` is an error naming the no-op | `PACK-REPLACE` |
-| `widen-cidr` | **required by M5-0.3 but deferred to #176**: Trivy `AWS-0104` supplies the scalar `aws_vpc_security_group_egress_rule.cidr_ipv4` candidate; proposed `from` is the sentinel `any-cidr`, `to` is `0.0.0.0/0`; nested/list-valued CIDRs, adjacent-port predicates and IPv6 remain excluded; not yet a loadable form | `PACK-WIDEN-CIDR` (not enabled) |
+| `widen-cidr` | `from` is exactly the sentinel `any-cidr` and `to` is exactly the IPv4 any-prefix `0.0.0.0/0`, anything else is an error; the form is IPv4-only — a malformed CIDR or a bare address, an IPv6 prefix (including an IPv4-mapped one), list-valued and nested CIDRs and adjacent-port predicates stay out of scope; the value rule refuses `to` itself, a no-op | `PACK-WIDEN-CIDR` |
 
 The one reserved name is `security-aws`, and its pack ships; the reserved names are derived
 from the embedded pack files, so each further pack reserves its name in the change that ships
@@ -469,6 +469,7 @@ waste.
 | `LC-REPLACE-TRIGGER-DROP` | An entry of `replace_triggered_by = [ … ]` inside a `resource`'s `lifecycle` block | — | A lone entry's removal takes the whole argument line, as `LC-IGNORE-DROP` | — | `Killed` where a second apply over one `state_key` changes the trigger and the assertion compares instance ids — `terraform_data.<subject>.id != run.<first>.subject_id` (shape (e)); an identical fingerprint is `StructurallyUnassertable` — the empty canonical delta beside a real phase-one kill is the recorded M5-0.1 finding |
 | `PACK-FLIP` | A top-level argument assignment in a `resource` body of a selected pack entry's `resource_type` and `attribute`, whose value is the single boolean literal token equal to the entry's `from`; form `flip` | The loaded provider schema describes the attribute on the resource type, and its declared type is `bool` or `dynamic` | The literal becomes the entry's `to`; the mutant carries the `(pack, entry)` origins that asked for it | Nested blocks, `dynamic` bodies, meta-arguments, `data` bodies and string-internal structure (out of M5's scope: a no-op in `preview`'s pack summary); attributes the schema does not describe; a boolean the language operator also flips, where `BOOL-LITERAL-FLIP` owns the row and this entry is one of its origins | `Killed` where an assertion reads the attribute; a survivor is diagnosed from its delta like any Tier 1–3 mutant |
 | `PACK-REPLACE` | As above for a string, number or boolean literal equal to the entry's `from`; form `replace` | The schema describes the attribute, and the entry's `to` is of the declared type — `dynamic` accepts any literal kind, a concrete type must match | The literal becomes the entry's `to`, rendered as an HCL literal; origins as above | As above; a rewrite a language operator also produces (`NUM-ZERO` for a `to` of `0`, `STR-EMPTY` for `""`), where that operator owns the row and the entry is an origin | `Killed` where an assertion reads the attribute |
+| `PACK-WIDEN-CIDR` | As above for a string literal that parses as an IPv4 CIDR other than the entry's `to`; form `widen-cidr` | The schema describes the attribute, and the entry's `to` is of the declared type — `dynamic` accepts the string, a concrete type must match | The literal becomes `0.0.0.0/0`; origins as above | Malformed CIDRs and bare addresses; the `to` value itself, a no-op; IPv6 prefixes, including IPv4-mapped ones; list-valued and nested CIDRs; adjacent-port predicates; `dynamic` bodies, meta-arguments, `data` bodies, string-internal structure; attributes the schema does not describe | `Killed` where an assertion reads the attribute |
 
 ### Tier 4, Tier 5 and the packs
 
@@ -506,7 +507,7 @@ estimates were 3–8× low.
 | 2 — meta-arguments (`standard`) | 10 | 20–60 |
 | 3 — contract (`standard`) | 15 | 40–120 |
 | 4 — lifecycle (`deep`) | 3 enabled of 5 designed | 5–20 |
-| 5 — domain packs (opt-in) | 2 form operators; the shipped `security-aws` enables 10 of the census's 115 candidates | 0–50 |
+| 5 — domain packs (opt-in) | 3 form operators; the shipped `security-aws` enables 11 of the census's 115 candidates | 0–50 |
 
 Duration depends dominantly on provider schema size and test selection, not on operator count
 (review C1). With the two-phase execution and run-block selection of the product design, the

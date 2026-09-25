@@ -625,7 +625,7 @@ const (
 func generatedRank(operator Operator) int {
 	//nolint:exhaustive // every language operator is curated: the default arm.
 	switch operator {
-	case PackFlip, PackReplace:
+	case PackFlip, PackReplace, PackWidenCIDR:
 		return ownerPack
 	case FnFamilySwap:
 		return ownerGenerated

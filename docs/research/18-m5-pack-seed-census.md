@@ -337,3 +337,52 @@ published result. `TestEveryEnabledSecurityAWSEntryHasARealProviderWitness` re-r
 entry against the checked-in `aws-mocked` KMS and S3 sites and fails if any origin is absent or
 any attributed mutant is `Invalid`. `TestTheSecurityAWSCandidatePackIsLoadableAndHasStableIdentities`
 checks the full candidate pack through the engine seam.
+
+## Addendum: the `PACK-WIDEN-CIDR` admission (#176)
+
+**Date:** 2026-09-19
+
+**Issue:** [#176](https://github.com/andrewesweet/tf-mut/issues/176)
+**Result:** the one deferred scalar candidate, Trivy `AWS-0104`, admitted; 0% invalid; witnessed
+on the checked-in `aws-mocked` fixture
+
+This addendum resolves the deferral recorded in [Decision](#decision) above. #176 implemented
+`PACK-WIDEN-CIDR` — `from` pinned to the sentinel `any-cidr`, `to` pinned to the IPv4
+any-prefix `0.0.0.0/0`, the site rule a value rule: any top-level scalar string literal that
+parses as an IPv4 CIDR other than `to` itself; malformed CIDRs, bare addresses, IPv6 prefixes
+(including IPv4-mapped ones), list-valued and nested CIDRs, `dynamic` bodies, meta-arguments
+and `data` bodies stay refused — and measured the entry in a dedicated user pack over the same
+six targets as the M5-0.3 measurement, under the same decision rule.
+
+| Target | Sites | Pre | Post/origin | Owned | Run | Invalid | KilledByError |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `aws-mocked` | 1 | 1 | 1 | 1 | 1 | 0 | 0 |
+| `aws-platform-starter` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `platform-design` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `serverless-architecture-patterns` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `terraform-datadog-users` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `terraform-mongodbatlas-project` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+
+`trivy-aws-0104` (`AWS-0104`, MIT, `aws_vpc_security_group_egress_rule.cidr_ipv4`,
+`any-cidr` → `0.0.0.0/0`): **enabled**. The decision rule takes any witnessed bytes with a
+zero invalid rate, as in M5-0.3; the five public modules carry no scalar egress CIDR and are
+not required to. The witnessed row is **owned** by `PACK-WIDEN-CIDR`, unlike the census's
+flip rows, which `BOOL-LITERAL-FLIP` owned: no language operator produces `0.0.0.0/0` from
+`10.0.0.0/8`, so the pack operator keeps the row. Terraform v1.15.8; wall clock about four
+minutes, against the census's hours, because generation was narrowed by `--operator` to the
+new form so a run grades the baseline plus the widen rows only.
+
+The shipped pack grows from ten entries to eleven; `admittedSecurityAWSEntries` stays the
+census's ten and governs `measure-security-aws` unchanged, so this addendum's result never
+re-runs the eight-hour census measurement. Reproduction:
+
+```bash
+TF_MUT_ALLOW_REAL_INFRASTRUCTURE=1 mise exec -- just measure-widen-cidr
+```
+
+It writes a crash-safe row sidecar and assembled JSON under `.artifacts/measurement/`
+(`m5-widen-cidr-admission*.json[l]`); this addendum is the published result.
+`TestTheWidenCIDRCandidatePackIsLoadableAndHasStableIdentities` checks the candidate pack
+through the engine seam offline, and
+`TestEveryWidenCIDREntryHasARealProviderWitness` re-runs the entry against the checked-in
+`aws-mocked` egress site.

@@ -66,6 +66,7 @@ func TestTheM5GateCoversEveryNamedRequirement(t *testing.T) {
 		"reversed ownership loses nothing":     "TestReversingOwnershipLosesNoContributor",
 		"every contract row refused by name":   "TestEveryPackContractRowIsRefusedByName",
 		"unsupported form is a summary no-op":  "TestAnUnsupportedAttributeFormIsANoOpInThePackSummary",
+		"widen-cidr fires on IPv4 CIDRs only":  "TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs",
 		"schema evidence refuses undescribed":  "TestSchemaEvidenceRefusesAnUndescribedAttribute",
 		"type-incompatible to finds no site":   "TestATypeIncompatibleReplacementFindsNoSite",
 		"flag and configuration union":         "TestFlagAndConfiguredPacksMergeAsAUnion",

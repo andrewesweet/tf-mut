@@ -32,6 +32,7 @@ const (
 	sizeSite       = "terraform_data.size.input"
 	noteSite       = "terraform_data.note.input"
 	labelSite      = "terraform_data.label.input"
+	cidrSite       = "terraform_data.cidr.input"
 	packConfigFile = ".tf-mut.hcl"
 	acmePackFile   = "packs/acme.hcl"
 )
@@ -205,7 +206,8 @@ func TestOriginsNameThePackEntryOnACollapsedBooleanFlip(t *testing.T) {
 			}
 
 			if len(mutant.Origins) > 0 && mutant.Site != flagSite && mutant.Site != sizeSite &&
-				mutant.Site != aclSite && mutant.Site != noteSite && mutant.Site != labelSite {
+				mutant.Site != aclSite && mutant.Site != noteSite && mutant.Site != labelSite &&
+				mutant.Site != cidrSite {
 				t.Fatalf("%s at %s carries origins %+v where no pack contributed",
 					mutant.Operator, mutant.Site, mutant.Origins)
 			}
@@ -429,7 +431,15 @@ func packContractRows() map[string]packContractRow {
 			pack: entry("kinds", "replace", "\"3\"", "3"), names: []string{"kinds", "one kind"},
 		},
 		"unknown form": {
-			pack: entry("cidr", "widen-cidr", "\"any-cidr\"", "\"0.0.0.0/0\""), names: []string{"widen-cidr", "not one of"},
+			pack: entry("swap", "swap", "true", "false"), names: []string{"swap", "not one of"},
+		},
+		"widen-cidr with a non-sentinel from": {
+			pack:  entry("widen", "widen-cidr", "\"10.0.0.0/8\"", "\"0.0.0.0/0\""),
+			names: []string{"widen", "widen-cidr needs the sentinel from", "any-cidr"},
+		},
+		"widen-cidr whose to is not the any-prefix": {
+			pack:  entry("widen", "widen-cidr", "\"any-cidr\"", "\"10.0.0.0/0\""),
+			names: []string{"widen", "widen-cidr needs the IPv4 any-prefix to", "0.0.0.0/0"},
 		},
 		"missing field": {
 			pack:  partial("  from = \"a\"\n"),
@@ -474,6 +484,111 @@ func TestAnUnsupportedAttributeFormIsANoOpInThePackSummary(t *testing.T) {
 			strings.Contains(warning, "matched no site")
 	}) {
 		t.Fatalf("preview's pack summary does not record the no-op entry: %v", result.Warnings)
+	}
+}
+
+// TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs: the #176 form's site rule
+// is a value rule, not an equality. One staged module per row — a malformed
+// CIDR, a bare address, an IPv6 prefix (including an IPv4-mapped one), the
+// target itself as a no-op, a list value, a nested body, a dynamic body, a
+// meta-argument and a data body — finds no site, while a scalar IPv4 CIDR
+// fires with the entry named as its origin.
+func TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs(t *testing.T) {
+	t.Parallel()
+
+	// widenEntry stages one widen-cidr entry naming an attribute.
+	widenEntry := func(attribute string) string {
+		return "entry \"staged\" {\n  resource_type = \"terraform_data\"\n  attribute = \"" +
+			attribute + "\"\n  form = \"widen-cidr\"\n  from = \"any-cidr\"\n  to = \"0.0.0.0/0\"\n}\n"
+	}
+
+	// The rows stage one module and one entry each. The assertion is scoped
+	// to the staged site: the copied fixture's own cidr resource carries a
+	// scalar IPv4 CIDR an `input`-named entry legitimately fires on, and only
+	// the staged row's own site says whether the staged module matched.
+	rows := map[string]struct {
+		site   string
+		module string
+		entry  string
+		want   bool
+	}{
+		"a scalar IPv4 CIDR": {
+			site:   "terraform_data.staged.input",
+			module: "resource \"terraform_data\" \"staged\" {\n  input = \"192.168.0.0/16\"\n}\n",
+			entry:  widenEntry("input"),
+			want:   true,
+		},
+		"a malformed CIDR": {
+			site:   "terraform_data.staged.input",
+			module: "resource \"terraform_data\" \"staged\" {\n  input = \"not-a-cidr\"\n}\n",
+			entry:  widenEntry("input"),
+		},
+		"a bare address": {
+			site:   "terraform_data.staged.input",
+			module: "resource \"terraform_data\" \"staged\" {\n  input = \"10.0.0.1\"\n}\n",
+			entry:  widenEntry("input"),
+		},
+		"an IPv6 prefix": {
+			site:   "terraform_data.staged.input",
+			module: "resource \"terraform_data\" \"staged\" {\n  input = \"::/0\"\n}\n",
+			entry:  widenEntry("input"),
+		},
+		"an IPv4-mapped IPv6 prefix": {
+			site:   "terraform_data.staged.input",
+			module: "resource \"terraform_data\" \"staged\" {\n  input = \"::ffff:10.0.0.0/96\"\n}\n",
+			entry:  widenEntry("input"),
+		},
+		"the target itself": {
+			site:   "terraform_data.staged.input",
+			module: "resource \"terraform_data\" \"staged\" {\n  input = \"0.0.0.0/0\"\n}\n",
+			entry:  widenEntry("input"),
+		},
+		"a list of CIDRs": {
+			site:   "terraform_data.staged.input",
+			module: "resource \"terraform_data\" \"staged\" {\n  input = [\"10.0.0.0/8\"]\n}\n",
+			entry:  widenEntry("input"),
+		},
+		"a nested body": {
+			site:   "terraform_data.staged.cidr",
+			module: "resource \"terraform_data\" \"staged\" {\n  input {\n    cidr = \"10.0.0.0/8\"\n  }\n}\n",
+			entry:  widenEntry("cidr"),
+		},
+		"a dynamic body": {
+			site:   "terraform_data.staged.cidr",
+			module: "resource \"terraform_data\" \"staged\" {\n  dynamic \"input\" {\n    for_each = []\n    content {\n      cidr = \"10.0.0.0/8\"\n    }\n  }\n}\n",
+			entry:  widenEntry("cidr"),
+		},
+		"a meta-argument": {
+			site:   "terraform_data.staged.count",
+			module: "resource \"terraform_data\" \"staged\" {\n  count = \"10.0.0.0/8\"\n}\n",
+			entry:  widenEntry("count"),
+		},
+		"a data body": {
+			site:   "data.terraform_data.staged.input",
+			module: "data \"terraform_data\" \"staged\" {\n  input = \"10.0.0.0/8\"\n}\n",
+			entry:  widenEntry("input"),
+		},
+	}
+
+	for name, row := range rows {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, packsFixture)
+			writeFile(t, filepath.Join(module, "staged.tf"), row.module)
+			writeFile(t, filepath.Join(module, acmePackFile), row.entry)
+
+			result := packPreview(t, module, acmePack)
+
+			generated := slices.ContainsFunc(result.Mutants, func(mutant report.Mutant) bool {
+				return mutant.Operator == string(mutation.PackWidenCIDR) &&
+					mutant.Site == row.site && len(mutant.Origins) > 0
+			})
+
+			if generated != row.want {
+				t.Fatalf("generated = %t, want %t", generated, row.want)
+			}
+		})
 	}
 }
 
@@ -790,7 +905,7 @@ func TestNoPackEntersTheStandardPopulation(t *testing.T) {
 func TestEveryPackOperatorHasASiteInTheOfflineFixture(t *testing.T) {
 	t.Parallel()
 
-	for _, operator := range []mutation.Operator{mutation.PackFlip, mutation.PackReplace} {
+	for _, operator := range []mutation.Operator{mutation.PackFlip, mutation.PackReplace, mutation.PackWidenCIDR} {
 		module := copyFixture(t, packsFixture)
 
 		request := previewRequest(t, module)

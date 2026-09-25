@@ -26,7 +26,13 @@ package report
 // by (pack, entry). M5c.1 populates both: a user-defined pack selected by
 // name produces `pack`-tier mutants, and every row a pack entry's rewrite
 // produced — whichever operator owns it — carries its origins.
-const SchemaVersion = "2.4.0"
+// 2.5.0 is the #176 additive revision: the operator enumeration extended with
+// the third pack form operator `PACK-WIDEN-CIDR`, which #176 implemented and
+// admitted — the form a pack entry with `widen-cidr` parameterises, widening
+// a top-level scalar IPv4 CIDR literal to `0.0.0.0/0`. Nothing else changes:
+// a report of a command run with no pack selected is byte-identical under
+// 2.4.0 and 2.5.0 semantics.
+const SchemaVersion = "2.5.0"
 
 // Command names what produced a report.
 type Command string

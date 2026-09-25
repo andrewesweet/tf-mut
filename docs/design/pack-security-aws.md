@@ -1,7 +1,8 @@
 # The shipped `security-aws` pack
 
 **Shipped:** M5c.2 · **Admitted by:** M5-0.3, the pack-seed census
-([#161](https://github.com/andrewesweet/tf-mut/issues/161)) ·
+([#161](https://github.com/andrewesweet/tf-mut/issues/161)), plus the one scalar candidate
+#176 admitted under the form it implemented ·
 **Census and decision record:**
 [docs/research/18-m5-pack-seed-census.md](../research/18-m5-pack-seed-census.md) ·
 **Embedded file:** `internal/mutation/packs/security-aws.hcl` ·
@@ -18,7 +19,7 @@
   (`TestTheShippedSecurityAWSPackResolvesWithoutRegistration`). A user pack named
   `security-aws` is refused by name while the shipped pack still loads
   (`TestAUserPackCannotShadowTheShippedSecurityAWSPack`).
-- It carries **exactly the ten entries the census admitted**
+- It carries **exactly the eleven entries the census admitted plus the #176 widen-cidr entry**
   (`TestTheShippedSecurityAWSPackShipsExactlyTheAdmittedEntries`). The 105 loadable candidates
   the census saw but could not witness are published below and are **not enabled**.
 - **The witnessed set is not empty.** The census explicitly allowed the empty outcome — zero
@@ -32,9 +33,11 @@
   the surviving row's origins. **Owned is 0 for every entry**, below — that is the documented
   ownership rule, not a defect. With the pack enabled, every mutant's origins name the pack and
   the entry, so the upstream rule is reachable from any report.
-- Trivy `AWS-0104` (permissive egress CIDR) is **not** in the pack: it requires the
-  `widen-cidr` form, which M5-0.3 specified but deferred to
-  [#176](https://github.com/andrewesweet/tf-mut/issues/176). It is not encoded as `replace`.
+- Trivy `AWS-0104` (permissive egress CIDR) is in the pack under the `widen-cidr` form: #176
+  implemented `PACK-WIDEN-CIDR`, measured the entry over the same six targets
+  (`just measure-widen-cidr`) and admitted it by the same decision rule. It is not encoded as
+  `replace`, and its row is **owned** by the pack operator — no language operator produces
+  `0.0.0.0/0`, so unlike the flips the widen row's owner is `PACK-WIDEN-CIDR` itself.
 
 ## Witness counts
 
@@ -48,9 +51,10 @@ The two catalogues overlap exactly on the enabled set: each Checkov entry and it
 produce identical bytes, so both entries become origins of every row their shared bytes
 produced. The KMS entries witnessed on 15 mutants and the public-access-block entries on 7,
 both before and after deduplication — deduplication moved rows between operators' ownership,
-not between entries.
+not between entries. The #176 widen-cidr entry witnessed on the `aws-mocked` egress site
+(1 mutant, pre and post equal, 0% invalid) and its row is owned by `PACK-WIDEN-CIDR`.
 
-## Enabled entries (10)
+## Enabled entries (11)
 
 | Entry | `source_rule` | `source_licence` | Resource type | Attribute | Form | `from` → `to` | Pre | Post/origin | Owned |
 | --- | --- | --- | --- | --- | --- | --- | ---: | ---: | ---: |
@@ -64,12 +68,14 @@ not between entries.
 | `trivy-aws-0087` | `AWS-0087` | MIT | `aws_s3_bucket_public_access_block` | `block_public_policy` | `flip` | `true` → `false` | 7 | 7 | 0 |
 | `trivy-aws-0091` | `AWS-0091` | MIT | `aws_s3_bucket_public_access_block` | `ignore_public_acls` | `flip` | `true` → `false` | 7 | 7 | 0 |
 | `trivy-aws-0093` | `AWS-0093` | MIT | `aws_s3_bucket_public_access_block` | `restrict_public_buckets` | `flip` | `true` → `false` | 7 | 7 | 0 |
+| `trivy-aws-0104` | `AWS-0104` | MIT | `aws_vpc_security_group_egress_rule` | `cidr_ipv4` | `widen-cidr` | `any-cidr` → `0.0.0.0/0` | 1 | 1 | 1 |
 
 ## Unwitnessed, not enabled (105)
 
-Loadable candidates the census saw but that produced bytes for no mutant on the measured
-corpus. Published for the next admission pass; none is enabled. Transcribed mechanically from
-the census's per-entry table.
+Loadable flip/replace candidates the census saw but that produced bytes for no mutant on the
+measured corpus. Published for the next admission pass; none is enabled. Transcribed
+mechanically from the census's per-entry table. The one scalar candidate the census deferred
+rather than left here — Trivy `AWS-0104` — is enabled above under #176's form.
 
 | Entry | `source_rule` | `source_licence` | Resource type | Attribute | Form | `from` → `to` |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -186,4 +192,6 @@ unregistered resolution, the shadowing refusal, the default-population invarianc
 init-time contract. The network-gated witness
 (`TestTheShippedSecurityAWSPackIsWitnessedOnAWSMocked`) drives `--pack security-aws` through
 preview, run and suggest on the checked-in `aws-mocked` fixture and asserts every admitted
-entry's origin witness.
+entry's origin witness, the widen-cidr entry's included. The network-gated measurement
+`just measure-widen-cidr` re-executes the #176 admission over the same six targets as the
+census, narrowed by `--operator` to the new form.
