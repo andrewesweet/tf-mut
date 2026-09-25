@@ -33,6 +33,7 @@ const (
 	noteSite       = "terraform_data.note.input"
 	labelSite      = "terraform_data.label.input"
 	cidrSite       = "terraform_data.cidr.input"
+	stagedSite     = "terraform_data.staged.input"
 	packConfigFile = ".tf-mut.hcl"
 	acmePackFile   = "packs/acme.hcl"
 )
@@ -487,69 +488,66 @@ func TestAnUnsupportedAttributeFormIsANoOpInThePackSummary(t *testing.T) {
 	}
 }
 
-// TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs: the #176 form's site rule
-// is a value rule, not an equality. One staged module per row — a malformed
-// CIDR, a bare address, an IPv6 prefix (including an IPv4-mapped one), the
-// target itself and any other `/0` prefix as no-ops, a list value, a nested
-// body, a dynamic body, a meta-argument and a data body — finds no site,
-// while a scalar IPv4 CIDR fires with the entry named as its origin.
-func TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs(t *testing.T) {
-	t.Parallel()
+// widenCIDRSiteRow stages one module and one widen-cidr entry, and says
+// whether the staged site is expected to produce a mutant.
+type widenCIDRSiteRow struct {
+	site   string
+	module string
+	entry  string
+	want   bool
+}
 
+// widenCIDRSiteRows is the site-rule table TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs
+// drives. The assertion is scoped to the staged site: the copied fixture's own
+// cidr resource carries a scalar IPv4 CIDR an `input`-named entry legitimately
+// fires on, and only the staged row's own site says whether the staged module
+// matched.
+func widenCIDRSiteRows() map[string]widenCIDRSiteRow {
 	// widenEntry stages one widen-cidr entry naming an attribute.
 	widenEntry := func(attribute string) string {
 		return "entry \"staged\" {\n  resource_type = \"terraform_data\"\n  attribute = \"" +
 			attribute + "\"\n  form = \"widen-cidr\"\n  from = \"any-cidr\"\n  to = \"0.0.0.0/0\"\n}\n"
 	}
 
-	// The rows stage one module and one entry each. The assertion is scoped
-	// to the staged site: the copied fixture's own cidr resource carries a
-	// scalar IPv4 CIDR an `input`-named entry legitimately fires on, and only
-	// the staged row's own site says whether the staged module matched.
-	rows := map[string]struct {
-		site   string
-		module string
-		entry  string
-		want   bool
-	}{
+	return map[string]widenCIDRSiteRow{
 		"a scalar IPv4 CIDR": {
-			site:   "terraform_data.staged.input",
+			site:   stagedSite,
 			module: "resource \"terraform_data\" \"staged\" {\n  input = \"192.168.0.0/16\"\n}\n",
 			entry:  widenEntry("input"),
 			want:   true,
 		},
 		"a malformed CIDR": {
-			site:   "terraform_data.staged.input",
+			site:   stagedSite,
 			module: "resource \"terraform_data\" \"staged\" {\n  input = \"not-a-cidr\"\n}\n",
 			entry:  widenEntry("input"),
 		},
 		"a bare address": {
-			site:   "terraform_data.staged.input",
+			site:   stagedSite,
 			module: "resource \"terraform_data\" \"staged\" {\n  input = \"10.0.0.1\"\n}\n",
 			entry:  widenEntry("input"),
 		},
 		"an IPv6 prefix": {
-			site:   "terraform_data.staged.input",
+			site:   stagedSite,
 			module: "resource \"terraform_data\" \"staged\" {\n  input = \"::/0\"\n}\n",
 			entry:  widenEntry("input"),
 		},
 		"an IPv4-mapped IPv6 prefix": {
-			site:   "terraform_data.staged.input",
+			site:   stagedSite,
 			module: "resource \"terraform_data\" \"staged\" {\n  input = \"::ffff:10.0.0.0/96\"\n}\n",
 			entry:  widenEntry("input"),
 		},
 		"the target itself": {
-			site:   "terraform_data.staged.input",
+			site:   stagedSite,
 			module: "resource \"terraform_data\" \"staged\" {\n  input = \"0.0.0.0/0\"\n}\n",
 			entry:  widenEntry("input"),
 		},
 		"an equivalent any-prefix": {
-			site:   "terraform_data.staged.input",
+			site:   stagedSite,
 			module: "resource \"terraform_data\" \"staged\" {\n  input = \"10.0.0.0/0\"\n}\n",
 			entry:  widenEntry("input"),
 		},
 		"a list of CIDRs": {
-			site:   "terraform_data.staged.input",
+			site:   stagedSite,
 			module: "resource \"terraform_data\" \"staged\" {\n  input = [\"10.0.0.0/8\"]\n}\n",
 			entry:  widenEntry("input"),
 		},
@@ -559,9 +557,10 @@ func TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs(t *testing.T) {
 			entry:  widenEntry("cidr"),
 		},
 		"a dynamic body": {
-			site:   "terraform_data.staged.cidr",
-			module: "resource \"terraform_data\" \"staged\" {\n  dynamic \"input\" {\n    for_each = []\n    content {\n      cidr = \"10.0.0.0/8\"\n    }\n  }\n}\n",
-			entry:  widenEntry("cidr"),
+			site: "terraform_data.staged.cidr",
+			module: "resource \"terraform_data\" \"staged\" {\n  dynamic \"input\" {\n" +
+				"    for_each = []\n    content {\n      cidr = \"10.0.0.0/8\"\n    }\n  }\n}\n",
+			entry: widenEntry("cidr"),
 		},
 		"a meta-argument": {
 			site:   "terraform_data.staged.count",
@@ -574,6 +573,18 @@ func TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs(t *testing.T) {
 			entry:  widenEntry("input"),
 		},
 	}
+}
+
+// TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs: the #176 form's site rule
+// is a value rule, not an equality. One staged module per row — a malformed
+// CIDR, a bare address, an IPv6 prefix (including an IPv4-mapped one), the
+// target itself and any other `/0` prefix as no-ops, a list value, a nested
+// body, a dynamic body, a meta-argument and a data body — finds no site,
+// while a scalar IPv4 CIDR fires with the entry named as its origin.
+func TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs(t *testing.T) {
+	t.Parallel()
+
+	rows := widenCIDRSiteRows()
 
 	for name, row := range rows {
 		t.Run(name, func(t *testing.T) {
