@@ -30,7 +30,7 @@
   change.
 - Row ownership follows the census: the language operator `BOOL-LITERAL-FLIP` sorts before
   `PACK-FLIP` and owns every row a pack entry also produced, with the pack entry retained in
-  the surviving row's origins. **Owned is 0 for every entry**, below — that is the documented
+  the surviving row's origins. **Owned is 0 for every flip entry**, below — that is the documented
   ownership rule, not a defect. With the pack enabled, every mutant's origins name the pack and
   the entry, so the upstream rule is reachable from any report.
 - Trivy `AWS-0104` (permissive egress CIDR) is in the pack under the `widen-cidr` form: #176

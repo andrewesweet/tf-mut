@@ -281,7 +281,7 @@ func literalValue(attribute *hclsyntax.Attribute) (cty.Value, error) {
 
 func assignEntryField(entry *PackEntry, name string, value cty.Value, rng hcl.Range) error {
 	text := func() (string, error) {
-		if value.Type() != cty.String {
+		if !value.Type().Equals(cty.String) {
 			return "", fmt.Errorf("%w: %s: %s must be a string", ErrPack, rng, name)
 		}
 
@@ -316,7 +316,7 @@ func assignEntryField(entry *PackEntry, name string, value cty.Value, rng hcl.Ra
 func checkForm(entry PackEntry, rng hcl.Range) error {
 	switch entry.Form {
 	case FormFlip:
-		if entry.From.Type() != cty.Bool || entry.To.Type() != cty.Bool {
+		if !entry.From.Type().Equals(cty.Bool) || !entry.To.Type().Equals(cty.Bool) {
 			return fmt.Errorf("%w: %s: entry %q: flip needs a boolean from and the opposite boolean to; got %s and %s",
 				ErrPack, rng, entry.ID, describeLiteral(entry.From), describeLiteral(entry.To))
 		}
@@ -340,12 +340,12 @@ func checkForm(entry PackEntry, rng hcl.Range) error {
 
 		return nil
 	case FormWidenCIDR:
-		if entry.From.Type() != cty.String || entry.From.AsString() != WidenCIDRSentinel {
+		if !entry.From.Type().Equals(cty.String) || entry.From.AsString() != WidenCIDRSentinel {
 			return fmt.Errorf("%w: %s: entry %q: widen-cidr needs the sentinel from %q; got %s",
 				ErrPack, rng, entry.ID, WidenCIDRSentinel, describeLiteral(entry.From))
 		}
 
-		if entry.To.Type() != cty.String || entry.To.AsString() != WidenCIDRAnyIPv4 {
+		if !entry.To.Type().Equals(cty.String) || entry.To.AsString() != WidenCIDRAnyIPv4 {
 			return fmt.Errorf("%w: %s: entry %q: widen-cidr needs the IPv4 any-prefix to %q; got %s",
 				ErrPack, rng, entry.ID, WidenCIDRAnyIPv4, describeLiteral(entry.To))
 		}

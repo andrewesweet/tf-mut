@@ -38,7 +38,7 @@ func (g Generator) packEdits(where site, attribute *hclsyntax.Attribute) []edit 
 
 			matches := sameLiteral(value, entry.From)
 			if entry.Form == FormWidenCIDR {
-				matches = widenCIDRSite(value, entry.To)
+				matches = widenCIDRSite(value)
 			}
 
 			if !matches || !g.schemaAdmits(where, entry) {
@@ -89,19 +89,19 @@ func sameLiteral(left, right cty.Value) bool {
 }
 
 // widenCIDRSite is the widen-cidr site rule: the value is a string literal
-// that parses as an IPv4 CIDR and is not the form's target itself — widening
-// `0.0.0.0/0` to `0.0.0.0/0` is a no-op, not a fault. A malformed CIDR or a
-// bare address, an IPv6 prefix (including an IPv4-mapped one) and every
-// collection value are refused; the last are already refused upstream, where
-// singleLiteral accepts exactly one literal token.
-func widenCIDRSite(value, to cty.Value) bool {
-	if !value.Type().Equals(cty.String) || value.AsString() == to.AsString() {
+// that parses as an IPv4 CIDR narrower than the form's target — a `/0` prefix
+// already admits every address, so widening it is a no-op, not a fault. A
+// malformed CIDR or a bare address, an IPv6 prefix (including an IPv4-mapped
+// one) and every collection value are refused; the last are already refused
+// upstream, where singleLiteral accepts exactly one literal token.
+func widenCIDRSite(value cty.Value) bool {
+	if !value.Type().Equals(cty.String) {
 		return false
 	}
 
 	prefix, err := netip.ParsePrefix(value.AsString())
 
-	return err == nil && prefix.Addr().Is4()
+	return err == nil && prefix.Addr().Is4() && prefix.Bits() > 0
 }
 
 // schemaAdmits is the evidence rule: the attribute is described on the

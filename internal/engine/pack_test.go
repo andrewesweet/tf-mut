@@ -490,9 +490,9 @@ func TestAnUnsupportedAttributeFormIsANoOpInThePackSummary(t *testing.T) {
 // TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs: the #176 form's site rule
 // is a value rule, not an equality. One staged module per row — a malformed
 // CIDR, a bare address, an IPv6 prefix (including an IPv4-mapped one), the
-// target itself as a no-op, a list value, a nested body, a dynamic body, a
-// meta-argument and a data body — finds no site, while a scalar IPv4 CIDR
-// fires with the entry named as its origin.
+// target itself and any other `/0` prefix as no-ops, a list value, a nested
+// body, a dynamic body, a meta-argument and a data body — finds no site,
+// while a scalar IPv4 CIDR fires with the entry named as its origin.
 func TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs(t *testing.T) {
 	t.Parallel()
 
@@ -541,6 +541,11 @@ func TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs(t *testing.T) {
 		"the target itself": {
 			site:   "terraform_data.staged.input",
 			module: "resource \"terraform_data\" \"staged\" {\n  input = \"0.0.0.0/0\"\n}\n",
+			entry:  widenEntry("input"),
+		},
+		"an equivalent any-prefix": {
+			site:   "terraform_data.staged.input",
+			module: "resource \"terraform_data\" \"staged\" {\n  input = \"10.0.0.0/0\"\n}\n",
 			entry:  widenEntry("input"),
 		},
 		"a list of CIDRs": {
