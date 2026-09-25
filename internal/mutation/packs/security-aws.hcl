@@ -118,8 +118,8 @@ entry "trivy-aws-0093" {
 
 // Trivy AWS-0104: a security-group egress rule opened to the whole internet.
 // The one scalar candidate the census deferred to #176's PACK-WIDEN-CIDR: the
-// entry fires on any top-level scalar IPv4 CIDR other than `0.0.0.0/0` itself
-// and widens it to the any-prefix.
+// entry fires on any top-level scalar IPv4 CIDR narrower than the any-prefix
+// — every `/0` prefix is a no-op — and widens it to `0.0.0.0/0`.
 entry "trivy-aws-0104" {
   resource_type  = "aws_vpc_security_group_egress_rule"
   attribute      = "cidr_ipv4"

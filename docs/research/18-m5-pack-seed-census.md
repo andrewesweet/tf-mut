@@ -349,7 +349,7 @@ on the checked-in `aws-mocked` fixture
 This addendum resolves the deferral recorded in [Decision](#decision) above. #176 implemented
 `PACK-WIDEN-CIDR` — `from` pinned to the sentinel `any-cidr`, `to` pinned to the IPv4
 any-prefix `0.0.0.0/0`, the site rule a value rule: any top-level scalar string literal that
-parses as an IPv4 CIDR other than `to` itself; malformed CIDRs, bare addresses, IPv6 prefixes
+parses as an IPv4 CIDR narrower than `to`, every `/0` prefix refused as a no-op; malformed CIDRs, bare addresses, IPv6 prefixes
 (including IPv4-mapped ones), list-valued and nested CIDRs, `dynamic` bodies, meta-arguments
 and `data` bodies stay refused — and measured the entry in a dedicated user pack over the same
 six targets as the M5-0.3 measurement, under the same decision rule.

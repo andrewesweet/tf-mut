@@ -282,7 +282,9 @@ func TestTheWidenCIDRCandidatePackIsLoadableAndHasStableIdentities(t *testing.T)
 				candidate.ID, candidate.Form, mutation.FormWidenCIDR)
 		}
 
-		if slices.Contains(securityAWSCandidates, candidate) {
+		if slices.ContainsFunc(securityAWSCandidates, func(other securityAWSCandidate) bool {
+			return other.ID == candidate.ID
+		}) {
 			t.Errorf("candidate %q is also a census candidate; one admission must not ship twice",
 				candidate.ID)
 		}
