@@ -34,7 +34,7 @@ const (
 // source text of the literal, as the census candidates do.
 var widenCIDRCandidates = []securityAWSCandidate{ //nolint:gochecknoglobals // immutable measurement pin.
 	{
-		ID: "trivy-aws-0104", SourceRule: "AWS-0104", SourceLicence: "MIT",
+		ID: "trivy-aws-0104", SourceRule: "AWS-0104", SourceLicence: shippedLicenceMIT,
 		ResourceType: "aws_vpc_security_group_egress_rule", Attribute: "cidr_ipv4",
 		Form: mutation.FormWidenCIDR, From: `"` + mutation.WidenCIDRSentinel + `"`,
 		To: `"` + mutation.WidenCIDRAnyIPv4 + `"`,
@@ -109,7 +109,7 @@ func TestTheWidenCIDRPackAdmissionMeasurement(t *testing.T) {
 
 	var enabled []string
 	for _, entry := range measurement.Entries {
-		if entry.Decision == "enabled" {
+		if entry.Decision == decisionEnabled {
 			enabled = append(enabled, entry.ID)
 		}
 	}

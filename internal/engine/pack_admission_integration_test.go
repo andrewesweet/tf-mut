@@ -31,6 +31,10 @@ const (
 	securityAWSAdmittedCount  = 10
 	packAdmissionOutput       = "../../.artifacts/measurement/m5-security-aws-admission.json"
 	packAdmissionRows         = "../../.artifacts/measurement/m5-security-aws-admission-rows.jsonl"
+
+	// decisionEnabled is the admission decision the census's rule writes for a
+	// witnessed candidate; both admissions grade against it.
+	decisionEnabled = "enabled"
 )
 
 type securityAWSCandidate struct {
@@ -54,14 +58,14 @@ func checkovFlip(id, rule, resourceType, attribute string, from bool) securityAW
 
 func trivyFlip(id, rule, resourceType, attribute string, from bool) securityAWSCandidate {
 	candidate := checkovFlip(id, rule, resourceType, attribute, from)
-	candidate.SourceLicence = "MIT"
+	candidate.SourceLicence = shippedLicenceMIT
 	return candidate
 }
 
 func replacement(id, rule, resourceType, attribute, from, to string) securityAWSCandidate {
 	licence := "Apache-2.0"
 	if strings.HasPrefix(rule, "AWS-") {
-		licence = "MIT"
+		licence = shippedLicenceMIT
 	}
 	return securityAWSCandidate{
 		ID: id, SourceRule: rule, SourceLicence: licence,
@@ -341,7 +345,7 @@ func TestTheSecurityAWSPackAdmissionMeasurement(t *testing.T) {
 
 	var enabled []string
 	for _, entry := range measurement.Entries {
-		if entry.Decision == "enabled" {
+		if entry.Decision == decisionEnabled {
 			enabled = append(enabled, entry.ID)
 		}
 	}
@@ -687,7 +691,7 @@ func assembleCandidatePackAdmission(
 		case entry.Invalid > 0:
 			entry.Decision = "dropped-for-invalid"
 		case entry.PreDedup > 0:
-			entry.Decision = "enabled"
+			entry.Decision = decisionEnabled
 		default:
 			entry.Decision = "unwitnessed-not-enabled"
 		}
@@ -707,7 +711,7 @@ func loadPackAdmissionRows(t *testing.T) map[string]packAdmissionTarget {
 func loadAdmissionRows(t *testing.T, path string) map[string]packAdmissionTarget {
 	t.Helper()
 
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) //nolint:gosec // a repository-owned path.
 	if err != nil {
 		return map[string]packAdmissionTarget{}
 	}
@@ -742,7 +746,7 @@ func recordAdmissionRow(t *testing.T, path string, row packAdmissionTarget) {
 	if err != nil {
 		t.Fatalf("encoding the admission row: %v", err)
 	}
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // a repository-owned path.
 	if err != nil {
 		t.Fatalf("opening the admission side-car: %v", err)
 	}
