@@ -95,7 +95,7 @@ func sameLiteral(left, right cty.Value) bool {
 // collection value are refused; the last are already refused upstream, where
 // singleLiteral accepts exactly one literal token.
 func widenCIDRSite(value, to cty.Value) bool {
-	if value.Type() != cty.String || value.AsString() == to.AsString() {
+	if !value.Type().Equals(cty.String) || value.AsString() == to.AsString() {
 		return false
 	}
 

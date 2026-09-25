@@ -1,10 +1,10 @@
-// The shipped `security-aws` pack (M5c.2). These are exactly the eleven
+// The shipped `security-aws` pack (M5c.2). These are exactly the ten
 // entries the M5-0.3 seed census and admission measurement enabled
 // (docs/research/18-m5-pack-seed-census.md, "Per-entry result") plus the one
 // scalar candidate the census deferred to its dedicated form: #176 implemented
 // PACK-WIDEN-CIDR and admitted `trivy-aws-0104` by its own measurement. Every
 // entry produced bytes on the measured corpus with a zero invalid rate, and
-// the 104 remaining loadable candidates that produced no bytes stay published
+// the 105 remaining loadable candidates that produced no bytes stay published
 // as unwitnessed, not enabled. Each entry carries its upstream rule identifier
 // and the licence of the catalogue it was derived from.
 

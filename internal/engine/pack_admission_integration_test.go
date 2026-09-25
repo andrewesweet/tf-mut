@@ -433,7 +433,8 @@ func runPackAdmissionTarget(
 		row.PreviewError = censusReason(previewErr)
 	} else {
 		row.TerraformVersion = previewResult.TerraformVersion
-		observePackPreview(previewResult, &row)
+		observePackPreview(previewResult, &row, securityAWSCensusPack,
+			string(mutation.PackFlip), string(mutation.PackReplace))
 	}
 
 	runResult, runErr := runPackAdmissionRun(t, module, source.TestRoot)
@@ -445,7 +446,7 @@ func runPackAdmissionTarget(
 		row.RunError = censusReason(runErr)
 	} else {
 		row.TerraformVersion = runResult.TerraformVersion
-		observePackRun(runResult, &row)
+		observePackRun(runResult, &row, securityAWSCensusPack)
 	}
 
 	return row
@@ -497,9 +498,9 @@ func admissionOperational(err error, result report.Report) bool {
 	return err != nil && classifyRow(err, result) == rowOperational
 }
 
-func observePackPreview(result report.Report, row *packAdmissionTarget) {
+func observePackPreview(result report.Report, row *packAdmissionTarget, pack string, owners ...string) {
 	for _, mutant := range result.Mutants {
-		origins := securityAWSOrigins(mutant)
+		origins := packOrigins(mutant, pack)
 		if len(origins) == 0 {
 			continue
 		}
@@ -512,7 +513,7 @@ func observePackPreview(result report.Report, row *packAdmissionTarget) {
 			row.Entries[origin.Entry] = count
 		}
 
-		if mutant.Operator == string(mutation.PackFlip) || mutant.Operator == string(mutation.PackReplace) {
+		if slices.Contains(owners, mutant.Operator) {
 			for _, origin := range origins {
 				if origin.Operator == mutant.Operator {
 					count := row.Entries[origin.Entry]
@@ -531,9 +532,9 @@ func observePackPreview(result report.Report, row *packAdmissionTarget) {
 	}
 }
 
-func observePackRun(result report.Report, row *packAdmissionTarget) {
+func observePackRun(result report.Report, row *packAdmissionTarget, pack string) {
 	for _, mutant := range result.Mutants {
-		for _, origin := range securityAWSOrigins(mutant) {
+		for _, origin := range packOrigins(mutant, pack) {
 			count := row.Entries[origin.Entry]
 			count.RunMutants++
 			if mutant.State == report.Invalid {
@@ -547,10 +548,10 @@ func observePackRun(result report.Report, row *packAdmissionTarget) {
 	}
 }
 
-func securityAWSOrigins(mutant report.Mutant) []report.Origin {
+func packOrigins(mutant report.Mutant, pack string) []report.Origin {
 	origins := []report.Origin{}
 	for _, origin := range mutant.Origins {
-		if origin.Pack == securityAWSCensusPack {
+		if origin.Pack == pack {
 			origins = append(origins, origin)
 		}
 	}

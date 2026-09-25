@@ -192,7 +192,7 @@ func runWidenCIDRAdmissionTarget(
 		row.PreviewError = censusReason(previewErr)
 	} else {
 		row.TerraformVersion = previewResult.TerraformVersion
-		observeWidenCIDRPreview(previewResult, &row)
+		observePackPreview(previewResult, &row, widenCIDRPack, string(mutation.PackWidenCIDR))
 	}
 
 	runResult, runErr := runWidenCIDRAdmissionRun(t, module, source.TestRoot)
@@ -204,7 +204,7 @@ func runWidenCIDRAdmissionTarget(
 		row.RunError = censusReason(runErr)
 	} else {
 		row.TerraformVersion = runResult.TerraformVersion
-		observeWidenCIDRRun(runResult, &row)
+		observePackRun(runResult, &row, widenCIDRPack)
 	}
 
 	return row
@@ -241,66 +241,6 @@ func runWidenCIDRAdmissionRun(t *testing.T, module, testRoot string) (report.Rep
 	request.IncludeOperators = []string{string(mutation.PackWidenCIDR)}
 
 	return engine.Run(t.Context(), request)
-}
-
-func observeWidenCIDRPreview(result report.Report, row *packAdmissionTarget) {
-	for _, mutant := range result.Mutants {
-		origins := widenCIDROrigins(mutant)
-		if len(origins) == 0 {
-			continue
-		}
-
-		for _, origin := range origins {
-			count := row.Entries[origin.Entry]
-			count.PreDedup++
-			count.PostDedup++
-			count.Sites = append(count.Sites, packAdmissionSite(row.Name, mutant))
-			row.Entries[origin.Entry] = count
-		}
-
-		if mutant.Operator == string(mutation.PackWidenCIDR) {
-			for _, origin := range origins {
-				if origin.Operator == mutant.Operator {
-					count := row.Entries[origin.Entry]
-					count.OwnedPostDedup++
-					row.Entries[origin.Entry] = count
-					break
-				}
-			}
-		}
-	}
-
-	for entry, count := range row.Entries {
-		slices.Sort(count.Sites)
-		count.Sites = slices.Compact(count.Sites)
-		row.Entries[entry] = count
-	}
-}
-
-func observeWidenCIDRRun(result report.Report, row *packAdmissionTarget) {
-	for _, mutant := range result.Mutants {
-		for _, origin := range widenCIDROrigins(mutant) {
-			count := row.Entries[origin.Entry]
-			count.RunMutants++
-			if mutant.State == report.Invalid {
-				count.Invalid++
-			}
-			if mutant.State == report.KilledByError {
-				count.KilledByError++
-			}
-			row.Entries[origin.Entry] = count
-		}
-	}
-}
-
-func widenCIDROrigins(mutant report.Mutant) []report.Origin {
-	origins := []report.Origin{}
-	for _, origin := range mutant.Origins {
-		if origin.Pack == widenCIDRPack {
-			origins = append(origins, origin)
-		}
-	}
-	return origins
 }
 
 func publishWidenCIDRAdmission(t *testing.T, measurement packAdmissionMeasurement) {

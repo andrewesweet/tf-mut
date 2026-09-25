@@ -292,7 +292,7 @@ per pack, never by default.
 
 | Pack | Status |
 | --- | --- |
-| `security-aws` | **shipped** (M5c.2): exactly the 11 entries the M5-0.3 census witnessed and admitted plus the one scalar candidate #176 admitted under its own form, of 115 loadable candidates; the pack document is [pack-security-aws.md](pack-security-aws.md) |
+| `security-aws` | **shipped** (M5c.2): exactly the 10 entries the M5-0.3 census witnessed and admitted, of 115 loadable candidates, plus the one scalar candidate #176 admitted under its own form; the pack document is [pack-security-aws.md](pack-security-aws.md) |
 | `security-azure`, `security-gcp`, `capacity`, `compliance` | not in M5; each follows the same admission path in later work — a seed census, an admission decision against the measured rule, then the seeded pack |
 
 Each pack entry follows Oasis's `(resource_type, attribute)` scoping model, which is the right
@@ -507,7 +507,7 @@ estimates were 3–8× low.
 | 2 — meta-arguments (`standard`) | 10 | 20–60 |
 | 3 — contract (`standard`) | 15 | 40–120 |
 | 4 — lifecycle (`deep`) | 3 enabled of 5 designed | 5–20 |
-| 5 — domain packs (opt-in) | 3 form operators; the shipped `security-aws` enables 11 of the census's 115 candidates | 0–50 |
+| 5 — domain packs (opt-in) | 3 form operators; the shipped `security-aws` enables 10 of the census's 115 candidates plus the one candidate #176 admitted | 0–50 |
 
 Duration depends dominantly on provider schema size and test selection, not on operator count
 (review C1). With the two-phase execution and run-block selection of the product design, the

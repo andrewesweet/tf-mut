@@ -19,7 +19,7 @@
   (`TestTheShippedSecurityAWSPackResolvesWithoutRegistration`). A user pack named
   `security-aws` is refused by name while the shipped pack still loads
   (`TestAUserPackCannotShadowTheShippedSecurityAWSPack`).
-- It carries **exactly the eleven entries the census admitted plus the #176 widen-cidr entry**
+- It carries **exactly the ten entries the census admitted plus the #176 widen-cidr entry**
   (`TestTheShippedSecurityAWSPackShipsExactlyTheAdmittedEntries`). The 105 loadable candidates
   the census saw but could not witness are published below and are **not enabled**.
 - **The witnessed set is not empty.** The census explicitly allowed the empty outcome — zero
