@@ -29,9 +29,9 @@ import (
 // unsupported-payload-version, no-suite), execution (scored-incomplete,
 // scored).
 //
-// These four offline tests are this ticket's gate fixtures. They are not yet
-// named in a gate recipe: the M5 gate recipe arrives with its own later
-// ticket and names them there under the audited-by-name rule.
+// These four offline tests are the census's gate fixtures, named in the M5
+// gate recipe by the M5d ticket under the audited-by-name rule; the live
+// census belongs to measure-census.
 
 // censusRow is one module's published row outcome from the total vocabulary.
 type censusRow string

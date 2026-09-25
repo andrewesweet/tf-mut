@@ -615,8 +615,13 @@ depends_on = [aws_iam_role_policy.attach]
 | `junit` | CI test-report panes; mirrors `terraform test -junit-xml` |
 | `html` | Browsable per-file report with mutants inline in the source |
 | `markdown` | PR comment summary |
-| `csv` | Analysis and research; matches Oasis's column set for comparability |
 | `mutation-testing-elements` | The Stryker JSON schema, so existing dashboards and the Stryker HTML viewer work unchanged |
+
+A `csv` reporter was once sketched here as "analysis and research; matches Oasis's column set".
+It is retired: no consumer exists — every analysis consumer, including the M5d benchmark, reads
+the `json` report or the published measurement files — and a row without a consumer is not a
+plan. If a column-shaped consumer appears, the `json` reporter already carries everything a
+csv projection would flatten.
 
 Supporting the Stryker schema is deliberate leverage: an entire ecosystem of report viewers
 and dashboards already consumes it, and adopting it costs one serialiser.

@@ -206,7 +206,8 @@ runs the M4.5 offline gates: the #70 collectors in both syntaxes, the scaffold-s
 gate, the TODO protocol, the until-dry loop, curate's population posture and the
 end-of-MVP walkthrough — each audited by name exactly as the honesty gate is.
 `just measure-synthesis` is the M4.5-0 corpus measurement, `just measure-census` the
-M5-0.4 module-admission census (`docs/research/17-m5-benchmark-census.md`), and
+M5-0.4 module-admission census (`docs/research/17-m5-benchmark-census.md`), `just benchmark`
+the M5d public benchmark over the same pinned corpus (`docs/research/21-m5-benchmark.md`), and
 `just measure-opportunities` the M5-0.5a opportunity census and mined-rung count
 (`docs/research/19-m5-opportunity-census.md`), all network-gated and separate. All are separate recipes from `just test` on purpose:
 operator and interface breadth must not be able to hide a failed oracle behind a large green
