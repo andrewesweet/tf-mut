@@ -192,7 +192,7 @@ func TestTheBenchmarkOverThePinnedCorpus(t *testing.T) {
 		Hardware:          measureHardware(t),
 	}
 
-	summariseBenchmark(t, &measurement)
+	summariseBenchmark(t, &measurement, len(loaded.Modules))
 	publishBenchmark(t, measurement)
 
 	t.Logf("module-admission: %s scored over known populations, %s over the pinned corpus; "+
@@ -546,11 +546,13 @@ func recordBenchmarkLeg(t *testing.T, pair benchmarkModuleResult) {
 	}
 }
 
-// summariseBenchmark keeps the module table's counts consistent with the rows.
-func summariseBenchmark(t *testing.T, measurement *benchmarkMeasurement) {
+// summariseBenchmark keeps the module table's counts consistent with the
+// rows; the pinned count is the manifest's, not the rows' — a row the run
+// could not decide is still a pinned module.
+func summariseBenchmark(t *testing.T, measurement *benchmarkMeasurement, pinned int) {
 	t.Helper()
 
-	table := aggregateModuleAdmission(measurement.ModuleAdmission.Pinned, measurement.Rows)
+	table := aggregateModuleAdmission(pinned, measurement.Rows)
 	measurement.ModuleAdmission = table
 	measurement.MutantLevel = aggregateMutantLevel(table.Pinned, measurement.Rows)
 }
@@ -620,7 +622,10 @@ func procField(path, prefix string) string {
 
 	for line := range strings.SplitSeq(string(content), "\n") {
 		if value, ok := strings.CutPrefix(line, prefix); ok {
-			return strings.TrimSpace(strings.TrimPrefix(value, ":"))
+			value = strings.TrimSpace(value)
+			value = strings.TrimPrefix(value, ":")
+
+			return strings.TrimSpace(value)
 		}
 	}
 
