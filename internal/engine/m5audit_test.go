@@ -15,7 +15,7 @@ import (
 const m5GateRecipe = "gate-m5:"
 
 // minimumM5GateCases guards against a recipe edit that empties the gate.
-const minimumM5GateCases = 30
+const minimumM5GateCases = 62
 
 func TestTheM5GateNamesOnlyTestsThatExist(t *testing.T) {
 	t.Parallel()
@@ -107,6 +107,21 @@ func TestTheM5GateCoversEveryNamedRequirement(t *testing.T) {
 		"todo lookup differs from runtime mapping": "TestTheRepairPrototypeUsesTodosForLookupAndStructuredFieldsForMapping",
 		"repair refusal is version-only":           "TestARepairPrototypeGateRefusalInvokesOnlyVersion",
 		"failed repair attempts stay redacted":     "TestASecretOnlyInARepairFailedAttemptReachesNoPublishedArtefact",
+
+		// M5d: the benchmark's pinned protocol, aggregation, portable
+		// assertions and document, plus the four census gate fixtures the
+		// M5-0.4 ticket left for this gate to name. The live measurement
+		// stays in `just benchmark`.
+		"whole-milestone report invariant":       "TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone",
+		"pooled aggregation keeps denominators":  "TestTheBenchmarkAggregationPoolsScoredModulesAndKeepsBothDenominators",
+		"median is unweighted":                   "TestTheBenchmarkMedianIsUnweightedAcrossModules",
+		"unscored known populations tabulate":    "TestTheUnscoredKnownPopulationsTabulateByRowOutcome",
+		"broken leg agreement is red":            "TestABrokenLegAgreementTurnsThePortableAssertionsRed",
+		"document states comparability limits":   "TestTheBenchmarkDocumentAndRoadmapStateTheComparabilityLimits",
+		"preview refusals leave unknown":         "TestTheThreePreviewRefusalsLeaveThePopulationUnknown",
+		"gated preview keeps a known population": "TestTheGatedPreviewFixtureHasAKnownPopulationAndAnUnsandboxedEffectsRow",
+		"operational preview is about the run":   "TestAPreviewThatFailsOperationallyWhileTheRunSucceeds",
+		"row vocabulary maps every sentinel":     "TestTheRowVocabularyMapsEveryStageSentinel",
 	}
 
 	assertGateCovers(t, "M5", m5GatedTests(t), required)

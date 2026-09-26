@@ -615,8 +615,13 @@ depends_on = [aws_iam_role_policy.attach]
 | `junit` | CI test-report panes; mirrors `terraform test -junit-xml` |
 | `html` | Browsable per-file report with mutants inline in the source |
 | `markdown` | PR comment summary |
-| `csv` | Analysis and research; matches Oasis's column set for comparability |
 | `mutation-testing-elements` | The Stryker JSON schema, so existing dashboards and the Stryker HTML viewer work unchanged |
+
+A `csv` reporter was once sketched here as "analysis and research; matches Oasis's column set".
+It is retired: no consumer exists — every analysis consumer, including the M5d benchmark, reads
+the `json` report or the published measurement files — and a row without a consumer is not a
+plan. If a column-shaped consumer appears, the `json` reporter already carries everything a
+csv projection would flatten.
 
 Supporting the Stryker schema is deliberate leverage: an entire ecosystem of report viewers
 and dashboards already consumes it, and adopting it costs one serialiser.
@@ -812,7 +817,9 @@ optimisation of the skills themselves on a public legacy-module corpus.
 **M5 — Breadth.** Domain packs seeded from Checkov/tfsec rule catalogues, OpenTofu parity,
 Tier 4 lifecycle operators, and a published benchmark over a public-repository corpus —
 a side-by-side evaluation on Oasis's axes with stated limitations, pinned and measured
-before any comparability claim is made.
+before any comparability claim is made. The benchmark has run: its protocol, both tables,
+the limitations and the Oasis side-by-side are published in
+`docs/research/21-m5-benchmark.md`, re-runnable with `just benchmark`.
 
 ---
 

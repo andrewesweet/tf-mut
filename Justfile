@@ -154,7 +154,7 @@ gate-m5:
     mkdir -p "{{ artifact_dir }}/test"
     mise exec -- gotestsum --format testname --junitfile "{{ artifact_dir }}/test/gate-m5.xml" \
       --raw-command -- go test ./internal/engine/ ./internal/mutation/ ./cmd/tf-mut/ \
-      -json -count=1 -run '^(TestTheIgnoreDropWitnessKillsThroughTheSeam|TestTheIgnoreAllWitnessKillsThroughTheSeam|TestTheReplaceTriggerWitnessKillsThroughTheSeam|TestEveryAdmittedLifecycleOperatorHasASiteInTheOfflineFixture|TestALifecycleMutantWithAnIdenticalFingerprintIsStructurallyUnassertable|TestModuleLevelNoCoverageKeepsItsPrecedenceOverALifecycleMutant|TestConditionalNoCoverageKeepsItsPrecedenceOverALifecycleMutant|TestDeepIncludesStandardAndStandardExcludesTheLifecycleOperators|TestThePseudoTestedCountStaysOverTheExtremeTier|TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperators|TestEveryEnabledOperatorHasAGenerationSite|TestEveryEnabledOperatorHasAMatrixRow|TestEveryMatrixRowNamesAnEnabledOperator|TestTheMatrixFixtureGeneratesOnlyParseableMutants|TestAUserPackGeneratesClassifiesAndSuggestsThroughTheSeam|TestOriginsNameThePackEntryOnACollapsedBooleanFlip|TestDisablingOriginAggregationTurnsTheOriginsCaseRed|TestReversingOwnershipLosesNoContributor|TestEveryPackContractRowIsRefusedByName|TestAnUnsupportedAttributeFormIsANoOpInThePackSummary|TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs|TestSchemaEvidenceRefusesAnUndescribedAttribute|TestATypeIncompatibleReplacementFindsNoSite|TestFlagAndConfiguredPacksMergeAsAUnion|TestAConfiguredPackSelectionIsRefusedOnCurateAndUntilDry|TestALanguageOperatorOwnsARowAPackEntryAlsoProduces|TestThePackFlagIsRefusedByNameOnCharacteriseTodosAndCurate|TestPacksAreWiredThroughTheCommandLine|TestAnEditedUserPackIsACacheMiss|TestAStaleVerifiedPackSuggestionIsRefused|TestAChangedPackFileForcesTheFullPopulationUnderSince|TestAChangedPackOutsideTheClosureForcesTheFullPopulationUnderSince|TestNoPackEntersTheStandardPopulation|TestEveryPackOperatorHasASiteInTheOfflineFixture|TestARealPackReportValidatesAgainstThePublishedSchema|TestTheOpportunityCensusClassifiesUndecidableConstraints|TestTheOpportunityCensusClassifiesRefusedTypedCandidates|TestTheOpportunityCensusClassifiesMissingTypedCandidates|TestTheOpportunityCensusWithholdsRedactedEvidence|TestTheCensusDenominatorCountsJSONDeclaredVariables|TestAnEmptyJSONStratumIsPublishedAsUnmeasured|TestTheMinedCountsSplitByStratum|TestTheCensusReadingIsInternallyConsistent|TestTheRepairCandidateTableIsPinnedAndUsesTodoConstraints|TestTheRepairPrototypeMapsOnlyOneStructuredInputAndRetriesOnce|TestTheRepairPrototypeUsesTodosForLookupAndStructuredFieldsForMapping|TestARepairPrototypeGateRefusalInvokesOnlyVersion|TestASecretOnlyInARepairFailedAttemptReachesNoPublishedArtefact|TestTheShippedSecurityAWSPackShipsExactlyTheAdmittedEntries|TestTheShippedSecurityAWSPackResolvesWithoutRegistration|TestAUserPackCannotShadowTheShippedSecurityAWSPack|TestTheShippedPackSelectionLeavesTheDefaultPopulationAlone|TestEveryShippedPackSatisfiesTheUserPackContract)$'
+      -json -count=1 -run '^(TestTheIgnoreDropWitnessKillsThroughTheSeam|TestTheIgnoreAllWitnessKillsThroughTheSeam|TestTheReplaceTriggerWitnessKillsThroughTheSeam|TestEveryAdmittedLifecycleOperatorHasASiteInTheOfflineFixture|TestALifecycleMutantWithAnIdenticalFingerprintIsStructurallyUnassertable|TestModuleLevelNoCoverageKeepsItsPrecedenceOverALifecycleMutant|TestConditionalNoCoverageKeepsItsPrecedenceOverALifecycleMutant|TestDeepIncludesStandardAndStandardExcludesTheLifecycleOperators|TestThePseudoTestedCountStaysOverTheExtremeTier|TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperators|TestEveryEnabledOperatorHasAGenerationSite|TestEveryEnabledOperatorHasAMatrixRow|TestEveryMatrixRowNamesAnEnabledOperator|TestTheMatrixFixtureGeneratesOnlyParseableMutants|TestAUserPackGeneratesClassifiesAndSuggestsThroughTheSeam|TestOriginsNameThePackEntryOnACollapsedBooleanFlip|TestDisablingOriginAggregationTurnsTheOriginsCaseRed|TestReversingOwnershipLosesNoContributor|TestEveryPackContractRowIsRefusedByName|TestAnUnsupportedAttributeFormIsANoOpInThePackSummary|TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs|TestSchemaEvidenceRefusesAnUndescribedAttribute|TestATypeIncompatibleReplacementFindsNoSite|TestFlagAndConfiguredPacksMergeAsAUnion|TestAConfiguredPackSelectionIsRefusedOnCurateAndUntilDry|TestALanguageOperatorOwnsARowAPackEntryAlsoProduces|TestThePackFlagIsRefusedByNameOnCharacteriseTodosAndCurate|TestPacksAreWiredThroughTheCommandLine|TestAnEditedUserPackIsACacheMiss|TestAStaleVerifiedPackSuggestionIsRefused|TestAChangedPackFileForcesTheFullPopulationUnderSince|TestAChangedPackOutsideTheClosureForcesTheFullPopulationUnderSince|TestNoPackEntersTheStandardPopulation|TestEveryPackOperatorHasASiteInTheOfflineFixture|TestARealPackReportValidatesAgainstThePublishedSchema|TestTheOpportunityCensusClassifiesUndecidableConstraints|TestTheOpportunityCensusClassifiesRefusedTypedCandidates|TestTheOpportunityCensusClassifiesMissingTypedCandidates|TestTheOpportunityCensusWithholdsRedactedEvidence|TestTheCensusDenominatorCountsJSONDeclaredVariables|TestAnEmptyJSONStratumIsPublishedAsUnmeasured|TestTheMinedCountsSplitByStratum|TestTheCensusReadingIsInternallyConsistent|TestTheRepairCandidateTableIsPinnedAndUsesTodoConstraints|TestTheRepairPrototypeMapsOnlyOneStructuredInputAndRetriesOnce|TestTheRepairPrototypeUsesTodosForLookupAndStructuredFieldsForMapping|TestARepairPrototypeGateRefusalInvokesOnlyVersion|TestASecretOnlyInARepairFailedAttemptReachesNoPublishedArtefact|TestTheShippedSecurityAWSPackShipsExactlyTheAdmittedEntries|TestTheShippedSecurityAWSPackResolvesWithoutRegistration|TestAUserPackCannotShadowTheShippedSecurityAWSPack|TestTheShippedPackSelectionLeavesTheDefaultPopulationAlone|TestEveryShippedPackSatisfiesTheUserPackContract|TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone|TestTheBenchmarkAggregationPoolsScoredModulesAndKeepsBothDenominators|TestTheBenchmarkMedianIsUnweightedAcrossModules|TestTheUnscoredKnownPopulationsTabulateByRowOutcome|TestABrokenLegAgreementTurnsThePortableAssertionsRed|TestTheBenchmarkDocumentAndRoadmapStateTheComparabilityLimits|TestTheThreePreviewRefusalsLeaveThePopulationUnknown|TestTheGatedPreviewFixtureHasAKnownPopulationAndAnUnsandboxedEffectsRow|TestAPreviewThatFailsOperationallyWhileTheRunSucceeds|TestTheRowVocabularyMapsEveryStageSentinel)$'
 
 # Run fixed-seed Go/property/corpus tests and offline real-Terraform fixtures.
 test: _test-go _test-terraform
@@ -185,17 +185,19 @@ test-race:
       go test ./... -json -count=1 -race -shuffle=424242
 
 # The M5-0.4 census belongs to measure-census: at 8h wall clock
-# (docs/research/17) it would blow this suite's default timeout. The M5-0.5a
-# opportunity census belongs to measure-opportunities for the same reason:
-# its wall clock is archive fetching, not Terraform (it runs none). The repair
-# prototype belongs to measure-repair because it stages real characterisation
+# (docs/research/17) it would blow this suite's default timeout. The M5d
+# benchmark belongs to benchmark for the same reason: its cold and warm legs
+# over the pinned corpus run for hours. The M5-0.5a opportunity census
+# belongs to measure-opportunities for the same reason: its wall clock is
+# archive fetching, not Terraform (it runs none). The repair prototype
+# belongs to measure-repair because it stages real characterisation
 # scenarios over the pinned corpus.
 # Run opt-in integration-tag tests that may use credentials or real providers.
 test-integration:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mise exec -- gotestsum --format testname --raw-command -- \
       go test ./... -json -count=1 -tags=integration \
-      -skip '^(TestTheBenchmarkCorpusCensus|TestTheSecurityAWSPackAdmissionMeasurement|TestTheWidenCIDRPackAdmissionMeasurement|TestTheOpportunityCensusOverThePinnedCorpora|TestTheRepairPrototypeOverThePinnedOpportunities|TestTheShippedSecurityAWSPackIsWitnessedOnAWSMocked)$'
+      -skip '^(TestTheBenchmarkCorpusCensus|TestTheBenchmarkOverThePinnedCorpus|TestTheSecurityAWSPackAdmissionMeasurement|TestTheWidenCIDRPackAdmissionMeasurement|TestTheOpportunityCensusOverThePinnedCorpora|TestTheRepairPrototypeOverThePinnedOpportunities|TestTheShippedSecurityAWSPackIsWitnessedOnAWSMocked)$'
 
 # Measure the synthesis rate over the pinned public-module corpus (M4.5-0).
 measure-synthesis:
@@ -213,6 +215,20 @@ measure-census:
     mkdir -p "{{ artifact_dir }}/measurement"
     mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
       -timeout 12h -run '^TestTheBenchmarkCorpusCensus$'
+
+# Run the M5d public benchmark (#164) over the pinned corpus: the pinned
+# protocol's cold leg then warm leg per module, publishing the
+# module-admission and mutant-level tables, the side-car resume file and the
+# protocol block under .artifacts/measurement/. A separate measurement from
+# the census — its own side-car and published files, never the census's.
+# Network-gated: the variable licenses archive fetching and nothing else —
+# no benchmark request bypasses a safety gate. Runs take hours; the timeout
+# is generous on purpose.
+benchmark:
+    test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
+    mkdir -p "{{ artifact_dir }}/measurement"
+    mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
+      -timeout 48h -run '^TestTheBenchmarkOverThePinnedCorpus$'
 
 # Re-execute the M5-0.3 security-aws seed census, admission measurement,
 # checked-in real-provider witnesses, and the M5c.2 shipped-pack acceptance

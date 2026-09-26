@@ -68,11 +68,14 @@ the five recorded tool-owned write exceptions listed in the [AGENTS.md conventio
 A green `terraform test` run tells you your configuration plans successfully. It does not tell
 you your tests would notice if the configuration were wrong.
 
-The only published measurement of this — Oasis's benchmark across 23 public Terraform
+The first published measurement of this — Oasis's benchmark across 23 public Terraform
 repositories — found a **24.9% mutation score**, with **78% of surviving mutants never covered
-by any test at all**. Terraform has no native coverage capability and no accepted proposal to
-ship one ([hashicorp/terraform#37605](https://github.com/hashicorp/terraform/issues/37605),
-open since September 2025).
+by any test at all**. tf-mut's own benchmark over the same 23 pinned repositories is published,
+on its own axes and under stated limitations, in
+[`docs/research/21-m5-benchmark.md`](docs/research/21-m5-benchmark.md). Terraform has no native
+coverage capability and no accepted proposal to ship one
+([hashicorp/terraform#37605](https://github.com/hashicorp/terraform/issues/37605), open since
+September 2025).
 
 ## The approach
 
