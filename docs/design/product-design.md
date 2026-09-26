@@ -828,8 +828,7 @@ the `security-aws` pack shipped with eleven witnessed entries under the pack con
 ten the M5-0.3 census admitted plus the widen-cidr entry #176 added
 (`docs/research/18-m5-pack-seed-census.md`), the #82 census measured an empty
 cohort and the preference order stood (M5-0.5, `docs/research/19-m5-opportunity-census.md`),
-and the benchmark ran over a pinned 23-module corpus (M5d, `docs/research/21-m5-benchmark.md`).
-The benchmark has run: its protocol, both tables,
+and the benchmark ran over a pinned 23-module corpus (M5d): its protocol, both tables,
 the limitations and the Oasis side-by-side are published in
 `docs/research/21-m5-benchmark.md`, re-runnable with `just benchmark`.
 
