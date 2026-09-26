@@ -624,8 +624,10 @@ func procField(path, prefix string) string {
 		if value, ok := strings.CutPrefix(line, prefix); ok {
 			value = strings.TrimSpace(value)
 			value = strings.TrimPrefix(value, ":")
-
-			return strings.TrimSpace(value)
+			value = strings.TrimSpace(value)
+			if fields := strings.Fields(value); len(fields) >= 1 {
+				return fields[0]
+			}
 		}
 	}
 
