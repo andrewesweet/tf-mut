@@ -204,7 +204,10 @@ table, and `just gate-m4` runs the M4 offline gates: the JSON safety floor, the
 suggestion-soundness gate, the apply protocol and the skill contract, and `just gate-m45`
 runs the M4.5 offline gates: the #70 collectors in both syntaxes, the scaffold-soundness
 gate, the TODO protocol, the until-dry loop, curate's population posture and the
-end-of-MVP walkthrough — each audited by name exactly as the honesty gate is.
+end-of-MVP walkthrough, and `just gate-m5` runs the M5 offline gates: the Tier 4 lifecycle
+witnesses re-executed through the seam, the pack mechanism and its contract, the shipped
+`security-aws` pack, and the benchmark's offline aggregation and document-audit tests —
+each audited by name exactly as the honesty gate is.
 `just measure-synthesis` is the M4.5-0 corpus measurement, `just measure-census` the
 M5-0.4 module-admission census (`docs/research/17-m5-benchmark-census.md`), `just benchmark`
 the M5d public benchmark over the same pinned corpus (`docs/research/21-m5-benchmark.md`), and
