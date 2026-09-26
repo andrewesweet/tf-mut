@@ -1,8 +1,8 @@
 # M5 exit gate — what implementing issue #152 measured, decided and deferred
 
 Issue #152, revision 5 (the maintainer's ruling of 16 September 2026 removed the OpenTofu
-breadth item and carried it verbatim to #166). The milestone ran as six PRs of production
-(#168, #169, #170, #178, #183) and six of measurement and record (#167, #171, #173, #174,
+breadth item and carried it verbatim to #166). The milestone ran as five PRs of production
+(#168, #169, #170, #178, #183) and seven of measurement and record (#167, #171, #173, #174,
 #175, #177, #184), each closing a sub-issue (#153–#164, #176, #172). The measurements are
 published in `docs/research/16-m5-01-lifecycle-witnesses.md` through
 `docs/research/21-m5-benchmark.md`; this document is the decision record, in the shape

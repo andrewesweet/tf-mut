@@ -824,8 +824,9 @@ tested-matrix design rows (`--binary`, the flavour block, `gate-tofu`); the spec
 records the ruling, and the CLI table's `--engine` row above stays a roadmap claim until
 #166 corrects it. The rest ran as specified: the three Tier 4 lifecycle operators were
 admitted behind kill witnesses (M5-0.1, `docs/research/16-m5-01-lifecycle-witnesses.md`),
-the `security-aws` pack shipped with ten witnessed entries under the pack contract
-(M5-0.3, `docs/research/18-m5-pack-seed-census.md`), the #82 census measured an empty
+the `security-aws` pack shipped with eleven witnessed entries under the pack contract — the
+ten the M5-0.3 census admitted plus the widen-cidr entry #176 added
+(`docs/research/18-m5-pack-seed-census.md`), the #82 census measured an empty
 cohort and the preference order stood (M5-0.5, `docs/research/19-m5-opportunity-census.md`),
 and the benchmark ran over a pinned 23-module corpus (M5d, `docs/research/21-m5-benchmark.md`).
 The benchmark has run: its protocol, both tables,
