@@ -309,7 +309,6 @@ func runBenchmarkLeg(
 	started := time.Now()
 
 	if err := prepareLegCache(cacheDir, fresh); err != nil {
-		leg.Retries++
 		leg.OperationalReason = censusReason(err)
 		leg.Row = string(rowOperational)
 		leg.UnknownReason = censusReason(err)
@@ -336,7 +335,9 @@ func runBenchmarkLeg(
 // prepareLegCache empties the leg's plugin cache when the leg is the cold one
 // and makes sure it exists. A failure is this run's operational fact, returned
 // to the leg rather than fatal: the legs measure on their own goroutines,
-// where a fatal would strand every other module.
+// where a fatal would strand every other module. The leg's retry count stays
+// where it is: preparation is attempted once, and a published retry count
+// always means this invocation made a second attempt.
 func prepareLegCache(cacheDir string, fresh bool) error {
 	if fresh {
 		if err := os.RemoveAll(cacheDir); err != nil {
