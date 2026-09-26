@@ -1,6 +1,8 @@
 package mutation
 
 import (
+	"net/netip"
+
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
@@ -34,7 +36,12 @@ func (g Generator) packEdits(where site, attribute *hclsyntax.Attribute) []edit 
 				continue
 			}
 
-			if !sameLiteral(value, entry.From) || !g.schemaAdmits(where, entry) {
+			matches := sameLiteral(value, entry.From)
+			if entry.Form == FormWidenCIDR {
+				matches = widenCIDRSite(value)
+			}
+
+			if !matches || !g.schemaAdmits(where, entry) {
 				continue
 			}
 
@@ -79,6 +86,22 @@ func singleLiteral(expr hclsyntax.Expression) (cty.Value, bool) {
 // sameLiteral compares two literals of the same kind by value.
 func sameLiteral(left, right cty.Value) bool {
 	return left.Type().Equals(right.Type()) && left.Equals(right).True()
+}
+
+// widenCIDRSite is the widen-cidr site rule: the value is a string literal
+// that parses as an IPv4 CIDR narrower than the form's target — a `/0` prefix
+// already admits every address, so widening it is a no-op, not a fault. A
+// malformed CIDR or a bare address, an IPv6 prefix (including an IPv4-mapped
+// one) and every collection value are refused; the last are already refused
+// upstream, where singleLiteral accepts exactly one literal token.
+func widenCIDRSite(value cty.Value) bool {
+	if !value.Type().Equals(cty.String) {
+		return false
+	}
+
+	prefix, err := netip.ParsePrefix(value.AsString())
+
+	return err == nil && prefix.Addr().Is4() && prefix.Bits() > 0
 }
 
 // schemaAdmits is the evidence rule: the attribute is described on the

@@ -50,3 +50,12 @@ entry "label-empty" {
   from          = "named"
   to            = ""
 }
+
+entry "cidr-any" {
+  resource_type = "terraform_data"
+  attribute     = "input"
+  form          = "widen-cidr"
+  from          = "any-cidr"
+  to            = "0.0.0.0/0"
+  source_rule   = "ACME-007"
+}

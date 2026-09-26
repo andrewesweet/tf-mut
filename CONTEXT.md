@@ -160,7 +160,7 @@ currently declared by `internal/report`; they are not invitations to add aliases
   into a versioned external schema or interoperability dialect; mappings may be
   explicitly lossy, while tf-mut's report metrics remain authoritative.
 - **Report DTO:** the versioned value returned by the engine and consumed by
-  renderers. Its current schema version is `2.4.0`.
+  renderers. Its current schema version is `2.5.0`.
 - **Command:** a report-producing invocation: `run`, `preview`, `suggest`,
   `characterise`, `curate`, or `todos`.
 - **Renderer:** one of the seven report projections: terminal, JSON, SARIF,

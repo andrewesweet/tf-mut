@@ -15,4 +15,9 @@ run "applied" {
     condition     = output.size == 3
     error_message = "the size must stay three"
   }
+
+  assert {
+    condition     = output.cidr == "10.0.0.0/8"
+    error_message = "the cidr must stay scoped"
+  }
 }

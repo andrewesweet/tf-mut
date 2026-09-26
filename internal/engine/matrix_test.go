@@ -106,7 +106,7 @@ func TestEveryEnabledOperatorHasAGenerationSite(t *testing.T) {
 	// where a selected pack's entry parameterises them (M5c.1); a language
 	// operator owns every row a pack entry also produced, so each form
 	// operator is witnessed in isolation, as isolatedSite does.
-	for _, operator := range []mutation.Operator{mutation.PackFlip, mutation.PackReplace} {
+	for _, operator := range []mutation.Operator{mutation.PackFlip, mutation.PackReplace, mutation.PackWidenCIDR} {
 		packed := previewRequest(t, copyFixture(t, "packs"))
 		packed.Packs = []string{"acme"}
 		packed.IncludeOperators = []string{string(operator)}

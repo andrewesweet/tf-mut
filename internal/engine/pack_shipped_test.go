@@ -24,7 +24,9 @@ import (
 // admitted list; the tests hold the shipped file against it.
 
 // shippedSecurityAWSPin is one row of the published admitted list: every
-// field the contract requires the shipped pack to state.
+// field the contract requires the shipped pack to state. `from` and `to` are
+// the rendered literals — booleans for a flip, the widen-cidr ends for the
+// form #176 added.
 type shippedSecurityAWSPin struct {
 	id           string
 	sourceRule   string
@@ -32,7 +34,8 @@ type shippedSecurityAWSPin struct {
 	resourceType string
 	attribute    string
 	form         string
-	from         bool
+	from         string
+	to           string
 }
 
 const shippedSecurityAWSName = "security-aws"
@@ -50,19 +53,33 @@ const (
 func checkovPin(id, rule, resource, attribute string) shippedSecurityAWSPin {
 	return shippedSecurityAWSPin{
 		id: id, sourceRule: rule, sourceField: shippedLicenceApache,
-		resourceType: resource, attribute: attribute, form: mutation.FormFlip, from: true,
+		resourceType: resource, attribute: attribute, form: mutation.FormFlip,
+		from: "true", to: "false",
 	}
 }
 
 func trivyPin(id, rule, resource, attribute string) shippedSecurityAWSPin {
 	return shippedSecurityAWSPin{
 		id: id, sourceRule: rule, sourceField: shippedLicenceMIT,
-		resourceType: resource, attribute: attribute, form: mutation.FormFlip, from: true,
+		resourceType: resource, attribute: attribute, form: mutation.FormFlip,
+		from: "true", to: "false",
 	}
 }
 
-// shippedSecurityAWSPinEntries is the admitted ten, in the census's own
-// order. The witnessed set is not empty, and every entry states its provenance.
+// widenPin builds the pin row of a widen-cidr entry: the sentinel from, the
+// IPv4 any-prefix to.
+func widenPin(id, rule, resource, attribute string) shippedSecurityAWSPin {
+	return shippedSecurityAWSPin{
+		id: id, sourceRule: rule, sourceField: shippedLicenceMIT,
+		resourceType: resource, attribute: attribute, form: mutation.FormWidenCIDR,
+		from: mutation.WidenCIDRSentinel, to: mutation.WidenCIDRAnyIPv4,
+	}
+}
+
+// shippedSecurityAWSPinEntries is the admitted eleven — the census's ten plus
+// the scalar candidate #176 admitted under its new form — in the shipped
+// pack's own order. The witnessed set is not empty, and every entry states its
+// provenance.
 //
 //nolint:gochecknoglobals // an immutable pin.
 var shippedSecurityAWSPinEntries = []shippedSecurityAWSPin{
@@ -76,11 +93,13 @@ var shippedSecurityAWSPinEntries = []shippedSecurityAWSPin{
 	trivyPin("trivy-aws-0087", "AWS-0087", shippedResourceS3PublicAccessBlock, "block_public_policy"),
 	trivyPin("trivy-aws-0091", "AWS-0091", shippedResourceS3PublicAccessBlock, "ignore_public_acls"),
 	trivyPin("trivy-aws-0093", "AWS-0093", shippedResourceS3PublicAccessBlock, "restrict_public_buckets"),
+	widenPin("trivy-aws-0104", "AWS-0104", "aws_vpc_security_group_egress_rule", "cidr_ipv4"),
 }
 
-// admittedSecurityAWSEntries is the published admitted list the admission
-// measurement (measure-security-aws) is held against; the shipped pack must
-// be exactly it. Kept beside the shipped-pack pin so one list governs both.
+// admittedSecurityAWSEntries is the published admitted list the M5-0.3
+// admission measurement (measure-security-aws) is held against; the census
+// pack behind that measurement stays exactly the ten flip and replace rows.
+// Kept beside the shipped-pack pin so one list governs both.
 //
 //nolint:gochecknoglobals // an immutable admission result.
 var admittedSecurityAWSEntries = []string{
@@ -94,6 +113,23 @@ var admittedSecurityAWSEntries = []string{
 	"trivy-aws-0087",
 	"trivy-aws-0091",
 	"trivy-aws-0093",
+}
+
+// widenCIDRAdmittedEntries is the list #176's dedicated admission measurement
+// (measure-widen-cidr) is held against: the scalar candidate the census
+// deferred to its form, enabled under PACK-WIDEN-CIDR.
+//
+//nolint:gochecknoglobals // an immutable admission result.
+var widenCIDRAdmittedEntries = []string{
+	"trivy-aws-0104",
+}
+
+// shippedSecurityAWSEntries is every entry the shipped pack must carry: the
+// census's admitted list plus #176's.
+func shippedSecurityAWSEntries() []string {
+	all := append(slices.Clone(admittedSecurityAWSEntries), widenCIDRAdmittedEntries...)
+
+	return slices.Sorted(slices.Values(all))
 }
 
 // TestTheShippedSecurityAWSPackShipsExactlyTheAdmittedEntries is the golden
@@ -114,9 +150,9 @@ func TestTheShippedSecurityAWSPackShipsExactlyTheAdmittedEntries(t *testing.T) {
 		ids = append(ids, entry.ID)
 	}
 
-	want := slices.Sorted(slices.Values(admittedSecurityAWSEntries))
+	want := shippedSecurityAWSEntries()
 	if !slices.Equal(slices.Sorted(slices.Values(ids)), want) {
-		t.Fatalf("the shipped pack carries %v, want the published admitted list %v", ids, want)
+		t.Fatalf("the shipped pack carries %v, want the published admitted lists %v", ids, want)
 	}
 
 	if len(pack.Entries) != len(shippedSecurityAWSPinEntries) {
@@ -130,32 +166,17 @@ func TestTheShippedSecurityAWSPackShipsExactlyTheAdmittedEntries(t *testing.T) {
 		got := shippedSecurityAWSPin{
 			id: entry.ID, sourceRule: entry.SourceRule, sourceField: entry.SourceLicence,
 			resourceType: entry.ResourceType, attribute: entry.Attribute, form: entry.Form,
-			from: literalBool(t, entry.From),
+			from: literalText(t, entry.From), to: literalText(t, entry.To),
 		}
 
 		if !reflect.DeepEqual(got, pin) {
 			t.Errorf("entry %d = %+v, want the published pin %+v", position, got, pin)
-		}
-
-		if literalText(t, entry.To) != "false" {
-			t.Errorf("entry %s: to = %s, want false", entry.ID, literalText(t, entry.To))
 		}
 	}
 
 	if reserved := mutation.ReservedPackNames(); !reflect.DeepEqual(reserved, []string{shippedSecurityAWSName}) {
 		t.Fatalf("reserved names = %v, want exactly the shipped pack's", reserved)
 	}
-}
-
-// literalBool renders a literal the pin can compare.
-func literalBool(t *testing.T, value cty.Value) bool {
-	t.Helper()
-
-	if value.Type() != cty.Bool {
-		t.Fatalf("literal is a %s, want a bool", value.Type().FriendlyName())
-	}
-
-	return value.True()
 }
 
 // literalText renders a literal for a failure message.
