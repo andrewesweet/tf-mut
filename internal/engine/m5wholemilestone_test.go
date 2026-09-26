@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
-
-	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
 // wholeMilestoneBase is the tree M5 started from: the commit the M5 spec
@@ -22,12 +20,12 @@ const wholeMilestoneBase = "d57f2cd"
 // base tree and one built from this tree are identical under matched
 // cache-off legs with `baseline.duration_ms` excluded — and the only
 // difference the whole milestone is allowed beyond that exclusion is the
-// schema-addition stamp `schema_version`, moved on from 2.3.0 by the pack
-// work. The admitted stamp is whatever constant this tree publishes —
-// `report.SchemaVersion`, 2.5.0 since the rebase onto the pack schema — and a
-// tree that publishes no stamp change at all fails. With no pack selected,
-// `origins` is absent from every mutant on either side, so the pack schema's
-// added field carries no content here.
+// schema-addition stamp `schema_version`, moved 2.3.0 to 2.5.0 by the pack
+// work. Both ends are literals: the admitted stamp tracks
+// `report.SchemaVersion` and is edited here deliberately with any schema bump,
+// because a bump is a minor-version consumer-contract event this proof has to
+// see. With no pack selected, `origins` is absent from every mutant on either
+// side, so the pack schema's added field carries no content here.
 //
 // Everything M5 shipped — the three lifecycle operators, the pack form
 // operators, origins — is deep- or pack-tier, and neither enters a standard
@@ -81,14 +79,8 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone(t
 		t.Fatalf("the M5 base tree publishes schema %q, want 2.3.0", before["schema_version"])
 	}
 
-	if after["schema_version"] != report.SchemaVersion {
-		t.Fatalf("this tree publishes schema %q, want %q",
-			after["schema_version"], report.SchemaVersion)
-	}
-
-	if after["schema_version"] == before["schema_version"] {
-		t.Fatalf("this tree publishes the M5 base tree's schema %q; the pack work moved it on",
-			after["schema_version"])
+	if after["schema_version"] != "2.5.0" {
+		t.Fatalf("this tree publishes schema %q, want 2.5.0", after["schema_version"])
 	}
 
 	delete(before, "schema_version")

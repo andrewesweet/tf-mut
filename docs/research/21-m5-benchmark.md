@@ -273,6 +273,7 @@ exactly what the run's two legs agreed on, published rather than smoothed:
 The offline gate `TestABrokenLegAgreementTurnsThePortableAssertionsRed` proves the
 assertions red-capable on a broken fixture; the live run above is what they look like
 when a real corpus trips them. A resumed invocation re-asserts every portable claim over
-the side-car without re-measuring a single module, and re-produced the same 244
-violations identically — the assertions are themselves deterministic over a fixed set of
-legs.
+the side-car and re-measures only unfinished modules and modules whose cold row is
+operational — which is how the four operational rows were retried in the resume passes —
+and the resumed passes re-produced the same 244 violations identically: the assertions
+are themselves deterministic over a fixed set of legs.
