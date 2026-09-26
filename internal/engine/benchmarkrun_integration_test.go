@@ -166,7 +166,8 @@ func TestTheBenchmarkOverThePinnedCorpus(t *testing.T) {
 
 				if err := recordBenchmarkLeg(pair); err != nil {
 					violations = append(violations, fmt.Sprintf(
-						"%s: appending the finished pair to the side-car: %v", module.Name, err))
+						"%s: appending the finished pair to the side-car: %v", module.Name, err,
+					))
 				}
 			}()
 
