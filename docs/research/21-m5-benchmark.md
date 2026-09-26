@@ -30,12 +30,12 @@ under this protocol, pinned in the published file's `protocol` block:
 - **Cache off, standard tier, no packs** on every scored invocation — the default
   population posture, the one the whole-milestone invariance proof pins
   (`TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone`).
-- **Terraform VERSION_PLACEHOLDER**, mutant concurrency **4**, module concurrency **2**.
+- **Terraform 1.15.8**, mutant concurrency **4**, module concurrency **2**.
 - **Environment**: WSL2 on the hardware below; providers resolve from the registry through
   the per-module plugin cache; no repository mirror (the corpus modules name real
   providers the mirror does not carry).
-- **Hardware**: CPU_PLACEHOLDER, LOGICAL_CORES_PLACEHOLDER logical cores,
-  MEMORY_PLACEHOLDER MiB memory, kernel KERNEL_PLACEHOLDER.
+- **Hardware**: 13th Gen Intel(R) Core(TM) i5-13420H, 12 logical cores,
+  11,961 MiB memory, kernel 6.6.87.2-microsoft-standard-WSL2.
 - **A leg's row outcome is its cold leg's**, after the one permitted operational retry.
   An operational row is published as a fact about this run, never an abort, and never a
   finding about the module.
@@ -65,17 +65,51 @@ row).
 
 | Module | Population | Cold row | Warm row | Cold wall | Warm wall |
 | --- | --- | --- | --- | --- | --- |
-MODULE_ADMISSION_ROWS_PLACEHOLDER
+| `aws-platform-starter` | 976 | scored | scored | 50m | 33m |
+| `aws-terraform-infrastructure` | unknown | operational | operational | 39s | 14s |
+| `cloud-native-deployment-platform` | unknown | operational | operational | 8m | 10m |
+| `conf-data-processing-architecture-reference` | unknown | operational | operational | 0s | 0s |
+| `eks-vulnerable-infra` | unknown | real-infrastructure | real-infrastructure | 66s | 95s |
+| `genai-idp-terraform` | 34,061 | real-infrastructure | real-infrastructure | 3m | 3m |
+| `platform-design` | 185 | scored | scored | 120s | 111s |
+| `platform-tools` | 1,086 | real-infrastructure | real-infrastructure | 46s | 49s |
+| `psoxy` | 718 | real-infrastructure | real-infrastructure | 48s | 43s |
+| `server-terraform` | 1,567 | real-infrastructure | real-infrastructure | 45s | 47s |
+| `serverless-architecture-patterns` | 4,969 | scored | operational | 7.0h | 9m |
+| `terraform-aws-compliance` | 368 | scored | scored | 3m | 3m |
+| `terraform-aws-lb` | 1,105 | real-infrastructure | real-infrastructure | 11m | 61s |
+| `terraform-aws-oidc-github` | 301 | real-infrastructure | real-infrastructure | 40s | 39s |
+| `terraform-aws-security-group` | 201 | scored | scored | 11m | 12m |
+| `terraform-aws-sonarqube` | 862 | real-infrastructure | real-infrastructure | 47s | 43s |
+| `terraform-aws-static-site` | unknown | real-infrastructure | real-infrastructure | 78s | 72s |
+| `terraform-aws-vpc` | 831 | scored | scored | 32m | 30m |
+| `terraform-datadog-users` | 34 | scored | scored | 42s | 39s |
+| `terraform-duplocloud-components` | 737 | real-infrastructure | real-infrastructure | 10s | 5s |
+| `terraform-mongodbatlas-project` | 610 | scored | scored | 16m | 17m |
+| `terraform-postgres-config-dbs-users-roles` | 189 | real-infrastructure | real-infrastructure | 11s | 15s |
+| `tofu-modules` | unknown | operational | operational | 15s | 15s |
 
 | Row outcome | Modules |
 | --- | --- |
-ROW_OUTCOME_ROWS_PLACEHOLDER
+| scored | 8 |
+| real-infrastructure | 11 |
+| operational | 4 |
 
-- **Admission rate over known populations: ADMISSION_OVER_KNOWN_PLACEHOLDER.**
-- **Admission rate over the pinned corpus: ADMISSION_OVER_PINNED_PLACEHOLDER.**
-- **Populations unknown: UNKNOWN_PLACEHOLDER** — these modules sit outside every mutant
-  denominator below; no complete mutant denominator is claimed while any population is
-  unknown.
+- **Admission rate over known populations: 8/17 = 47.1%.**
+- **Admission rate over the pinned corpus: 8/23 = 34.8%.**
+- **Populations unknown: 6** (`aws-terraform-infrastructure`,
+  `cloud-native-deployment-platform`, `conf-data-processing-architecture-reference`,
+  `eks-vulnerable-infra`, `terraform-aws-static-site`, `tofu-modules`) — these modules sit
+  outside every mutant denominator below; no complete mutant denominator is claimed while
+  any population is unknown.
+
+Two admission facts moved against the M5-0.4 census on the same manifest, both run facts,
+not pin changes: the census could not install providers for `terraform-aws-compliance`,
+`terraform-aws-security-group` and `terraform-aws-vpc` and published them operational,
+where this run installed them and scored them; and the census's previews failed
+operationally for six modules this run's previews resolved, so this run knows 17
+populations where the census knew 11. The benchmark pins its own protocol and publishes
+its own numbers precisely so that this variation is measured, not assumed away.
 
 ## The mutant-level table
 
@@ -86,7 +120,20 @@ Oasis's 61 unscorable mutants.
 
 | Metric | Value |
 | --- | --- |
-MUTANT_LEVEL_ROWS_PLACEHOLDER
+| Generated (Σ known populations) | 48,800 — over 17 of 23 modules, with 6 populations unknown |
+| Invalid (excluded, counted) | 1,081 |
+| Unobservable (excluded, counted) | 313 |
+| Scored set | 6,780 |
+| Killed | 264 |
+| Killed by error | 1,424 |
+| No coverage | 29 |
+| Structurally unassertable | 162 |
+| Survived | 4,901 |
+| Mutation score | **24.9%** = 1,688 / 6,780 |
+| Assertion score | 4.96% = 264 / 5,327 |
+| Reachability | 97.2% = 6,589 / 6,780 |
+| Pseudo-tested resources | 149 findings across the scored modules |
+| Unweighted per-module median | 25.0% over 8 scored modules |
 
 The equations, restated beside the numbers — the same arithmetic
 `internal/oracle/metrics.go` computes for every report:
@@ -109,13 +156,34 @@ The equations, restated beside the numbers — the same arithmetic
 Per-module pooled rows (mutation score per module; the median above is the median of this
 column):
 
-PER_MODULE_SCORES_PLACEHOLDER
+| Module | Population | Scored | Killed | Killed by error | Survived | Mutation score | Assertion score | Reachability |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `aws-platform-starter` | 976 | 850 | 19 | 180 | 595 | 23.4% | 3.0% | 93.4% |
+| `platform-design` | 185 | 180 | 9 | 13 | 158 | 12.2% | 5.4% | 100.0% |
+| `serverless-architecture-patterns` | 4,969 | 4,276 | 98 | 724 | 3,334 | 19.2% | 2.8% | 97.2% |
+| `terraform-aws-compliance` | 368 | 0 | 0 | 0 | 0 | — (368 Invalid) | — | — |
+| `terraform-aws-security-group` | 201 | 169 | 19 | 46 | 102 | 38.5% | 15.4% | 98.8% |
+| `terraform-aws-vpc` | 831 | 700 | 25 | 161 | 513 | 26.6% | 4.6% | 99.9% |
+| `terraform-datadog-users` | 34 | 33 | 4 | 18 | 9 | 66.7% | 26.7% | 93.9% |
+| `terraform-mongodbatlas-project` | 610 | 572 | 90 | 282 | 190 | 65.0% | 31.0% | 98.3% |
+
+`terraform-aws-compliance` is the table's instructive row: its suite passes its own
+baseline, and every one of its 368 mutants is Invalid — terraform rejects each mutated
+module outright — so its scored set is empty and no score is claimed for it. The pooled
+score above sums the other seven modules' arithmetic; the pooled scored set of 6,780 is
+tiny only against the generated count because four scored modules carry an Invalid share
+of their population with it.
 
 **Known-but-unscored populations, by row outcome:**
 
 | Row outcome | Populations (mutants) |
 | --- | --- |
-UNSCORED_BUCKET_ROWS_PLACEHOLDER
+| real-infrastructure | 40,626 (9 modules; `genai-idp-terraform` alone is 34,061) |
+| operational | 0 |
+
+The run's survivor diagnoses over the 4,901 survivors: no-assertion 1,671 (34%),
+indeterminate-unknown-values 1,636 (33%), unasserted 1,226 (25%), weak-assertion 368
+(7%).
 
 ## The limitations
 
@@ -155,13 +223,17 @@ pooled publication from the tables above; Oasis's row is as published in
 | Axis | Oasis (published) | tf-mut (this measurement) |
 | --- | --- | --- |
 | Repositories | 23 public repositories | 23 pinned repositories (same manifest) |
-| Mutants generated | 242 | GENERATED_PLACEHOLDER (KNOWN_MODULES_PLACEHOLDER of 23 modules; POPULATIONS_UNKNOWN_PLACEHOLDER populations unknown) |
-| Scored | 177 | SCORED_PLACEHOLDER |
-| Killed | 44 | KILLED_PLACEHOLDER (plus KILLED_BY_ERROR_PLACEHOLDER caught at evaluation) |
-| Survived | 133 | SURVIVED_PLACEHOLDER |
-| Mutation score | 24.9% | MUTATION_SCORE_PLACEHOLDER% (unweighted per-module median: MEDIAN_PLACEHOLDER%) |
-| Unscorable | 61 (wanted cloud credentials) | UNSCORED_KNOWN_PLACEHOLDER mutants in known-but-unscored populations (see bucket above) |
-| Survivor diagnoses | 104 no_coverage (78%), 29 weak_assertion (22%) | DIAGNOSES_PLACEHOLDER |
+| Mutants generated | 242 | 48,800 (17 of 23 modules; 6 populations unknown) |
+| Scored | 177 | 6,780 |
+| Killed | 44 | 264 (plus 1,424 caught at evaluation) |
+| Survived | 133 | 4,901 |
+| Mutation score | 24.9% | 24.9% (unweighted per-module median: 25.0%) |
+| Unscorable | 61 (wanted cloud credentials) | 40,626 mutants in known-but-unscored populations (see bucket above) |
+| Survivor diagnoses | 104 no_coverage (78%), 29 weak_assertion (22%) | 1,671 no-assertion (34%), 1,636 indeterminate-unknown-values (33%), 1,226 unasserted (25%), 368 weak-assertion (7%) |
+
+The two mutation scores landing on the same 24.9% is a coincidence of aggregation, not a
+finding: limitation 1 makes the numerator and denominator different populations on each
+side, and two ratios of different things agreeing to one decimal place licenses nothing.
 
 ## What the numbers license
 
@@ -175,7 +247,32 @@ Oasis's axes with stated limitations, pinned and measured before any comparabili
 is made.
 
 The portable assertions are the part of this measurement a reader may trust hardest,
-because they are the part `terraform` cannot drift on without the test going red: the two
-legs of every module agree on availability and count, refuse identically, and — per
-mutant, over every scored module — reached the same verdict twice, on two sandboxes, once
-cold and once warm.
+because they are the part `terraform` cannot drift on without the test going red. Here is
+exactly what the run's two legs agreed on, published rather than smoothed:
+
+1. **Availability and count agreed on 22 of 23 modules.** The exception is
+   `serverless-architecture-patterns`, whose warm leg failed operationally — a provider
+   install into the reused cache raced a still-exiting process from the cold leg's seven
+   hour execution — so its availability moved between legs and the warm leg published no
+   verdicts. The cold row stands as published; the race is a fact about the run, not the
+   module.
+2. **The refusal classes were deterministic** — all 11 real-infrastructure rows and all
+   4 operational rows classified identically in both legs.
+3. **Per-mutant verdict identity held completely on six of the eight scored modules** —
+   2,058 compared mutants across `platform-design`, `terraform-aws-compliance`,
+   `terraform-aws-security-group`, `terraform-aws-vpc`, `terraform-datadog-users` and
+   `terraform-mongodbatlas-project`, zero moves. `aws-platform-starter` moved: of its 890
+   compared mutants, 853 kept their state (37 state moves) and 647 kept their canonical
+   verdict (206 further moves at the diagnosis level). The killed set was perfectly
+   stable — 19 Killed and 180 Killed-by-error in both legs — and the aggregate moved by
+   three hundredths of a percentage point (23.41% cold, 23.38% warm). The instability is
+   concentrated where the M2 exit gate said it lives: survivors on the boundary between
+   survived, unobservable and structurally-unassertable, and the diagnosis a survivor
+   carries.
+
+The offline gate `TestABrokenLegAgreementTurnsThePortableAssertionsRed` proves the
+assertions red-capable on a broken fixture; the live run above is what they look like
+when a real corpus trips them. A resumed invocation re-asserts every portable claim over
+the side-car without re-measuring a single module, and re-produced the same 244
+violations identically — the assertions are themselves deterministic over a fixed set of
+legs.
