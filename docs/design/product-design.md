@@ -817,7 +817,18 @@ optimisation of the skills themselves on a public legacy-module corpus.
 **M5 — Breadth.** Domain packs seeded from Checkov/tfsec rule catalogues, OpenTofu parity,
 Tier 4 lifecycle operators, and a published benchmark over a public-repository corpus —
 a side-by-side evaluation on Oasis's axes with stated limitations, pinned and measured
-before any comparability claim is made. The benchmark has run: its protocol, both tables,
+before any comparability claim is made. OpenTofu parity was removed from the milestone by
+the maintainer's ruling of 16 September 2026, before implementation began, and carried
+verbatim to issue #166 with the measurement that would have gated it (M5-0.2) and the
+tested-matrix design rows (`--binary`, the flavour block, `gate-tofu`); the spec revision
+records the ruling, and the CLI table's `--engine` row above stays a roadmap claim until
+#166 corrects it. The rest ran as specified: the three Tier 4 lifecycle operators were
+admitted behind kill witnesses (M5-0.1, `docs/research/16-m5-01-lifecycle-witnesses.md`),
+the `security-aws` pack shipped with eleven witnessed entries under the pack contract — the
+ten the M5-0.3 census admitted plus the widen-cidr entry #176 added
+(`docs/research/18-m5-pack-seed-census.md`), the #82 census measured an empty
+cohort and the preference order stood (M5-0.5, `docs/research/19-m5-opportunity-census.md`),
+and the benchmark ran over a pinned 23-module corpus (M5d): its protocol, both tables,
 the limitations and the Oasis side-by-side are published in
 `docs/research/21-m5-benchmark.md`, re-runnable with `just benchmark`.
 
