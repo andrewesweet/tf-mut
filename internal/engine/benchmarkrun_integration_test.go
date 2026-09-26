@@ -186,6 +186,18 @@ func TestTheBenchmarkOverThePinnedCorpus(t *testing.T) {
 		assertBenchmarkLegsAgree(&violations, pair.Module, pair.Cold, pair.Warm)
 	}
 
+	publishBenchmarkMeasurement(t, results, len(loaded.Modules))
+
+	for _, violation := range violations {
+		t.Errorf("portable assertion broken: %s", violation)
+	}
+}
+
+// publishBenchmarkMeasurement stamps the protocol over the measured rows,
+// aggregates both tables and publishes them.
+func publishBenchmarkMeasurement(t *testing.T, results []benchmarkModuleResult, pinned int) {
+	t.Helper()
+
 	measurement := benchmarkMeasurement{
 		Corpus: censusManifest,
 		Rows:   results,
@@ -207,7 +219,7 @@ func TestTheBenchmarkOverThePinnedCorpus(t *testing.T) {
 		Hardware:          measureHardware(t),
 	}
 
-	summariseBenchmark(t, &measurement, len(loaded.Modules))
+	summariseBenchmark(t, &measurement, pinned)
 	publishBenchmark(t, measurement)
 
 	t.Logf("module-admission: %s scored over known populations, %s over the pinned corpus; "+
@@ -218,10 +230,6 @@ func TestTheBenchmarkOverThePinnedCorpus(t *testing.T) {
 		measurement.MutantLevel.Generated, measurement.MutantLevel.GeneratedBasis,
 		measurement.MutantLevel.ScoredSet, measurement.MutantLevel.MutationScore*100,
 		measurement.MutantLevel.MedianScore*100, measurement.MutantLevel.MedianModules)
-
-	for _, violation := range violations {
-		t.Errorf("portable assertion broken: %s", violation)
-	}
 }
 
 // prefetchArchives fetches every unfinished module's archive before the
