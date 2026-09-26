@@ -465,7 +465,7 @@ func requirePooledColumns(t *testing.T, mutants mutantLevelTable) {
 		t.Fatalf("pooled assertion score moved: %f, want 50/100", mutants.AssertionScore)
 	}
 
-	if mutants.Reachability <= 0.999 && mutants.Reachability != 1.0 {
+	if mutants.Reachability <= 0.999 || mutants.Reachability >= 1.001 {
 		t.Fatalf("pooled reachability moved: %f, want 110/110", mutants.Reachability)
 	}
 }

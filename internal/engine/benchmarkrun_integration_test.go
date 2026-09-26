@@ -4,6 +4,7 @@ package engine_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -123,7 +124,14 @@ func TestTheBenchmarkOverThePinnedCorpus(t *testing.T) {
 	completed := loadBenchmarkLegs(t)
 	prefetchArchives(t, loaded, completed)
 
+	root, found := repositoryRoot(t)
+	if !found {
+		t.Fatal("repository root not found")
+	}
+
 	results := make([]benchmarkModuleResult, len(loaded.Modules))
+	violations := []string{}
+
 	var (
 		mutex  sync.Mutex
 		semaph = make(chan struct{}, benchmarkModuleConcurrency)
@@ -145,15 +153,22 @@ func TestTheBenchmarkOverThePinnedCorpus(t *testing.T) {
 				return
 			}
 
-			pair := runBenchmarkPair(t, module)
+			pair := runBenchmarkPair(t, root, module)
 			pair.Module = module.Name
 			pair.Repository = module.Repository
 			pair.Commit = module.Commit
 
-			mutex.Lock()
-			recordBenchmarkLeg(t, pair)
-			results[index] = pair
-			mutex.Unlock()
+			func() {
+				mutex.Lock()
+				defer mutex.Unlock()
+
+				results[index] = pair
+
+				if err := recordBenchmarkLeg(pair); err != nil {
+					violations = append(violations, fmt.Sprintf(
+						"%s: appending the finished pair to the side-car: %v", module.Name, err))
+				}
+			}()
 
 			t.Logf("%s: cold row=%s warm row=%s population known=%v size=%d (%ds cold, %ds warm)",
 				module.Name, pair.Cold.Row, pair.Warm.Row, pair.Cold.PopulationKnown,
@@ -166,7 +181,6 @@ func TestTheBenchmarkOverThePinnedCorpus(t *testing.T) {
 	// The portable assertions hold across every published pair, resumed or
 	// freshly measured: availability and count, refusal determinism, and
 	// per-mutant verdict identity over the scored modules.
-	violations := []string{}
 	for _, pair := range results {
 		assertBenchmarkLegsAgree(&violations, pair.Module, pair.Cold, pair.Warm)
 	}
@@ -269,10 +283,10 @@ func requirePinnedModuleDirectory(t *testing.T, module benchmarkModule, moduleDi
 
 // runBenchmarkPair makes the module's two legs — cold, then warm — each with
 // its own wall clock.
-func runBenchmarkPair(t *testing.T, module benchmarkModule) benchmarkModuleResult {
+func runBenchmarkPair(t *testing.T, root string, module benchmarkModule) benchmarkModuleResult {
 	t.Helper()
 
-	cacheDir := filepath.Join(repositoryRootValue(t), benchmarkPluginCaches, module.Name)
+	cacheDir := filepath.Join(root, benchmarkPluginCaches, module.Name)
 
 	cold, coldMS := runBenchmarkLeg(t, module, cacheDir, true)
 	warm, warmMS := runBenchmarkLeg(t, module, cacheDir, false)
@@ -292,17 +306,16 @@ func runBenchmarkLeg(
 ) (leg benchmarkLeg, wallClockMS int64) {
 	t.Helper()
 
-	if fresh {
-		if err := os.RemoveAll(cacheDir); err != nil {
-			t.Fatalf("clearing %s's plugin cache: %v", module.Name, err)
-		}
-	}
-
-	if err := os.MkdirAll(cacheDir, 0o750); err != nil {
-		t.Fatalf("creating %s's plugin cache: %v", module.Name, err)
-	}
-
 	started := time.Now()
+
+	if err := prepareLegCache(cacheDir, fresh); err != nil {
+		leg.Retries++
+		leg.OperationalReason = censusReason(err)
+		leg.Row = string(rowOperational)
+		leg.UnknownReason = censusReason(err)
+
+		return leg, time.Since(started).Milliseconds()
+	}
 
 	moduleDir, fetchErr := fetchForLeg(t, module)
 	if fetchErr != nil {
@@ -318,6 +331,24 @@ func runBenchmarkLeg(
 	benchmarkLegRun(t, module, moduleDir, cacheDir, &leg)
 
 	return leg, time.Since(started).Milliseconds()
+}
+
+// prepareLegCache empties the leg's plugin cache when the leg is the cold one
+// and makes sure it exists. A failure is this run's operational fact, returned
+// to the leg rather than fatal: the legs measure on their own goroutines,
+// where a fatal would strand every other module.
+func prepareLegCache(cacheDir string, fresh bool) error {
+	if fresh {
+		if err := os.RemoveAll(cacheDir); err != nil {
+			return fmt.Errorf("clearing the plugin cache: %w", err)
+		}
+	}
+
+	if err := os.MkdirAll(cacheDir, 0o750); err != nil {
+		return fmt.Errorf("creating the plugin cache: %w", err)
+	}
+
+	return nil
 }
 
 // fetchForLeg resolves the module's pinned directory for this leg — the
@@ -405,7 +436,7 @@ func benchmarkLegRun(
 		leg.TerraformVersion = runResult.TerraformVersion
 		leg.Metrics = &runResult.Metrics
 		leg.PseudoTested = countPseudoTested(runResult)
-		leg.States, leg.Verdicts = legVerdicts(t, runResult)
+		leg.States, leg.Verdicts = legVerdicts(runResult)
 	}
 }
 
@@ -430,16 +461,14 @@ func classifyPreviewFailure(previewErr error) censusRow {
 
 // canonicalLegVerdict renders a verdict for the leg's identity map, byte for
 // byte — the M3b invariance comparison's own rendering.
-func canonicalLegVerdict(t *testing.T, verdict *report.Verdict) string {
-	t.Helper()
-
+func canonicalLegVerdict(verdict *report.Verdict) string {
 	if verdict == nil {
 		return ""
 	}
 
 	encoded, err := json.Marshal(verdict)
 	if err != nil {
-		t.Fatalf("encoding a verdict for the identity map: %v", err)
+		return "unrenderable verdict: " + err.Error()
 	}
 
 	return string(encoded)
@@ -447,17 +476,13 @@ func canonicalLegVerdict(t *testing.T, verdict *report.Verdict) string {
 
 // legVerdicts builds the scored leg's per-mutant identity maps: state by
 // identifier, canonical verdict by identifier.
-func legVerdicts(
-	t *testing.T, runResult report.Report,
-) (states, verdicts map[string]string) {
-	t.Helper()
-
+func legVerdicts(runResult report.Report) (states, verdicts map[string]string) {
 	states = make(map[string]string, len(runResult.Mutants))
 	verdicts = make(map[string]string, len(runResult.Mutants))
 
 	for _, mutant := range runResult.Mutants {
 		states[mutant.ID] = string(mutant.State)
-		verdicts[mutant.ID] = canonicalLegVerdict(t, mutant.Verdict)
+		verdicts[mutant.ID] = canonicalLegVerdict(mutant.Verdict)
 	}
 
 	return states, verdicts
@@ -521,29 +546,31 @@ func loadBenchmarkLegs(t *testing.T) map[string]benchmarkModuleResult {
 	return completed
 }
 
-// recordBenchmarkLeg appends one module's finished pair to the side-car.
-func recordBenchmarkLeg(t *testing.T, pair benchmarkModuleResult) {
-	t.Helper()
-
+// recordBenchmarkLeg appends one module's finished pair to the side-car. The
+// error is returned, never fatal: the append runs on a module's own goroutine
+// under the results mutex, where a fatal would strand every other module.
+func recordBenchmarkLeg(pair benchmarkModuleResult) error {
 	if err := os.MkdirAll(filepath.Dir(benchmarkRows), 0o750); err != nil {
-		t.Fatalf("creating the measurement directory: %v", err)
+		return fmt.Errorf("creating the measurement directory: %w", err)
 	}
 
 	encoded, err := json.Marshal(pair)
 	if err != nil {
-		t.Fatalf("encoding the benchmark pair: %v", err)
+		return fmt.Errorf("encoding the benchmark pair: %w", err)
 	}
 
 	file, err := os.OpenFile(benchmarkRows, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		t.Fatalf("opening the benchmark side-car: %v", err)
+		return fmt.Errorf("opening the benchmark side-car: %w", err)
 	}
 
 	defer func() { _ = file.Close() }()
 
 	if _, err := file.Write(append(encoded, '\n')); err != nil {
-		t.Fatalf("appending the benchmark pair: %v", err)
+		return fmt.Errorf("appending the benchmark pair: %w", err)
 	}
+
+	return nil
 }
 
 // summariseBenchmark keeps the module table's counts consistent with the
@@ -575,19 +602,6 @@ func publishBenchmark(t *testing.T, measurement benchmarkMeasurement) {
 	}
 }
 
-// repositoryRootValue is repositoryRoot's value form for goroutines that
-// cannot Fatal on the caller's t.
-func repositoryRootValue(t *testing.T) string {
-	t.Helper()
-
-	root, found := repositoryRoot(t)
-	if !found {
-		t.Fatal("repository root not found")
-	}
-
-	return root
-}
-
 // measureHardware reads the machine the wall clock was measured on, so the
 // document can name it and another machine can judge the transferability of
 // the timings. Every figure comes from /proc on Linux; elsewhere the fields
@@ -599,7 +613,7 @@ func measureHardware(t *testing.T) benchmarkHardware {
 	hardware.CPUModel = procField("/proc/cpuinfo", "model name")
 
 	if memory := procField("/proc/meminfo", "MemTotal"); memory != "" {
-		if kib, err := strconv.ParseInt(memory, 10, 64); err == nil {
+		if kib, err := strconv.ParseInt(strings.TrimSuffix(memory, " kB"), 10, 64); err == nil {
 			hardware.MemoryKiB = kib
 		}
 	}
@@ -624,10 +638,8 @@ func procField(path, prefix string) string {
 		if value, ok := strings.CutPrefix(line, prefix); ok {
 			value = strings.TrimSpace(value)
 			value = strings.TrimPrefix(value, ":")
-			value = strings.TrimSpace(value)
-			if fields := strings.Fields(value); len(fields) >= 1 {
-				return fields[0]
-			}
+
+			return strings.TrimSpace(value)
 		}
 	}
 
