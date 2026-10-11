@@ -1775,7 +1775,7 @@
         "wall_ms": {
           "type": "integer",
           "minimum": 0,
-          "description": "The command's whole wall time in milliseconds."
+          "description": "The engine invocation's wall time in milliseconds, including workspace cleanup, trace flushing and profile finalization."
         },
         "phases": {
           "type": "array",
@@ -1794,7 +1794,7 @@
         "overhead_ms": {
           "type": "integer",
           "minimum": 0,
-          "description": "The time the instrumentation itself spent recording, excluding the clock reads that bracket each phase."
+          "description": "Synchronous recording time in milliseconds: timing and child bookkeeping, span creation, attribute recording and span completion. Excludes asynchronous export, shutdown and the clock reads that bracket recording."
         },
         "child_scope": {
           "type": "string",

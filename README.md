@@ -81,7 +81,8 @@ verdicts. A final line follows if periodic output began. Shorter runs stay quiet
 works with every reporter.
 
 When `--otlp-endpoint` is unset, tf-mut uses `OTEL_EXPORTER_OTLP_ENDPOINT`. With neither
-configured, it sends no traces. Endpoints use HTTP or HTTPS. tf-mut appends `/v1/traces` to
+configured, it sends no traces. Phase spans carry the recorded child CPU and peak memory
+measurements. Endpoints use HTTP or HTTPS. tf-mut appends `/v1/traces` to
 the supplied base path unless it already ends with that suffix. An unusable endpoint disables
 tracing with a stderr warning. Export failures produce a fixed stderr warning without endpoint
 paths or credentials.

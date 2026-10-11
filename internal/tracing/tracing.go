@@ -4,8 +4,8 @@
 // The exporter exists only when an endpoint is configured, by the
 // --otlp-endpoint flag or the OTEL_EXPORTER_OTLP_ENDPOINT variable the OTel
 // conventions define. There is no default endpoint: a run with neither set
-// constructs a disabled tracer, and every call on it is a no-op, so the
-// unobserved run pays nothing and sends nothing anywhere.
+// constructs a disabled tracer that exports nothing. JSON telemetry remains
+// enabled independently of tracing.
 package tracing
 
 import (

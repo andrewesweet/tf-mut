@@ -14,8 +14,8 @@ import (
 )
 
 // The named phases of the grading pipeline and of one mutant's evaluation.
-// Each name is a step the code actually has, in the order a sequential run
-// executes them; a phase is recorded only where the step ran.
+// Each name identifies a step the code executes; a phase is recorded only
+// where the step ran.
 const (
 	// Run-level phases.
 	phaseVersion             = "version"
@@ -69,12 +69,10 @@ const childScopeStatement = "each entry covers the terraform process and the des
 
 // runCollector records one run's phase timings and child-process usage.
 //
-// It is always on: the numbers cost two clock reads per phase bracket, and the
-// cost of the recording itself is measured and published next to the numbers,
-// so the reader can judge the instrumentation by its own account. It decides
-// nothing about any verdict. When the run configured an OTLP endpoint, the
-// same brackets drive spans over the tracer; without one the tracer is
-// disabled and every span call is a no-op.
+// It is always on. Synchronous recording overhead is measured and published
+// next to the numbers so consumers can account for instrumentation. Verdicts
+// never read this record. When an OTLP endpoint is configured, the same
+// brackets drive spans; without one the tracer exports nothing.
 type runCollector struct {
 	tracer *tracing.Tracer
 	mutex  sync.Mutex

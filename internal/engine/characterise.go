@@ -106,9 +106,8 @@ func characteriseModule(
 
 	defer func() { _ = os.RemoveAll(workRoot) }()
 
-	// Characterisation publishes no telemetry: its warm-up is recorded into a
-	// collector whose record is dropped, because the command has no grading
-	// pipeline to attach it to.
+	// Characterisation drops the collector's report record, but shares its tracer
+	// with warm-up and any staged grading rounds.
 	prepared, err := warmUp(ctx, runner, configuration, workRoot, collector)
 	if err != nil {
 		return report.Report{}, err
