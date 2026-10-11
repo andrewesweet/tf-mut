@@ -133,6 +133,15 @@ widened without amending this section.
    verification always precedes apply, so the engine seam cannot produce these states
    deterministically; every refusal the seam *can* stage (symlink, non-verified selection,
    JSON target, partial failure) is still asserted through it (`apply_test.go`).
+7. Backend neutralisation is exercised directly for byte identity of files without a
+   backend (`internal/engine/backend_internal_test.go`). The engine report has no
+   surface that observes the staged file's bytes, so this invariant cannot be asserted
+   through the engine seam. Every verdict backend neutralisation leads to is still
+   asserted through the engine seam (`warmup_test.go`).
+8. Backend neutralisation's malformed-staged-HCL refusal is exercised directly
+   (`internal/engine/backend_internal_test.go`). Discovery rejects malformed HCL before
+   warm-up runs, so the engine seam cannot stage this refusal. Every verdict backend
+   neutralisation leads to is still asserted through the engine seam (`warmup_test.go`).
 
 ## Build and verification
 
