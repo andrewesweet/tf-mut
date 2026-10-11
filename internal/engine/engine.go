@@ -639,37 +639,22 @@ type completedRun struct {
 // observation counts the observation proof refuses on. Timed-out rows are
 // counted from the fact's own members, so the proof can never disagree with
 // the population it judges; the errored are the mutants that never reached a
-// verdict and therefore carry no classified outcome at all. The executed
-// count follows the published split — selected, minus what the cache
-// replayed, minus the rows classified before anything dispatched them.
+// verdict and therefore carry no classified outcome at all.
 func classifyRun(
 	shell report.Report,
 	classified []oracle.Classified,
 	failures []report.ExecutionError,
 ) oracle.Population {
 	timedOut := 0
-	unexecuted := 0
 
 	for _, row := range classified {
-		state := row.Outcome.State()
-		if state == oracle.StateTimeout {
+		if row.Outcome.State() == oracle.StateTimeout {
 			timedOut++
-		}
-
-		// Classified before anything dispatched them: the static shortcuts
-		// and the suppressions. A cached verdict cannot carry these states —
-		// they are decided before a mutant can ever be stored — so none of
-		// them is also a cache hit.
-		if state == oracle.StateNoCoverage || state == oracle.StateUnobservable ||
-			state == oracle.StateIgnored {
-			unexecuted++
 		}
 	}
 
 	return oracle.NewPopulation(classified, oracle.Provenance{
-		Executed: shell.Population.Selected - shell.Population.Cached - unexecuted,
 		Cached:   shell.Population.Cached,
-		Sampled:  shell.Population.Omitted,
 		TimedOut: timedOut,
 		Errored:  len(failures),
 	})

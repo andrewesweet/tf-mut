@@ -19,18 +19,13 @@ import (
 
 // Provenance records how a classified population was produced: the counts the
 // gates judge the population by. They are the run's own observations about
-// its population — what executed, what was replayed, what was scoped away,
-// and what was left unobserved — carried beside the classified rows so no
-// consumer has to re-derive them from a published projection.
+// its population — what was replayed and what was left unobserved — carried
+// beside the classified rows so no consumer has to re-derive them from a
+// published projection.
 type Provenance struct {
-	// Executed is the number of selected mutants this run executed.
-	Executed int
 	// Cached is the number of selected mutants whose verdicts were replayed
 	// from the verdict cache.
 	Cached int
-	// Sampled is the number of mutants --since or --sample left out of the
-	// population.
-	Sampled int
 	// TimedOut is the number of mutants that exceeded their execution budget,
 	// whose kills were therefore never observed.
 	TimedOut int
@@ -65,9 +60,6 @@ func NewPopulation(classified []Classified, provenance Provenance) Population {
 // Classified returns the classified rows the population holds, in the order
 // the run's published mutants carry them.
 func (p Population) Classified() []Classified { return p.classified }
-
-// Provenance returns the counts the gates judge the population by.
-func (p Population) Provenance() Provenance { return p.provenance }
 
 // Authoritative is a classified population every member of which was
 // observed: no mutant timed out and none failed to evaluate. Both leave
