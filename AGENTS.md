@@ -115,7 +115,7 @@ widened without amending this section.
    exception 1's own reason: they are contracts about documents and the context-owned skip
    reason (`suggest.SkipReason`), not the published `report.SuggestionStatus` the
    application layer projects, and the real binary cannot be driven into each of the
-   fifteen shapes on demand. Every adapter outcome is still asserted through the engine
+   payload shapes on demand. Every adapter outcome is still asserted through the engine
    seam (`internal/engine/suggest_test.go`).
 5. `internal/characterise`'s validation-function table (`functions_test.go`) is exercised
    directly, for exception 1's own reason: it is a contract about *expressions* — eleven

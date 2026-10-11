@@ -31,8 +31,30 @@ type Schema struct {
 
 // SchemaBlock is a configuration block schema.
 type SchemaBlock struct {
-	Attributes map[string]SchemaAttribute `json:"attributes"`
+	Attributes map[string]SchemaAttribute `json:"attributes,omitempty"`
+	// BlockTypes holds the schema's nested configuration blocks. Most
+	// providers — hashicorp/null among them — publish none, and type every
+	// nested structure as a list or map of object instead; both shapes are
+	// first-class to the consumers of this schema.
+	BlockTypes map[string]SchemaBlockType `json:"block_types,omitempty"`
 }
+
+// SchemaBlockType is the schema of one nested configuration block.
+type SchemaBlockType struct {
+	// NestingMode is the block's nesting mode as the provider CLI publishes
+	// it: single, group, list, set or map.
+	NestingMode string      `json:"nesting_mode"`
+	Block       SchemaBlock `json:"block"`
+}
+
+// The five nesting modes the provider CLI publishes for a nested block.
+const (
+	NestingSingle = "single"
+	NestingList   = "list"
+	NestingSet    = "set"
+	NestingMap    = "map"
+	NestingGroup  = "group"
+)
 
 // SchemaAttribute records the optionality flags of one argument and the cty
 // type the provider published for it.
@@ -46,6 +68,48 @@ type SchemaAttribute struct {
 	// payload alone cannot tell a set from a list, and `toset(["a"]) == ["a"]`
 	// is false.
 	Type json.RawMessage `json:"type"`
+}
+
+// Block returns the root configuration block of a managed resource or data
+// source type, and whether any visible provider describes the type at all.
+func (s Schemas) Block(kind, resourceType string) (SchemaBlock, bool) {
+	for _, provider := range s.ProviderSchemas {
+		schemas := provider.ResourceSchemas
+		if kind == dataSourceKind {
+			schemas = provider.DataSourceSchemas
+		}
+
+		schema, found := schemas[resourceType]
+		if !found {
+			continue
+		}
+
+		return schema.Block, true
+	}
+
+	return SchemaBlock{}, false //nolint:exhaustruct // no provider describes the type.
+}
+
+// BlockAttributeType returns the cty type a block schema publishes for one of
+// its arguments, with the same dynamic-withholding rule AttributeType applies
+// at the root: a dynamic attribute is type evidence about the schema and none
+// about the value.
+func BlockAttributeType(block SchemaBlock, name string) (cty.Type, bool) {
+	described, found := block.Attributes[name]
+	if !found || len(described.Type) == 0 {
+		return cty.NilType, false
+	}
+
+	decoded, err := ctyjson.UnmarshalType(described.Type)
+	if err != nil {
+		return cty.NilType, false
+	}
+
+	if decoded == cty.DynamicPseudoType {
+		return cty.NilType, false
+	}
+
+	return decoded, true
 }
 
 // ProvidersSchema retrieves the provider schemas visible from dir. It suppresses

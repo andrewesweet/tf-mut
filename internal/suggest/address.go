@@ -3,6 +3,7 @@ package suggest
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -21,12 +22,13 @@ import (
 var ErrUnaddressable = errors.New("no legal assertion expression addresses this delta")
 
 // traversalParts is what the address adapter hands the rendering contract:
-// the legal expression, and the resource address and attribute path the type
-// lookup is keyed by.
+// the legal expression, the resource address and attribute path the type
+// lookup is keyed by, and the canonical payload path the evidence is keyed by.
 type traversalParts struct {
 	expression string
 	resource   string
 	attribute  string
+	path       string
 }
 
 // traversal is the assertion-expression adapter: it joins two address spaces
@@ -65,25 +67,37 @@ func traversal(path string) (traversalParts, error) {
 
 	expression := resource
 	if attribute != "" {
-		expression += "." + attribute
+		if attribute[0] == '[' {
+			// An element path the output body carries: `outputs.X.value[0].attr`
+			// continues from the resource with the index, not a dot.
+			expression += attribute
+		} else {
+			expression += "." + attribute
+		}
+	}
+
+	// A path that continues past its first segment is rendered by the walk,
+	// which owns the parse floor for the expression it builds; the dotted
+	// spelling above is only provisional there.
+	if strings.HasPrefix(attribute, "[") || len(fingerprint.AttributeSegments(attribute)) > 1 {
+		return traversalParts{expression: expression, resource: resource, attribute: attribute, path: path}, nil
 	}
 
 	if err := parseTraversal(expression); err != nil {
 		// Where the resource address alone is a legal traversal, what failed
 		// is the attribute path — a non-identifier map key, most commonly —
 		// and that is the rendering contract's refusal (C3), not an
-		// addressing one: the value is reachable, it just has no dotted
-		// spelling this generator emits.
+		// addressing one: the value is reachable, but this path has no
+		// supported traversal spelling.
 		if parseTraversal(resource) == nil {
-			return empty, fmt.Errorf("%w: %s is not expressible as a dotted traversal "+
-				"(a non-identifier key needs an index form this generator does not emit)",
+			return empty, fmt.Errorf("%w: %s has no supported traversal spelling",
 				ErrUnrenderable, expression)
 		}
 
 		return empty, err
 	}
 
-	return traversalParts{expression: expression, resource: resource, attribute: attribute}, nil
+	return traversalParts{expression: expression, resource: resource, attribute: attribute, path: path}, nil
 }
 
 // parseTraversal proves the generated text is a traversal HCL accepts.
@@ -107,4 +121,26 @@ func parseTraversal(expression string) error {
 	}
 
 	return nil
+}
+
+// splitInstanceIndex reads a resource address that names a counted instance —
+// `null_resource.app[1]` — onto the resource and the instance index. An
+// address without a numeric trailing index reports false.
+func splitInstanceIndex(resource string) (base string, index int, ok bool) {
+	open := strings.LastIndex(resource, "[")
+	if open < 0 || !strings.HasSuffix(resource, "]") {
+		return "", 0, false
+	}
+
+	key := resource[open+1 : len(resource)-1]
+	if !digitsOnly(key) {
+		return "", 0, false
+	}
+
+	index, err := strconv.Atoi(key)
+	if err != nil {
+		return "", 0, false
+	}
+
+	return resource[:open], index, true
 }

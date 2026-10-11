@@ -241,3 +241,243 @@ func TestAShapeChangeBetweenBaselineRunsMakesTheComparisonIndeterminate(t *testi
 		t.Fatal("an indeterminate comparison is never fingerprint-identical")
 	}
 }
+
+const (
+	identityMarker      = "output_changes.identity.after_unknown"
+	identityValue       = "outputs.identity.value"
+	identityChangeAfter = "output_changes.identity.after"
+)
+
+// The metadata members of an output record are never assertable, and a
+// candidate selector has to tell them from the value delta without rebuilding
+// the path grammar.
+func TestOutputMetadataPathsAreRecognisedWithoutRebuildingTheGrammar(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		"outputs.identity.type",
+		"outputs.identity.type[0]",
+		"outputs.identity.sensitive",
+		identityMarker,
+		"output_changes.identity.after_unknown.principal_id",
+		"output_changes.identity.after_sensitive",
+		"output_changes.identity.before_sensitive",
+	} {
+		if !fingerprint.IsOutputMetadata(path) {
+			t.Fatalf("IsOutputMetadata(%q) = false, want true", path)
+		}
+	}
+
+	for _, path := range []string{
+		identityValue,
+		"outputs.identity.value.principal_id",
+		"outputs.region_list.value[0].short_name",
+		identityChangeAfter,
+		"output_changes.identity.after.principal_id",
+		"outputs.after.value",
+		"root_module.resources[example_thing.app].values.input",
+		"resource_changes[example_thing.app].change.after.input",
+	} {
+		if fingerprint.IsOutputMetadata(path) {
+			t.Fatalf("IsOutputMetadata(%q) = true, want false", path)
+		}
+	}
+}
+
+// Split's contract is about payload paths, so the shapes are stated directly
+// here: state paths carry the output body under `value`, plan paths under
+// `after`, and both may continue past the body into an element of the output's
+// collection — `outputs.X.value[0].attr` and `output_changes.X.after[0].attr`
+// are what Terraform v1.15.8 emits for list-valued outputs.
+func TestSplitCarriesAnOutputElementPathPastItsBody(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		path      string
+		resource  string
+		attribute string
+	}{
+		{
+			"outputs.region_list.value[0].short_name",
+			"output.region_list", "[0].short_name",
+		},
+		{
+			"output_changes.region_list.after[1].short_name",
+			"output.region_list", "[1].short_name",
+		},
+		{
+			identityValue,
+			"output.identity", "",
+		},
+		{
+			"outputs.identity.value.tenant",
+			"output.identity", "tenant",
+		},
+		{
+			"outputs.identity.type[0]",
+			"", "",
+		},
+		{
+			"outputs.identity.sensitive",
+			"", "",
+		},
+		{
+			identityMarker,
+			"", "",
+		},
+	} {
+		t.Run(testCase.path, func(t *testing.T) {
+			t.Parallel()
+
+			resource, attribute, ok := fingerprint.Split(testCase.path)
+			if testCase.resource == "" {
+				if ok {
+					t.Fatalf("Split(%q) = (%q, %q, true), want not ok",
+						testCase.path, resource, attribute)
+				}
+				return
+			}
+
+			if !ok || resource != testCase.resource || attribute != testCase.attribute {
+				t.Fatalf("Split(%q) = (%q, %q, %v), want (%q, %q, true)",
+					testCase.path, resource, attribute, ok,
+					testCase.resource, testCase.attribute)
+			}
+		})
+	}
+}
+
+// TestAnUnknownMarkerPathMapsOntoTheValueItMarks pins the mapping between a
+// plan's unknown-marker record and the value whose parts it marks, for the
+// record itself, a leaf under it, and an element inside a collection under it.
+// Every verdict the mapping leads to is asserted through the engine seam; the
+// shapes here are documents' contracts, taken from recorded real output.
+func TestAnUnknownMarkerPathMapsOntoTheValueItMarks(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		marker string
+		value  string
+	}{
+		{
+			identityMarker,
+			identityChangeAfter,
+		},
+		{
+			"output_changes.identity.after_unknown.principal_id",
+			"output_changes.identity.after.principal_id",
+		},
+		{
+			"output_changes.identity.after_unknown.items[0].port",
+			"output_changes.identity.after.items[0].port",
+		},
+		{
+			// A plan whose whole element is unknown marks the member under the
+			// element's index: the marker names after[0].id, not after.id.
+			"output_changes.identity.after_unknown[0].id",
+			"output_changes.identity.after[0].id",
+		},
+		{
+			"resource_changes[null_resource.app].change.after_unknown.triggers",
+			"resource_changes[null_resource.app].change.after.triggers",
+		},
+		{
+			"resource_changes[null_resource.app].change.after_unknown[1].triggers",
+			"resource_changes[null_resource.app].change.after[1].triggers",
+		},
+	} {
+		t.Run(testCase.marker, func(t *testing.T) {
+			t.Parallel()
+
+			if !fingerprint.IsUnknownMarker(testCase.marker) {
+				t.Fatalf("IsUnknownMarker(%q) = false, want true", testCase.marker)
+			}
+
+			value, found := fingerprint.UnknownValueBase(testCase.marker)
+			if !found || value != testCase.value {
+				t.Fatalf("UnknownValueBase(%q) = (%q, %v), want (%q, true)",
+					testCase.marker, value, found, testCase.value)
+			}
+		})
+	}
+}
+
+// TestNonMarkerPathsNameNoMarkerRecord keeps the mapping from widening: a
+// value path, a sensitivity record, the before half of a change, and an
+// output whose own name embeds the marker's field name are none of them
+// unknown markers.
+func TestNonMarkerPathsNameNoMarkerRecord(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		identityChangeAfter,
+		"output_changes.identity.after_sensitive",
+		"output_changes.identity.after_unknownish.children",
+		"output_changes.identity.after_unknown[0",
+		"resource_changes[null_resource.app].change.before",
+		"resource_changes[null_resource.app].change.after.triggers",
+		"outputs.after_unknown",
+		"root_module.resources[null_resource.app].values.triggers",
+	} {
+		if fingerprint.IsUnknownMarker(path) {
+			t.Fatalf("IsUnknownMarker(%q) = true, want false", path)
+		}
+	}
+}
+
+// TestACountedInstancePathNamesItsResourceAndIndex pins the instance grammar
+// the count evidence reads: state and plan resource paths with numeric
+// instance indices name their resource; singletons, for_each instances and
+// everything outside a resource do not.
+func TestACountedInstancePathNamesItsResourceAndIndex(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		path     string
+		resource string
+		index    int
+	}{
+		{
+			"root_module.resources[null_resource.app[1]].values.triggers",
+			"null_resource.app", 1,
+		},
+		{
+			"resource_changes[terraform_data.counted[0]].change.after.output",
+			"terraform_data.counted", 0,
+		},
+		{
+			"resource_changes[module.child.terraform_data.inner[12]].change.after",
+			"module.child.terraform_data.inner", 12,
+		},
+	} {
+		t.Run(testCase.path, func(t *testing.T) {
+			t.Parallel()
+
+			resource, index, ok := fingerprint.CountedInstance(testCase.path)
+			if !ok || resource != testCase.resource || index != testCase.index {
+				t.Fatalf("CountedInstance(%q) = (%q, %d, %v), want (%q, %d, true)",
+					testCase.path, resource, index, ok, testCase.resource, testCase.index)
+			}
+		})
+	}
+}
+
+// TestPathsOutsideTheInstanceGrammarNameNoInstance keeps the count evidence
+// from widening: singletons and string-keyed for_each instances carry no
+// count index, and paths outside any resource name nothing.
+func TestPathsOutsideTheInstanceGrammarNameNoInstance(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		"root_module.resources[null_resource.app].values.triggers",
+		`root_module.resources[null_resource.app["blue"]].values.triggers`,
+		"root_module.resources[null_resource.app[blue]].values.triggers",
+		identityChangeAfter,
+		identityValue,
+		"resource_changes[null_resource.app].change.after",
+	} {
+		if _, _, ok := fingerprint.CountedInstance(path); ok {
+			t.Fatalf("CountedInstance(%q) reported an instance, want none", path)
+		}
+	}
+}

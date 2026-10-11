@@ -17,6 +17,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/zclconf/go-cty/cty"
+	ctyjson "github.com/zclconf/go-cty/cty/json"
+
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
@@ -64,6 +67,9 @@ type Payload struct {
 	Values map[string]string
 	// Unknowns lists the addresses whose value the payload reports as unknown.
 	Unknowns []string
+	// OutputTypes retains published type evidence for rendering output indices.
+	// Missing or invalid type descriptors supply no evidence.
+	OutputTypes map[string]cty.Type
 }
 
 // Key identifies the run a payload belongs to, and orders the composition.
@@ -103,12 +109,50 @@ func project(payload tfexec.RunPayload) (Payload, error) {
 	flatten("", payload.Value, values)
 
 	return Payload{
-		File:     payload.File,
-		Run:      payload.Run,
-		Kind:     payload.Kind,
-		Values:   values,
-		Unknowns: unknownAddresses(values),
+		File:        payload.File,
+		Run:         payload.Run,
+		Kind:        payload.Kind,
+		Values:      values,
+		Unknowns:    unknownAddresses(values),
+		OutputTypes: publishedOutputTypes(payload),
 	}, nil
+}
+
+func publishedOutputTypes(payload tfexec.RunPayload) map[string]cty.Type {
+	values := payload.Value
+	types := map[string]cty.Type{}
+	if payload.Kind == tfexec.PayloadPlan {
+		planned, ok := values["planned_values"].(map[string]any)
+		if !ok {
+			return types
+		}
+
+		values = planned
+	}
+
+	outputs, ok := values["outputs"].(map[string]any)
+	if !ok {
+		return types
+	}
+
+	for name, value := range outputs {
+		output, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		encoded, err := json.Marshal(output["type"])
+		if err != nil {
+			continue
+		}
+
+		declared, err := ctyjson.UnmarshalType(encoded)
+		if err == nil {
+			types[outputRoot+"."+name] = declared
+		}
+	}
+
+	return types
 }
 
 func checkFormatVersion(payload tfexec.RunPayload) error {
@@ -560,15 +604,17 @@ func hashValues(values map[string]string) string {
 // reading the same path out of the mirror — and out of every ancestor of it,
 // because a sensitive container makes everything under it sensitive.
 const (
-	afterSensitive   = "after_sensitive"
-	beforeSensitive  = "before_sensitive"
-	sensitiveValues  = "sensitive_values"
-	outputSensitive  = "sensitive"
-	planValues       = "values"
-	changeAfter      = "change.after"
-	changeBefore     = "change.before"
-	outputAfterField = "after"
-	outputValueField = "value"
+	afterSensitive     = "after_sensitive"
+	beforeSensitive    = "before_sensitive"
+	sensitiveValues    = "sensitive_values"
+	outputSensitive    = "sensitive"
+	outputType         = "type"
+	planValues         = "values"
+	changeAfter        = "change.after"
+	changeAfterUnknown = "change." + afterUnknown
+	changeBefore       = "change.before"
+	outputAfterField   = "after"
+	outputValueField   = "value"
 )
 
 // Sensitive reports whether the payload marks the value at a canonical path
@@ -762,5 +808,195 @@ func splitOutput(rest, body string) (address, attribute string, ok bool) {
 		return outputRoot + "." + name, attribute, true
 	}
 
+	// A list-valued output's element path continues from the body with an
+	// index, not a dot: `outputs.X.value[0].attr`, `output_changes.X.after[0].attr`.
+	// The index travels in the attribute so the rendered address reads
+	// `output.X[0].attr`. Only the value body enters this branch; metadata
+	// fields stay outside the assertion surface.
+	if attribute, cut := strings.CutPrefix(remainder, body+"["); cut {
+		key, _, found := strings.Cut(attribute, "]")
+		if found && digitsOnly(key) {
+			return outputRoot + "." + name, "[" + attribute, true
+		}
+	}
+
 	return "", "", false
+}
+
+// IsUnknownMarker reports whether a canonical path is — or lives under — a
+// plan's unknown marker: the record that says which parts of a value the
+// baseline could not know. The markers are evidence about a comparison, never
+// a value to assert, and a renderer that reads them as a value's shape renders
+// a lie.
+func IsUnknownMarker(path string) bool {
+	_, found := UnknownValueBase(path)
+
+	return found
+}
+
+// UnknownValueBase maps an unknown-marker path onto the value path whose
+// subtree it marks: `output_changes.X.after_unknown…` marks
+// `output_changes.X.after…`, and a resource change's `change.after_unknown…`
+// marks its `change.after…`. A path that is not a marker path reports false.
+func UnknownValueBase(marker string) (string, bool) {
+	if rest, cut := strings.CutPrefix(marker, outputChanges+"."); cut {
+		return unknownOutputBase(rest)
+	}
+
+	if rest, cut := strings.CutPrefix(marker, resourceChanges+"["); cut {
+		address, tail, foundAddress := strings.Cut(rest, "]")
+		if !foundAddress {
+			return "", false
+		}
+
+		marked, isMarker := strings.CutPrefix(tail, "."+changeAfterUnknown)
+		if !isMarker {
+			return "", false
+		}
+
+		return resourceChanges + "[" + address + "]." + changeAfter + marked, true
+	}
+
+	return "", false
+}
+
+// unknownOutputBase maps an output-side marker onto its marked value: the
+// marker's name and the bracketed element key, if it carries one, transfer
+// verbatim onto the after path.
+func unknownOutputBase(rest string) (string, bool) {
+	name, tail, found := strings.Cut(rest, ".")
+	if !found {
+		return "", false
+	}
+
+	marked, isMarker := strings.CutPrefix(tail, afterUnknown)
+	if !isMarker {
+		return "", false
+	}
+
+	// A whole element the plan marks unknown carries its index in the marker:
+	// after_unknown[0].id marks after[0].id, the element's member, not a
+	// member of the collection itself. The bracketed key is consumed
+	// depth-matched, and what follows must be empty or dotted.
+	if rest, cut := strings.CutPrefix(marked, "["); cut {
+		index, remainder, closed := cutBracketed(rest)
+		if !closed || (remainder != "" && remainder[0] != '.') {
+			return "", false
+		}
+
+		marked = "[" + index + "]" + remainder
+	} else if marked != "" && marked[0] != '.' {
+		return "", false
+	}
+
+	return outputChanges + "." + name + "." + outputAfterField + marked, true
+}
+
+// IsOutputMetadata reports whether a canonical path names an output record's
+// metadata — its type descriptor or a sensitivity or unknown marker — rather
+// than its value.
+//
+// The grammar of a canonical path is this package's, so the question is asked
+// here rather than by rebuilding the prefixes at the call site (the M3 spec
+// review's twice-recorded drift rule). A candidate selector asks it to prefer
+// the value delta: the metadata members change whenever the value does, they
+// are never assertable, and the refusal they produce otherwise outranks the
+// value's own in the report.
+func IsOutputMetadata(path string) bool {
+	var remainder string
+
+	switch {
+	case strings.HasPrefix(path, outputChanges+"."):
+		remainder = strings.TrimPrefix(path, outputChanges+".")
+	case strings.HasPrefix(path, stateOutputs+"."):
+		remainder = strings.TrimPrefix(path, stateOutputs+".")
+	default:
+		return false
+	}
+
+	_, rest, _ := strings.Cut(remainder, ".")
+	if rest == "" {
+		return false
+	}
+
+	field, _, _ := strings.Cut(rest, ".")
+	if bracket := strings.IndexByte(field, '['); bracket >= 0 {
+		field = field[:bracket]
+	}
+
+	// Only the metadata members are unassertable; the value and its change
+	// body are not, and neither is anything the grammar does not name.
+	switch field {
+	case outputSensitive, outputType,
+		afterSensitive, beforeSensitive, afterUnknown, beforeUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// digitsOnly reports whether a bracketed key is a numeric index.
+func digitsOnly(key string) bool {
+	if key == "" {
+		return false
+	}
+
+	for _, letter := range key {
+		if letter < '0' || letter > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// CountedInstanceRoot spells the state or plan path at which Terraform records the
+// numbered instance of a resource — the root record whose vanished change is
+// the only change that can prove the instance vanished.
+func CountedInstanceRoot(path string) string {
+	start := strings.IndexByte(path, '[') + 1
+	address, _, _ := cutBracketed(path[start:])
+
+	return path[:start] + address + "]"
+}
+
+// CountedInstance reads a state or plan resource path onto the counted
+// instance it names: `root_module.resources[null_resource.app[1]].values…`
+// onto resource `null_resource.app`, index 1, and a resource change's
+// `resource_changes[null_resource.app[0]].change…` likewise. A path whose
+// address carries no numeric instance index — a singleton resource, a
+// string-keyed `for_each` instance, a value outside any resource — reports
+// false. `count` is the only instance numbering this can read, which is the
+// point: a vanishing instance is what a count mutation does.
+func CountedInstance(path string) (resource string, index int, ok bool) {
+	var rest string
+	if cut, found := strings.CutPrefix(path, rootModule+".resources["); found {
+		rest = cut
+	} else if cut, found := strings.CutPrefix(path, resourceChanges+"["); found {
+		rest = cut
+	} else {
+		return "", 0, false
+	}
+
+	inner, _, found := cutBracketed(rest)
+	if !found {
+		return "", 0, false
+	}
+
+	name, tail, hasIndex := strings.Cut(inner, "[")
+	if !hasIndex || !strings.HasSuffix(tail, "]") || name == "" {
+		return "", 0, false
+	}
+
+	key := strings.TrimSuffix(tail, "]")
+	if !digitsOnly(key) {
+		return "", 0, false
+	}
+
+	index, err := strconv.Atoi(key)
+	if err != nil {
+		return "", 0, false
+	}
+
+	return name, index, true
 }

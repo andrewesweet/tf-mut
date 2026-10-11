@@ -23,10 +23,16 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/zclconf/go-cty/cty"
+
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
+
+// nullMarker is the spelling Terraform gives a value that is null, in test
+// payloads and in assertion expressions alike.
+const nullMarker = "null"
 
 // Defect is a deliberately wrong assertion the generator can be made to emit.
 //
@@ -78,8 +84,11 @@ func NewSurvivor(id string, delta []fingerprint.Change) Survivor {
 type Generator struct {
 	// Configuration is the discovered module under test.
 	Configuration discovery.Configuration
-	// Schemas is the rendering contract's type source.
+	// Schemas supplies provider type evidence for resource and data-source paths.
 	Schemas tfexec.Schemas
+	// Baseline supplies each run's published output types; provider schemas do
+	// not describe outputs.
+	Baseline []fingerprint.Payload
 	// Defect seeds a wrong assertion into the first candidate the generator
 	// produces. It is a seam control for the soundness gate, not a flag.
 	Defect Defect
@@ -239,6 +248,11 @@ func runKey(run discovery.RunBlock) string {
 
 // suggestFor walks the delta for the first change all three adapters admit,
 // and reports the first change's own refusal where none is admitted.
+//
+// An output record's metadata paths — its type descriptor, its sensitivity and
+// unknown markers — are walked last: they change whenever the value does, they
+// are never assertable, and otherwise the refusal they produce outranks the
+// value's own in the report.
 func (g Generator) suggestFor(
 	survivor Survivor,
 	target discovery.RunBlock,
@@ -246,17 +260,84 @@ func (g Generator) suggestFor(
 ) generated {
 	renderer := render{schemas: g.Schemas}
 
-	var first, sensitive error
-
+	var value, metadata []fingerprint.Change
+	carried := []fingerprint.Change{}
 	for _, change := range changes {
 		if change.Run != runKey(target) {
 			continue
 		}
 
-		expression, err := expressChange(renderer, change)
+		carried = append(carried, change)
+
+		if fingerprint.IsOutputMetadata(change.Path) {
+			metadata = append(metadata, change)
+
+			continue
+		}
+
+		value = append(value, change)
+	}
+
+	evidence := NewEvidence(carried)
+	for _, payload := range g.Baseline {
+		if payload.Key() == runKey(target) {
+			evidence.OutputTypes = payload.OutputTypes
+			break
+		}
+	}
+
+	for _, pass := range [][]fingerprint.Change{value, metadata} {
+		walked := walkChanges(renderer, evidence, pass)
+		if walked.admitted {
+			return build(survivor, target, walked.expression)
+		}
+
+		first := walked.first
+		if first == nil {
+			first = fmt.Errorf("%w: the delta carries no change in the target run", ErrUnaddressable)
+		}
+
+		if walked.sensitive != nil {
+			first = walked.sensitive
+		}
+
+		if len(pass) > 0 {
+			skip := Skipped(survivor.id, target.Rel, target.Name, reasonOf(first), first.Error())
+
+			return generated{skip: &skip}
+		}
+	}
+
+	skip := Skipped(survivor.id, target.Rel, target.Name, SkipUnaddressable,
+		"the delta carries no change in the target run")
+
+	return generated{skip: &skip}
+}
+
+// walked is one pass of walkChanges: the expression a change admitted, the
+// first refusal and the first sensitivity refusal out of the ones it did not,
+// and whether anything was admitted.
+type walked struct {
+	expression string
+	first      error
+	sensitive  error
+	admitted   bool
+}
+
+// walkChanges renders the first change a renderer admits, and carries the
+// first refusal and the first sensitivity refusal out of the ones it does not.
+func walkChanges(
+	renderer render,
+	evidence Evidence,
+	changes []fingerprint.Change,
+) walked {
+	result := walked{}
+
+	for _, change := range changes {
+		rendered, err := expressChange(renderer, evidence, change)
 		if err != nil {
-			if first == nil {
-				first = err
+			if result.first == nil {
+				result.first = err
 			}
 
 			// A sensitivity refusal outranks every other refusal for the
@@ -264,27 +345,19 @@ func (g Generator) suggestFor(
 			// delta is sensitive, "the value appears in no artefact" is the
 			// contract the reader has to know about, not the addressing
 			// detail of some other change.
-			if sensitive == nil && errors.Is(err, ErrSensitive) {
-				sensitive = err
+			if result.sensitive == nil && errors.Is(err, ErrSensitive) {
+				result.sensitive = err
 			}
 
 			continue
 		}
 
-		return build(survivor, target, expression)
+		result.expression, result.admitted = rendered, true
+
+		return result
 	}
 
-	if sensitive != nil {
-		first = sensitive
-	}
-
-	if first == nil {
-		first = fmt.Errorf("%w: the delta carries no change in the target run", ErrUnaddressable)
-	}
-
-	skip := Skipped(survivor.id, target.Rel, target.Name, reasonOf(first), first.Error())
-
-	return generated{skip: &skip}
+	return result
 }
 
 // Express maps one delta change onto the assertion condition that would catch
@@ -293,21 +366,155 @@ func (g Generator) suggestFor(
 // It is the whole three-adapter sweep behind one call, and it is exported
 // because the fail-closed matrices are contracts about payload paths and
 // provider types rather than about any one module: driving the real binary
-// into producing each of the fifteen shapes on demand is not possible, exactly
+// into producing each of the payload shapes on demand is not possible, exactly
 // as it is not for the payload shapes `internal/fingerprint` is tested on.
 func Express(
 	run discovery.RunBlock,
 	schemas tfexec.Schemas,
+	evidence Evidence,
 	change fingerprint.Change,
 ) (string, error) {
 	_ = run // the adapter reads the module path from the address itself; see traversal.
 
-	return expressChange(render{schemas: schemas}, change)
+	return expressChange(render{schemas: schemas}, evidence, change)
+}
+
+// Evidence carries what a whole delta proves about one change's neighbourhood.
+//
+// A single change says what a path held on each side; only the delta around it
+// says what the value's shape was. The unknown markers say which parts of a
+// plan value the baseline could not know — a length over such a value is a
+// lie. The non-null proofs are the paths whose vanished members carried
+// values, so a mutant that nulls a container is answered by an inequality and
+// not by an index into it.
+type Evidence struct {
+	// UnknownMarkers are the delta's marker paths, canonical and complete.
+	UnknownMarkers []string
+	// ProvenNonNull records the paths whose baseline value the delta proves
+	// was neither absent nor null: another change under the same path carried
+	// a value.
+	ProvenNonNull map[string]bool
+	// InstanceCounts records, per resource address, the instance count the
+	// delta proves the baseline had: a change whose value side is empty under
+	// `resource[N]` proves instance N existed on the baseline.
+	InstanceCounts map[string]int
+	// OutputTypes supplies baseline output type evidence; absent evidence must
+	// not be inferred from the payload's numeric indices.
+	OutputTypes map[string]cty.Type
+}
+
+// NewEvidence reads a delta into the evidence its changes prove. It is the
+// generator's own construction, and the matrices build it by hand.
+func NewEvidence(changes []fingerprint.Change) Evidence {
+	evidence := Evidence{
+		ProvenNonNull:  map[string]bool{},
+		InstanceCounts: map[string]int{},
+	}
+
+	for _, change := range changes {
+		evidence.absorb(change, changes)
+	}
+
+	return evidence
+}
+
+// absorb folds one change into the accumulating evidence. The full change set
+// travels with it: a nulled container only proves non-null where a peer change
+// shows a value that survived underneath it.
+func (e *Evidence) absorb(change fingerprint.Change, changes []fingerprint.Change) {
+	if fingerprint.IsUnknownMarker(change.Path) {
+		e.UnknownMarkers = append(e.UnknownMarkers, change.Path)
+	}
+
+	if change.Mutant == nullMarker && !e.ProvenNonNull[change.Path] {
+		e.proveNonNull(change, changes)
+	}
+
+	e.countInstance(change, changes)
+}
+
+// proveNonNull marks a nulled container non-null where any peer change carries
+// a real baseline value on the container or inside it: the mutation's nulling
+// is provable rather than an absence the baseline shared.
+func (e *Evidence) proveNonNull(change fingerprint.Change, changes []fingerprint.Change) {
+	address, attribute, split := fingerprint.Split(change.Path)
+	container := split && !strings.HasPrefix(address, "output.") && discovery.ValidIdentifier(attribute)
+
+	for _, other := range changes {
+		if other.Run != change.Run || other.Baseline == "" || other.Baseline == nullMarker {
+			continue
+		}
+
+		if other.Path == change.Path ||
+			(container && (strings.HasPrefix(other.Path, change.Path+".") ||
+				strings.HasPrefix(other.Path, change.Path+"["))) {
+			e.ProvenNonNull[change.Path] = true
+
+			break
+		}
+	}
+}
+
+// countInstance folds a vanished instance's change into the resource count
+// the count rendering is judged against. An instance counts as vanished only
+// where the delta also carries a change at the instance's root record — its
+// address or index: a value-body change alone cannot tell a vanished instance
+// from a vanished value.
+func (e *Evidence) countInstance(change fingerprint.Change, changes []fingerprint.Change) {
+	if change.Mutant != "" {
+		return
+	}
+
+	resource, index, counted := fingerprint.CountedInstance(change.Path)
+	if !counted || !instanceRecorded(change.Path, changes) {
+		return
+	}
+
+	if index+1 > e.InstanceCounts[resource] {
+		e.InstanceCounts[resource] = index + 1
+	}
+}
+
+// instanceRecorded reports whether the change set carries a change at an
+// instance's root record: the address or index Terraform writes for the
+// instance itself, whose mutant side vanished with it.
+func instanceRecorded(path string, changes []fingerprint.Change) bool {
+	root := fingerprint.CountedInstanceRoot(path)
+
+	for _, change := range changes {
+		if change.Mutant != "" {
+			continue
+		}
+
+		if change.Path == root+".address" || change.Path == root+".index" {
+			return true
+		}
+	}
+
+	return false
+}
+
+// markersUnder reports whether the delta's markers reach the subtree a value
+// path names.
+func (e *Evidence) markersUnder(valuePath string) bool {
+	for _, marker := range e.UnknownMarkers {
+		base, found := fingerprint.UnknownValueBase(marker)
+		if !found {
+			continue
+		}
+
+		if base == valuePath || strings.HasPrefix(base, valuePath+".") ||
+			strings.HasPrefix(base, valuePath+"[") {
+			return true
+		}
+	}
+
+	return false
 }
 
 // expressChange runs one change through the three adapters in order.
 // Sensitivity comes first: a sensitive value must not reach a renderer at all.
-func expressChange(renderer render, change fingerprint.Change) (string, error) {
+func expressChange(renderer render, evidence Evidence, change fingerprint.Change) (string, error) {
 	if change.Sensitive {
 		return "", fmt.Errorf("%w: Terraform marks the value at this path, or a container "+
 			"of it, sensitive", ErrSensitive)
@@ -318,7 +525,7 @@ func expressChange(renderer render, change fingerprint.Change) (string, error) {
 		return "", err
 	}
 
-	return renderer.equality(parts, change.Baseline)
+	return renderer.equality(parts, change.Baseline, change.Mutant, evidence)
 }
 
 // ErrSensitive reports a delta whose value Terraform marks sensitive.

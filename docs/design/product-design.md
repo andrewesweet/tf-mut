@@ -513,6 +513,28 @@ SURVIVED  main.tf:22  COND-SWAP
 preserving formatting and comments. `--all-verified` selects all verified suggestions.
 `--dry-run` prints candidate patches without verifying them.
 
+The generator selects at most one candidate per survivor. Candidate selection prefers
+value changes over output type, sensitivity and unknown metadata. Metadata never becomes
+an assertion. Resource and data-source paths use the provider's attribute and nested-block
+schemas. Supported paths include list and tuple elements, and attributes inside single,
+group, list and map-nested blocks. Where the schema resolves a map or object key uniquely,
+non-identifier keys use quoted index form, such as
+`null_resource.app.triggers["app.kubernetes.io/part-of"]`. Quoting preserves literal HCL
+template markers in keys.
+
+Output element paths continue directly from the output address, such as
+`output.region_list[0].short_name`. Each index requires the baseline's published type to
+identify a list or tuple. Output continuations accept at most one identifier member name.
+Set elements, untyped collection indices and unsupported continuations report
+`skipped-unrenderable`.
+
+Alongside scalar equalities, candidates can assert emptiness with `length(value) == 0` or
+answer a mutant's null value with `value != null`. A recognized carried unknown marker
+beneath the value prevents an empty-value assertion. For counted resources whose instance
+record and values disappear, candidates use `length(resource) == N`, with `N` inferred
+from carried instance indices, rather than reading a vanished instance. Every candidate
+still requires the verification below before it becomes `verified`.
+
 Verification has two required legs. First, the tool applies the candidates for one target
 test file to a sandbox and runs the full suite. The suite must pass, execute at least one
 run block, and report no failed or errored runs.
