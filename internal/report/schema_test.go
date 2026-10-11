@@ -29,6 +29,11 @@ func TestPublishedSchemaMatchesTheReportersVersion(t *testing.T) {
 	if !strings.Contains(name, report.SchemaVersion) {
 		t.Fatalf("schema file %s does not name version %s", name, report.SchemaVersion)
 	}
+
+	wantID := "https://github.com/andrewesweet/tf-mut/docs/schema/" + name
+	if identifier := stringAt(schema, "$id"); identifier != wantID {
+		t.Fatalf("schema identifier = %q, want %q", identifier, wantID)
+	}
 }
 
 func TestReportValidatesAgainstThePublishedSchema(t *testing.T) {

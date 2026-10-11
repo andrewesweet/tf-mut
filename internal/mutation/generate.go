@@ -200,7 +200,8 @@ func (g Generator) underTestDirectory(path string) bool {
 
 	relative, err := filepath.Rel(g.TestDirectory, path)
 
-	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+	return err == nil && relative != "." && relative != ".." &&
+		!strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 type sourceFile struct {

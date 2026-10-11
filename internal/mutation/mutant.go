@@ -215,10 +215,33 @@ func disambiguateIdentifiers(mutants []Mutant) {
 			return mutants[left].Range.Start.Byte - mutants[right].Range.Start.Byte
 		})
 
+		rewrites := map[[sha256.Size]byte]int{}
+		occurrences := [][]int{}
+
+		for _, index := range members {
+			digest := sha256.Sum256(mutants[index].Mutated)
+			ordinal, found := rewrites[digest]
+			if !found {
+				ordinal = len(occurrences)
+				rewrites[digest] = ordinal
+				occurrences = append(occurrences, nil)
+			}
+
+			occurrences[ordinal] = append(occurrences[ordinal], index)
+		}
+
+		if len(occurrences) < collisionGroupSize {
+			continue
+		}
+
 		base := mutants[members[0]].ID
 
-		for ordinal, index := range members {
-			mutants[index].ID = ordinalIdentifier(base, ordinal)
+		for ordinal, occurrence := range occurrences {
+			identifier := ordinalIdentifier(base, ordinal)
+
+			for _, index := range occurrence {
+				mutants[index].ID = identifier
+			}
 		}
 	}
 }
