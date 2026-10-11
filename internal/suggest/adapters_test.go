@@ -156,6 +156,13 @@ func TestTheAddressAdapterMatrix(t *testing.T) {
 			schemas:  untyped(), want: `output.from_child[0].aliases[0] == "steady"`, refused: nil,
 		},
 		{
+			name:     "two names after an output element cannot be told apart from map keys",
+			run:      runIn("applied", ""),
+			path:     "outputs.from_child.value[0].inner.leaf",
+			baseline: steadyBaseline,
+			schemas:  untyped(), want: "", refused: suggest.ErrUnrenderable,
+		},
+		{
 			name: "a list-valued output's element",
 			run:  runIn("applied", ""),
 			path: "outputs.from_child.value[0].short_name", baseline: steadyBaseline,
