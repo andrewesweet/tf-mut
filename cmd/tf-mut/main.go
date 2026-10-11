@@ -91,7 +91,7 @@ Flags for run, preview, suggest, characterise, todos and curate:
 
 Flags for run, suggest and curate:
   --min-score N                Fail below this mutation score percentage
-  --allow-incomplete-score     Let a timeout-affected score satisfy --min-score
+  --allow-incomplete-score     Let an untrustworthy score satisfy --min-score (a timeout, nothing scored, or Invalid-dominated)
   --allow-sampled-gate         Let a sampled run satisfy --min-score (unsafe)
   --no-cache                   Disable the project-local verdict cache
   --fail-on-new                Fail on findings the baseline does not accept
@@ -237,7 +237,7 @@ func declareFlags(set *flag.FlagSet) flagValues {
 			"multiple of the baseline run time"),
 		minScore: set.Float64("min-score", 0, "fail below this mutation score percentage"),
 		allowIncomplete: set.Bool("allow-incomplete-score", false,
-			"let a timeout-affected score satisfy --min-score"),
+			"let an untrustworthy score satisfy --min-score (a timeout, nothing scored, or Invalid-dominated)"),
 		allowReal: set.Bool("allow-real-infrastructure", false,
 			"permit execution against unmocked providers"),
 		allowEffects: set.Bool("allow-unsandboxed-effects", false,
