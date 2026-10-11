@@ -552,6 +552,7 @@ func build(
 		Schemas:       prepared.schemas,
 		Selection:     settings.selection(),
 		Packs:         settings.loadedPacks,
+		TestDirectory: configuration.Tests.Dir,
 		Defect:        seedGenerationDefect(settings),
 	}.Generate()
 

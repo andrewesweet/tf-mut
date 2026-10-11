@@ -84,6 +84,51 @@ func mutantAt(t *testing.T, result report.Report, operator, site string) report.
 	return report.Mutant{}
 }
 
+func TestADuplicatePackProducerDoesNotMoveTheRowItJoins(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, packsFixture)
+	before := packPreview(t, module, acmePack)
+	after := packPreview(t, module, acmePack, secondPack)
+
+	aclBefore := mutantAt(t, before, string(mutation.PackReplace), aclSite)
+	aclAfter := mutantAt(t, after, string(mutation.PackReplace), aclSite)
+	if aclBefore.ID != aclAfter.ID || aclBefore.Diff != aclAfter.Diff {
+		t.Fatalf("duplicate producer changed the row: id %s -> %s, diff %q -> %q",
+			aclBefore.ID, aclAfter.ID, aclBefore.Diff, aclAfter.Diff)
+	}
+
+	wantOrigins := []report.Origin{
+		origin("PACK-REPLACE", acmePack, "acl-public"),
+		origin("PACK-REPLACE", secondPack, "acl-public-again"),
+	}
+	if len(aclBefore.Origins) != 1 || !reflect.DeepEqual(aclAfter.Origins, wantOrigins) {
+		t.Fatalf("origins before = %+v, after = %+v, want one then %+v",
+			aclBefore.Origins, aclAfter.Origins, wantOrigins)
+	}
+
+	if len(before.Mutants) != len(after.Mutants) {
+		t.Fatalf("duplicate producers changed population size: %d -> %d",
+			len(before.Mutants), len(after.Mutants))
+	}
+
+	seen := map[string]bool{}
+	for _, mutant := range after.Mutants {
+		if seen[mutant.ID] {
+			t.Fatalf("duplicate mutant identifier %s", mutant.ID)
+		}
+
+		seen[mutant.ID] = true
+	}
+
+	for _, mutant := range before.Mutants {
+		if !seen[mutant.ID] {
+			t.Errorf("duplicate producer removed identifier %s (%s at %s)",
+				mutant.ID, mutant.Operator, mutant.Site)
+		}
+	}
+}
+
 func origin(operator, pack, entry string) report.Origin {
 	return report.Origin{Operator: operator, Pack: pack, Entry: entry}
 }

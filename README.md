@@ -50,7 +50,7 @@ tf-mut version                   # print the build version
 
 | Flag | Purpose |
 | --- | --- |
-| `--test-directory PATH` | Test directory relative to the module (default `tests`); used for initialization and test execution |
+| `--test-directory PATH` | Test directory relative to the module (default `tests`); used for initialization, test execution and [helper exclusion from the mutation surface](docs/design/mutation-operators.md#the-mutation-surface) |
 | `--jobs N` | Mutants executing concurrently (default: CPU count) |
 | `--timeout-factor F` | Multiple of the baseline run time; the budget is `max(F × baseline, 30 s)` |
 | `--min-score N` | Fail below this mutation score percentage |
@@ -123,7 +123,8 @@ work. An independent adversarial review drove these corrections — see
 | [`docs/schema/report-2.1.0.json`](docs/schema/report-2.1.0.json) | The M3 JSON report schema, still published for earlier consumers |
 | [`docs/schema/report-2.3.0.json`](docs/schema/report-2.3.0.json) | The M4.5 JSON report schema, still published for earlier consumers |
 | [`docs/schema/report-2.4.0.json`](docs/schema/report-2.4.0.json) | The M5c.1 JSON report schema, still published for earlier consumers |
-| [`docs/schema/report-2.5.0.json`](docs/schema/report-2.5.0.json) | The versioned JSON report schema the `json` reporter emits, including the pack tier and origins provenance |
+| [`docs/schema/report-2.5.0.json`](docs/schema/report-2.5.0.json) | The M5 JSON report schema, still published for earlier consumers |
+| [`docs/schema/report-2.6.0.json`](docs/schema/report-2.6.0.json) | The versioned JSON report schema the `json` reporter emits, including the pack tier and origins provenance |
 | [`docs/research/09-m3-real-provider-gate.md`](docs/research/09-m3-real-provider-gate.md) | The M3 inner-loop measurement, both real-provider debts settled, the M3e admission evidence |
 | [`docs/research/10-m3-exit-gate.md`](docs/research/10-m3-exit-gate.md) | The M3 exit-gate map: every normative behaviour to its test |
 | [`docs/schema/sarif-2.1.0.json`](docs/schema/sarif-2.1.0.json) | The published SARIF schema the `sarif` reporter's output is validated against |

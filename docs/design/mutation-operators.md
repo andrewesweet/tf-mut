@@ -22,6 +22,19 @@ Every operator obeys the same five rules.
 Notation: **site** = the AST node the operator fires on. Every mutant records file, line,
 column, operator ID, site description and a one-line unified diff.
 
+### The mutation surface
+
+The surface is the modules of the discovered closure **except test-only modules at or under
+the configured test directory** (default `tests/`). The production closure starts at the
+module under test and follows every local module call transitively through the discovered
+inventory, including calls declared in JSON. Every module in that production closure stays
+mutable, even when the test directory is `.` or a production module also serves as a test
+helper. A module outside the production closure is excluded only when its directory equals
+or lies under the test directory. These excluded helpers are part of the test's scaffolding:
+a survivor there grades the fixture rather than the module. They stay in the discovered
+closure, so safety checks still inventory them and run blocks still materialise them, but
+no operator generates against them.
+
 ---
 
 ## Tier 0 — Extreme (`smoke`)

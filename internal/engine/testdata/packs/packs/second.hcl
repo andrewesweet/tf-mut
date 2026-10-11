@@ -16,3 +16,11 @@ entry "size-nought" {
   from          = 3
   to            = 0
 }
+
+entry "acl-public-again" {
+  resource_type = "terraform_data"
+  attribute     = "input"
+  form          = "replace"
+  from          = "private"
+  to            = "public-read"
+}

@@ -121,6 +121,13 @@ type Generator struct {
 	// Packs are the selected domain packs whose entries parameterise the
 	// form operators. Empty means no pack operator is generated at all.
 	Packs []Pack
+	// TestDirectory is the absolute test directory whose helper-only modules
+	// stay out of the mutation surface. A helper module the suite calls from under that
+	// directory is part of the test's scaffolding, not of the module under
+	// test: a survivor there grades the fixture, not the module. It stays in
+	// the closure, so the run blocks that call it still materialise it.
+	// Empty disables the exclusion.
+	TestDirectory string
 	// Defect is the seeded generation defect; DefectNone outside a test hook.
 	Defect Defect
 }
@@ -144,8 +151,13 @@ func (g Generator) Generate() (Result, error) {
 
 	mutants := []Mutant{}
 	warnings := []string{}
+	production := g.productionModules()
 
 	for _, module := range g.Configuration.Modules {
+		if !production[module.Dir] && g.underTestDirectory(module.Dir) {
+			continue
+		}
+
 		produced, err := g.generateModule(module, sources)
 		if err != nil {
 			return Result{}, err
@@ -157,6 +169,13 @@ func (g Generator) Generate() (Result, error) {
 		mutants = append(mutants, syntactic...)
 		warnings = append(warnings, rejected...)
 	}
+
+	// The occurrence ordinal is a property of the source, not of the run's
+	// selection: assigning it before any lever filters the population keeps
+	// every identifier stable across --since, --sample and operator
+	// exclusion, which the cache, the baseline and the suppression
+	// directives all key on.
+	disambiguateIdentifiers(mutants)
 
 	enabled := make([]Mutant, 0, len(mutants))
 
@@ -171,6 +190,53 @@ func (g Generator) Generate() (Result, error) {
 		Warnings:         warnings,
 		UnmatchedEntries: g.unmatchedEntries(mutants),
 	}, nil
+}
+
+// underTestDirectory reports whether an absolute path sits inside the
+// configured test directory, whose files the surface excludes by default.
+func (g Generator) underTestDirectory(path string) bool {
+	if g.TestDirectory == "" {
+		return false
+	}
+
+	relative, err := filepath.Rel(g.TestDirectory, path)
+
+	return err == nil && relative != ".." &&
+		!strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func (g Generator) productionModules() map[string]bool {
+	modules := map[string]discovery.Module{}
+	for _, module := range g.Configuration.Modules {
+		modules[module.Dir] = module
+	}
+
+	production := map[string]bool{}
+	queue := []string{g.Configuration.ModuleDir}
+
+	for len(queue) > 0 {
+		directory := queue[0]
+		queue = queue[1:]
+
+		if production[directory] {
+			continue
+		}
+
+		module, found := modules[directory]
+		if !found {
+			continue
+		}
+
+		production[directory] = true
+
+		for _, call := range module.Calls {
+			if call.Local {
+				queue = append(queue, call.Dir)
+			}
+		}
+	}
+
+	return production
 }
 
 type sourceFile struct {

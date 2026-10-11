@@ -13,7 +13,7 @@ import (
 )
 
 // schemaPath is the published contract the JSON reporter promises to keep.
-const schemaPath = "../../docs/schema/report-2.5.0.json"
+const schemaPath = "../../docs/schema/report-2.6.0.json"
 
 func TestPublishedSchemaMatchesTheReportersVersion(t *testing.T) {
 	t.Parallel()
@@ -28,6 +28,11 @@ func TestPublishedSchemaMatchesTheReportersVersion(t *testing.T) {
 	name := filepath.Base(schemaPath)
 	if !strings.Contains(name, report.SchemaVersion) {
 		t.Fatalf("schema file %s does not name version %s", name, report.SchemaVersion)
+	}
+
+	wantID := "https://github.com/andrewesweet/tf-mut/docs/schema/" + name
+	if identifier := stringAt(schema, "$id"); identifier != wantID {
+		t.Fatalf("schema identifier = %q, want %q", identifier, wantID)
 	}
 }
 

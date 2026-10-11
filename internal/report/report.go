@@ -32,7 +32,11 @@ package report
 // a top-level scalar IPv4 CIDR literal to `0.0.0.0/0`. Nothing else changes:
 // a report of a command run with no pack selected is byte-identical under
 // 2.4.0 and 2.5.0 semantics.
-const SchemaVersion = "2.5.0"
+// 2.6.0 changes the mutant id derivation for identity collisions, with no
+// field added, removed or renamed. The identity and migration contract is
+// documented in docs/design/product-design.md; wire compatibility is
+// documented in docs/schema/report-2.6.0.json.
+const SchemaVersion = "2.6.0"
 
 // Command names what produced a report.
 type Command string
