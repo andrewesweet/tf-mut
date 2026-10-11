@@ -291,10 +291,46 @@ func writeSurvivors(builder *strings.Builder, value Report) {
 
 	fmt.Fprintf(builder, "SURVIVED (%d)\n\n", len(survivors))
 
-	for _, mutant := range survivors {
+	groups, rest := partitionIndeterminate(survivors)
+
+	for _, mutant := range rest {
 		fmt.Fprintf(builder, "  %s  %s  %s\n", mutant.Operator, location(mutant.Range), mutant.Site)
 		writeDiff(builder, mutant.Diff)
 		writeVerdict(builder, mutant.Verdict)
+	}
+
+	writeIndeterminateSurvivors(builder, groups)
+}
+
+// writeIndeterminateSurvivors renders the unknown-value survivors collapsed
+// by their shared unknown paths: the paths are why every member is
+// indeterminate, so they are stated once per group with the group's shared
+// fix, and the members named after — not one verdict per survivor hiding
+// the shared cause.
+func writeIndeterminateSurvivors(builder *strings.Builder, groups []indeterminateGroup) {
+	for _, group := range groups {
+		if len(group.members) == 1 {
+			builder.WriteString("  1 survivor is indeterminate because these paths are unknown at plan:\n")
+		} else {
+			fmt.Fprintf(builder,
+				"  %d survivors are indeterminate because these paths are unknown at plan:\n",
+				len(group.members))
+		}
+
+		for _, path := range group.paths {
+			fmt.Fprintf(builder, "    %s\n", path)
+		}
+
+		if verdict := group.members[0].Verdict; verdict != nil {
+			fmt.Fprintf(builder, "    Fix: %s\n", verdict.Fix)
+		}
+
+		for _, member := range group.members {
+			fmt.Fprintf(builder, "    %s  %s  %s\n",
+				member.Operator, location(member.Range), member.Site)
+		}
+
+		builder.WriteString("\n")
 	}
 }
 

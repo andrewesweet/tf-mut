@@ -288,7 +288,9 @@ func physicalLocation(source Range) sarifLocation {
 
 // summary explains where the states SARIF omits remain visible, so that a
 // reader of an annotated pull request is not left believing the annotations are
-// the whole result.
+// the whole result. The report's warnings — preview's safety-gate verdict
+// among them — travel as one warning-level notification each, the format's
+// declared place for a tool's own messages about the run.
 func summary(value Report) sarifInvocation {
 	omitted := []string{}
 
@@ -305,14 +307,21 @@ func summary(value Report) sarifInvocation {
 		text += ". Not annotated here, and in the JSON report: " + strings.Join(omitted, ", ")
 	}
 
+	notifications := make([]sarifNotification, 0, 1+len(value.Warnings))
+	notifications = append(notifications, sarifNotification{Level: levelNote, Message: sarifText{Text: text + "."}})
+
+	for _, warning := range value.Warnings {
+		notifications = append(notifications, sarifNotification{
+			Level:   levelWarning,
+			Message: sarifText{Text: warning},
+		})
+	}
+
 	// No exit code: the gate that decides one belongs to the caller, and a
 	// document reporting a code the run never returned would be worse than a
 	// document reporting none.
 	return sarifInvocation{
-		ExecutionSuccessful: len(value.Errors) == 0,
-		ToolExecutionNotifications: []sarifNotification{{
-			Level:   levelNote,
-			Message: sarifText{Text: text + "."},
-		}},
+		ExecutionSuccessful:        len(value.Errors) == 0,
+		ToolExecutionNotifications: notifications,
 	}
 }

@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -230,6 +231,14 @@ func TestPreviewIsNeverRefusedBecauseItExecutesNothing(t *testing.T) {
 	}
 }
 
+// reporterMarkdown names the markdown reporter in the render tables of the
+// engine's reporter tests.
+const reporterMarkdown = "markdown"
+
+// TestPreviewReportsWhatTheSafetyGatesWouldDecide: preview must surface the
+// safety gates' verdict — the one output a preview has — through the
+// discarding reporters too, so every consumer of a report sees the gates'
+// decision.
 func TestPreviewReportsWhatTheSafetyGatesWouldDecide(t *testing.T) {
 	t.Parallel()
 
@@ -271,6 +280,63 @@ func TestPreviewReportsWhatTheSafetyGatesWouldDecide(t *testing.T) {
 
 	if !strings.Contains(verdict, runErr.Error()) {
 		t.Fatalf("the preview verdict %q does not quote the run refusal %q", verdict, runErr.Error())
+	}
+}
+
+// TestPreviewSafetyVerdictReachesTheDiscardingReporters: the preview's
+// recorded safety-gate verdict survives every reporter. The markdown, HTML,
+// JUnit and MTE renderings used to discard the report's warnings, so
+// `preview --reporter <that>` on a gated module printed no safety outcome
+// at all — exactly the artefact a pipeline reads.
+func TestPreviewSafetyVerdictReachesTheDiscardingReporters(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "provisioner")
+
+	result, err := engine.Run(t.Context(), previewRequest(t, module))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+
+	verdict := ""
+
+	for _, warning := range result.Warnings {
+		if strings.Contains(warning, "the safety gates would refuse a mutation run") {
+			verdict = warning
+
+			break
+		}
+	}
+
+	if verdict == "" {
+		t.Fatalf("the preview carried no gate verdict: %v", result.Warnings)
+	}
+
+	for name, write := range map[string]func(io.Writer, report.Report) error{
+		reporterMarkdown: report.WriteMarkdown,
+		"html":           report.WriteHTML,
+		"junit":          report.WriteJUnit,
+		"mte":            report.WriteMTE,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			rendered := strings.Builder{}
+			if err := write(&rendered, result); err != nil {
+				t.Fatalf("rendering: %v", err)
+			}
+
+			// Every line of the verdict must survive: XML and JSON escaping
+			// rewrite newlines (&#xA;, \n), so the assertion is per line.
+			for line := range strings.SplitSeq(verdict, "\n") {
+				line = strings.TrimSpace(line)
+
+				if line != "" && !strings.Contains(rendered.String(), line) {
+					t.Fatalf("the %s reporter dropped the preview's safety-gate verdict line %q:\n%s",
+						name, line, rendered.String())
+				}
+			}
+		})
 	}
 }
 

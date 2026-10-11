@@ -394,25 +394,38 @@ func TestSARIFValidatesAgainstThePublishedSchema(t *testing.T) {
 
 	result := runFixture(t, "closure")
 
-	root, found := repositoryRoot(t)
-	if !found {
-		t.Fatal("repository root not found")
+	// The warnings a gated preview carries — its safety-gate verdict among
+	// them — travel as tool execution notifications; the schema must hold
+	// for the warning-bearing document too, not only the plain one.
+	withWarnings := result
+	withWarnings.Warnings = []string{
+		"the safety gates would refuse a mutation run: unsandboxed effects at main.tf:9",
 	}
 
-	path := filepath.Join(root, "docs", "schema", "sarif-2.1.0.json")
+	for name, document := range map[string]map[string]any{
+		"plain":   sarifDocument(t, result),
+		"warning": sarifDocument(t, withWarnings),
+	} {
+		root, found := repositoryRoot(t)
+		if !found {
+			t.Fatal("repository root not found")
+		}
 
-	content, err := os.ReadFile(path) //nolint:gosec // a repository-owned path.
-	if err != nil {
-		t.Fatalf("reading the SARIF schema: %v", err)
-	}
+		path := filepath.Join(root, "docs", "schema", "sarif-2.1.0.json")
 
-	schema := map[string]any{}
-	if err := json.Unmarshal(content, &schema); err != nil {
-		t.Fatalf("decoding the SARIF schema: %v", err)
-	}
+		content, err := os.ReadFile(path) //nolint:gosec // a repository-owned path.
+		if err != nil {
+			t.Fatalf("reading the SARIF schema: %v", err)
+		}
 
-	if problems := validateAgainst(schema, schema, sarifDocument(t, result), "$"); len(problems) > 0 {
-		t.Fatalf("the SARIF document does not validate:\n  %s", strings.Join(problems, "\n  "))
+		schema := map[string]any{}
+		if err := json.Unmarshal(content, &schema); err != nil {
+			t.Fatalf("decoding the SARIF schema: %v", err)
+		}
+
+		if problems := validateAgainst(schema, schema, document, "$"); len(problems) > 0 {
+			t.Fatalf("the %s SARIF document does not validate:\n  %s", name, strings.Join(problems, "\n  "))
+		}
 	}
 }
 

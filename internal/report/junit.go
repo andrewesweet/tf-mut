@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // M3d.1 (#51): the JUnit reporter, against the vendored Jenkins-dialect
@@ -29,6 +30,10 @@ type junitSuite struct {
 	Errors   int         `xml:"errors,attr"`
 	Skipped  int         `xml:"skipped,attr"`
 	Cases    []junitCase `xml:"testcase"`
+	// SystemOut carries the report's warnings — preview's safety-gate verdict
+	// among them — in the suite's own standard-output element, the dialect's
+	// place for messages about the run rather than about a case.
+	SystemOut string `xml:"system-out,omitempty"`
 }
 
 type junitCase struct {
@@ -101,6 +106,11 @@ func WriteJUnit(writer io.Writer, value Report) error {
 			},
 			Skipped: nil,
 		})
+	}
+
+	// Warnings are a suite-level fact, not a case: they ride in system-out.
+	if len(value.Warnings) > 0 {
+		suite.SystemOut = strings.Join(value.Warnings, "\n")
 	}
 
 	document := junitDocument{
