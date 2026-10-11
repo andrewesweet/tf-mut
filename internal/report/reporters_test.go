@@ -943,7 +943,10 @@ func indeterminateReport() report.Report {
 func TestMarkdownGroupsIndeterminateSurvivorsBySharedUnknownPaths(t *testing.T) {
 	t.Parallel()
 
-	page := renderMarkdown(t, indeterminateReport())
+	value := indeterminateReport()
+	value.Mutants[1].Site = "local.regions"
+
+	page := renderMarkdown(t, value)
 
 	for _, want := range []string{
 		"**2 survivors** are indeterminate because these paths are unknown at plan:",
@@ -952,8 +955,9 @@ func TestMarkdownGroupsIndeterminateSurvivorsBySharedUnknownPaths(t *testing.T) 
 		"- `kubernetes_deployment_v1.workspace[0].metadata[0].uid`",
 		"- `aws_iam_role.this[0].unique_id`",
 		// The grouped survivors are still named, with their own file:line.
-		"- `NUM-OFF-BY-ONE` Survived at main.tf:21 (new)",
-		"- `BOOL-FLIP` Survived at main.tf:23",
+		"##### `local.locations` — main.tf:21\n\n- `NUM-OFF-BY-ONE` Survived at main.tf:21 (new)",
+		"##### `local.regions` — main.tf:23\n\n- `BOOL-FLIP` Survived at main.tf:23 (accepted)",
+		"##### `var.type` — variables.tf:9\n\n- `STR-CASE` Survived at variables.tf:9 (accepted)",
 	} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("the markdown summary is missing %q:\n%s", want, page)
@@ -966,13 +970,89 @@ func TestMarkdownGroupsIndeterminateSurvivorsBySharedUnknownPaths(t *testing.T) 
 		t.Fatalf("the indeterminate sentence appears %d times, want once per group (2)", said)
 	}
 
-	// A site whose every survivor is indeterminate has no site group left.
-	if strings.Contains(page, "#### `local.locations`") {
-		t.Fatalf("an all-indeterminate site still rendered as a site group:\n%s", page)
-	}
-
 	if !strings.Contains(page, "#### `output.value`") {
 		t.Fatalf("the surviving site group disappeared:\n%s", page)
+	}
+}
+
+func TestMarkdownSiteGroupsKeepModulesDistinct(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		state     report.State
+		diagnosis report.Diagnosis
+	}{
+		{"survived", report.Survived, report.WeakAssertion},
+		{"unassertable", report.StructurallyUnassertable, ""},
+		{"indeterminate", report.Survived, report.IndeterminateUnknownValues},
+	}
+
+	for _, entry := range cases {
+		t.Run(entry.name, func(t *testing.T) {
+			t.Parallel()
+
+			value := sitesReport()
+			value.Mutants = value.Mutants[:2]
+			value.Mutants[1].Module = "child"
+			value.Mutants[1].Range.File = "child/main.tf"
+
+			for index := range value.Mutants {
+				mutant := &value.Mutants[index]
+				mutant.Site = unassertableSite
+				mutant.State = entry.state
+				mutant.Verdict.Diagnosis = entry.diagnosis
+				if entry.diagnosis == report.IndeterminateUnknownValues {
+					mutant.Verdict.Evidence.UnknownPaths = []string{"terraform_data.seed.id"}
+				}
+			}
+
+			page := renderMarkdown(t, value)
+			level := "####"
+			if entry.diagnosis == report.IndeterminateUnknownValues {
+				level = "#####"
+			}
+
+			for _, mutant := range value.Mutants {
+				want := fmt.Sprintf("%s `%s` — %s:%d\n\n- `%s` %s at %s:%d",
+					level, mutant.Site, mutant.Range.File, mutant.Range.Start.Line,
+					mutant.Operator, mutant.State, mutant.Range.File, mutant.Range.Start.Line)
+				if !strings.Contains(page, want) {
+					t.Fatalf("the module's finding is missing its own site group %q:\n%s", want, page)
+				}
+			}
+
+			if groups := strings.Count(page, "`output.value` —"); groups != 2 {
+				t.Fatalf("rendered %d module-local site groups, want 2:\n%s", groups, page)
+			}
+		})
+	}
+}
+
+func TestMarkdownOverflowCountsModuleLocalSites(t *testing.T) {
+	t.Parallel()
+
+	value := sitesReport()
+	prototype := value.Mutants[0]
+	value.Mutants = nil
+
+	for index := range 26 {
+		mutant := prototype
+		mutant.ID = fmt.Sprintf("aaaa%08d", index)
+		mutant.Module = fmt.Sprintf("module_%02d", index)
+		mutant.Range.File = mutant.Module + "/main.tf"
+		value.Mutants = append(value.Mutants, mutant)
+	}
+
+	page := renderMarkdown(t, value)
+
+	if groups := strings.Count(page, "#### `local.locations`"); groups != 25 {
+		t.Fatalf("rendered %d module-local site groups, want 25:\n%s", groups, page)
+	}
+
+	if !strings.Contains(page, "… and 1 more sites") ||
+		!strings.Contains(page, "  - `local.locations` — 1 finding") {
+		t.Fatalf("the overflow lost a module-local site:\n%s", page)
 	}
 }
 
@@ -1009,6 +1089,49 @@ func TestTerminalGroupsIndeterminateSurvivorsBySharedUnknownPaths(t *testing.T) 
 
 	if said := strings.Count(page, "because these paths are unknown at plan"); said != 2 {
 		t.Fatalf("the indeterminate sentence appears %d times, want once per group (2)", said)
+	}
+}
+
+func TestTerminalKeepsDiffsForGroupedAndUngroupedSurvivors(t *testing.T) {
+	t.Parallel()
+
+	value := indeterminateReport()
+
+	for index, replacement := range []int{6, 4} {
+		mutant := &value.Mutants[index]
+		mutant.Operator = value.Mutants[0].Operator
+		mutant.Range = value.Mutants[0].Range
+		mutant.Diff = fmt.Sprintf("--- main.tf\n+++ main.tf\n@@ -1 +1 @@\n"+
+			"-value = tonumber(terraform_data.seed.id) + 5\n"+
+			"+value = tonumber(terraform_data.seed.id) + %d\n", replacement)
+	}
+
+	value.Mutants[2].Verdict.Diagnosis = report.WeakAssertion
+	value.Mutants[2].Diff = "-value = \"old\"\n+value = \"OLD\"\n"
+
+	rendered := strings.Builder{}
+	if err := report.WriteTerminal(&rendered, value); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	page := rendered.String()
+
+	for _, replacement := range []int{6, 4} {
+		want := fmt.Sprintf("    NUM-OFF-BY-ONE  main.tf:21  local.locations\n"+
+			"    -value = tonumber(terraform_data.seed.id) + 5\n"+
+			"    +value = tonumber(terraform_data.seed.id) + %d\n", replacement)
+		if strings.Count(page, want) != 1 {
+			t.Fatalf("the grouped survivor lost its own diff %q:\n%s", want, page)
+		}
+	}
+
+	if !strings.Contains(page, "  STR-CASE  variables.tf:9  var.type\n"+
+		"    -value = \"old\"\n    +value = \"OLD\"\n") {
+		t.Fatalf("the ungrouped survivor lost its diff:\n%s", page)
+	}
+
+	if said := strings.Count(page, "because these paths are unknown at plan"); said != 1 {
+		t.Fatalf("the indeterminate explanation appears %d times, want once for the group", said)
 	}
 }
 

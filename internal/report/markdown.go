@@ -74,17 +74,21 @@ func writeIndeterminateGroups(page *strings.Builder, groups []indeterminateGroup
 
 		fmt.Fprintf(page, "\nFix: %s\n\n", fix)
 
-		for _, member := range group.members {
-			status := baselineStatusLabel(member)
-			if status != "" {
-				status = " (" + status + ")"
+		for _, site := range groupBySite(group.members) {
+			fmt.Fprintf(page, "##### `%s` — %s\n\n", site.site, location(site.members[0].Range))
+
+			for _, member := range site.members {
+				status := baselineStatusLabel(member)
+				if status != "" {
+					status = " (" + status + ")"
+				}
+
+				fmt.Fprintf(page, "- `%s` %s at %s%s\n",
+					member.Operator, string(member.State), location(member.Range), status)
 			}
 
-			fmt.Fprintf(page, "- `%s` %s at %s%s\n",
-				member.Operator, string(member.State), location(member.Range), status)
+			page.WriteString("\n")
 		}
-
-		page.WriteString("\n")
 	}
 }
 
@@ -98,13 +102,14 @@ type siteGroup struct {
 // report order within a site.
 func groupBySite(findings []Mutant) []siteGroup {
 	groups := []siteGroup{}
-	index := map[string]int{}
+	index := map[[2]string]int{}
 
 	for _, finding := range findings {
-		at, found := index[finding.Site]
+		key := [2]string{finding.Module, finding.Site}
+		at, found := index[key]
 		if !found {
 			at = len(groups)
-			index[finding.Site] = at
+			index[key] = at
 			groups = append(groups, siteGroup{site: finding.Site})
 		}
 
@@ -128,7 +133,11 @@ func groupBySite(findings []Mutant) []siteGroup {
 			return order
 		}
 
-		return strings.Compare(left.site, right.site)
+		if order := strings.Compare(left.site, right.site); order != 0 {
+			return order
+		}
+
+		return strings.Compare(left.members[0].Module, right.members[0].Module)
 	})
 
 	return groups

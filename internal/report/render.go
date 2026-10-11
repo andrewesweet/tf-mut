@@ -328,6 +328,7 @@ func writeIndeterminateSurvivors(builder *strings.Builder, groups []indeterminat
 		for _, member := range group.members {
 			fmt.Fprintf(builder, "    %s  %s  %s\n",
 				member.Operator, location(member.Range), member.Site)
+			writeDiff(builder, member.Diff)
 		}
 
 		builder.WriteString("\n")
