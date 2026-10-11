@@ -6,24 +6,28 @@ Date: 2026-09-07
 ## Decision
 
 The bounded contexts are package groups within one Go module, not deployables.
-`CONTEXT.md` is the single context map. The target dependency direction is to
-be enforced by the configured linter under #89: core, supporting, and Terraform
-Boundary packages do not depend on Publication, the CLI, or renderers;
-`internal/report` remains the stdlib-only publication leaf. The application
-layer coordinates the contexts and projects their values into report DTOs.
+`CONTEXT.md` is the single context map. The dependency direction is enforced by
+the configured linter, which landed in #89: core and supporting contexts may
+read boundary value types such as `tfexec.RunPayload` and `discovery.Reach` and
+supporting value types such as `mutation.Operator`; the boundary never imports
+core or supporting; and nothing imports Publication (`internal/report`,
+`internal/skill`), the engine, or the CLI. `internal/report` remains the
+stdlib-only publication leaf. The application layer coordinates the contexts
+and projects their values into report DTOs.
 
-This is a target architecture, not a claim about the current package graph.
-`internal/oracle` and later migrations remain future work. The planned #91 use of
-`internal/sandbox.WriteFreshChecked` by `internal/skill` is the narrow exception
-already recorded in `CONTEXT.md`; it does not make `internal/report` depend on a
-domain context.
+The #91 use of `internal/sandbox.WriteFreshChecked` by `internal/skill` is the
+narrow exception already recorded in `CONTEXT.md`; it does not make
+`internal/report` depend on a domain context.
 
 ## Alternatives considered
 
 A context map without enforcement was rejected because it records intent but does
-not make an import violation fail when introduced. Lint enforcement is pending in
-#89; the configured linter provides the dependency-rule capability needed for
-this boundary. A hand-written architecture test was rejected because that lint
+not make an import violation fail when introduced. Lint enforcement landed in #89
+as three depguard rules over the context package globs, test files included: the
+`context-boundary` rule denying the publication DTO, the `hclsyntax-boundary`
+rule confining native syntax to `discovery`, `mutation`, `characterise` and
+`config`, and the `application-boundary` rule denying the engine and the CLI.
+A hand-written architecture test was rejected because that lint
 rule will answer the structural question without creating a second rule to
 maintain.
 

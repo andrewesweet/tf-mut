@@ -4,13 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclparse"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
 
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
@@ -32,9 +27,6 @@ var ErrAnswer = errors.New("the answer names no open judgement point")
 
 // answerSeparator splits `todo-<id>=<value>`.
 const answerSeparator = "="
-
-// todoPlaceholder is the unanswered value in a non-executable artefact.
-const todoPlaceholder = "TFMUT_TODO"
 
 // collectAnswers gathers the answers this invocation has, from the flag and —
 // under --resume — from the edited artefact. An explicit answer wins over the
@@ -68,7 +60,8 @@ func collectAnswers(
 }
 
 // readArtefactAnswers reads every answered TODO out of the non-executable
-// artefacts in the test directory.
+// artefacts in the test directory, through the parser the artefact class's
+// owning context publishes.
 func readArtefactAnswers(configuration discovery.Configuration) (map[string]string, error) {
 	pattern := filepath.Join(configuration.Tests.Dir, "*"+characterise.ArtefactSuffix)
 
@@ -78,59 +71,17 @@ func readArtefactAnswers(configuration discovery.Configuration) (map[string]stri
 	}
 
 	answers := map[string]string{}
-	parser := hclparse.NewParser()
 
 	for _, path := range paths {
-		content, readErr := os.ReadFile(path) //nolint:gosec // a discovery-owned test directory.
-		if readErr != nil {
-			return nil, fmt.Errorf("reading %s: %w", path, readErr)
+		fromFile, err := characterise.ParseArtefactAnswers(path)
+		if err != nil {
+			return nil, err
 		}
 
-		file, diagnostics := parser.ParseHCL(content, path)
-		if diagnostics.HasErrors() {
-			return nil, fmt.Errorf("%w: %s: %s", discovery.ErrParse, path, diagnostics.Error())
-		}
-
-		body, ok := file.Body.(*hclsyntax.Body)
-		if !ok {
-			return nil, fmt.Errorf("%w: %s: unexpected body type", discovery.ErrParse, path)
-		}
-
-		collectArtefactAnswers(body, content, answers)
+		maps.Copy(answers, fromFile)
 	}
 
 	return answers, nil
-}
-
-// collectArtefactAnswers reads the answered value of each todo block, verbatim,
-// so the answer written into the run block is the text the reader wrote.
-func collectArtefactAnswers(body *hclsyntax.Body, content []byte, answers map[string]string) {
-	for _, block := range body.Blocks {
-		if block.Type != "todo" || len(block.Labels) != 1 {
-			continue
-		}
-
-		attribute, found := block.Body.Attributes["value"]
-		if !found {
-			continue
-		}
-
-		source := expressionSource(content, attribute.Expr)
-		if source == "" || source == todoPlaceholder {
-			continue
-		}
-
-		answers[block.Labels[0]] = source
-	}
-}
-
-func expressionSource(content []byte, expr hcl.Expression) string {
-	span := expr.Range()
-	if span.Start.Byte < 0 || span.End.Byte > len(content) || span.Start.Byte >= span.End.Byte {
-		return ""
-	}
-
-	return strings.TrimSpace(string(content[span.Start.Byte:span.End.Byte]))
 }
 
 // listTodos is the `tf-mut todos` command: the open judgement points and the

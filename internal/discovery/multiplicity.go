@@ -1,4 +1,4 @@
-package engine
+package discovery
 
 import (
 	"fmt"
@@ -12,11 +12,34 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/json"
 	"github.com/zclconf/go-cty/cty"
-
-	"github.com/andrewesweet/tf-mut/internal/discovery"
-	"github.com/andrewesweet/tf-mut/internal/mutation"
 )
 
+// Site is the location facts a conditional-multiplicity question is about:
+// where the mutation catalogue placed a site, and the mutated bytes it
+// produced there. The configuration does not know the mutation context; the
+// application layer projects the mutant it is asking about onto these fields.
+type Site struct {
+	// ModuleRel is the closure-relative directory of the mutated module.
+	ModuleRel string
+	// File is the closure-relative path of the mutated file.
+	File string
+	// Address is the semantic address of the mutation site.
+	Address string
+	// Resource is the resource address the site belongs to, when it has one.
+	Resource string
+	// Mutated is the rewritten file content.
+	Mutated []byte
+}
+
+// variableRoot is the root name the evaluator binds resolved variables
+// under; every admitted reference reads `var.<name>`.
+const variableRoot = "var"
+
+// ConditionalMultiplicity publishes the one fact a pre-classification needs
+// about a site: that the block it sits in is never instantiated, because the
+// block's `count` or `for_each` is conditional on an input and is statically
+// zero under every relevant run.
+//
 // M3a.3 (#47): conditional-instantiation NoCoverage, evaluated against the
 // mutant. Quoting the C1 disposition: "Pre-classification is per-mutant,
 // never per-block: the mutated multiplicity expression must be statically
@@ -30,39 +53,37 @@ import (
 // literal arithmetic. Everything else — a plan_options.target, a run.*
 // reference, an unsupported form, a TF_VAR_ environment override, a block in
 // a child module reached through a module call — fails closed to execution.
-
-// conditionallyUncovered decides per-mutant pre-classification.
-func conditionallyUncovered(
-	configuration discovery.Configuration,
-	graph *discovery.Graph,
-	settings settings, mutant mutation.Mutant,
+func (configuration Configuration) ConditionalMultiplicity(
+	graph *Graph,
+	env []string,
+	site Site,
 ) bool {
 	rootRel := configuration.RootRelative()
-	if mutant.ModuleRel != rootRel {
+	if site.ModuleRel != rootRel {
 		// Recorded conservatism: instantiation through a module call would
 		// need call-input propagation, which is outside the enumerated
 		// context. Child-module blocks fail closed to execution.
 		return false
 	}
 
-	block, found := resourceBlock(configuration, rootRel, mutant.Resource)
+	block, found := resourceBlockFor(configuration, rootRel, site.Resource)
 	if !found || (!block.HasCount && !block.HasForEach) {
 		return false
 	}
 
-	meta := "count"
+	meta := countKeyword
 	if block.HasForEach {
-		meta = "for_each"
+		meta = forEachKeyword
 	}
 
 	// Any mutant in, under, or graph-upstream of the multiplicity expression
 	// always executes: this is the run the pre-classification must never
 	// suppress.
-	if graph.MultiplicityGuard(rootRel, block.Address+"."+meta, mutant.ModuleRel, mutant.Site) {
+	if graph.MultiplicityGuard(rootRel, block.Address+"."+meta, site.ModuleRel, site.Address) {
 		return false
 	}
 
-	expr, ok := mutatedMultiplicity(mutant, block, meta)
+	expr, ok := mutatedMultiplicity(site, block, meta)
 	if !ok {
 		return false
 	}
@@ -84,7 +105,7 @@ func conditionallyUncovered(
 			return false
 		}
 
-		value, decided := evaluateMultiplicity(configuration, settings, run, expr)
+		value, decided := evaluateMultiplicity(configuration, env, run, expr)
 		if !decided || !isZeroMultiplicity(value, meta) {
 			return false
 		}
@@ -93,14 +114,16 @@ func conditionallyUncovered(
 	return true
 }
 
-// resourceBlock finds the resource or data block a mutant sits in.
-func resourceBlock(
-	configuration discovery.Configuration,
+// resourceBlockFor finds the resource or data block a mutant sits in. The
+// name carries "For" because `resourceBlock` is this package's block-kind
+// constant.
+func resourceBlockFor(
+	configuration Configuration,
 	moduleRel, address string,
-) (discovery.Block, bool) {
+) (Block, bool) {
 	module, found := configuration.ModuleByRel(moduleRel)
 	if !found || address == "" {
-		return discovery.Block{}, false
+		return Block{}, false
 	}
 
 	for _, block := range module.Resources {
@@ -115,18 +138,18 @@ func resourceBlock(
 		}
 	}
 
-	return discovery.Block{}, false
+	return Block{}, false
 }
 
 // mutatedMultiplicity extracts the multiplicity expression from the mutant's
 // own rewritten file — the program the claim is about — failing closed when
 // the mutant does not parse or the attribute is gone.
 func mutatedMultiplicity(
-	mutant mutation.Mutant,
-	block discovery.Block,
+	site Site,
+	block Block,
 	meta string,
 ) (hcl.Expression, bool) {
-	file, diagnostics := hclparse.NewParser().ParseHCL(mutant.Mutated, mutant.File)
+	file, diagnostics := hclparse.NewParser().ParseHCL(site.Mutated, site.File)
 	if diagnostics.HasErrors() {
 		return nil, false
 	}
@@ -167,7 +190,7 @@ func mutatedMultiplicity(
 	return nil, false
 }
 
-func blockShape(block discovery.Block) (string, []string) {
+func blockShape(block Block) (string, []string) {
 	if block.Kind == "data" {
 		return "data", []string{block.Type, block.Name}
 	}
@@ -177,8 +200,8 @@ func blockShape(block discovery.Block) (string, []string) {
 
 // relevantRuns lists the runs that instantiate the root module: every run
 // without a retarget, plus any run retargeting the root itself.
-func relevantRuns(configuration discovery.Configuration) []discovery.RunBlock {
-	runs := []discovery.RunBlock{}
+func relevantRuns(configuration Configuration) []RunBlock {
+	runs := []RunBlock{}
 
 	for _, run := range configuration.Tests.Runs {
 		if run.ModuleSource == "" {
@@ -195,7 +218,7 @@ func relevantRuns(configuration discovery.Configuration) []discovery.RunBlock {
 	return runs
 }
 
-func retargetsRoot(configuration discovery.Configuration, source string) bool {
+func retargetsRoot(configuration Configuration, source string) bool {
 	if !strings.HasPrefix(source, "./") && !strings.HasPrefix(source, "../") {
 		return false
 	}
@@ -209,15 +232,16 @@ func retargetsRoot(configuration discovery.Configuration, source string) bool {
 // context, deciding only when every form is supported and every referenced
 // variable resolves.
 func evaluateMultiplicity(
-	configuration discovery.Configuration,
-	settings settings, run discovery.RunBlock,
+	configuration Configuration,
+	env []string,
+	run RunBlock,
 	expr hcl.Expression,
 ) (cty.Value, bool) {
 	// The admitted multiplicity forms are native-syntax shapes, and the
 	// accessor is the one named route to them. A value that is not native
 	// syntax is a form the evaluator cannot walk — undecided, which the
 	// caller fails closed to execution.
-	native, ok := discovery.NativeExpression(expr)
+	native, ok := NativeExpression(expr)
 	if !ok {
 		return cty.NilVal, false
 	}
@@ -230,7 +254,7 @@ func evaluateMultiplicity(
 	values := map[string]cty.Value{}
 
 	for _, name := range names {
-		value, resolved := resolveVariable(configuration, settings, run, name)
+		value, resolved := resolveVariable(configuration, env, run, name)
 		if !resolved {
 			return cty.NilVal, false
 		}
@@ -239,7 +263,7 @@ func evaluateMultiplicity(
 	}
 
 	context := &hcl.EvalContext{
-		Variables: map[string]cty.Value{"var": cty.ObjectVal(values)},
+		Variables: map[string]cty.Value{variableRoot: cty.ObjectVal(values)},
 		Functions: nil,
 	}
 
@@ -334,15 +358,16 @@ func supportedOperation(operation *hclsyntax.Operation) bool {
 // the resolution closed: falling through to a weaker level it overrides
 // would prove zero where Terraform instantiates the block (review of #47).
 func resolveVariable(
-	configuration discovery.Configuration,
-	settings settings, run discovery.RunBlock,
+	configuration Configuration,
+	env []string,
+	run RunBlock,
 	name string,
 ) (cty.Value, bool) {
-	if environmentOverrides(settings, name) {
+	if environmentOverrides(env, name) {
 		return cty.NilVal, false
 	}
 
-	for _, attributes := range [][]discovery.Attribute{
+	for _, attributes := range [][]Attribute{
 		run.Variables,
 		configuration.Tests.FileVariables[run.File],
 	} {
@@ -415,6 +440,7 @@ func autoVariableFiles(moduleDir string) []string {
 	autoLoaded, _ := filepath.Glob(filepath.Join(moduleDir, "*.auto.tfvars"))
 
 	jsonLoaded, _ := filepath.Glob(filepath.Join(moduleDir, "*.auto.tfvars.json"))
+
 	autoLoaded = append(autoLoaded, jsonLoaded...)
 
 	slices.Sort(autoLoaded)
@@ -435,12 +461,12 @@ func variableFileAttributes(path string) (map[string]hcl.Expression, error) {
 	if strings.HasSuffix(path, ".json") {
 		file, diagnostics := json.Parse(content, path)
 		if diagnostics.HasErrors() {
-			return nil, fmt.Errorf("%w: %s: %s", discovery.ErrParse, path, diagnostics.Error())
+			return nil, fmt.Errorf("%w: %s: %s", ErrParse, path, diagnostics.Error())
 		}
 
 		attributes, attributeDiagnostics := file.Body.JustAttributes()
 		if attributeDiagnostics.HasErrors() {
-			return nil, fmt.Errorf("%w: %s: %s", discovery.ErrParse, path, attributeDiagnostics.Error())
+			return nil, fmt.Errorf("%w: %s: %s", ErrParse, path, attributeDiagnostics.Error())
 		}
 
 		for name, attribute := range attributes {
@@ -452,12 +478,12 @@ func variableFileAttributes(path string) (map[string]hcl.Expression, error) {
 
 	file, diagnostics := hclparse.NewParser().ParseHCL(content, path)
 	if diagnostics.HasErrors() {
-		return nil, fmt.Errorf("%w: %s: %s", discovery.ErrParse, path, diagnostics.Error())
+		return nil, fmt.Errorf("%w: %s: %s", ErrParse, path, diagnostics.Error())
 	}
 
 	body, ok := file.Body.(*hclsyntax.Body)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s: unexpected body type", discovery.ErrParse, path)
+		return nil, fmt.Errorf("%w: %s: unexpected body type", ErrParse, path)
 	}
 
 	for name, attribute := range body.Attributes {
@@ -467,10 +493,10 @@ func variableFileAttributes(path string) (map[string]hcl.Expression, error) {
 	return assignments, nil
 }
 
-func environmentOverrides(settings settings, name string) bool {
+func environmentOverrides(env []string, name string) bool {
 	key := "TF_VAR_" + name + "="
 
-	for _, entry := range settings.Env {
+	for _, entry := range env {
 		if strings.HasPrefix(entry, key) {
 			return true
 		}
@@ -486,7 +512,7 @@ func environmentOverrides(settings settings, name string) bool {
 }
 
 // namedAttribute finds an attribute assignment by name.
-func namedAttribute(attributes []discovery.Attribute, name string) (hcl.Expression, bool) {
+func namedAttribute(attributes []Attribute, name string) (hcl.Expression, bool) {
 	for _, attribute := range attributes {
 		if attribute.Name == name {
 			return attribute.Expr, true
@@ -518,8 +544,3 @@ func isZeroMultiplicity(value cty.Value, meta string) bool {
 
 	return value.LengthInt() == 0
 }
-
-// conditionallyNoCoverageClaim is the finding a pre-classified mutant
-// carries: the reason the oracle's NoCoverage constructor states for it.
-const conditionallyNoCoverageClaim = "the mutated block's multiplicity expression is statically zero under every " +
-	"relevant run, so no run instantiates the block and nothing can execute the mutation"

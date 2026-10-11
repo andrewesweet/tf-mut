@@ -16,8 +16,6 @@ import (
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
-	"github.com/zclconf/go-cty/cty"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/engine"
@@ -591,7 +589,7 @@ func selectRepairCandidate(
 func repairConstraintKeys(
 	constraint string,
 ) (functions map[string]bool, arnPrefix, parsed bool) {
-	expression, diagnostics := hclsyntax.ParseExpression(
+	expression, diagnostics := discovery.ParseExpression(
 		[]byte(constraint), "constraint", hcl.InitialPos,
 	)
 	if diagnostics.HasErrors() {
@@ -600,27 +598,15 @@ func repairConstraintKeys(
 
 	functions = map[string]bool{}
 
-	_ = hclsyntax.VisitAll(expression, func(node hclsyntax.Node) hcl.Diagnostics {
-		if call, ok := node.(*hclsyntax.FunctionCallExpr); ok {
-			functions[call.Name] = true
-		}
+	for _, name := range discovery.FunctionCalls(expression) {
+		functions[name] = true
+	}
 
-		expression, ok := node.(hclsyntax.Expression)
-		if !ok {
-			return nil
-		}
-
-		value, valueDiagnostics := expression.Value(nil)
-		if valueDiagnostics.HasErrors() || !value.IsKnown() || value.IsNull() || value.Type() != cty.String {
-			return nil
-		}
-
-		if strings.Contains(value.AsString(), "arn:") {
+	for _, constant := range discovery.ConstantStrings(expression) {
+		if strings.Contains(constant, "arn:") {
 			arnPrefix = true
 		}
-
-		return nil
-	})
+	}
 
 	return functions, arnPrefix, true
 }
@@ -693,14 +679,19 @@ func mapRepairRange(
 }
 
 func traversalInput(traversal string) (string, bool) {
-	parsed, diagnostics := hclsyntax.ParseTraversalAbs(
+	parsed, diagnostics := discovery.ParseExpression(
 		[]byte(traversal), "diagnostic", hcl.InitialPos,
 	)
-	if diagnostics.HasErrors() || len(parsed) < 2 || parsed.RootName() != "var" {
+	if diagnostics.HasErrors() {
 		return "", false
 	}
 
-	attribute, ok := parsed[1].(hcl.TraverseAttr)
+	absolute, absoluteDiagnostics := hcl.AbsTraversalForExpr(parsed)
+	if absoluteDiagnostics.HasErrors() || len(absolute) < 2 || absolute.RootName() != "var" {
+		return "", false
+	}
+
+	attribute, ok := absolute[1].(hcl.TraverseAttr)
 	if !ok || attribute.Name == "" {
 		return "", false
 	}

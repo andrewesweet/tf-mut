@@ -73,6 +73,46 @@ linters:
           deny:
             - pkg: github.com/andrewesweet/tf-mut/internal/report
               desc: "Publication DTOs are an outer context; preserve the dependency direction in CONTEXT.md."
+        # #89, second rule: native syntax is the boundary's own dialect. Only
+        # the four packages below may name `hclsyntax` — discovery as the
+        # expression boundary the other contexts read through, mutation and
+        # characterise as the two rewrite-and-generation contexts whose
+        # operators own their tokens, config because `.tf-mut.hcl` is its own
+        # format. Every other consumer reads expression facts through
+        # discovery's published accessors; the engine's test files are bound
+        # by this like any other file.
+        hclsyntax-boundary:
+          list-mode: lax
+          files:
+            - $all
+            - "!**/internal/discovery/**"
+            - "!**/internal/mutation/**"
+            - "!**/internal/characterise/**"
+            - "!**/internal/config/**"
+          deny:
+            - pkg: github.com/hashicorp/hcl/v2/hclsyntax
+              desc: "Native syntax is parsed and walked inside the boundary (discovery, mutation, characterise) and by config's own format; go through discovery's accessors. See ADR-0004."
+        # #89, third rule: no context reaches the application layer or the
+        # CLI. The direction runs one way — the engine coordinates the
+        # contexts and the CLI coordinates the engine — and this rule is what
+        # makes an edge in the other direction fail the build rather than the
+        # review.
+        application-boundary:
+          list-mode: lax
+          files:
+            - "**/internal/fingerprint/**"
+            - "**/internal/oracle/**"
+            - "**/internal/mutation/**"
+            - "**/internal/discovery/**"
+            - "**/internal/tfexec/**"
+            - "**/internal/sandbox/**"
+            - "**/internal/suggest/**"
+            - "**/internal/characterise/**"
+          deny:
+            - pkg: github.com/andrewesweet/tf-mut/internal/engine
+              desc: "The engine is the application layer; a context never imports it. See CONTEXT.md's dependency direction."
+            - pkg: github.com/andrewesweet/tf-mut/cmd
+              desc: "The CLI is an outer adapter; a context never imports it. See CONTEXT.md's dependency direction."
     cyclop:
       # Matched to revive's cyclomatic setting below. A complete dispatch over
       # Terraform's grammar — every top-level block kind, every reference form,

@@ -698,6 +698,13 @@ func countAssertions(configuration discovery.Configuration) int {
 	return total
 }
 
+// conditionallyNoCoverageClaim is the finding a pre-classified mutant
+// carries: the reason the oracle's NoCoverage constructor states for it. The
+// fact itself — that the block is never instantiated — is published by
+// discovery's ConditionalMultiplicity.
+const conditionallyNoCoverageClaim = "the mutated block's multiplicity expression is statically zero under every " +
+	"relevant run, so no run instantiates the block and nothing can execute the mutation"
+
 // describe converts generated mutants into report values, assigning the
 // statically decidable states before anything executes: module-level
 // NoCoverage first — the structural precedence and the M2 behaviour — then
@@ -736,7 +743,13 @@ func describe(
 			// nothing else.
 			entry = project(entry, oracle.NoCoverage(""))
 		case settings.mode != previewMode && !shortcutsDisabled &&
-			conditionallyUncovered(configuration, graph, settings, mutant):
+			configuration.ConditionalMultiplicity(graph, settings.Env, discovery.Site{
+				ModuleRel: mutant.ModuleRel,
+				File:      mutant.File,
+				Address:   mutant.Site,
+				Resource:  mutant.Resource,
+				Mutated:   mutant.Mutated,
+			}):
 			// The finer conditional-instantiation claim (M3a.3): the mutated
 			// multiplicity expression is statically zero under every relevant
 			// run. Module-level NoCoverage above remains the strict subset.

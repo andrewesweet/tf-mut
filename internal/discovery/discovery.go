@@ -156,6 +156,38 @@ func ReparsedNative(expr hcl.Expression) (hclsyntax.Expression, bool) {
 	return parsed, true
 }
 
+// ParseExpression is the point-of-use parse for expression text a consumer
+// holds as bytes — generated text, a quoted constraint — rather than as a
+// discovered declaration. It is the one route through which anything outside
+// this package turns expression text into an expression, so Terraform's
+// grammar is parsed in exactly one place; a caller that holds a discovered
+// expression already has one and does not call this.
+func ParseExpression(src []byte, filename string, pos hcl.Pos) (hcl.Expression, hcl.Diagnostics) {
+	return hclsyntax.ParseExpression(src, filename, pos)
+}
+
+// IsTraversal reports whether an expression is nothing but a name lookup —
+// a root, attributes and literal index steps, with no operators, calls or
+// splats. It is the fact the address adapters need: a generated assertion
+// may trust expression text only once it names a value without computing
+// one. A non-native expression is not a traversal.
+func IsTraversal(expr hcl.Expression) bool {
+	switch typed := expr.(type) {
+	case *hclsyntax.ScopeTraversalExpr:
+		return true
+	case *hclsyntax.RelativeTraversalExpr:
+		return IsTraversal(typed.Source)
+	case *hclsyntax.IndexExpr:
+		if _, literal := typed.Key.(*hclsyntax.LiteralValueExpr); !literal {
+			return false
+		}
+
+		return IsTraversal(typed.Collection)
+	default:
+		return false
+	}
+}
+
 // NativeVariables lists the variables declared in native syntax — the view
 // the mutation surface reads, so that reading a JSON declaration never adds
 // or removes a mutant.
