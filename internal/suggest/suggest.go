@@ -421,7 +421,7 @@ func (e *Evidence) absorb(change fingerprint.Change, changes []fingerprint.Chang
 		e.proveNonNull(change, changes)
 	}
 
-	e.countInstance(change)
+	e.countInstance(change, changes)
 }
 
 // proveNonNull marks a nulled container non-null where any peer change carries
@@ -443,15 +443,18 @@ func (e *Evidence) proveNonNull(change fingerprint.Change, changes []fingerprint
 	}
 }
 
-// countInstance folds a vanished instance's change into the resource count and
-// the vanished-root proof the count rendering is judged against.
-func (e *Evidence) countInstance(change fingerprint.Change) {
+// countInstance folds a vanished instance's change into the resource count
+// and the vanished-root proof the count rendering is judged against. An
+// instance counts as vanished only where the delta also carries a change at
+// the instance's root record — its address or index: a value-body change
+// alone cannot tell a vanished instance from a vanished value.
+func (e *Evidence) countInstance(change fingerprint.Change, changes []fingerprint.Change) {
 	if change.Mutant != "" {
 		return
 	}
 
 	resource, index, counted := fingerprint.CountedInstance(change.Path)
-	if !counted {
+	if !counted || !instanceRecorded(resource, index, changes) {
 		return
 	}
 
@@ -462,6 +465,25 @@ func (e *Evidence) countInstance(change fingerprint.Change) {
 	if index == 0 {
 		e.VanishedRoots[resource] = true
 	}
+}
+
+// instanceRecorded reports whether the change set carries a change at an
+// instance's root record: the address or index Terraform writes for the
+// instance itself, whose mutant side vanished with it.
+func instanceRecorded(resource string, index int, changes []fingerprint.Change) bool {
+	root := fingerprint.CountedInstanceRoot(resource, index)
+
+	for _, change := range changes {
+		if change.Mutant != "" {
+			continue
+		}
+
+		if change.Path == root+".address" || change.Path == root+".index" {
+			return true
+		}
+	}
+
+	return false
 }
 
 // markersUnder reports whether the delta's markers reach the subtree a value

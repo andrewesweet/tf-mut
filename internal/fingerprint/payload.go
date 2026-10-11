@@ -906,6 +906,13 @@ func digitsOnly(key string) bool {
 	return true
 }
 
+// CountedInstanceRoot spells the state path at which Terraform records the
+// numbered instance of a resource — the root record whose vanished change is
+// the only change that can prove the instance vanished.
+func CountedInstanceRoot(resource string, index int) string {
+	return rootModule + ".resources[" + resource + "[" + strconv.Itoa(index) + "]]"
+}
+
 // CountedInstance reads a state or plan resource path onto the counted
 // instance it names: `root_module.resources[null_resource.app[1]].values…`
 // onto resource `null_resource.app`, index 1, and a resource change's
