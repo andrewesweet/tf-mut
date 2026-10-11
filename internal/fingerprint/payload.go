@@ -796,17 +796,7 @@ func IsUnknownMarker(path string) bool {
 // marks its `change.after…`. A path that is not a marker path reports false.
 func UnknownValueBase(marker string) (string, bool) {
 	if rest, cut := strings.CutPrefix(marker, outputChanges+"."); cut {
-		name, tail, found := strings.Cut(rest, ".")
-		if !found {
-			return "", false
-		}
-
-		marked, isMarker := strings.CutPrefix(tail, afterUnknown)
-		if !isMarker || (marked != "" && marked[0] != '.') {
-			return "", false
-		}
-
-		return outputChanges + "." + name + "." + outputAfterField + marked, true
+		return unknownOutputBase(rest)
 	}
 
 	if rest, cut := strings.CutPrefix(marker, resourceChanges+"["); cut {
@@ -824,6 +814,38 @@ func UnknownValueBase(marker string) (string, bool) {
 	}
 
 	return "", false
+}
+
+// unknownOutputBase maps an output-side marker onto its marked value: the
+// marker's name and the bracketed element key, if it carries one, transfer
+// verbatim onto the after path.
+func unknownOutputBase(rest string) (string, bool) {
+	name, tail, found := strings.Cut(rest, ".")
+	if !found {
+		return "", false
+	}
+
+	marked, isMarker := strings.CutPrefix(tail, afterUnknown)
+	if !isMarker {
+		return "", false
+	}
+
+	// A whole element the plan marks unknown carries its index in the marker:
+	// after_unknown[0].id marks after[0].id, the element's member, not a
+	// member of the collection itself. The bracketed key is consumed
+	// depth-matched, and what follows must be empty or dotted.
+	if rest, cut := strings.CutPrefix(marked, "["); cut {
+		index, remainder, closed := cutBracketed(rest)
+		if !closed || (remainder != "" && remainder[0] != '.') {
+			return "", false
+		}
+
+		marked = "[" + index + "]" + remainder
+	} else if marked != "" && marked[0] != '.' {
+		return "", false
+	}
+
+	return outputChanges + "." + name + "." + outputAfterField + marked, true
 }
 
 // IsOutputMetadata reports whether a canonical path names an output record's

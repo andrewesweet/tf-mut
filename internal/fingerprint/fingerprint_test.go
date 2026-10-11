@@ -372,8 +372,18 @@ func TestAnUnknownMarkerPathMapsOntoTheValueItMarks(t *testing.T) {
 			"output_changes.identity.after.items[0].port",
 		},
 		{
+			// A plan whose whole element is unknown marks the member under the
+			// element's index: the marker names after[0].id, not after.id.
+			"output_changes.identity.after_unknown[0].id",
+			"output_changes.identity.after[0].id",
+		},
+		{
 			"resource_changes[null_resource.app].change.after_unknown.triggers",
 			"resource_changes[null_resource.app].change.after.triggers",
+		},
+		{
+			"resource_changes[null_resource.app].change.after_unknown[1].triggers",
+			"resource_changes[null_resource.app].change.after[1].triggers",
 		},
 	} {
 		t.Run(testCase.marker, func(t *testing.T) {
@@ -403,6 +413,7 @@ func TestNonMarkerPathsNameNoMarkerRecord(t *testing.T) {
 		identityChangeAfter,
 		"output_changes.identity.after_sensitive",
 		"output_changes.identity.after_unknownish.children",
+		"output_changes.identity.after_unknown[0",
 		"resource_changes[null_resource.app].change.before",
 		"resource_changes[null_resource.app].change.after.triggers",
 		"outputs.after_unknown",
