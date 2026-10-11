@@ -32,7 +32,7 @@ import (
 
 // cacheFormatVersion invalidates every entry when the verdict shape or the
 // key derivation changes.
-const cacheFormatVersion = "tf-mut-cache-1"
+const cacheFormatVersion = "tf-mut-cache-2"
 
 // The cache is private by construction: evidence may embed plan values and
 // source text.

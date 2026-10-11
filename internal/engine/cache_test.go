@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -77,6 +78,70 @@ func TestASecondUnchangedRunIsAllCacheHits(t *testing.T) {
 	}
 
 	assertVerdictInvariance(t, first, second)
+}
+
+func TestPreSandboxFixInvalidVerdictsAreNotReplayed(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+	config := baseConfig(t, module)
+	first := cachedRun(t, config)
+
+	entries, err := os.ReadDir(cacheDir(module))
+	if err != nil {
+		t.Fatalf("reading cache: %v", err)
+	}
+
+	legacy := 0
+
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		path := filepath.Join(cacheDir(module), entry.Name())
+
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatalf("reading cache entry: %v", readErr)
+		}
+
+		document := map[string]any{}
+		if decodeErr := json.Unmarshal(content, &document); decodeErr != nil {
+			t.Fatalf("decoding cache entry: %v", decodeErr)
+		}
+
+		document["format_version"] = "tf-mut-cache-1"
+		document["state"] = report.Invalid
+		document["validated"] = true
+		delete(document, "verdict")
+
+		encoded, encodeErr := json.Marshal(document)
+		if encodeErr != nil {
+			t.Fatalf("encoding legacy cache entry: %v", encodeErr)
+		}
+
+		writeFile(t, path, string(encoded))
+		legacy++
+	}
+
+	if legacy == 0 {
+		t.Fatal("the first run wrote no entries to replace with legacy Invalid verdicts")
+	}
+
+	second := cachedRun(t, config)
+	if second.Population.Cached != 0 || second.Population.Fresh == 0 {
+		t.Fatalf("legacy Invalid verdicts were not freshly executed: %+v", second.Population)
+	}
+
+	assertVerdictInvariance(t, first, second)
+
+	third := cachedRun(t, config)
+	if third.Population.Cached == 0 || third.Population.Fresh != 0 {
+		t.Fatalf("new verdicts were not cached: %+v", third.Population)
+	}
+
+	assertVerdictInvariance(t, second, third)
 }
 
 // TestCacheInvalidationPerKeyDimension: one fixture per key dimension. Each
