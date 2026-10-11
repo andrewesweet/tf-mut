@@ -243,7 +243,7 @@ func valuePins(
 			continue
 		}
 
-		key := scenario.ID() + "\x00" + expressionAddress(address, attribute)
+		key := scenario.ID() + "\x00" + ExpressionAddress(address, attribute)
 		if seen[key] {
 			continue
 		}
@@ -279,7 +279,7 @@ type pinContext struct {
 // not reach a renderer at all, and only what survives both is expressed.
 func onePin(context pinContext) Pin {
 	value := context.payload.Values[context.path]
-	expression := expressionAddress(context.address, context.attribute)
+	expression := ExpressionAddress(context.address, context.attribute)
 
 	skip := func(reason SkipReason, detail string) Pin {
 		return PinSkipped(context.scenario.ID(), expression, string(context.rung), reason, detail)
@@ -444,11 +444,14 @@ func resourceAddressOnly(address string) bool {
 // collection named whole, with no attribute after it.
 const collectionAddressParts = 2
 
-// expressionAddress rejoins an address and attribute path the way the
-// assertion expression spells it.
-func expressionAddress(address, attribute string) string {
-	if attribute == "" {
-		return address
+// ExpressionAddress rejoins an address and attribute path the way the
+// assertion expression spells it: a dotted attribute joins under a dot, an
+// attribute that opens with an index continues from the address directly,
+// because `output.x.[0]` parses as two traversals where the assertion needs
+// one.
+func ExpressionAddress(address, attribute string) string {
+	if attribute == "" || strings.HasPrefix(attribute, "[") {
+		return address + attribute
 	}
 
 	return address + "." + attribute
