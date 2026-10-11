@@ -372,7 +372,9 @@ func assertReadmeVocabulary(t *testing.T, readme string, reporters []string) {
 	}
 
 	usageCommands := captureVocabulary(t, usage, "binary command list", `(?m)^  ([a-z]+) +[^\n]+$`)
-	readmeCommands := captureVocabulary(t, readme, "README command examples", `(?m)^tf-mut ([a-z]+)(?: +[^\n]*)?$`)
+	readmeSynopsis := documentSlice(t, readme, "## Using it\n\n```bash\n", "\n```", "README command synopsis")
+	readmeCommands := captureVocabulary(t, readmeSynopsis, "README command examples",
+		`(?m)^tf-mut ([a-z]+)(?: +[^\n]*)?$`)
 	assertVocabularyEquals(t, "README command examples", readmeCommands, usageCommands)
 
 	usageFlags := captureVocabulary(t, usage, "binary flag list", `(?m)^  (--[a-z][a-z-]*)`)

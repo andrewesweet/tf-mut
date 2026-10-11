@@ -86,6 +86,8 @@ Flags for run, preview, suggest, characterise, todos and curate:
   --output FORMAT=PATH         Write an additional reporter from the same run;
                                repeatable — every output derives from one report value
   --sarif-path PATH            Where to write the SARIF document
+  --cpu-profile PATH           Write a CPU profile of tf-mut itself
+  --otlp-endpoint URL          Export run, mutant and phase spans over OTLP/HTTP
 
 Flags for run, suggest and curate:
   --min-score N                Fail below this mutation score percentage
