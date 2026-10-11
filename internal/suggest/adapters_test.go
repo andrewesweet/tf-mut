@@ -21,7 +21,7 @@ import (
 // This is the testing seam's fourth recorded exception, and it is the same
 // exception `internal/fingerprint` already holds for the same reason: these are
 // claims about documents and about published types, and driving the real binary
-// into producing each of the fifteen shapes on demand is not possible. Every
+// into producing each of the payload shapes on demand is not possible. Every
 // verdict the adapters lead to is still asserted through the engine seam.
 
 // runIn builds the run block a suggestion would be placed in.
@@ -249,8 +249,8 @@ func TestAGeneratorLimitIsNeverARefutation(t *testing.T) {
 
 // TestTheRenderingContractMatrix gates the eight categories the C3 disposition
 // names — "lists, tuples, sets, maps, objects, typed nulls, nested values,
-// non-identifier map keys" — and TestTheRenderingContractAdmissions admits the
-// three forms it allows.
+// non-identifier map keys". TestTheRenderingContractAdmissions covers the
+// supported scalar, keyed, nested-block, null, emptiness and count forms.
 // renderingCase is one row of the rendering contract tables.
 type renderingCase struct {
 	name     string
@@ -354,10 +354,8 @@ func matrixRows() []renderingCase {
 	}
 }
 
-// admissionRows is the matrix's other half: the three forms the contract
-// admits, each rendering type-correctly.
-// admissionRows is the matrix's other half: the three forms the contract
-// admits, each rendering type-correctly.
+// admissionRows combines the matrix's scalar and structured assertion forms,
+// each rendering type-correctly.
 func admissionRows() []renderingCase {
 	return append(scalarAdmissionRows(), structuredAdmissionRows()...)
 }
@@ -627,8 +625,8 @@ func TestTheRenderingContractMatrix(t *testing.T) {
 	}
 }
 
-// TestTheRenderingContractAdmissions is the matrix's other half: the three
-// forms the contract admits, each rendering type-correctly.
+// TestTheRenderingContractAdmissions covers the admitted scalar and structured
+// assertion forms, each rendering type-correctly.
 func TestTheRenderingContractAdmissions(t *testing.T) {
 	t.Parallel()
 

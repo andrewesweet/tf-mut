@@ -87,11 +87,10 @@ func traversal(path string) (traversalParts, error) {
 		// Where the resource address alone is a legal traversal, what failed
 		// is the attribute path — a non-identifier map key, most commonly —
 		// and that is the rendering contract's refusal (C3), not an
-		// addressing one: the value is reachable, it just has no dotted
-		// spelling this generator emits.
+		// addressing one: the value is reachable, but this path has no
+		// supported traversal spelling.
 		if parseTraversal(resource) == nil {
-			return empty, fmt.Errorf("%w: %s is not expressible as a dotted traversal "+
-				"(a non-identifier key needs an index form this generator does not emit)",
+			return empty, fmt.Errorf("%w: %s has no supported traversal spelling",
 				ErrUnrenderable, expression)
 		}
 

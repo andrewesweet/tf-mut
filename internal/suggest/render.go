@@ -14,16 +14,15 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
-// ErrUnrenderable reports a value the generator cannot express type-correctly
-// for Terraform equality.
+// ErrUnrenderable reports a value or path the generator cannot express
+// type-correctly in a Terraform assertion.
 //
 // The installed `hclwrite.TokensForValue` renders lists, sets and tuples with
 // the same `[...]` syntax and maps and objects with the same `{...}` syntax,
 // and Terraform v1.15.8 confirms the consequence: `toset(["a"]) == ["a"]` is
-// false. Generation is therefore restricted to what renders type-correctly —
-// scalar leaves, `length(...)` equalities, and element assertions by concrete
-// key — with the provider schema as the type source. Everything else is
-// reported as a limit rather than generated and refuted.
+// false. Generation therefore refuses ambiguous whole-value equalities and
+// uses provider or baseline output types to justify element paths. Unsupported
+// shapes are reported as a limit rather than generated and refuted.
 var ErrUnrenderable = errors.New("no type-correct Terraform equality renders this value")
 
 // The two canonical renderings that carry no leaf.
@@ -34,7 +33,7 @@ const (
 
 // render is the value-rendering contract.
 type render struct {
-	// schemas is the normative type source. The payload alone cannot
+	// schemas supplies provider type evidence. The payload alone cannot
 	// distinguish a set from a list, so where a provider types the attribute
 	// its type decides, and where nothing types it beyond the scalar in front
 	// of us the value is scalar-rendered.
@@ -589,8 +588,7 @@ func nestedValue(attribute string) error {
 }
 
 func notDotted(expression string) error {
-	return fmt.Errorf("%w: %s is not expressible as a dotted traversal "+
-		"(a non-identifier key needs an index form this generator does not emit)",
+	return fmt.Errorf("%w: %s has no supported traversal spelling",
 		ErrUnrenderable, expression)
 }
 

@@ -367,7 +367,7 @@ func walkChanges(
 // It is the whole three-adapter sweep behind one call, and it is exported
 // because the fail-closed matrices are contracts about payload paths and
 // provider types rather than about any one module: driving the real binary
-// into producing each of the fifteen shapes on demand is not possible, exactly
+// into producing each of the payload shapes on demand is not possible, exactly
 // as it is not for the payload shapes `internal/fingerprint` is tested on.
 func Express(
 	run discovery.RunBlock,
