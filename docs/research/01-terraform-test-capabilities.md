@@ -192,10 +192,10 @@ recorded directory is **relative to the working directory** **[verified]**:
 Note the third entry: a `module { source = "./modules/net" }` block inside a run block is
 registered under the key `test.<dir>.<file>.<run>`, and also resolves relatively.
 
-Because these paths are relative, a `.terraform` directory can be **shared read-only across
-many working directories** and each directory still uses *its own* copy of the local module
-source. This is the property that makes cheap mutant sandboxes possible (see
-`04-harness-spike.md`).
+These relative paths let each working directory use its own copy of the local module
+source, as verified in [the harness spike](04-harness-spike.md). The current sandbox
+materialisation and sharing rules are specified in the
+[execution contract](../design/product-design.md#execute).
 
 ## 5. Gaps in the current release
 
