@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"encoding/json"
 	"os"
 	"runtime"
 	"strings"
@@ -77,6 +78,63 @@ func TestADeadlineExpiredRunLeavesNoProviderProcessBehind(t *testing.T) {
 		}
 
 		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// TestAMutantWhoseTestReachedItsDeadlineIsNamedInTheReport holds the second
+// half of the D11 road-test finding: the report used to carry no trace of a
+// deadline the runs' verdicts had outranked. A mutant killed at its deadline
+// was reported as Killed with nothing to show its test had been cut short, so
+// a reader could not tell a fully-executed kill from one the budget ended.
+//
+// The assertion is made against the JSON document, the published surface, and
+// not against a struct field: before the fix the field does not exist, and
+// the document must be shown to carry the deadline whatever the Go type does.
+func TestAMutantWhoseTestReachedItsDeadlineIsNamedInTheReport(t *testing.T) {
+	t.Parallel()
+	requireProviderMirror(t)
+
+	module := copyFixture(t, "unmocked-timeout")
+
+	config := baseConfig(t, module)
+	config.TimeoutFactor = 0.0001
+	config.TimeoutFloor = 3 * time.Second
+	// The env mutant's runs fail their assertion from the first completed run
+	// onwards, so its deadline lands behind failed runs and the verdict is
+	// Killed; the region mutant's runs all pass, so its verdict is Timeout.
+	// One invocation produces both precedence shapes at the same deadline.
+	config.IncludeOperators = []string{string(mutation.StrCase)}
+	config.AllowRealInfrastructure = true
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if result.Count(report.Killed) == 0 || result.Count(report.Timeout) == 0 {
+		t.Fatalf("expected at least one killed and one timeout verdict, got %v", result.Metrics.Counts)
+	}
+
+	encoded := strings.Builder{}
+	if err := report.WriteJSON(&encoded, result); err != nil {
+		t.Fatalf("encoding: %v", err)
+	}
+
+	var document struct {
+		Mutants []struct {
+			ID              string `json:"id"`
+			State           string `json:"state"`
+			DeadlineReached *bool  `json:"deadline_reached"`
+		} `json:"mutants"`
+	}
+	if err := json.Unmarshal([]byte(encoded.String()), &document); err != nil {
+		t.Fatalf("decoding the report document: %v", err)
+	}
+
+	for _, mutant := range document.Mutants {
+		if mutant.DeadlineReached == nil || !*mutant.DeadlineReached {
+			t.Fatalf("mutant %s (state %s) does not name its deadline in the document", mutant.ID, mutant.State)
+		}
 	}
 }
 
