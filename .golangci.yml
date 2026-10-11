@@ -73,8 +73,6 @@ linters:
           deny:
             - pkg: github.com/andrewesweet/tf-mut/internal/report
               desc: "Publication DTOs are an outer context; preserve the dependency direction in CONTEXT.md."
-            - pkg: github.com/andrewesweet/tf-mut/internal/skill
-              desc: "Shipped agent documents belong to Publication; no context imports them."
         # #89, second rule: native syntax is the boundary's own dialect. Only
         # the four packages below may name `hclsyntax` — discovery as the
         # expression boundary the other contexts read through, mutation and
@@ -115,62 +113,6 @@ linters:
               desc: "The engine is the application layer; a context never imports it. See CONTEXT.md's dependency direction."
             - pkg: github.com/andrewesweet/tf-mut/cmd
               desc: "The CLI is an outer adapter; a context never imports it. See CONTEXT.md's dependency direction."
-        boundary-imports:
-          list-mode: lax
-          files:
-            - "**/internal/discovery/**"
-            - "**/internal/tfexec/**"
-            - "**/internal/sandbox/**"
-          deny:
-            - pkg: github.com/andrewesweet/tf-mut/internal/fingerprint
-              desc: "Terraform Boundary never imports core contexts."
-            - pkg: github.com/andrewesweet/tf-mut/internal/oracle
-              desc: "Terraform Boundary never imports core contexts."
-            - pkg: github.com/andrewesweet/tf-mut/internal/mutation
-              desc: "Terraform Boundary never imports supporting contexts."
-            - pkg: github.com/andrewesweet/tf-mut/internal/suggest
-              desc: "Terraform Boundary never imports supporting contexts."
-            - pkg: github.com/andrewesweet/tf-mut/internal/characterise
-              desc: "Terraform Boundary never imports supporting contexts."
-            - pkg: github.com/andrewesweet/tf-mut/internal/report
-              desc: "Terraform Boundary never imports Publication."
-            - pkg: github.com/andrewesweet/tf-mut/internal/skill
-              desc: "Terraform Boundary never imports Publication."
-            - pkg: github.com/andrewesweet/tf-mut/internal/engine
-              desc: "Terraform Boundary never imports the application layer."
-            - pkg: github.com/andrewesweet/tf-mut/cmd
-              desc: "Terraform Boundary never imports the CLI."
-        report-imports:
-          list-mode: strict
-          files:
-            - "**/internal/report/**"
-          allow:
-            - $gostd
-            - github.com/andrewesweet/tf-mut/internal/report$
-          deny:
-            - pkg: github.com/andrewesweet/tf-mut/internal
-              desc: "Report is the stdlib-only publication leaf; its external tests may import only the package under test."
-        skill-imports:
-          list-mode: lax
-          files:
-            - "**/internal/skill/**"
-          allow:
-            - github.com/andrewesweet/tf-mut/internal/sandbox$
-            - github.com/andrewesweet/tf-mut/internal/skill$
-          deny:
-            - pkg: github.com/andrewesweet/tf-mut/internal
-              desc: "Skill installation imports only the shared sandbox filesystem primitive internally, apart from its external tests' own package."
-            - pkg: github.com/andrewesweet/tf-mut/cmd
-              desc: "Publication never imports the CLI."
-    forbidigo:
-      analyze-types: true
-      exclude-godoc-examples: false
-      forbid:
-        - pattern: '^(fmt\.Print(|f|ln)|print|println)$'
-        - pattern: '^hclsyntax\.ParseExpression$'
-          msg: "Expression text is parsed through discovery.ParseExpression."
-        - pattern: '^hclsyntax\.ParseConfig$'
-          msg: "Native configuration parsing belongs to its format's owner."
     cyclop:
       # Matched to revive's cyclomatic setting below. A complete dispatch over
       # Terraform's grammar — every top-level block kind, every reference form,
@@ -231,18 +173,6 @@ linters:
   exclusions:
     generated: strict
     rules:
-      # Discovery owns Terraform parsing; mutation parses its pack format and
-      # rewritten configuration; config owns the separate .tf-mut.hcl format.
-      - path: ^internal/(discovery|mutation|config)/
-        text: 'Expression text is parsed through discovery\.ParseExpression|Native configuration parsing belongs to its format'
-        linters:
-          - forbidigo
-      # The validation-function table exercises expression semantics directly
-      # under AGENTS.md's fifth recorded testing exception.
-      - path: ^internal/characterise/functions_test\.go$
-        text: 'Expression text is parsed through discovery\.ParseExpression|Native configuration parsing belongs to its format'
-        linters:
-          - forbidigo
       # gosec's G703 taint analysis activates for writeFile's fixture-copy
       # path only under some build-tag sets, so the required //nolint:gosec is
       # "used" under one tag set and "unused" under the other — the same

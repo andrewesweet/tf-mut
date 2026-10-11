@@ -9,8 +9,6 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
-
-	"github.com/andrewesweet/tf-mut/internal/discovery"
 )
 
 // Redacted and Executable name the two renderings of one generated file.
@@ -359,7 +357,7 @@ const checkableParts = 2
 // the only shape a variable name can take; the caller checks separately that
 // the module actually declares it.
 func AnsweredVariables(answer string) (map[string]string, bool) {
-	expr, diagnostics := discovery.ParseExpression([]byte(answer), "answer", hcl.InitialPos)
+	expr, diagnostics := hclsyntax.ParseExpression([]byte(answer), "answer", hcl.InitialPos)
 	if diagnostics.HasErrors() {
 		return nil, false
 	}

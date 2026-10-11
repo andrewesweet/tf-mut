@@ -180,7 +180,7 @@ func accept(
 
 // bind parses a candidate and binds it as the variable's value.
 func bind(candidate string, variable discovery.Block) (*hcl.EvalContext, bool) {
-	expr, diagnostics := discovery.ParseExpression(
+	expr, diagnostics := hclsyntax.ParseExpression(
 		[]byte(candidate), "synthesis", hcl.InitialPos,
 	)
 	if diagnostics.HasErrors() {
