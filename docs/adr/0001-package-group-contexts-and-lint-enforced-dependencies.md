@@ -17,9 +17,8 @@ application layer. `internal/report` remains the stdlib-only publication leaf.
 The application layer coordinates the contexts and projects their values into
 report DTOs.
 
-The #91 use of `internal/sandbox.WriteFreshChecked` by `internal/skill` is the
-narrow exception already recorded in `CONTEXT.md`; it does not make
-`internal/report` depend on a domain context.
+The narrow Publication-to-Terraform-Boundary exception for `internal/skill`
+is recorded in [the dependency direction](../../CONTEXT.md#dependency-direction).
 
 ## Alternatives considered
 

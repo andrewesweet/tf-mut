@@ -62,7 +62,7 @@ policy; these lint rules do not enforce them.
 
 ## Architecture decisions
 
-The rationale for the target boundaries and future migrations is recorded in
+The rationale for these boundaries is recorded in
 [ADR-0001](docs/adr/0001-package-group-contexts-and-lint-enforced-dependencies.md),
 [ADR-0002](docs/adr/0002-closed-constructors-and-report-projection.md),
 [ADR-0003](docs/adr/0003-synchronous-immutable-result-facts.md), and

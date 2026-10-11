@@ -156,12 +156,9 @@ func ReparsedNative(expr hcl.Expression) (hclsyntax.Expression, bool) {
 	return parsed, true
 }
 
-// ParseExpression is the point-of-use parse for expression text a consumer
-// holds as bytes — generated text, a quoted constraint — rather than as a
-// discovered declaration. It is the one route through which anything outside
-// this package turns expression text into an expression, so Terraform's
-// grammar is parsed in exactly one place; a caller that holds a discovered
-// expression already has one and does not call this.
+// ParseExpression parses expression text generated or extracted by a consumer.
+// A caller with a discovered declaration uses its existing hcl.Expression.
+// CONTEXT.md's dependency direction defines which packages retain native parsing.
 func ParseExpression(src []byte, filename string, pos hcl.Pos) (hcl.Expression, hcl.Diagnostics) {
 	return hclsyntax.ParseExpression(src, filename, pos)
 }
