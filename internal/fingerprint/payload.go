@@ -17,6 +17,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/zclconf/go-cty/cty"
+	ctyjson "github.com/zclconf/go-cty/cty/json"
+
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
@@ -63,7 +66,8 @@ type Payload struct {
 	// Values maps canonical path to canonical scalar rendering.
 	Values map[string]string
 	// Unknowns lists the addresses whose value the payload reports as unknown.
-	Unknowns []string
+	Unknowns    []string
+	OutputTypes map[string]cty.Type
 }
 
 // Key identifies the run a payload belongs to, and orders the composition.
@@ -103,12 +107,41 @@ func project(payload tfexec.RunPayload) (Payload, error) {
 	flatten("", payload.Value, values)
 
 	return Payload{
-		File:     payload.File,
-		Run:      payload.Run,
-		Kind:     payload.Kind,
-		Values:   values,
-		Unknowns: unknownAddresses(values),
+		File:        payload.File,
+		Run:         payload.Run,
+		Kind:        payload.Kind,
+		Values:      values,
+		Unknowns:    unknownAddresses(values),
+		OutputTypes: publishedOutputTypes(payload),
 	}, nil
+}
+
+func publishedOutputTypes(payload tfexec.RunPayload) map[string]cty.Type {
+	values := payload.Value
+	if payload.Kind == tfexec.PayloadPlan {
+		values, _ = values["planned_values"].(map[string]any)
+	}
+
+	outputs, _ := values["outputs"].(map[string]any)
+	types := map[string]cty.Type{}
+	for name, value := range outputs {
+		output, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		encoded, err := json.Marshal(output["type"])
+		if err != nil {
+			continue
+		}
+
+		declared, err := ctyjson.UnmarshalType(encoded)
+		if err == nil {
+			types[outputRoot+"."+name] = declared
+		}
+	}
+
+	return types
 }
 
 func checkFormatVersion(payload tfexec.RunPayload) error {

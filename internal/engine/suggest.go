@@ -53,6 +53,7 @@ func suggestAssertions(
 	candidates, skipped := suggest.Generator{
 		Configuration: plan.configuration,
 		Schemas:       plan.prepared.schemas,
+		Baseline:      plan.prepared.payloads,
 		Defect:        seedSuggestionDefect(plan.settings),
 	}.Generate(suggestable(selected))
 

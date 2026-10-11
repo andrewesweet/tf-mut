@@ -54,14 +54,15 @@ func (r render) equality(
 	// schema- or grammar-justified segment at a time. Every form below uses
 	// that spelling; the provisional dotted join the address adapter emitted
 	// is never asserted on its own.
-	continued := strings.HasPrefix(attribute, "[") || len(fingerprint.AttributeSegments(attribute)) > 1
+	continued := strings.HasPrefix(attribute, "[") || len(fingerprint.AttributeSegments(attribute)) > 1 ||
+		(strings.HasPrefix(resource, "output.") && strings.Contains(attribute, "["))
 
 	normalize := func() (string, error) {
 		if !continued {
 			return expression, nil
 		}
 
-		return r.spellContinuation(resource, attribute)
+		return r.spellContinuation(resource, attribute, evidence.OutputTypes[resource])
 	}
 
 	// A mutant that nulls the value is answered by an inequality, whatever the
@@ -165,13 +166,13 @@ func countEquality(resource, mutant string, evidence Evidence) (string, bool, er
 // entry. The walk starts from the resource address and consumes one path
 // segment at a time, so every spelling it emits is one the segment in front of
 // it justifies.
-func (r render) spellContinuation(resource, attribute string) (string, error) {
+func (r render) spellContinuation(resource, attribute string, outputType cty.Type) (string, error) {
 	kind, resourceType, ok := schemaCoordinates(resource)
 	if !ok {
-		// No provider schema types an output. The walk trusts exactly what the
-		// payload path proves: indices arrived as Terraform wrote them, and a
+		// No provider schema types an output. The walk uses the baseline's
+		// published output type to justify each index, and a
 		// further segment is a traversal only if it is an identifier.
-		suffix, err := walkIndicesAndNames(attribute)
+		suffix, err := walkIndicesAndNames(attribute, outputType)
 		if err != nil {
 			return "", err
 		}
@@ -600,7 +601,7 @@ func notDotted(expression string) error {
 // name and the index consumed separately. One name after the indices is a
 // member of the element; two names cannot be told apart from map keys, and
 // no schema exists to prove the difference, so the walk refuses there.
-func walkIndicesAndNames(attribute string) (string, error) {
+func walkIndicesAndNames(attribute string, declared cty.Type) (string, error) {
 	builder := strings.Builder{}
 	names := 0
 
@@ -610,6 +611,16 @@ func walkIndicesAndNames(attribute string) (string, error) {
 			if name != "" || !indexed || !digitsOnly(key) {
 				return "", nestedValue(attribute)
 			}
+
+			if declared == cty.NilType {
+				return "", nestedValue(attribute)
+			}
+
+			element, err := indexType(declared, "output", key)
+			if err != nil {
+				return "", err
+			}
+			declared = element
 
 			builder.WriteString(segment)
 
@@ -629,7 +640,22 @@ func walkIndicesAndNames(attribute string) (string, error) {
 		builder.WriteString(".")
 		builder.WriteString(name)
 
+		if declared != cty.NilType && declared.IsObjectType() && declared.HasAttribute(name) {
+			declared = declared.AttributeType(name)
+		} else {
+			declared = cty.NilType
+		}
+
 		if indexed {
+			if declared == cty.NilType {
+				return "", nestedValue(attribute)
+			}
+
+			element, err := indexType(declared, name, key)
+			if err != nil {
+				return "", err
+			}
+			declared = element
 			builder.WriteString("[" + key + "]")
 		}
 	}

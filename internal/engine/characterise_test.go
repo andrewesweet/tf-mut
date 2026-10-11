@@ -93,6 +93,73 @@ func TestPinAddressesMatchListAndScalarOutputAssertions(t *testing.T) {
 	}
 }
 
+func TestASetValuedOutputIsSkippedWithoutRefutingOtherAssertions(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, suggestOutputList)
+	const source = `variable "regions" {
+  type    = set(string)
+  default = ["eu"]
+}
+
+output "regions" {
+  value = var.regions
+}
+
+output "stable" {
+  value = "steady"
+}
+`
+	if err := os.WriteFile(filepath.Join(module, "main.tf"), []byte(source), 0o644); err != nil {
+		t.Fatalf("writing set-valued module: %v", err)
+	}
+
+	preview, err := engine.Run(t.Context(), previewRequest(t, module))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	mutants := mutantsWithOperator(preview, "VAR-DEFAULT-CHANGE")
+	if len(mutants) != 1 {
+		t.Fatalf("got %d default mutants, want one", len(mutants))
+	}
+
+	request := suggestRequest(t, module)
+	request.SurvivorIDs = []string{mutants[0].ID}
+	result := runSuggest(t, request)
+	if len(result.Suggestions) != 1 || result.Suggestions[0].Status != report.SuggestionSkippedUnrenderable {
+		t.Fatalf("set indexing was not refused: %+v", result.Suggestions)
+	}
+
+	if err := os.RemoveAll(filepath.Join(module, "tests")); err != nil {
+		t.Fatalf("removing fixture suite: %v", err)
+	}
+	result, err = engine.Run(t.Context(), characteriseRequest(t, module))
+	if err != nil {
+		t.Fatalf("characterise: %v", err)
+	}
+	block := result.Characterisation
+	if block == nil || !block.Complete {
+		t.Fatal("no complete characterisation was returned")
+	}
+
+	sawSetSkip, sawScalarPin := false, false
+	for _, pin := range block.Pins {
+		if pin.Address == "output.regions[0]" {
+			if pin.Status != report.PinSkippedUnrenderable || pin.Expression != "" {
+				t.Fatalf("set element was not skipped: %+v", pin)
+			}
+			sawSetSkip = true
+		}
+		if pin.Address == "output.stable" && pin.Status == report.Pinned &&
+			pin.Expression == `output.stable == "steady"` {
+			sawScalarPin = true
+		}
+	}
+	if !sawSetSkip || !sawScalarPin {
+		t.Fatalf("set refusal or scalar pin missing: %+v", block.Pins)
+	}
+}
+
 // TestAnUntestedAliasedProviderModuleCharacterisesWithNoOptIn is the first half
 // of the M4.5 spec review's mandatory acceptance pair. The unscaffolded module
 // mocks nothing, so a provider gate judged against it would refuse; judged

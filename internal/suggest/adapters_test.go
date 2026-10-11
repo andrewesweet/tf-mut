@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/hashicorp/hcl/v2"
+	"github.com/zclconf/go-cty/cty"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
@@ -113,13 +114,14 @@ func TestTheAddressAdapterMatrix(t *testing.T) {
 	t.Parallel()
 
 	for _, testCase := range []struct {
-		name     string
-		run      discovery.RunBlock
-		path     string
-		baseline string
-		schemas  tfexec.Schemas
-		want     string
-		refused  error
+		name       string
+		run        discovery.RunBlock
+		path       string
+		baseline   string
+		schemas    tfexec.Schemas
+		outputType cty.Type
+		want       string
+		refused    error
 	}{
 		{
 			name: "root resource", run: runIn("applied", ""),
@@ -149,11 +151,12 @@ func TestTheAddressAdapterMatrix(t *testing.T) {
 			schemas: untyped(), want: `output.from_child == "steady"`, refused: nil,
 		},
 		{
-			name:     "a fused name-and-index segment renders in index form",
-			run:      runIn("applied", ""),
-			path:     "outputs.from_child.value[0].aliases[0]",
-			baseline: steadyBaseline,
-			schemas:  untyped(), want: `output.from_child[0].aliases[0] == "steady"`, refused: nil,
+			name:       "a fused name-and-index segment renders in index form",
+			outputType: cty.List(cty.Object(map[string]cty.Type{"aliases": cty.List(cty.String)})),
+			run:        runIn("applied", ""),
+			path:       "outputs.from_child.value[0].aliases[0]",
+			baseline:   steadyBaseline,
+			schemas:    untyped(), want: `output.from_child[0].aliases[0] == "steady"`, refused: nil,
 		},
 		{
 			name:     "two names after an output element cannot be told apart from map keys",
@@ -163,15 +166,17 @@ func TestTheAddressAdapterMatrix(t *testing.T) {
 			schemas:  untyped(), want: "", refused: suggest.ErrUnrenderable,
 		},
 		{
-			name: "a list-valued output's element",
-			run:  runIn("applied", ""),
-			path: "outputs.from_child.value[0].short_name", baseline: steadyBaseline,
+			name:       "a list-valued output's element",
+			outputType: cty.List(cty.Object(map[string]cty.Type{"short_name": cty.String})),
+			run:        runIn("applied", ""),
+			path:       "outputs.from_child.value[0].short_name", baseline: steadyBaseline,
 			schemas: untyped(), want: `output.from_child[0].short_name == "steady"`, refused: nil,
 		},
 		{
-			name: "a list-valued output's element in a plan payload",
-			run:  runIn("applied", ""),
-			path: "output_changes.from_child.after[1].short_name", baseline: steadyBaseline,
+			name:       "a list-valued output's element in a plan payload",
+			outputType: cty.List(cty.Object(map[string]cty.Type{"short_name": cty.String})),
+			run:        runIn("applied", ""),
+			path:       "output_changes.from_child.after[1].short_name", baseline: steadyBaseline,
 			schemas: untyped(), want: `output.from_child[1].short_name == "steady"`, refused: nil,
 		},
 		{
@@ -190,7 +195,8 @@ func TestTheAddressAdapterMatrix(t *testing.T) {
 			t.Parallel()
 
 			expression, err := suggest.Express(testCase.run, testCase.schemas,
-				suggest.Evidence{}, changeAt(testCase.path, testCase.baseline))
+				suggest.Evidence{OutputTypes: map[string]cty.Type{"output.from_child": testCase.outputType}},
+				changeAt(testCase.path, testCase.baseline))
 
 			assertAdapter(t, expression, err, testCase.want, testCase.refused)
 		})

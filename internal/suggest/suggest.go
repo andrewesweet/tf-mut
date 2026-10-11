@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
@@ -85,7 +86,8 @@ type Generator struct {
 	// Configuration is the discovered module under test.
 	Configuration discovery.Configuration
 	// Schemas is the rendering contract's type source.
-	Schemas tfexec.Schemas
+	Schemas  tfexec.Schemas
+	Baseline []fingerprint.Payload
 	// Defect seeds a wrong assertion into the first candidate the generator
 	// produces. It is a seam control for the soundness gate, not a flag.
 	Defect Defect
@@ -276,6 +278,12 @@ func (g Generator) suggestFor(
 	}
 
 	evidence := NewEvidence(carried)
+	for _, payload := range g.Baseline {
+		if payload.Key() == runKey(target) {
+			evidence.OutputTypes = payload.OutputTypes
+			break
+		}
+	}
 
 	for _, pass := range [][]fingerprint.Change{value, metadata} {
 		walked := walkChanges(renderer, evidence, pass)
@@ -389,6 +397,7 @@ type Evidence struct {
 	// delta proves the baseline had: a change whose value side is empty under
 	// `resource[N]` proves instance N existed on the baseline.
 	InstanceCounts map[string]int
+	OutputTypes    map[string]cty.Type
 }
 
 // NewEvidence reads a delta into the evidence its changes prove. It is the
