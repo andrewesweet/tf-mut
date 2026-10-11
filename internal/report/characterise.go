@@ -251,8 +251,8 @@ const (
 	StopBounded StopReason = "bounded"
 	// StopDry reports a round added no new pins.
 	StopDry StopReason = "dry"
-	// StopRefused reports the loop stopped because a round could not observe
-	// its whole population.
+	// StopRefused reports that a round failed, including a refusal when the
+	// round did not observe its whole population.
 	StopRefused StopReason = "refused"
 )
 
