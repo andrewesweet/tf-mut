@@ -545,15 +545,12 @@ func keyAndBlockRows() []renderingCase {
 			want:     "", refused: suggest.ErrUnrenderable,
 		},
 		{
-			name:     "a vanished root instance proves the resource gone and stays refused",
+			name:     "a vanished zeroth instance is a count equality",
 			path:     statePrefix + "example_thing.counted[0]].values.input",
 			baseline: steadyBaseline, mutant: "",
-			schemas: untyped(),
-			evidence: suggest.Evidence{
-				InstanceCounts: map[string]int{countedResource: 2},
-				VanishedRoots:  map[string]bool{countedResource: true},
-			},
-			want: "", refused: suggest.ErrUnrenderable,
+			schemas:  untyped(),
+			evidence: suggest.Evidence{InstanceCounts: map[string]int{countedResource: 2}},
+			want:     "length(example_thing.counted) == 2", refused: nil,
 		},
 		{
 			name: "a vanished count instance is a count equality",

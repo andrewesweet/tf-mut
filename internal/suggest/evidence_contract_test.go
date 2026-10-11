@@ -10,8 +10,8 @@ import (
 // TestAnInstanceCountsOnlyWhereItsRootRecordVanished keeps the instance
 // inference from widening: a delta whose only changes under an instance are
 // the value body's cannot tell a vanished instance from a vanished value, so
-// no count and no vanished root are inferred; with a change at the instance's
-// root record the instance is proven and the count follows.
+// no count is inferred; with a change at the instance's root record the
+// instance is proven and the count follows.
 func TestAnInstanceCountsOnlyWhereItsRootRecordVanished(t *testing.T) {
 	t.Parallel()
 
@@ -20,9 +20,8 @@ func TestAnInstanceCountsOnlyWhereItsRootRecordVanished(t *testing.T) {
 		changeAt(statePrefix+"example_thing.counted[0]].values.id", `"aaaaaaaa"`),
 	}
 	evidence := suggest.NewEvidence(valueBodyOnly)
-	if len(evidence.InstanceCounts) != 0 || len(evidence.VanishedRoots) != 0 {
-		t.Fatalf("value-body-only delta counted %v (roots %v), want none",
-			evidence.InstanceCounts, evidence.VanishedRoots)
+	if len(evidence.InstanceCounts) != 0 {
+		t.Fatalf("value-body-only delta counted %v, want none", evidence.InstanceCounts)
 	}
 
 	withRecord := append(append([]fingerprint.Change{}, valueBodyOnly...),
@@ -33,8 +32,5 @@ func TestAnInstanceCountsOnlyWhereItsRootRecordVanished(t *testing.T) {
 	if evidence.InstanceCounts["example_thing.counted"] != 2 {
 		t.Fatalf("delta with root records counted %v, want example_thing.counted = 2",
 			evidence.InstanceCounts)
-	}
-	if !evidence.VanishedRoots["example_thing.counted"] {
-		t.Fatal("delta with the zeroth instance's record did not prove the vanished root")
 	}
 }

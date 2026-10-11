@@ -245,3 +245,5 @@ internal/engine/testdata/backend-cloud-earlier-override/tests/unit.tftest.hcl
 internal/engine/testdata/backendless-json-null/main.tf
 internal/engine/testdata/backendless-json-null/outputs.tf
 internal/engine/testdata/backendless-json-null/tests/unit.tftest.hcl
+internal/engine/testdata/suggest-count-zero/main.tf
+internal/engine/testdata/suggest-count-zero/tests/unit.tftest.hcl

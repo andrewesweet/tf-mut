@@ -30,6 +30,7 @@ const (
 	suggestMapKeyFixture        = "suggest-map-key"
 	suggestUnknownObjectFixture = "suggest-unknown-object"
 	suggestCountDeletionFixture = "suggest-count-deletion"
+	suggestCountZeroFixture     = "suggest-count-zero"
 	secretValue                 = "s3cret-value"
 	unitTestFile                = "tests/unit.tftest.hcl"
 )
@@ -189,6 +190,45 @@ func TestAVanishedInstanceIsAssertedAsAResourceCount(t *testing.T) {
 
 	for _, suggestion := range result.Suggestions {
 		if suggestion.Expression == "length(terraform_data.counted) == 2" &&
+			suggestion.Status == report.SuggestionVerified {
+			return
+		}
+	}
+
+	t.Fatalf("no verified suggestion renders the resource's count; statuses were %s",
+		statusSummary(result.Suggestions))
+}
+
+// The zero-count fixture: a zero-count mutation keeps the resource's
+// declaration and removes every instance, so the delta's instance records —
+// each one's address and index among them — prove the baseline collection was
+// two. The length equality the evidence renders is true on the baseline and
+// false on the mutant, where an assertion against a vanished instance itself
+// would be refused by Terraform as an invalid index and a run error is no
+// kill. The suggestion is judged against the zeroing mutant alone, whose own
+// delta feeds the count form and whose verification legs both hold.
+func TestAZeroCountMutationIsAssertedAsAResourceCount(t *testing.T) {
+	t.Parallel()
+
+	moduleDir := copyFixture(t, suggestCountZeroFixture)
+
+	mutation, err := engine.Run(t.Context(), previewRequest(t, moduleDir))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+
+	zeroed := mutantsWithOperator(mutation, "EXT-RESOURCE-DELETE")
+	if len(zeroed) != 1 {
+		t.Fatalf("expected exactly one zero-count mutant, got %d", len(zeroed))
+	}
+
+	request := suggestRequest(t, moduleDir)
+	request.SurvivorIDs = []string{zeroed[0].ID}
+
+	result := runSuggest(t, request)
+
+	for _, suggestion := range result.Suggestions {
+		if suggestion.Expression == "length(terraform_data.zeroed) == 2" &&
 			suggestion.Status == report.SuggestionVerified {
 			return
 		}

@@ -152,11 +152,6 @@ func countEquality(resource, mutant string, evidence Evidence) (string, bool, er
 		return "", false, nil
 	}
 
-	if evidence.VanishedRoots[base] {
-		return "", true, fmt.Errorf("%w: the mutant removed the resource's root instance, so a "+
-			"length over its address is a run error and no kill", ErrUnrenderable)
-	}
-
 	if err := parseTraversal(base); err != nil {
 		return "", true, fmt.Errorf("%w: %s is not expressible as a dotted traversal",
 			ErrUnrenderable, base)

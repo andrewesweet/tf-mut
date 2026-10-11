@@ -387,10 +387,6 @@ type Evidence struct {
 	// delta proves the baseline had: a change whose value side is empty under
 	// `resource[N]` proves instance N existed on the baseline.
 	InstanceCounts map[string]int
-	// VanishedRoots records the resources whose instance `[0]` the delta proves
-	// absent from the mutant. When the root instance is gone the whole
-	// resource is, and a length over its address is a run error, not a kill.
-	VanishedRoots map[string]bool
 }
 
 // NewEvidence reads a delta into the evidence its changes prove. It is the
@@ -399,7 +395,6 @@ func NewEvidence(changes []fingerprint.Change) Evidence {
 	evidence := Evidence{
 		ProvenNonNull:  map[string]bool{},
 		InstanceCounts: map[string]int{},
-		VanishedRoots:  map[string]bool{},
 	}
 
 	for _, change := range changes {
@@ -444,10 +439,10 @@ func (e *Evidence) proveNonNull(change fingerprint.Change, changes []fingerprint
 }
 
 // countInstance folds a vanished instance's change into the resource count
-// and the vanished-root proof the count rendering is judged against. An
-// instance counts as vanished only where the delta also carries a change at
-// the instance's root record — its address or index: a value-body change
-// alone cannot tell a vanished instance from a vanished value.
+// the count rendering is judged against. An instance counts as vanished only
+// where the delta also carries a change at the instance's root record — its
+// address or index: a value-body change alone cannot tell a vanished instance
+// from a vanished value.
 func (e *Evidence) countInstance(change fingerprint.Change, changes []fingerprint.Change) {
 	if change.Mutant != "" {
 		return
@@ -460,10 +455,6 @@ func (e *Evidence) countInstance(change fingerprint.Change, changes []fingerprin
 
 	if index+1 > e.InstanceCounts[resource] {
 		e.InstanceCounts[resource] = index + 1
-	}
-
-	if index == 0 {
-		e.VanishedRoots[resource] = true
 	}
 }
 
