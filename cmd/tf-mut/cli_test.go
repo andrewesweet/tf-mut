@@ -380,6 +380,18 @@ func assertReadmeVocabulary(t *testing.T, readme string, reporters []string) {
 	assertVocabularyKnown(t, "README flag table", readmeFlags, usageFlags)
 }
 
+type schemaConstant struct {
+	Const string `json:"const"`
+}
+
+type schemaProperties struct {
+	SchemaVersion schemaConstant `json:"schema_version"`
+}
+
+type linkedReportSchema struct {
+	Properties schemaProperties `json:"properties"`
+}
+
 func assertReadmeSchemaLink(t *testing.T, readme string) {
 	t.Helper()
 
@@ -396,13 +408,7 @@ func assertReadmeSchemaLink(t *testing.T, readme string) {
 			t.Fatal(err)
 		}
 
-		var schema struct {
-			Properties struct {
-				SchemaVersion struct {
-					Const string `json:"const"`
-				} `json:"schema_version"`
-			} `json:"properties"`
-		}
+		var schema linkedReportSchema
 		if err := json.Unmarshal(content, &schema); err != nil {
 			t.Fatal(err)
 		}

@@ -356,7 +356,7 @@ func timeArgs(t *testing.T, runner tfexec.Runner, warm string, blocks int, args 
 func measureSelectionYield(t *testing.T) []yield {
 	t.Helper()
 
-	fixtures := []string{awsMockedFixture, "nocoverage", "upward", "discriminate"}
+	fixtures := []string{awsMockedFixture, "nocoverage", "upward", discriminateFixture}
 	results := make([]yield, 0, len(fixtures))
 
 	for _, fixture := range fixtures {

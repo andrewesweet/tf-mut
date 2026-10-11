@@ -35,6 +35,15 @@ import (
 // aggregates; a constant because it names the aggregation key, not a word.
 const testSubcommand = "test"
 
+const (
+	warmInitPhase             = "warm-init"
+	fileSymlinkKind           = "file-symlink"
+	moduleSymlinkKind         = "module-symlink"
+	parentSymlinkExistingKind = "parent-symlink-existing"
+	parentSymlinkNewKind      = "parent-symlink-new"
+	fileExistsError           = "file exists"
+)
+
 // phaseNames projects a phase list onto its names, in the recorded order.
 func phaseNames(phases []report.PhaseTiming) []string {
 	names := make([]string, 0, len(phases))
@@ -64,7 +73,7 @@ func childUsage(children []report.ProcessUsage, command string) (report.ProcessU
 func TestRunTelemetryRecordsPhasesAndChildProcessUsage(t *testing.T) {
 	t.Parallel()
 
-	module := copyFixture(t, "discriminate")
+	module := copyFixture(t, discriminateFixture)
 	result, err := engine.Run(t.Context(), baseConfig(t, module))
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -101,7 +110,7 @@ func assertRunTelemetryRecordsThePipeline(t *testing.T, telemetry *report.Teleme
 	// and the execution loop.
 	phases := phaseNames(telemetry.Phases)
 	for _, wanted := range []string{
-		"version", "discovery", "warm-materialise", "warm-backend", "warm-init",
+		"version", "discovery", "warm-materialise", "warm-backend", warmInitPhase,
 		"warm-schema", "baseline-test", "baseline-fingerprint", "generation", "execution",
 	} {
 		if !slices.Contains(phases, wanted) {
@@ -113,7 +122,7 @@ func assertRunTelemetryRecordsThePipeline(t *testing.T, telemetry *report.Teleme
 	// records them in execution order. The order of the warm steps is pinned,
 	// because those cannot overlap.
 	if materialised := slices.Index(phases, "warm-materialise"); materialised >= 0 {
-		if initialised := slices.Index(phases, "warm-init"); initialised < materialised {
+		if initialised := slices.Index(phases, warmInitPhase); initialised < materialised {
 			t.Errorf("warm phases recorded out of execution order: %v", phases)
 		}
 	}
@@ -225,7 +234,7 @@ func assertFreshMutantsCarryTelemetry(t *testing.T, result report.Report) {
 func TestPreviewCarriesRunTelemetryWithoutMutantTelemetry(t *testing.T) {
 	t.Parallel()
 
-	module := copyFixture(t, "discriminate")
+	module := copyFixture(t, discriminateFixture)
 	result, err := engine.Run(t.Context(), previewRequest(t, module))
 	if err != nil {
 		t.Fatalf("preview: %v", err)
@@ -262,7 +271,7 @@ func TestPreviewCarriesRunTelemetryWithoutMutantTelemetry(t *testing.T) {
 func TestCachedVerdictsCarryNoMutantTelemetry(t *testing.T) {
 	t.Parallel()
 
-	module := copyFixture(t, "discriminate")
+	module := copyFixture(t, discriminateFixture)
 	// One configuration for both runs: the cache key includes the environment,
 	// and a second fixture copy would be a different key and a cold cache.
 	config := baseConfig(t, module)
@@ -341,7 +350,7 @@ func (b *lockedBuffer) String() string {
 func TestProgressLinesReportTheLongRun(t *testing.T) {
 	t.Parallel()
 
-	module := copyFixture(t, "discriminate")
+	module := copyFixture(t, discriminateFixture)
 	config := baseConfig(t, module)
 
 	var line lockedBuffer
@@ -391,7 +400,7 @@ func TestProgressLinesReportTheLongRun(t *testing.T) {
 func TestProgressStaysSilentWithoutAWriter(t *testing.T) {
 	t.Parallel()
 
-	module := copyFixture(t, "discriminate")
+	module := copyFixture(t, discriminateFixture)
 	config := baseConfig(t, module)
 
 	var line lockedBuffer
@@ -412,7 +421,7 @@ func TestProgressStaysSilentWithoutAWriter(t *testing.T) {
 func TestShortRunPrintsNoProgress(t *testing.T) {
 	t.Parallel()
 
-	config := baseConfig(t, copyFixture(t, "discriminate"))
+	config := baseConfig(t, copyFixture(t, discriminateFixture))
 	var line lockedBuffer
 	config.Progress = &line
 	config.ProgressIntervalForTesting = time.Hour
@@ -428,7 +437,7 @@ func TestShortRunPrintsNoProgress(t *testing.T) {
 func TestExpiredMutantBudgetCountsNoTestChild(t *testing.T) {
 	t.Parallel()
 
-	config := baseConfig(t, copyFixture(t, "discriminate"))
+	config := baseConfig(t, copyFixture(t, discriminateFixture))
 	config.NoCache = true
 	config.TimeoutFloor = time.Nanosecond
 	config.TimeoutFactor = 1e-12
@@ -465,7 +474,7 @@ func TestOTLPExportCarriesRunAndPhaseSpans(t *testing.T) {
 
 	sink := newSpanCollector(t, 0)
 
-	module := copyFixture(t, "discriminate")
+	module := copyFixture(t, discriminateFixture)
 	config := baseConfig(t, module)
 	config.OTLPEndpoint = sink.server.URL + "/v1/traces"
 
@@ -515,9 +524,7 @@ func newSpanCollector(t *testing.T, delay time.Duration) *spanCollector {
 		defer sink.mutex.Unlock()
 		for _, resource := range request.GetResourceSpans() {
 			for _, scope := range resource.GetScopeSpans() {
-				for _, span := range scope.GetSpans() {
-					sink.spans = append(sink.spans, span)
-				}
+				sink.spans = append(sink.spans, scope.GetSpans()...)
 			}
 		}
 
@@ -535,8 +542,9 @@ func newSpanCollector(t *testing.T, delay time.Duration) *spanCollector {
 func (s *spanCollector) spanNames(t *testing.T) []string {
 	t.Helper()
 
-	names := []string{}
-	for _, span := range s.exportedSpans() {
+	spans := s.exportedSpans()
+	names := make([]string, 0, len(spans))
+	for _, span := range spans {
 		names = append(names, span.GetName())
 	}
 
@@ -553,7 +561,7 @@ func (s *spanCollector) exportedSpans() []*tracepb.Span {
 func TestTraceMeasurementsMatchTheReport(t *testing.T) {
 	t.Parallel()
 
-	for _, fixture := range []string{"discriminate", "mutant-volatile", suggestBasicFixture} {
+	for _, fixture := range []string{discriminateFixture, "mutant-volatile", suggestBasicFixture} {
 		t.Run(fixture, func(t *testing.T) {
 			t.Parallel()
 
@@ -607,6 +615,8 @@ func assertMutantPhaseChildCounts(t *testing.T, mutant report.Mutant) {
 			expected[testSubcommand]++
 		case "validate":
 			expected["validate"]++
+		default:
+			continue
 		}
 	}
 
@@ -637,7 +647,8 @@ func assertMutantTraceUsage(t *testing.T, spans []*tracepb.Span, mutant report.M
 			}
 		}
 
-		if got, want := aggregateChildUsage(children), aggregateChildUsage(mutant.Telemetry.Children); !maps.Equal(got, want) {
+		got, want := aggregateChildUsage(children), aggregateChildUsage(mutant.Telemetry.Children)
+		if !maps.Equal(got, want) {
 			t.Fatalf("mutant %s trace child measurements = %v, report = %v", mutant.ID, got, want)
 		}
 
@@ -708,18 +719,7 @@ func TestNestedCommandsFlushToTheExplicitEndpoint(t *testing.T) {
 			ambient := newSpanCollector(t, 0)
 			t.Setenv(tracing.EndpointEnv, ambient.server.URL)
 			target := newSpanCollector(t, 0)
-			var request engine.Request
-			if command == "curate" {
-				config := curateRequest(t, copyFixture(t, curateFixture))
-				config.OTLPEndpoint = target.server.URL
-				config.NoCache = true
-				request = config
-			} else {
-				config := characteriseRequest(t, copyFixture(t, untestedBranchesFixture))
-				config.OTLPEndpoint = target.server.URL
-				config.UntilDry = command == "until-dry"
-				request = config
-			}
+			request := nestedTraceRequest(t, command, target.server.URL)
 
 			if _, err := engine.Run(t.Context(), request); err != nil {
 				t.Fatal(err)
@@ -730,13 +730,14 @@ func TestNestedCommandsFlushToTheExplicitEndpoint(t *testing.T) {
 			}
 
 			names := target.spanNames(t)
-			if !slices.Contains(names, "tf-mut.phase") || (command != "characterise" && !slices.Contains(names, "tf-mut.mutant")) {
+			if !slices.Contains(names, "tf-mut.phase") ||
+				(command != "characterise" && !slices.Contains(names, "tf-mut.mutant")) {
 				t.Fatalf("nested command returned before exporting its spans: %v", names)
 			}
 
 			warmInit := false
 			for _, span := range target.exportedSpans() {
-				if spanAttributeString(span, "tf-mut.phase") == "warm-init" {
+				if spanAttributeString(span, "tf-mut.phase") == warmInitPhase {
 					warmInit = true
 				}
 			}
@@ -748,6 +749,24 @@ func TestNestedCommandsFlushToTheExplicitEndpoint(t *testing.T) {
 	}
 }
 
+func nestedTraceRequest(t *testing.T, command, endpoint string) engine.Request {
+	t.Helper()
+
+	if command == "curate" {
+		config := curateRequest(t, copyFixture(t, curateFixture))
+		config.OTLPEndpoint = endpoint
+		config.NoCache = true
+
+		return config
+	}
+
+	config := characteriseRequest(t, copyFixture(t, untestedBranchesFixture))
+	config.OTLPEndpoint = endpoint
+	config.UntilDry = command == "until-dry"
+
+	return config
+}
+
 // TestCPUProfileWritesTheNamedFile pins the profile switch: a run with
 // --cpu-profile writes a non-empty gzip stream — pprof's container format —
 // to the named path, and a run without one writes nothing.
@@ -756,7 +775,7 @@ func TestCPUProfileWritesTheNamedFile(t *testing.T) {
 
 	profilePath := filepath.Join(t.TempDir(), "tf-mut.pprof")
 
-	module := copyFixture(t, "discriminate")
+	module := copyFixture(t, discriminateFixture)
 	config := baseConfig(t, module)
 	config.CPUProfile = profilePath
 
@@ -780,11 +799,14 @@ func TestCPUProfileWritesTheNamedFile(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // a wall-time measurement with the process-global CPU profiler must stay serial.
 func TestCommandWallTimeIncludesTraceAndProfileCleanup(t *testing.T) {
-	for _, command := range []report.Command{report.CommandRun, report.CommandPreview, report.CommandSuggest, report.CommandCurate} {
+	for _, command := range []report.Command{
+		report.CommandRun, report.CommandPreview, report.CommandSuggest, report.CommandCurate,
+	} {
 		t.Run(string(command), func(t *testing.T) {
 			sink := newSpanCollector(t, 300*time.Millisecond)
-			fixture := "discriminate"
+			fixture := discriminateFixture
 			if command == report.CommandCurate {
 				fixture = curateFixture
 			}
@@ -821,13 +843,13 @@ func TestCPUProfileRefusesModuleDestinations(t *testing.T) {
 	t.Parallel()
 
 	for _, kind := range []string{
-		"existing", "new", "module-directory", "relative", "file-symlink",
-		"parent-symlink-existing", "parent-symlink-new", "module-symlink", "missing-parent", "hardlink", "dangling-symlink",
+		"existing", "new", "module-directory", "relative", fileSymlinkKind,
+		parentSymlinkExistingKind, parentSymlinkNewKind, moduleSymlinkKind, "missing-parent", "hardlink", "dangling-symlink",
 	} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
 
-			module := copyFixture(t, "discriminate")
+			module := copyFixture(t, discriminateFixture)
 			before := treeDigest(t, module)
 			common, wantError := profileRefusalRequest(t, module, kind)
 
@@ -873,10 +895,10 @@ func profileRefusalRequest(t *testing.T, module, kind string) (engine.Common, st
 		}
 
 		common.CPUProfile = filepath.Join(common.ModuleDir, mainFile)
-	case "file-symlink", "parent-symlink-existing", "parent-symlink-new", "module-symlink":
+	case fileSymlinkKind, parentSymlinkExistingKind, parentSymlinkNewKind, moduleSymlinkKind:
 		alias := filepath.Join(t.TempDir(), "alias")
 		target := module
-		if kind == "file-symlink" {
+		if kind == fileSymlinkKind {
 			target = common.CPUProfile
 		}
 
@@ -885,15 +907,17 @@ func profileRefusalRequest(t *testing.T, module, kind string) (engine.Common, st
 		}
 
 		switch kind {
-		case "file-symlink":
+		case fileSymlinkKind:
 			common.CPUProfile = alias
-			wantError = "file exists"
-		case "parent-symlink-existing":
+			wantError = fileExistsError
+		case parentSymlinkExistingKind:
 			common.CPUProfile = filepath.Join(alias, mainFile)
-		case "parent-symlink-new":
+		case parentSymlinkNewKind:
 			common.CPUProfile = filepath.Join(alias, "tf-mut.pprof")
-		case "module-symlink":
+		case moduleSymlinkKind:
 			common.ModuleDir = alias
+		default:
+			// Other kinds retain the original module and destination.
 		}
 	case "missing-parent":
 		common.CPUProfile = filepath.Join(t.TempDir(), "missing", "tf-mut.pprof")
@@ -905,7 +929,7 @@ func profileRefusalRequest(t *testing.T, module, kind string) (engine.Common, st
 		}
 
 		common.CPUProfile = alias
-		wantError = "file exists"
+		wantError = fileExistsError
 	case "dangling-symlink":
 		alias := filepath.Join(t.TempDir(), "profile")
 		if err := os.Symlink(filepath.Join(filepath.Dir(alias), "missing"), alias); err != nil {
@@ -913,7 +937,9 @@ func profileRefusalRequest(t *testing.T, module, kind string) (engine.Common, st
 		}
 
 		common.CPUProfile = alias
-		wantError = "file exists"
+		wantError = fileExistsError
+	default:
+		// The existing-file case retains the original module and destination.
 	}
 
 	return common, wantError
@@ -941,6 +967,7 @@ func TestCPUProfileNeverOverwritesExistingFiles(t *testing.T) {
 			}
 
 			before := treeDigest(t, root)
+			//nolint:gosec // the target is this test's own temporary fixture or file.
 			content, err := os.ReadFile(target)
 			if err != nil {
 				t.Fatal(err)
@@ -948,10 +975,12 @@ func TestCPUProfileNeverOverwritesExistingFiles(t *testing.T) {
 
 			config := baseConfig(t, module)
 			config.CPUProfile = target
-			if _, err := engine.Run(t.Context(), config); err == nil || !strings.Contains(err.Error(), "file exists") {
-				t.Fatalf("run = %v, want an existing-destination refusal", err)
+			if _, runErr := engine.Run(t.Context(), config); runErr == nil ||
+				!strings.Contains(runErr.Error(), fileExistsError) {
+				t.Fatalf("run = %v, want an existing-destination refusal", runErr)
 			}
 
+			//nolint:gosec // the target is this test's own temporary fixture or file.
 			after, err := os.ReadFile(target)
 			if err != nil || !bytes.Equal(content, after) {
 				t.Fatalf("existing profile target changed: %q, %v", after, err)

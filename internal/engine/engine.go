@@ -257,30 +257,12 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 
 	// The CPU profile writes only to the file the user explicitly requested.
 	if s.CPUProfile != "" {
-		profilePath, profileErr := cpuProfilePath(s.ModuleDir, s.CPUProfile)
+		stopProfile, profileErr := startCPUProfile(s.ModuleDir, s.CPUProfile)
 		if profileErr != nil {
 			return report.Report{}, profileErr
 		}
 
-		//nolint:gosec // caller-selected diagnostic file; O_EXCL refuses existing files and final symlinks.
-		profileFile, profileErr := os.OpenFile(profilePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, cpuProfileFileMode)
-		if profileErr != nil {
-			return report.Report{}, fmt.Errorf("opening the CPU profile file: %w", profileErr)
-		}
-
-		writer := &cpuProfileWriter{Writer: profileFile}
-		if startErr := pprof.StartCPUProfile(writer); startErr != nil {
-			_ = profileFile.Close()
-			return report.Report{}, fmt.Errorf("starting the CPU profile: %w", startErr)
-		}
-
-		defer func() {
-			pprof.StopCPUProfile()
-			if profileErr := errors.Join(writer.err, profileFile.Close()); profileErr != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "tf-mut: CPU profile may be incomplete: %s\n",
-					strings.ReplaceAll(profileErr.Error(), "\n", "; "))
-			}
-		}()
+		defer stopProfile()
 	}
 
 	// The flush outlives request cancellation so recorded spans can still reach the collector.
@@ -361,6 +343,33 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 
 		return result, err
 	}
+}
+
+func startCPUProfile(moduleDir, destination string) (func(), error) {
+	profilePath, profileErr := cpuProfilePath(moduleDir, destination)
+	if profileErr != nil {
+		return nil, profileErr
+	}
+
+	//nolint:gosec // caller-selected diagnostic file; O_EXCL refuses existing files and final symlinks.
+	profileFile, profileErr := os.OpenFile(profilePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, cpuProfileFileMode)
+	if profileErr != nil {
+		return nil, fmt.Errorf("opening the CPU profile file: %w", profileErr)
+	}
+
+	writer := &cpuProfileWriter{Writer: profileFile}
+	if startErr := pprof.StartCPUProfile(writer); startErr != nil {
+		_ = profileFile.Close()
+		return nil, fmt.Errorf("starting the CPU profile: %w", startErr)
+	}
+
+	return func() {
+		pprof.StopCPUProfile()
+		if profileErr := errors.Join(writer.err, profileFile.Close()); profileErr != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "tf-mut: CPU profile may be incomplete: %s\n",
+				strings.ReplaceAll(profileErr.Error(), "\n", "; "))
+		}
+	}, nil
 }
 
 func cpuProfilePath(moduleDir, destination string) (string, error) {

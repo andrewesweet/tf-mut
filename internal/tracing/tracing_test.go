@@ -17,6 +17,8 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/tracing"
 )
 
+const prefixedTracePath = "/otlp/v1/traces"
+
 // collector is a minimal OTLP/HTTP trace sink: it decodes the protobuf
 // ExportTraceServiceRequest bodies the exporter posts and keeps the span
 // names for assertions.
@@ -168,7 +170,7 @@ func TestUnusableEndpointDisablesInsteadOfFailing(t *testing.T) {
 }
 
 func TestEndpointPathsUseTheTraceSuffix(t *testing.T) {
-	for _, endpointPath := range []string{"", "/", "/otlp", "/otlp/", "/v1/traces", "/otlp/v1/traces"} {
+	for _, endpointPath := range []string{"", "/", "/otlp", "/otlp/", "/v1/traces", prefixedTracePath} {
 		for _, ambient := range []bool{false, true} {
 			t.Run(fmt.Sprintf("path=%q/environment=%t", endpointPath, ambient), func(t *testing.T) {
 				sink := newCollector(t, http.StatusOK)
@@ -189,8 +191,8 @@ func TestEndpointPathsUseTheTraceSuffix(t *testing.T) {
 				}
 
 				want := "/v1/traces"
-				if endpointPath == "/otlp" || endpointPath == "/otlp/" || endpointPath == "/otlp/v1/traces" {
-					want = "/otlp/v1/traces"
+				if endpointPath == "/otlp" || endpointPath == "/otlp/" || endpointPath == prefixedTracePath {
+					want = prefixedTracePath
 				}
 
 				sink.mutex.Lock()
@@ -209,11 +211,13 @@ func TestUnusableEndpointWarningsRedactSecrets(t *testing.T) {
 		endpoint string
 		safeURL  string
 	}{
+		//nolint:gosec // planted credentials prove that endpoint warnings redact secrets.
 		{
 			name:     "unsupported-scheme",
 			endpoint: "ftp://user:password@collector.example/private?api_key=secret#token",
 			safeURL:  " ftp://collector.example",
 		},
+		//nolint:gosec // planted credentials prove that endpoint warnings redact secrets.
 		{
 			name:     "malformed-url",
 			endpoint: "https://user:password@collector.example/%zz?api_key=secret#token",
@@ -228,38 +232,44 @@ func TestUnusableEndpointWarningsRedactSecrets(t *testing.T) {
 					endpoint = ""
 				}
 
-				log, err := os.CreateTemp(t.TempDir(), "stderr")
-				if err != nil {
-					t.Fatal(err)
-				}
-
-				original := os.Stderr
-				os.Stderr = log
-				t.Cleanup(func() {
-					os.Stderr = original
-					_ = log.Close()
-				})
-
-				tracer := tracing.New(t.Context(), endpoint)
-				if tracer.Enabled() {
-					t.Fatal("an unusable endpoint enabled tracing")
-				}
-
-				if _, err := log.Seek(0, io.SeekStart); err != nil {
-					t.Fatal(err)
-				}
-
-				warning, err := io.ReadAll(log)
-				if err != nil {
-					t.Fatal(err)
-				}
-
-				want := "tf-mut: tracing disabled: an unusable OTLP endpoint" + test.safeURL + "\n"
-				if string(warning) != want {
-					t.Fatalf("warning = %q, want %q", warning, want)
-				}
+				assertUnusableEndpointWarning(t, endpoint, test.safeURL)
 			})
 		}
+	}
+}
+
+func assertUnusableEndpointWarning(t *testing.T, endpoint, safeURL string) {
+	t.Helper()
+
+	log, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	original := os.Stderr
+	os.Stderr = log
+	t.Cleanup(func() {
+		os.Stderr = original
+		_ = log.Close()
+	})
+
+	tracer := tracing.New(t.Context(), endpoint)
+	if tracer.Enabled() {
+		t.Fatal("an unusable endpoint enabled tracing")
+	}
+
+	if _, seekErr := log.Seek(0, io.SeekStart); seekErr != nil {
+		t.Fatal(seekErr)
+	}
+
+	warning, err := io.ReadAll(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := "tf-mut: tracing disabled: an unusable OTLP endpoint" + safeURL + "\n"
+	if string(warning) != want {
+		t.Fatalf("warning = %q, want %q", warning, want)
 	}
 }
 
@@ -284,12 +294,12 @@ func TestExportFailureWarningsOmitConfigurationSecrets(t *testing.T) {
 	span.End()
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := tracer.Shutdown(shutdown); err != nil {
-		t.Fatal(err)
+	if shutdownErr := tracer.Shutdown(shutdown); shutdownErr != nil {
+		t.Fatal(shutdownErr)
 	}
 
-	if _, err := log.Seek(0, io.SeekStart); err != nil {
-		t.Fatal(err)
+	if _, seekErr := log.Seek(0, io.SeekStart); seekErr != nil {
+		t.Fatal(seekErr)
 	}
 
 	warning, err := io.ReadAll(log)
