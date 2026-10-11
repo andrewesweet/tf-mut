@@ -54,6 +54,11 @@ type evaluatedPopulation struct {
 
 func (p *evaluatedPopulation) observe(event MutantEvaluated) error {
 	p.rows[event.index] = event.row
+	if event.row.Provenance != nil {
+		provenance := *event.row.Provenance
+		p.rows[event.index].Provenance = &provenance
+	}
+
 	p.classified[event.index] = event.classified
 
 	if event.failure != nil {
