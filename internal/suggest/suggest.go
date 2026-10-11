@@ -85,8 +85,10 @@ func NewSurvivor(id string, delta []fingerprint.Change) Survivor {
 type Generator struct {
 	// Configuration is the discovered module under test.
 	Configuration discovery.Configuration
-	// Schemas is the rendering contract's type source.
-	Schemas  tfexec.Schemas
+	// Schemas supplies provider type evidence for resource and data-source paths.
+	Schemas tfexec.Schemas
+	// Baseline supplies each run's published output types; provider schemas do
+	// not describe outputs.
 	Baseline []fingerprint.Payload
 	// Defect seeds a wrong assertion into the first candidate the generator
 	// produces. It is a seam control for the soundness gate, not a flag.
@@ -397,7 +399,9 @@ type Evidence struct {
 	// delta proves the baseline had: a change whose value side is empty under
 	// `resource[N]` proves instance N existed on the baseline.
 	InstanceCounts map[string]int
-	OutputTypes    map[string]cty.Type
+	// OutputTypes supplies baseline output type evidence; absent evidence must
+	// not be inferred from the payload's numeric indices.
+	OutputTypes map[string]cty.Type
 }
 
 // NewEvidence reads a delta into the evidence its changes prove. It is the

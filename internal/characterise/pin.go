@@ -303,7 +303,8 @@ func onePin(context pinContext) Pin {
 	rendered, err := suggest.Express(
 		discovery.RunBlock{Name: RunPrefix + context.scenario.Name()}, //nolint:exhaustruct // the adapter reads the address.
 		context.schemas,
-		suggest.Evidence{OutputTypes: context.payload.OutputTypes}, //nolint:exhaustruct // pinning renders the baseline value alone; no delta neighbourhood exists.
+		// Pinning has baseline output types, but no delta neighbourhood.
+		suggest.Evidence{OutputTypes: context.payload.OutputTypes},
 		fingerprint.Change{
 			Run: RunPrefix + context.scenario.Name(), Path: context.path,
 			Address: expression, Baseline: value, Mutant: "", Sensitive: false,
@@ -447,8 +448,7 @@ const collectionAddressParts = 2
 // expressionAddress rejoins an address and attribute path the way the
 // assertion expression spells it: a dotted attribute joins under a dot, an
 // attribute that opens with an index continues from the address directly,
-// because `output.x.[0]` parses as two traversals where the assertion needs
-// one.
+// because `output.x.[0]` is not valid HCL traversal syntax.
 func expressionAddress(address, attribute string) string {
 	if attribute == "" || strings.HasPrefix(attribute, "[") {
 		return address + attribute
@@ -460,8 +460,7 @@ func expressionAddress(address, attribute string) string {
 // countPins pins the instance count of every resource collection the module
 // declares with count or for_each.
 //
-// `length` is type-correct over every collection, which is why it is one of
-// the three forms the M4 rendering contract admits; the number itself is
+// `length` is type-correct over every collection; the number itself is
 // rendered by the same value machinery.
 func countPins(
 	scaffold SuitePlan,

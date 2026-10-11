@@ -97,10 +97,9 @@ func (r render) equality(
 	}
 
 	// A size delta the baseline proves: the collection was empty. `length` is
-	// type-correct over every collection, which is exactly why it is one of the
-	// three admitted forms — but never over a value whose parts the baseline
-	// could not know: the plan marks those, and a length over unknowns is a lie
-	// the baseline run exposes.
+	// type-correct over every collection, but never over a value whose parts
+	// the baseline could not know: the plan marks those, and a length over
+	// unknowns is a lie the baseline run exposes.
 	if baseline == emptyObject || baseline == emptyArray {
 		spelled, err := normalize()
 		if err != nil {
@@ -598,9 +597,9 @@ func notDotted(expression string) error {
 // walkIndicesAndNames renders an output's element path — indices as written,
 // further names as dotted attributes — and refuses anything else. A name
 // segment may carry an attached index, `aliases[0]`, which renders as the
-// name and the index consumed separately. One name after the indices is a
-// member of the element; two names cannot be told apart from map keys, and
-// no schema exists to prove the difference, so the walk refuses there.
+// name and the index consumed separately. Each index needs published type
+// evidence. The walk accepts at most one member name; deeper continuations
+// remain refused.
 func walkIndicesAndNames(attribute string, declared cty.Type) (string, error) {
 	builder := strings.Builder{}
 	names := 0
@@ -612,11 +611,7 @@ func walkIndicesAndNames(attribute string, declared cty.Type) (string, error) {
 				return "", nestedValue(attribute)
 			}
 
-			if declared == cty.NilType {
-				return "", nestedValue(attribute)
-			}
-
-			element, err := indexType(declared, "output", key)
+			element, err := outputIndexType(declared, attribute, "output", key)
 			if err != nil {
 				return "", err
 			}
@@ -647,11 +642,7 @@ func walkIndicesAndNames(attribute string, declared cty.Type) (string, error) {
 		}
 
 		if indexed {
-			if declared == cty.NilType {
-				return "", nestedValue(attribute)
-			}
-
-			element, err := indexType(declared, name, key)
+			element, err := outputIndexType(declared, attribute, name, key)
 			if err != nil {
 				return "", err
 			}
@@ -661,6 +652,14 @@ func walkIndicesAndNames(attribute string, declared cty.Type) (string, error) {
 	}
 
 	return builder.String(), nil
+}
+
+func outputIndexType(declared cty.Type, attribute, name, key string) (cty.Type, error) {
+	if declared == cty.NilType {
+		return cty.NilType, nestedValue(attribute)
+	}
+
+	return indexType(declared, name, key)
 }
 
 // quoteKey renders a payload key as an HCL quoted string. strconv.Quote

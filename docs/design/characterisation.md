@@ -117,6 +117,10 @@ Feathers is explicit about — pin what you need to sense, not everything:
 The schema's computed-flags again do the work: `configured` level never pins a value the mock
 invented, only values the configuration determined.
 
+Pins use the shared
+[suggestion rendering contract](product-design.md#7-the-differentiator--suggested-assertions),
+including its path restrictions and refusals.
+
 ### 3.5 Branch expansion
 
 A characterisation of the default path only pins one branch of every conditional. The AST
@@ -225,9 +229,8 @@ fourteen opportunities to the stage-2 prototype (`docs/research/19-m5-opportunit
 that prototype measured an empty cohort — seven modules no-candidate, one refused before
 execution — so the decision rule's insufficient branch fired
 (`docs/research/20-m5-repair-prototype.md`) and the preference order stands unchanged. And
-the `configured` rung generates no schema-typed *collection* pin at all — the M4 rendering
-contract refuses them — so the ladder documents four measured skip classes instead
-(`docs/research/13-m45-exit-gate.md` §3).
+the `configured` rung's measured skip classes are recorded in the
+[M4.5 exit gate](../research/13-m45-exit-gate.md#3-the-typed-fixture-provider-spike-concluded).
 
 M4.5 also owns the work the M4 spec review's C4 relocated here:
 `StructurallyUnassertable` **skeleton generation**, which was removed from M4 because it

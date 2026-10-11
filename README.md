@@ -64,6 +64,9 @@ the modules called by those tests. Mocked suites can run in roots with a `backen
 including a remote backend, without initializing that backend. An effective `cloud`
 declaration still causes provider schema retrieval to fail.
 
+For supported suggestion forms and skip rules, see the
+[suggestion contract](docs/design/product-design.md#7-the-differentiator--suggested-assertions).
+
 Exit codes: `0` ran clean, `1` findings (survivors, or a score below `--min-score`), `2`
 operational failure. The source tree of the module under test is never written to, except for
 the five recorded tool-owned write exceptions listed in the [AGENTS.md conventions](AGENTS.md#conventions).

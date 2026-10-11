@@ -54,9 +54,9 @@ spec absorbs first.
   `hcl.Expression.Variables` reports which addresses an expression observes and nothing
   about how, so a JSON-mediated read degrades to `unasserted` rather than claiming a
   weak assertion the reader cannot prove.
-- **One suggestion per survivor.** The generator emits the first change all three adapters
-  admit, or the first refusal's own status. Several assertions per survivor is unmeasured
-  value at real verification cost (see the [verification contract](../design/product-design.md#7-the-differentiator--suggested-assertions));
+- **One suggestion per survivor.** Candidate selection follows the
+  [suggestion contract](../design/product-design.md#7-the-differentiator--suggested-assertions).
+  Several assertions per survivor is unmeasured value at real verification cost;
   the outcome model does not preclude widening later.
 - **`--apply` re-verifies in the same invocation.** Selection by ID or `--all-verified`
   operates on the current report's suggestions, freshly verified this run, so the digest
@@ -83,11 +83,8 @@ the engine seam in `suggest_test.go`.
   characterisation skill (`tf-mut-characterise`) joins `skill install` there.
 - **M5**: any finer cache key, gated on the rejection rule above; the multi-suggestion-
   per-survivor question, if survivor density ever makes it worth a measurement.
-- **Open question**: the suggestion engine renders element assertions only where the
-  provider schema types the collection; `terraform_data`'s `dynamic`-typed attributes
-  therefore always skip. A typed-fixture provider (the mirror already carries
-  `hashicorp/null`) would widen the rendering matrix's positive rows from schema evidence
-  rather than from fabricated schemas. Worth a spike before M4.5 leans on rendering.
+- **Typed-fixture provider spike**: its conclusion is recorded in the
+  [M4.5 exit gate](../research/13-m45-exit-gate.md#3-the-typed-fixture-provider-spike-concluded).
 
 ## Addendum: the PR #69 adversarial review (2026-08-18)
 

@@ -66,7 +66,9 @@ type Payload struct {
 	// Values maps canonical path to canonical scalar rendering.
 	Values map[string]string
 	// Unknowns lists the addresses whose value the payload reports as unknown.
-	Unknowns    []string
+	Unknowns []string
+	// OutputTypes retains published type evidence for rendering output indices.
+	// Missing or invalid type descriptors supply no evidence.
 	OutputTypes map[string]cty.Type
 }
 
@@ -118,12 +120,21 @@ func project(payload tfexec.RunPayload) (Payload, error) {
 
 func publishedOutputTypes(payload tfexec.RunPayload) map[string]cty.Type {
 	values := payload.Value
+	types := map[string]cty.Type{}
 	if payload.Kind == tfexec.PayloadPlan {
-		values, _ = values["planned_values"].(map[string]any)
+		planned, ok := values["planned_values"].(map[string]any)
+		if !ok {
+			return types
+		}
+
+		values = planned
 	}
 
-	outputs, _ := values["outputs"].(map[string]any)
-	types := map[string]cty.Type{}
+	outputs, ok := values["outputs"].(map[string]any)
+	if !ok {
+		return types
+	}
+
 	for name, value := range outputs {
 		output, ok := value.(map[string]any)
 		if !ok {
@@ -800,8 +811,8 @@ func splitOutput(rest, body string) (address, attribute string, ok bool) {
 	// A list-valued output's element path continues from the body with an
 	// index, not a dot: `outputs.X.value[0].attr`, `output_changes.X.after[0].attr`.
 	// The index travels in the attribute so the rendered address reads
-	// `output.X[0].attr`. Metadata bodies (`type`, `sensitive`, `after_unknown`)
-	// are only ever dotted or bare, so they stay refused.
+	// `output.X[0].attr`. Only the value body enters this branch; metadata
+	// fields stay outside the assertion surface.
 	if attribute, cut := strings.CutPrefix(remainder, body+"["); cut {
 		key, _, found := strings.Cut(attribute, "]")
 		if found && digitsOnly(key) {

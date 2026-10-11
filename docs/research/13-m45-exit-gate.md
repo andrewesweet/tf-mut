@@ -68,8 +68,8 @@ were run.
 
 The M4.5-0 spike asked for schema-typed collection cases proven end-to-end via the mirrored
 `hashicorp/null`, **or** for the `configured` rung to document the measured skip classes. The
-second is what the evidence supports. Characterising the aliased-provider fixture at
-`--pin configured` produces exactly four classes, measured:
+second is what the M4.5 evidence supported. Characterising the aliased-provider fixture at
+`--pin configured` then produced exactly four classes, measured:
 
 | Class | Example | Why |
 | --- | --- | --- |
@@ -79,10 +79,11 @@ second is what the evidence supports. Characterising the aliased-provider fixtur
 | `skipped-unrenderable` (typed null) | `terraform_data.anchor.triggers_replace` | the payload's `null` has lost its type |
 | `skipped-volatile` | `terraform_data.anchor.id` | a fresh UUID per run, caught by the double run |
 
-No schema-typed *collection* pin is generated, and that is the M4 rendering contract
-holding rather than a gap: `hclwrite.TokensForValue` renders a list and a set identically and
-`toset(["a"]) == ["a"]` is false, so a collection equality would be generated and refuted.
-The ladder documents the classes instead of guessing.
+The M4.5 measurement generated no schema-typed *collection* pin. Whole-collection equalities
+were refused because `hclwrite.TokensForValue` renders a list and a set identically and
+`toset(["a"]) == ["a"]` is false. These rows record that measurement. Current supported
+paths and refusals belong to the
+[suggestion rendering contract](../design/product-design.md#7-the-differentiator--suggested-assertions).
 
 ## 4. The synthesis-rate measurement, and its decision
 
