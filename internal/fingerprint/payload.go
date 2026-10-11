@@ -785,7 +785,7 @@ func splitOutput(rest, body string) (address, attribute string, ok bool) {
 // a value to assert, and a renderer that reads them as a value's shape renders
 // a lie.
 func IsUnknownMarker(path string) bool {
-	_, found := unknownValueBase(path)
+	_, found := UnknownValueBase(path)
 
 	return found
 }
@@ -795,10 +795,6 @@ func IsUnknownMarker(path string) bool {
 // `output_changes.X.after…`, and a resource change's `change.after_unknown…`
 // marks its `change.after…`. A path that is not a marker path reports false.
 func UnknownValueBase(marker string) (string, bool) {
-	return unknownValueBase(marker)
-}
-
-func unknownValueBase(marker string) (string, bool) {
 	if rest, cut := strings.CutPrefix(marker, outputChanges+"."); cut {
 		name, tail, found := strings.Cut(rest, ".")
 		if !found {
@@ -862,12 +858,11 @@ func IsOutputMetadata(path string) bool {
 		field = field[:bracket]
 	}
 
+	// Only the metadata members are unassertable; the value and its change
+	// body are not, and neither is anything the grammar does not name.
 	switch field {
-	case outputValueField, outputAfterField:
-		return false
-	case outputSensitive, outputType:
-		return true
-	case afterSensitive, beforeSensitive, afterUnknown, beforeUnknown:
+	case outputSensitive, outputType,
+		afterSensitive, beforeSensitive, afterUnknown, beforeUnknown:
 		return true
 	default:
 		return false
