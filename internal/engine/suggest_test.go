@@ -20,16 +20,17 @@ import (
 // it must, and that no artefact of a skipped suggestion says more than it may.
 
 const (
-	suggestBasicFixture     = "suggest-basic"
-	suggestSensitiveFixture = "suggest-sensitive"
-	suggestJSONFixture      = "suggest-json-target"
-	suggestMultiFixture     = "suggest-multifile"
-	suggestBatchFixture     = "suggest-batch"
-	suggestCountFixture     = "suggest-count"
-	suggestOutputList       = "suggest-output-list"
-	suggestMapKeyFixture    = "suggest-map-key"
-	secretValue             = "s3cret-value"
-	unitTestFile            = "tests/unit.tftest.hcl"
+	suggestBasicFixture         = "suggest-basic"
+	suggestSensitiveFixture     = "suggest-sensitive"
+	suggestJSONFixture          = "suggest-json-target"
+	suggestMultiFixture         = "suggest-multifile"
+	suggestBatchFixture         = "suggest-batch"
+	suggestCountFixture         = "suggest-count"
+	suggestOutputList           = "suggest-output-list"
+	suggestMapKeyFixture        = "suggest-map-key"
+	suggestUnknownObjectFixture = "suggest-unknown-object"
+	secretValue                 = "s3cret-value"
+	unitTestFile                = "tests/unit.tftest.hcl"
 )
 
 // dryRunRequest is a suggest run that generates and verifies nothing.
@@ -54,10 +55,12 @@ func runSuggest(t *testing.T, request engine.SuggestRequest) report.Report {
 }
 
 // The map-key fixture: a null_resource map attribute whose key is a dotted
-// Kubernetes label. The payload path flattens the key across segments no
-// dotted traversal can spell, and only the provider's map type can tell the
-// key from a nested attribute — so every value mutation under that key used to
-// be refused, and now renders in index form.
+// Kubernetes label. The payload path flattens that key across several
+// dot-separated path segments, and only the provider schema's map type can
+// tell the key from a nested attribute — every value mutation under it used
+// to be refused, and now renders in index form. The container's own nulling
+// mutants are answered by the non-null form, which is the suggestion this
+// fixture verifies.
 func TestANonIdentifierMapKeyIsRenderedInIndexForm(t *testing.T) {
 	t.Parallel()
 	requireProviderMirror(t)
@@ -73,14 +76,26 @@ func TestANonIdentifierMapKeyIsRenderedInIndexForm(t *testing.T) {
 	}
 
 	const dotted = `null_resource.app.triggers["app.kubernetes.io/part-of"] == "tf-mut-observe"`
+	var sawIndexForm, sawNonNull bool
 	for _, suggestion := range result.Suggestions {
-		if suggestion.Expression == dotted {
-			return
+		switch {
+		case suggestion.Expression == dotted:
+			sawIndexForm = true
+		case suggestion.Expression == "null_resource.app.triggers != null" &&
+			suggestion.Status == report.SuggestionVerified:
+			sawNonNull = true
 		}
 	}
 
-	t.Fatalf("no suggestion carries %q; statuses were %s",
-		dotted, statusSummary(result.Suggestions))
+	if !sawIndexForm {
+		t.Fatalf("no suggestion carries %q; statuses were %s",
+			dotted, statusSummary(result.Suggestions))
+	}
+
+	if !sawNonNull {
+		t.Fatalf("no verified suggestion renders the map's non-null form; statuses were %s",
+			statusSummary(result.Suggestions))
+	}
 }
 
 // The list-valued output fixture: mutations of the output's element and a
@@ -122,6 +137,38 @@ func TestAListValuedOutputElementIsAddressedThroughItsIndex(t *testing.T) {
 
 	t.Fatalf("no suggestion carries %q; statuses were %s",
 		want, statusSummary(result.Suggestions))
+}
+
+// The unknown-object fixture: an object output one of whose members is an
+// unknown attribute value, observed under a plan run. The baseline payload
+// marks that member in the output's after_unknown record while the value
+// itself holds members — the shape a length assertion reads as an empty
+// collection and answers with a statement that is false on the baseline. The
+// nulling mutant is answered by the non-null form instead.
+func TestAnUnknownObjectOutputAssertsNonNullAndNeverALength(t *testing.T) {
+	t.Parallel()
+	requireProviderMirror(t)
+
+	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestUnknownObjectFixture)))
+
+	for _, suggestion := range result.Suggestions {
+		if strings.HasPrefix(suggestion.Expression, "length(output.identity)") {
+			t.Fatalf("a length was rendered over a value whose members the plan marks unknown")
+		}
+
+		if suggestion.Expression == "output.identity != null" &&
+			suggestion.Status == report.SuggestionVerified {
+			if suggestion.TargetRun != "planned" {
+				t.Fatalf("placement = %s:%s, want the plan run that carried the delta",
+					suggestion.TargetFile, suggestion.TargetRun)
+			}
+
+			return
+		}
+	}
+
+	t.Fatalf("no verified suggestion renders the output's non-null form; statuses were %s",
+		statusSummary(result.Suggestions))
 }
 
 func TestSuggestGeneratesTheAssertionThatWouldHaveKilledASurvivor(t *testing.T) {

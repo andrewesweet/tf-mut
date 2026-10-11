@@ -42,6 +42,15 @@ func changeAt(path, baseline string) fingerprint.Change {
 	}
 }
 
+// nulledAt is a change whose mutant side is null, the shape the non-null
+// branch answers.
+func nulledAt(path string) fingerprint.Change {
+	change := changeAt(path, "")
+	change.Mutant = "null"
+
+	return change
+}
+
 // schemaTyping publishes one attribute's cty type, which is the rendering
 // contract's normative type source.
 func schemaTyping(attribute, ctyType string) tfexec.Schemas {
@@ -162,7 +171,7 @@ func TestTheAddressAdapterMatrix(t *testing.T) {
 			t.Parallel()
 
 			expression, err := suggest.Express(testCase.run, testCase.schemas,
-				changeAt(testCase.path, testCase.baseline))
+				suggest.Evidence{}, changeAt(testCase.path, testCase.baseline))
 
 			assertAdapter(t, expression, err, testCase.want, testCase.refused)
 		})
@@ -183,7 +192,7 @@ func TestChildModuleInternalsAreNeverALegalAssertionSurface(t *testing.T) {
 			t.Parallel()
 
 			_, err := suggest.Express(runIn("applied", ""),
-				untyped(), changeAt(path, steadyBaseline))
+				untyped(), suggest.Evidence{}, changeAt(path, steadyBaseline))
 
 			if !errors.Is(err, suggest.ErrUnaddressable) {
 				t.Fatalf("error = %v, want an unaddressable refusal", err)
@@ -205,7 +214,7 @@ func TestAGeneratorLimitIsNeverARefutation(t *testing.T) {
 		"resource_changes[example_thing.app].change.before.input",
 	} {
 		_, err := suggest.Express(runIn("applied", ""),
-			untyped(), changeAt(path, steadyBaseline))
+			untyped(), suggest.Evidence{}, changeAt(path, steadyBaseline))
 
 		if !errors.Is(err, suggest.ErrUnaddressable) {
 			t.Fatalf("%s: error = %v, want an unaddressable refusal", path, err)
@@ -317,7 +326,7 @@ func TestTheRenderingContractMatrix(t *testing.T) {
 			t.Parallel()
 
 			expression, err := suggest.Express(runIn("applied", ""),
-				testCase.schemas, changeAt(testCase.path, testCase.baseline))
+				testCase.schemas, suggest.Evidence{}, changeAt(testCase.path, testCase.baseline))
 
 			assertAdapter(t, expression, err, testCase.want, testCase.refused)
 		})
@@ -333,6 +342,8 @@ func TestTheRenderingContractAdmissions(t *testing.T) {
 		name     string
 		path     string
 		baseline string
+		mutant   string
+		evidence suggest.Evidence
 		schemas  tfexec.Schemas
 		want     string
 		refused  error
@@ -436,12 +447,45 @@ func TestTheRenderingContractAdmissions(t *testing.T) {
 			schemas: schemaTyping("tags", `["map","string"]`),
 			want:    `example_thing.app.tags["0"] == "steady"`, refused: nil,
 		},
+		{
+			name: "a nulled whole output asserts non-null",
+			path: "outputs.identity.value", baseline: "", mutant: "null",
+			schemas: untyped(), want: "output.identity != null", refused: nil,
+		},
+		{
+			name: "a nulled leaf with a baseline value asserts non-null",
+			path: statePrefix + "example_thing.app].values.input", baseline: steadyBaseline,
+			mutant: "null", schemas: untyped(),
+			want: "example_thing.app.input != null", refused: nil,
+		},
+		{
+			name:     "a nulled container the delta proves non-null asserts non-null",
+			path:     statePrefix + "example_thing.app].values.triggers", baseline: "", mutant: "null",
+			schemas:  schemaTyping("triggers", `["map","string"]`),
+			evidence: suggest.NewEvidence([]fingerprint.Change{nulledAt(statePrefix + "example_thing.app].values.triggers"), changeAt(statePrefix+"example_thing.app].values.triggers.plain", steadyBaseline)}),
+			want:     "example_thing.app.triggers != null", refused: nil,
+		},
+		{
+			name: "a vanished value without neighbourhood proof stays refused",
+			path: statePrefix + "example_thing.app].values.triggers", baseline: "", mutant: "null",
+			schemas: schemaTyping("triggers", `["map","string"]`), want: "", refused: suggest.ErrUnrenderable,
+		},
+		{
+			name:     "a length is never rendered from unknown elements",
+			path:     "output_changes.identity.after", baseline: "{}", mutant: `"2"`,
+			schemas:  untyped(),
+			evidence: suggest.Evidence{UnknownMarkers: []string{"output_changes.identity.after_unknown.principal_id"}},
+			want:     "", refused: suggest.ErrUnrenderable,
+		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
+			change := changeAt(testCase.path, testCase.baseline)
+			change.Mutant = testCase.mutant
+
 			expression, err := suggest.Express(runIn("applied", ""),
-				testCase.schemas, changeAt(testCase.path, testCase.baseline))
+				testCase.schemas, testCase.evidence, change)
 
 			assertAdapter(t, expression, err, testCase.want, testCase.refused)
 		})
@@ -459,7 +503,7 @@ func TestATosetAmbiguityIsAlwaysSkipped(t *testing.T) {
 	} {
 		_, err := suggest.Express(runIn("applied", ""),
 			schemaTyping("items", ctyType),
-			changeAt(statePrefix+"example_thing.app].values.items", `"scalar-rendered"`))
+			suggest.Evidence{}, changeAt(statePrefix+"example_thing.app].values.items", `"scalar-rendered"`))
 
 		if !errors.Is(err, suggest.ErrUnrenderable) {
 			t.Fatalf("%s: error = %v, want an unrenderable refusal", ctyType, err)
@@ -488,7 +532,7 @@ func TestTheSensitivityPredicateRefusesBeforeAnythingRenders(t *testing.T) {
 			change.Sensitive = true
 
 			expression, err := suggest.Express(
-				runIn("applied", ""), untyped(), change,
+				runIn("applied", ""), untyped(), suggest.Evidence{}, change,
 			)
 
 			if !errors.Is(err, suggest.ErrSensitive) {

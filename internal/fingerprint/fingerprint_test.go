@@ -340,3 +340,70 @@ func TestSplitCarriesAnOutputElementPathPastItsBody(t *testing.T) {
 		})
 	}
 }
+
+// TestAnUnknownMarkerPathMapsOntoTheValueItMarks pins the mapping between a
+// plan's unknown-marker record and the value whose parts it marks, for the
+// record itself, a leaf under it, and an element inside a collection under it.
+// Every verdict the mapping leads to is asserted through the engine seam; the
+// shapes here are documents' contracts, taken from recorded real output.
+func TestAnUnknownMarkerPathMapsOntoTheValueItMarks(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		marker string
+		value  string
+	}{
+		{
+			"output_changes.identity.after_unknown",
+			"output_changes.identity.after",
+		},
+		{
+			"output_changes.identity.after_unknown.principal_id",
+			"output_changes.identity.after.principal_id",
+		},
+		{
+			"output_changes.identity.after_unknown.items[0].port",
+			"output_changes.identity.after.items[0].port",
+		},
+		{
+			"resource_changes[null_resource.app].change.after_unknown.triggers",
+			"resource_changes[null_resource.app].change.after.triggers",
+		},
+	} {
+		t.Run(testCase.marker, func(t *testing.T) {
+			t.Parallel()
+
+			if !fingerprint.IsUnknownMarker(testCase.marker) {
+				t.Fatalf("IsUnknownMarker(%q) = false, want true", testCase.marker)
+			}
+
+			value, found := fingerprint.UnknownValueBase(testCase.marker)
+			if !found || value != testCase.value {
+				t.Fatalf("UnknownValueBase(%q) = (%q, %v), want (%q, true)",
+					testCase.marker, value, found, testCase.value)
+			}
+		})
+	}
+}
+
+// TestNonMarkerPathsNameNoMarkerRecord keeps the mapping from widening: a
+// value path, a sensitivity record, the before half of a change, and an
+// output whose own name embeds the marker's field name are none of them
+// unknown markers.
+func TestNonMarkerPathsNameNoMarkerRecord(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		"output_changes.identity.after",
+		"output_changes.identity.after_sensitive",
+		"output_changes.identity.after_unknownish.children",
+		"resource_changes[null_resource.app].change.before",
+		"resource_changes[null_resource.app].change.after.triggers",
+		"outputs.after_unknown",
+		"root_module.resources[null_resource.app].values.triggers",
+	} {
+		if fingerprint.IsUnknownMarker(path) {
+			t.Fatalf("IsUnknownMarker(%q) = true, want false", path)
+		}
+	}
+}

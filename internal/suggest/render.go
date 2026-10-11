@@ -42,8 +42,21 @@ type render struct {
 }
 
 // equality renders the assert condition for one delta change, or fails closed.
-func (r render) equality(parts traversalParts, baseline string) (string, error) {
+func (r render) equality(
+	parts traversalParts,
+	baseline, mutant string,
+	evidence Evidence,
+) (string, error) {
 	expression, resource, attribute := parts.expression, parts.resource, parts.attribute
+
+	// A mutant that nulls the value is answered by an inequality, whatever the
+	// baseline held: it is true on the baseline and false under the mutant.
+	// A whole value absent from the baseline payload is a non-empty container —
+	// empty ones render — and anything else needs the delta to have proven the
+	// baseline value existed.
+	if mutant == "null" && (attribute == "" || baseline != "" || evidence.ProvenNonNull[parts.path]) {
+		return expression + " != null", nil
+	}
 
 	if baseline == "" {
 		return "", fmt.Errorf("%w: the value is absent from the baseline, and an "+
@@ -52,8 +65,15 @@ func (r render) equality(parts traversalParts, baseline string) (string, error) 
 
 	// A size delta the baseline proves: the collection was empty. `length` is
 	// type-correct over every collection, which is exactly why it is one of the
-	// three admitted forms.
+	// three admitted forms — but never over a value whose parts the baseline
+	// could not know: the plan marks those, and a length over unknowns is a lie
+	// the baseline run exposes.
 	if baseline == emptyObject || baseline == emptyArray {
+		if evidence.markersUnder(parts.path) {
+			return "", fmt.Errorf("%w: the plan marks parts of this value unknown, and a "+
+				"length over unknowns is not evidence", ErrUnrenderable)
+		}
+
 		return "length(" + expression + ") == 0", nil
 	}
 

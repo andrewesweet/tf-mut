@@ -303,6 +303,7 @@ func onePin(context pinContext) Pin {
 	rendered, err := suggest.Express(
 		discovery.RunBlock{Name: RunPrefix + context.scenario.Name()}, //nolint:exhaustruct // the adapter reads the address.
 		context.schemas,
+		suggest.Evidence{}, //nolint:exhaustruct // pinning renders the baseline value alone; no delta neighbourhood exists.
 		fingerprint.Change{
 			Run: RunPrefix + context.scenario.Name(), Path: context.path,
 			Address: expression, Baseline: value, Mutant: "", Sensitive: false,

@@ -21,12 +21,13 @@ import (
 var ErrUnaddressable = errors.New("no legal assertion expression addresses this delta")
 
 // traversalParts is what the address adapter hands the rendering contract:
-// the legal expression, and the resource address and attribute path the type
-// lookup is keyed by.
+// the legal expression, the resource address and attribute path the type
+// lookup is keyed by, and the canonical payload path the evidence is keyed by.
 type traversalParts struct {
 	expression string
 	resource   string
 	attribute  string
+	path       string
 }
 
 // traversal is the assertion-expression adapter: it joins two address spaces
@@ -78,7 +79,7 @@ func traversal(path string) (traversalParts, error) {
 	// which owns the parse floor for the expression it builds; the dotted
 	// spelling above is only provisional there.
 	if strings.HasPrefix(attribute, "[") || len(fingerprint.AttributeSegments(attribute)) > 1 {
-		return traversalParts{expression: expression, resource: resource, attribute: attribute}, nil
+		return traversalParts{expression: expression, resource: resource, attribute: attribute, path: path}, nil
 	}
 
 	if err := parseTraversal(expression); err != nil {
@@ -96,7 +97,7 @@ func traversal(path string) (traversalParts, error) {
 		return empty, err
 	}
 
-	return traversalParts{expression: expression, resource: resource, attribute: attribute}, nil
+	return traversalParts{expression: expression, resource: resource, attribute: attribute, path: path}, nil
 }
 
 // parseTraversal proves the generated text is a traversal HCL accepts.

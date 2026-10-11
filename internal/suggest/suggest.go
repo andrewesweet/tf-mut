@@ -252,10 +252,13 @@ func (g Generator) suggestFor(
 	renderer := render{schemas: g.Schemas}
 
 	var value, metadata []fingerprint.Change
+	carried := []fingerprint.Change{}
 	for _, change := range changes {
 		if change.Run != runKey(target) {
 			continue
 		}
+
+		carried = append(carried, change)
 
 		if fingerprint.IsOutputMetadata(change.Path) {
 			metadata = append(metadata, change)
@@ -266,8 +269,10 @@ func (g Generator) suggestFor(
 		value = append(value, change)
 	}
 
+	evidence := NewEvidence(carried)
+
 	for _, pass := range [][]fingerprint.Change{value, metadata} {
-		expression, first, sensitive, admitted := walkChanges(renderer, pass)
+		expression, first, sensitive, admitted := walkChanges(renderer, evidence, pass)
 		if admitted {
 			return build(survivor, target, expression)
 		}
@@ -297,10 +302,11 @@ func (g Generator) suggestFor(
 // first refusal and the first sensitivity refusal out of the ones it does not.
 func walkChanges(
 	renderer render,
+	evidence Evidence,
 	changes []fingerprint.Change,
 ) (expression string, first, sensitive error, admitted bool) {
 	for _, change := range changes {
-		rendered, err := expressChange(renderer, change)
+		rendered, err := expressChange(renderer, evidence, change)
 		if err != nil {
 			if first == nil {
 				first = err
@@ -335,16 +341,86 @@ func walkChanges(
 func Express(
 	run discovery.RunBlock,
 	schemas tfexec.Schemas,
+	evidence Evidence,
 	change fingerprint.Change,
 ) (string, error) {
 	_ = run // the adapter reads the module path from the address itself; see traversal.
 
-	return expressChange(render{schemas: schemas}, change)
+	return expressChange(render{schemas: schemas}, evidence, change)
+}
+
+// Evidence carries what a whole delta proves about one change's neighbourhood.
+//
+// A single change says what a path held on each side; only the delta around it
+// says what the value's shape was. The unknown markers say which parts of a
+// plan value the baseline could not know — a length over such a value is a
+// lie. The non-null proofs are the paths whose vanished members carried
+// values, so a mutant that nulls a container is answered by an inequality and
+// not by an index into it.
+type Evidence struct {
+	// UnknownMarkers are the delta's marker paths, canonical and complete.
+	UnknownMarkers []string
+	// ProvenNonNull records the paths whose baseline value the delta proves
+	// was neither absent nor null: another change under the same path carried
+	// a value.
+	ProvenNonNull map[string]bool
+}
+
+// NewEvidence reads a delta into the evidence its changes prove. It is the
+// generator's own construction, and the matrices build it by hand.
+func NewEvidence(changes []fingerprint.Change) Evidence {
+	evidence := Evidence{ProvenNonNull: map[string]bool{}}
+
+	for _, change := range changes {
+		if fingerprint.IsUnknownMarker(change.Path) {
+			evidence.UnknownMarkers = append(evidence.UnknownMarkers, change.Path)
+		}
+	}
+
+	for _, change := range changes {
+		if change.Mutant != "null" || evidence.ProvenNonNull[change.Path] {
+			continue
+		}
+
+		for _, other := range changes {
+			if other.Baseline == "" || other.Baseline == "null" {
+				continue
+			}
+
+			if other.Path == change.Path ||
+				strings.HasPrefix(other.Path, change.Path+".") ||
+				strings.HasPrefix(other.Path, change.Path+"[") {
+				evidence.ProvenNonNull[change.Path] = true
+
+				break
+			}
+		}
+	}
+
+	return evidence
+}
+
+// markersUnder reports whether the delta's markers reach the subtree a value
+// path names.
+func (e Evidence) markersUnder(valuePath string) bool {
+	for _, marker := range e.UnknownMarkers {
+		base, found := fingerprint.UnknownValueBase(marker)
+		if !found {
+			continue
+		}
+
+		if base == valuePath || strings.HasPrefix(base, valuePath+".") ||
+			strings.HasPrefix(base, valuePath+"[") {
+			return true
+		}
+	}
+
+	return false
 }
 
 // expressChange runs one change through the three adapters in order.
 // Sensitivity comes first: a sensitive value must not reach a renderer at all.
-func expressChange(renderer render, change fingerprint.Change) (string, error) {
+func expressChange(renderer render, evidence Evidence, change fingerprint.Change) (string, error) {
 	if change.Sensitive {
 		return "", fmt.Errorf("%w: Terraform marks the value at this path, or a container "+
 			"of it, sensitive", ErrSensitive)
@@ -355,7 +431,7 @@ func expressChange(renderer render, change fingerprint.Change) (string, error) {
 		return "", err
 	}
 
-	return renderer.equality(parts, change.Baseline)
+	return renderer.equality(parts, change.Baseline, change.Mutant, evidence)
 }
 
 // ErrSensitive reports a delta whose value Terraform marks sensitive.

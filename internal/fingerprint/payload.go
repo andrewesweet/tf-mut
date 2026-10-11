@@ -560,16 +560,17 @@ func hashValues(values map[string]string) string {
 // reading the same path out of the mirror — and out of every ancestor of it,
 // because a sensitive container makes everything under it sensitive.
 const (
-	afterSensitive   = "after_sensitive"
-	beforeSensitive  = "before_sensitive"
-	sensitiveValues  = "sensitive_values"
-	outputSensitive  = "sensitive"
-	outputType       = "type"
-	planValues       = "values"
-	changeAfter      = "change.after"
-	changeBefore     = "change.before"
-	outputAfterField = "after"
-	outputValueField = "value"
+	afterSensitive     = "after_sensitive"
+	beforeSensitive    = "before_sensitive"
+	sensitiveValues    = "sensitive_values"
+	outputSensitive    = "sensitive"
+	outputType         = "type"
+	planValues         = "values"
+	changeAfter        = "change.after"
+	changeAfterUnknown = "change." + afterUnknown
+	changeBefore       = "change.before"
+	outputAfterField   = "after"
+	outputValueField   = "value"
 )
 
 // Sensitive reports whether the payload marks the value at a canonical path
@@ -776,6 +777,57 @@ func splitOutput(rest, body string) (address, attribute string, ok bool) {
 	}
 
 	return "", "", false
+}
+
+// IsUnknownMarker reports whether a canonical path is — or lives under — a
+// plan's unknown marker: the record that says which parts of a value the
+// baseline could not know. The markers are evidence about a comparison, never
+// a value to assert, and a renderer that reads them as a value's shape renders
+// a lie.
+func IsUnknownMarker(path string) bool {
+	_, found := unknownValueBase(path)
+
+	return found
+}
+
+// UnknownValueBase maps an unknown-marker path onto the value path whose
+// subtree it marks: `output_changes.X.after_unknown…` marks
+// `output_changes.X.after…`, and a resource change's `change.after_unknown…`
+// marks its `change.after…`. A path that is not a marker path reports false.
+func UnknownValueBase(marker string) (string, bool) {
+	return unknownValueBase(marker)
+}
+
+func unknownValueBase(marker string) (string, bool) {
+	if rest, cut := strings.CutPrefix(marker, outputChanges+"."); cut {
+		name, tail, found := strings.Cut(rest, ".")
+		if !found {
+			return "", false
+		}
+
+		marked, isMarker := strings.CutPrefix(tail, afterUnknown)
+		if !isMarker || (marked != "" && marked[0] != '.') {
+			return "", false
+		}
+
+		return outputChanges + "." + name + "." + outputAfterField + marked, true
+	}
+
+	if rest, cut := strings.CutPrefix(marker, resourceChanges+"["); cut {
+		address, tail, foundAddress := strings.Cut(rest, "]")
+		if !foundAddress {
+			return "", false
+		}
+
+		marked, isMarker := strings.CutPrefix(tail, "."+changeAfterUnknown)
+		if !isMarker {
+			return "", false
+		}
+
+		return resourceChanges + "[" + address + "]." + changeAfter + marked, true
+	}
+
+	return "", false
 }
 
 // IsOutputMetadata reports whether a canonical path names an output record's
