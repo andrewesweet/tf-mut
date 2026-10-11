@@ -545,9 +545,11 @@ func notDotted(expression string) error {
 }
 
 // walkIndicesAndNames renders an output's element path — indices as written,
-// further names as dotted attributes — and refuses anything else. A map key
-// reaches it only inside an index, never as a bare segment, because no schema
-// exists to tell the key from a nested attribute.
+// further names as dotted attributes — and refuses anything else. A name
+// segment may carry an attached index, `aliases[0]`, which renders as the
+// name and the index consumed separately; a map key reaches it only inside an
+// index, never as a bare segment, because no schema exists to tell the key
+// from a nested attribute.
 func walkIndicesAndNames(attribute string) (string, error) {
 	builder := strings.Builder{}
 
@@ -563,12 +565,17 @@ func walkIndicesAndNames(attribute string) (string, error) {
 			continue
 		}
 
-		if !hclsyntax.ValidIdentifier(segment) {
+		name, key, indexed := cutIndex(segment)
+		if !hclsyntax.ValidIdentifier(name) || (indexed && !digitsOnly(key)) {
 			return "", nestedValue(attribute)
 		}
 
 		builder.WriteString(".")
-		builder.WriteString(segment)
+		builder.WriteString(name)
+
+		if indexed {
+			builder.WriteString("[" + key + "]")
+		}
 	}
 
 	return builder.String(), nil

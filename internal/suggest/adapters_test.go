@@ -149,6 +149,13 @@ func TestTheAddressAdapterMatrix(t *testing.T) {
 			schemas: untyped(), want: `output.from_child == "steady"`, refused: nil,
 		},
 		{
+			name:     "a fused name-and-index segment renders in index form",
+			run:      runIn("applied", ""),
+			path:     "outputs.from_child.value[0].aliases[0]",
+			baseline: steadyBaseline,
+			schemas:  untyped(), want: `output.from_child[0].aliases[0] == "steady"`, refused: nil,
+		},
+		{
 			name: "a list-valued output's element",
 			run:  runIn("applied", ""),
 			path: "outputs.from_child.value[0].short_name", baseline: steadyBaseline,
