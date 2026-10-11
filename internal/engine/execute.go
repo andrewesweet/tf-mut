@@ -169,67 +169,22 @@ func evaluate(
 	verdict.ExecutedRuns = result.ExecutedRuns()
 	verdict.Diagnostics = diagnostics(result.Diagnostics)
 
-	verdict, failure := classify(ctx, plan, built, verdict, result, budget)
-	if failure != nil || verdict.State != report.Survived {
-		return verdict, failure
-	}
+	judge := executionOracle{plan: plan}
+	observation := judge.observation(index, verdict, result, budget)
 
-	// Phase two: only a phase-one survivor is fingerprinted, which is the whole
-	// point of the split.
-	return executionOracle{plan: plan}.observe(ctx, built, index, verdict)
-}
-
-// classify assigns the aggregate state by the normative precedence, and runs
-// terraform validate only where it is the sole discriminator: after an error.
-// Every branch names its state through the oracle's terminal constructors; the
-// outcome is projected onto the published mutant at the boundary.
-func classify(
-	ctx context.Context,
-	plan executionPlan,
-	built sandbox.Sandbox,
-	verdict report.Mutant,
-	result tfexec.TestResult,
-	budget time.Duration,
-) (report.Mutant, *report.ExecutionError) {
-	// Killed is checked before Invalid even though the precedence table ranks
-	// Invalid first. The two cannot both apply: a statically invalid
-	// configuration never reaches an assertion, so it cannot produce a run that
-	// reports fail. Checking here keeps the M11 speed win — the killed majority
-	// never pays for validate — without changing any verdict.
-	if result.HasStatus(tfexec.StatusFail) {
-		return project(verdict, oracle.Killed()), nil
-	}
-
-	if result.HasStatus(tfexec.StatusError) || verdict.ExecutedRuns == 0 {
-		validation, err := plan.runner.Validate(ctx, built.ModuleDir)
-		if err != nil {
-			return verdict, &report.ExecutionError{
-				MutantID: verdict.ID,
-				Site:     verdict.Site,
-				Message:  "terraform validate could not be executed: " + err.Error(),
-			}
-		}
-
-		verdict.Validated = true
-
-		if !validation.Valid {
-			verdict.Diagnostics = append(verdict.Diagnostics,
-				diagnostics(validation.Diagnostics)...)
-			slices.SortFunc(verdict.Diagnostics, compareDiagnostics)
-
-			return project(verdict, oracle.Invalid(oracleDiagnostics(verdict.Diagnostics))), nil
-		}
-
-		if result.HasStatus(tfexec.StatusError) {
-			return project(verdict, oracle.KilledByError(oracleDiagnostics(verdict.Diagnostics))), nil
+	if observation.NeedsValidate() {
+		var failure *report.ExecutionError
+		verdict, observation, failure = judge.validate(ctx, built, verdict, observation)
+		if failure != nil {
+			return verdict, failure
 		}
 	}
 
-	if result.TimedOut {
-		return project(verdict, oracle.TimedOut(budget)), nil
-	}
+	outcome := oracle.Judge(observation)
 
-	if verdict.ExecutedRuns == 0 {
+	// A phase-one survivor over zero executed runs is the operational refusal:
+	// no verdict is possible, and the mutant is never projected as a survival.
+	if observation.NoVerdictPossible() && observation.NeedsPhaseTwo(outcome) {
 		return verdict, &report.ExecutionError{
 			MutantID: verdict.ID,
 			Site:     verdict.Site,
@@ -238,9 +193,47 @@ func classify(
 		}
 	}
 
-	// Phase one is out of decisions: the mutant survived everything phase one
-	// can see, and phase two decides what that means.
-	return project(verdict, oracle.SurvivedPhaseOne()), nil
+	verdict = project(verdict, outcome)
+
+	// Phase two: only a phase-one survivor is fingerprinted, which is the whole
+	// point of the split.
+	if !observation.NeedsPhaseTwo(outcome) {
+		return verdict, nil
+	}
+
+	return judge.observe(ctx, built, verdict, observation)
+}
+
+// validate records the terraform validate verdict into the observation where
+// the precedence table needs it: validate is the sole discriminator between
+// Invalid and KilledByError after a run-level error, and the merged, ordered
+// diagnostics are the evidence an Invalid claim is made from.
+func (o executionOracle) validate(
+	ctx context.Context,
+	built sandbox.Sandbox,
+	verdict report.Mutant,
+	observation oracle.Observation,
+) (report.Mutant, oracle.Observation, *report.ExecutionError) {
+	validation, err := o.plan.runner.Validate(ctx, built.ModuleDir)
+	if err != nil {
+		return verdict, observation, &report.ExecutionError{
+			MutantID: verdict.ID,
+			Site:     verdict.Site,
+			Message:  "terraform validate could not be executed: " + err.Error(),
+		}
+	}
+
+	verdict.Validated = true
+
+	if validation.Valid {
+		return verdict, observation.WithValidateVerdict(true, nil), nil
+	}
+
+	verdict.Diagnostics = append(verdict.Diagnostics, diagnostics(validation.Diagnostics)...)
+	slices.SortFunc(verdict.Diagnostics, compareDiagnostics)
+
+	return verdict,
+		observation.WithValidateVerdict(false, oracleDiagnostics(verdict.Diagnostics)), nil
 }
 
 func runOutcomes(result tfexec.TestResult) []report.RunOutcome {

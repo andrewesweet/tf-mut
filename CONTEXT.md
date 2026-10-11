@@ -57,7 +57,11 @@ currently declared by `internal/report`; they are not invitations to add aliases
 
 ### Oracle / Verdict
 
-- **Observation:** the canonical Terraform payload captured for comparison.
+- **Observation:** the canonical Terraform payload captured for comparison. The same
+  word names the judgement type one layer up: `oracle.Observation` is the bundle of
+  measurements — run statuses, diagnostics, the validate verdict, the masked delta and
+  the unknown paths — that the engine assembles and the precedence table (`Judge`)
+  decides over.
 - **Mask:** a component-granular record of volatility discovered by baseline evidence
   or static scan: volatile components are removed before comparison while stable
   template components remain observable. If volatility cannot be decomposed
