@@ -22,6 +22,15 @@ Every operator obeys the same five rules.
 Notation: **site** = the AST node the operator fires on. Every mutant records file, line,
 column, operator ID, site description and a one-line unified diff.
 
+### The mutation surface
+
+The surface is the modules of the discovered closure **except the files under the configured
+test directory** (default `tests/`). A helper module the suite calls from under that directory
+is part of the test's scaffolding, not of the module under test: a survivor there grades the
+fixture, not the module, and the suite's verdicts would answer questions about the test
+harness the module cannot. The helper stays in the closure — run blocks still materialise it —
+but no operator generates against it.
+
 ---
 
 ## Tier 0 — Extreme (`smoke`)

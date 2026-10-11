@@ -666,6 +666,19 @@ may embed plan values and source text.** Sharing a cache across repositories, or
 through a broad CI cache key, is a documented risk; `--no-cache` is the mitigation. Finer
 graph-derived invalidation waits for a measurement proving the coarse key insufficient.
 
+**One identifier names one mutant (report schema 2.6.0).** The mutant identifier is a content
+hash over the operator, the closure-relative path, the site address, the replaced content and
+the replacement — stable under line moves and unrelated edits, broken by renaming the file.
+That hash is position-free, so the same rewrite fired at several positions of one attribute —
+the same literal twice in one conditional — collides; every member of such a group re-derives
+its identifier with the group's occurrence ordinal in source order, assigned before any
+selection lever, so identifiers do not depend on `--since`, sampling or operator selection.
+A cache entry, a baseline entry and a suppression directive therefore each resolve to one
+mutant; a pre-2.6.0 acceptance list over a colliding population is stale by design and is
+rewritten. The ordinal, not a byte offset, is what the identifier mixes in: an offset inside
+one attribute shifts under any earlier edit in it, while the ordinal changes only when the
+group's own membership or order changes.
+
 ---
 
 ## 11. What makes this defensible
