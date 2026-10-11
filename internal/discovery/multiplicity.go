@@ -35,10 +35,8 @@ type Site struct {
 // under; every admitted reference reads `var.<name>`.
 const variableRoot = "var"
 
-// ConditionalMultiplicity publishes the one fact a pre-classification needs
-// about a site: that the block it sits in is never instantiated, because the
-// block's `count` or `for_each` is conditional on an input and is statically
-// zero under every relevant run.
+// ConditionalMultiplicity checks whether a site's block can be pre-classified
+// as never instantiated under every relevant run.
 //
 // M3a.3 (#47): conditional-instantiation NoCoverage, evaluated against the
 // mutant. Quoting the C1 disposition: "Pre-classification is per-mutant,
@@ -46,13 +44,11 @@ const variableRoot = "var"
 // zero under every relevant run, and any mutant whose site is in or
 // graph-upstream of the multiplicity expression always executes."
 //
-// The evaluator's context is exactly the enumerated list: run-level
-// variables, file-level variables, root and test-scoped variable defaults,
-// module retargeting. The supported expression forms are exactly: literals,
-// resolved variable references, ?:, boolean and comparison operators, and
-// literal arithmetic. Everything else — a plan_options.target, a run.*
-// reference, an unsupported form, a TF_VAR_ environment override, a block in
-// a child module reached through a module call — fails closed to execution.
+// The evaluator binds only root-module inputs through resolveVariable.
+// supportedMultiplicityForm owns the admitted native expression shapes.
+// A plan_options.target, a run.* reference, an unsupported form, a TF_VAR_
+// environment override, or a block in a child module reached through a module
+// call fails closed to execution.
 func (configuration Configuration) ConditionalMultiplicity(
 	graph *Graph,
 	env []string,
@@ -98,9 +94,9 @@ func (configuration Configuration) ConditionalMultiplicity(
 			return false
 		}
 
-		// A JSON-declared run's variables are not in the enumerated context:
-		// an `Attribute` carries a native-syntax expression and a JSON run has
-		// none, so the evaluator cannot see what the run assigns.
+		// JSON-declared runs remain outside the evaluator's admitted context:
+		// jsonRun does not collect their variable assignments. Never fall back
+		// to defaults that these assignments could override.
 		if run.JSONDeclared {
 			return false
 		}

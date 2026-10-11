@@ -35,7 +35,7 @@ const (
 //
 // Expr publishes the representation-neutral expression contract: whatever
 // syntax discovered the value, consumers read it through the `hcl.Expression`
-// interface, and native syntax is reached only through `NativeExpression`.
+// interface. The named accessors below govern access to native syntax.
 type Attribute struct {
 	Name  string
 	Range hcl.Range

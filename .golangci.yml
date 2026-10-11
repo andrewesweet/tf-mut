@@ -92,11 +92,10 @@ linters:
           deny:
             - pkg: github.com/hashicorp/hcl/v2/hclsyntax
               desc: "Native syntax is parsed and walked inside the boundary (discovery, mutation, characterise) and by config's own format; go through discovery's accessors. See ADR-0004."
-        # #89, third rule: no context reaches the application layer or the
-        # CLI. The direction runs one way — the engine coordinates the
-        # contexts and the CLI coordinates the engine — and this rule is what
-        # makes an edge in the other direction fail the build rather than the
-        # review.
+        # #89, third rule: core, supporting and Terraform Boundary packages
+        # cannot import the application layer or CLI. The engine coordinates
+        # these contexts and the CLI coordinates the engine; reverse imports
+        # from the packages below fail lint.
         application-boundary:
           list-mode: lax
           files:
