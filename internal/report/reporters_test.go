@@ -827,6 +827,104 @@ func TestMarkdownFindingsCarryFileLineGroupedBySite(t *testing.T) {
 	}
 }
 
+func TestMarkdownEscapesFindingLocations(t *testing.T) {
+	t.Parallel()
+
+	for _, entry := range []struct {
+		name      string
+		state     report.State
+		diagnosis report.Diagnosis
+	}{
+		{"ordinary", report.Survived, report.WeakAssertion},
+		{"unassertable", report.StructurallyUnassertable, ""},
+		{"indeterminate", report.Survived, report.IndeterminateUnknownValues},
+	} {
+		t.Run(entry.name, func(t *testing.T) {
+			t.Parallel()
+
+			value := sitesReport()
+			value.Mutants = value.Mutants[:2]
+
+			for index := range value.Mutants {
+				mutant := &value.Mutants[index]
+				mutant.Range.File = "main<env>.tf"
+				mutant.State = entry.state
+				mutant.Verdict.Diagnosis = entry.diagnosis
+				if entry.diagnosis == report.IndeterminateUnknownValues {
+					mutant.Verdict.Evidence.UnknownPaths = []string{"terraform_data.app.id"}
+				}
+			}
+
+			page := renderMarkdown(t, value)
+
+			if locations := strings.Count(page, "main&lt;env&gt;.tf:21"); locations != 2 {
+				t.Fatalf("escaped first finding location appears %d times, want heading and member:\n%s", locations, page)
+			}
+
+			if !strings.Contains(page, "at main&lt;env&gt;.tf:23") || strings.Contains(page, "main<env>.tf") {
+				t.Fatalf("a finding's location is missing or treated as markup:\n%s", page)
+			}
+		})
+	}
+}
+
+func TestMarkdownCodeSpansPreserveBacktickPathsAndSites(t *testing.T) {
+	t.Parallel()
+
+	for _, entry := range []struct {
+		key       string
+		delimiter string
+	}{
+		{"a`b", "``"},
+		{"a``b`c", "```"},
+		{"a<env>&`b", "``"},
+	} {
+		t.Run(entry.key, func(t *testing.T) {
+			t.Parallel()
+
+			address := "terraform_data.app[" + strconv.Quote(entry.key) + "]"
+			path, site := address+".id", address+".input"
+			value := indeterminateReport()
+			value.Mutants = value.Mutants[:2]
+
+			for index := range value.Mutants {
+				value.Mutants[index].Site = site
+				value.Mutants[index].Verdict.Evidence.UnknownPaths = []string{path}
+			}
+
+			page := renderMarkdown(t, value)
+
+			for _, want := range []string{
+				"- " + entry.delimiter + path + entry.delimiter + "\n",
+				"##### " + entry.delimiter + site + entry.delimiter + " — main.tf:21",
+			} {
+				if strings.Count(page, want) != 1 {
+					t.Fatalf("the literal path or site lost its code span %q:\n%s", want, page)
+				}
+			}
+
+			prototype := value.Mutants[0]
+			prototype.Verdict.Diagnosis = report.WeakAssertion
+			value.Mutants = nil
+
+			for index := range 26 {
+				mutant := prototype
+				mutant.Module = fmt.Sprintf("module_%02d", index)
+				value.Mutants = append(value.Mutants, mutant)
+			}
+
+			page = renderMarkdown(t, value)
+			if headings := strings.Count(page, "#### "+entry.delimiter+site+entry.delimiter+" —"); headings != 25 {
+				t.Fatalf("rendered %d literal site headings, want 25:\n%s", headings, page)
+			}
+
+			if !strings.Contains(page, "  - "+entry.delimiter+site+entry.delimiter+" — 1 finding") {
+				t.Fatalf("the overflow site lost its literal code span:\n%s", page)
+			}
+		})
+	}
+}
+
 // TestMarkdownOmitsTheEmptyGateTable: a run that requested no gate and
 // judged no baseline renders no gate table — a two-line table with no rows
 // is noise where a decision should be. A populated table still renders.
@@ -1201,6 +1299,7 @@ func TestWarningsReachEveryReporter(t *testing.T) {
 	value.Warnings = []string{
 		"the safety gates would refuse a mutation run: unsandboxed effects at main.tf:9",
 		"1 file(s) are not canonically formatted",
+		"unsandboxed effects at main<env>.tf:9",
 	}
 
 	t.Run("markdown", func(t *testing.T) {
@@ -1246,7 +1345,7 @@ func assertMarkdownCarriesWarnings(t *testing.T, value report.Report) {
 	}
 
 	for _, warning := range value.Warnings {
-		if !strings.Contains(page, warning) {
+		if !strings.Contains(page, html.EscapeString(warning)) {
 			t.Fatalf("the markdown summary dropped the warning %q:\n%s", warning, page)
 		}
 	}

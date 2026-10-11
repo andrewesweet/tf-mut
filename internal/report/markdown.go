@@ -2,9 +2,32 @@ package report
 
 import (
 	"fmt"
+	"html"
 	"io"
 	"strings"
 )
+
+func markdownCode(value string) string {
+	size, run := 1, 0
+
+	for _, character := range value {
+		if character != '`' {
+			run = 0
+
+			continue
+		}
+
+		run++
+		size = max(size, run+1)
+	}
+
+	delimiter := strings.Repeat("`", size)
+	if strings.HasPrefix(value, "`") || strings.HasSuffix(value, "`") {
+		value = " " + value + " "
+	}
+
+	return delimiter + value + delimiter
+}
 
 func writeFindingList(page *strings.Builder, value Report) {
 	findings := []Mutant{}
@@ -63,7 +86,7 @@ func writeIndeterminateGroups(page *strings.Builder, groups []indeterminateGroup
 		}
 
 		for _, path := range group.paths {
-			fmt.Fprintf(page, "- `%s`\n", path)
+			fmt.Fprintf(page, "- %s\n", markdownCode(path))
 		}
 
 		fix := ""
@@ -74,7 +97,8 @@ func writeIndeterminateGroups(page *strings.Builder, groups []indeterminateGroup
 		fmt.Fprintf(page, "\nFix: %s\n\n", fix)
 
 		for _, site := range groupBySite(group.members) {
-			fmt.Fprintf(page, "##### `%s` — %s\n\n", site.site, location(site.members[0].Range))
+			fmt.Fprintf(page, "##### %s — %s\n\n",
+				markdownCode(site.site), html.EscapeString(location(site.members[0].Range)))
 
 			for _, member := range site.members {
 				status := baselineStatusLabel(member)
@@ -82,8 +106,8 @@ func writeIndeterminateGroups(page *strings.Builder, groups []indeterminateGroup
 					status = " (" + status + ")"
 				}
 
-				fmt.Fprintf(page, "- `%s` %s at %s%s\n",
-					member.Operator, string(member.State), location(member.Range), status)
+				fmt.Fprintf(page, "- %s %s at %s%s\n",
+					markdownCode(member.Operator), string(member.State), html.EscapeString(location(member.Range)), status)
 			}
 
 			page.WriteString("\n")
@@ -130,13 +154,14 @@ func writeSiteGroups(page *strings.Builder, groups []siteGroup) {
 				len(groups)-markdownSiteCap)
 
 			for _, hidden := range groups[markdownSiteCap:] {
-				fmt.Fprintf(page, "  - `%s` — %s\n", hidden.site, findingCountLabel(len(hidden.members)))
+				fmt.Fprintf(page, "  - %s — %s\n", markdownCode(hidden.site), findingCountLabel(len(hidden.members)))
 			}
 
 			return
 		}
 
-		fmt.Fprintf(page, "#### `%s` — %s\n\n", group.site, location(group.members[0].Range))
+		fmt.Fprintf(page, "#### %s — %s\n\n",
+			markdownCode(group.site), html.EscapeString(location(group.members[0].Range)))
 
 		for _, finding := range group.members {
 			writeFindingLine(page, finding, baselineStatusLabel(finding))
@@ -157,8 +182,8 @@ func writeFindingLine(page *strings.Builder, finding Mutant, status string) {
 		suffix += " (" + status + ")"
 	}
 
-	fmt.Fprintf(page, "- `%s` %s at %s%s\n",
-		finding.Operator, string(finding.State), location(finding.Range), suffix)
+	fmt.Fprintf(page, "- %s %s at %s%s\n",
+		markdownCode(finding.Operator), string(finding.State), html.EscapeString(location(finding.Range)), suffix)
 }
 
 // baselineStatusLabel is the new-versus-accepted label, empty where no
@@ -251,12 +276,12 @@ func writeSuggestionSummary(page *strings.Builder, value Report) {
 
 		condition := "—"
 		if suggestion.Expression != "" {
-			condition = "`" + suggestion.Expression + "`"
+			condition = markdownCode(suggestion.Expression)
 		}
 
-		fmt.Fprintf(page, "| `%s` | %s | `%s:%s` | %s |\n",
-			suggestion.ID, suggestion.Status,
-			suggestion.TargetFile, suggestion.TargetRun, condition)
+		fmt.Fprintf(page, "| %s | %s | %s | %s |\n",
+			markdownCode(suggestion.ID), suggestion.Status,
+			markdownCode(suggestion.TargetFile+":"+suggestion.TargetRun), condition)
 	}
 
 	page.WriteString("\n")
@@ -273,7 +298,7 @@ func writeWarningsSection(page *strings.Builder, value Report) {
 	page.WriteString("### Warnings\n\n")
 
 	for _, warning := range value.Warnings {
-		fmt.Fprintf(page, "- %s\n", warning)
+		fmt.Fprintf(page, "- %s\n", html.EscapeString(warning))
 	}
 
 	page.WriteString("\n")
@@ -285,7 +310,7 @@ func writePopulation(page *strings.Builder, value Report) {
 		value.Population.Cached, value.Population.Fresh)
 
 	if value.Selection.Mode == SelectionSince {
-		fmt.Fprintf(page, " (`--since %s`", value.Selection.Ref)
+		fmt.Fprintf(page, " (%s", markdownCode("--since "+value.Selection.Ref))
 
 		if value.Selection.ForcedFull != "" {
 			fmt.Fprintf(page, "; full population forced: %s", value.Selection.ForcedFull)

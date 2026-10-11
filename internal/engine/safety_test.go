@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"errors"
+	"html"
 	"io"
 	"os"
 	"path/filepath"
@@ -337,6 +338,41 @@ func TestPreviewSafetyVerdictReachesTheDiscardingReporters(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPreviewMarkdownEscapesSafetyWarningLocations(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "provisioner")
+	if err := os.Rename(filepath.Join(module, "main.tf"), filepath.Join(module, "main<env>.tf")); err != nil {
+		t.Fatalf("renaming fixture source: %v", err)
+	}
+
+	result, err := engine.Run(t.Context(), previewRequest(t, module))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+
+	if !slices.ContainsFunc(result.Warnings, func(warning string) bool {
+		return strings.Contains(warning, "main<env>.tf")
+	}) {
+		t.Fatalf("the safety warning lost the source filename: %v", result.Warnings)
+	}
+
+	rendered := strings.Builder{}
+	if err := report.WriteMarkdown(&rendered, result); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	for _, warning := range result.Warnings {
+		if !strings.Contains(rendered.String(), html.EscapeString(warning)) {
+			t.Fatalf("the markdown preview lost the literal safety warning %q:\n%s", warning, rendered.String())
+		}
+	}
+
+	if strings.Contains(rendered.String(), "main<env>.tf") {
+		t.Fatalf("the preview renders a filename as raw markup:\n%s", rendered.String())
 	}
 }
 
