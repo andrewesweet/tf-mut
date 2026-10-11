@@ -244,12 +244,13 @@ type renderingCase struct {
 // matrixRows is the refusal half of the rendering contract: shapes the
 // contract refuses, one row each.
 func matrixRows() []renderingCase {
-	return []renderingCase{{
-		name: "list element by concrete key, schema-typed",
-		path: statePrefix + "example_thing.app].values.items[0]", baseline: `"first"`,
-		schemas: schemaTyping("items", `["list","string"]`),
-		want:    `example_thing.app.items[0] == "first"`, refused: nil,
-	},
+	return []renderingCase{
+		{
+			name: "list element by concrete key, schema-typed",
+			path: statePrefix + "example_thing.app].values.items[0]", baseline: `"first"`,
+			schemas: schemaTyping("items", `["list","string"]`),
+			want:    `example_thing.app.items[0] == "first"`, refused: nil,
+		},
 		{
 			name: "tuple element by concrete key, schema-typed",
 			path: statePrefix + "example_thing.app].values.pair[1]", baseline: "2",
@@ -341,11 +342,12 @@ func admissionRows() []renderingCase {
 
 // scalarAdmissionRows holds the admitted scalar forms.
 func scalarAdmissionRows() []renderingCase {
-	return []renderingCase{{
-		name: "scalar leaf where nothing types the attribute",
-		path: statePrefix + "example_thing.app].values.input", baseline: steadyBaseline,
-		schemas: untyped(), want: `example_thing.app.input == "steady"`, refused: nil,
-	},
+	return []renderingCase{
+		{
+			name: "scalar leaf where nothing types the attribute",
+			path: statePrefix + "example_thing.app].values.input", baseline: steadyBaseline,
+			schemas: untyped(), want: `example_thing.app.input == "steady"`, refused: nil,
+		},
 		{
 			name: "number leaf", path: statePrefix + "example_thing.app].values.size",
 			baseline: "3", schemas: untyped(), want: "example_thing.app.size == 3", refused: nil,
@@ -428,12 +430,13 @@ func scalarAdmissionRows() []renderingCase {
 // structuredAdmissionRows holds the admitted container, nested and count
 // forms.
 func structuredAdmissionRows() []renderingCase {
-	return []renderingCase{{
-		name: "a map attribute's identifier key stays dotted",
-		path: statePrefix + "example_thing.app].values.triggers.plain", baseline: steadyBaseline,
-		schemas: schemaTyping("triggers", `["map","string"]`),
-		want:    `example_thing.app.triggers.plain == "steady"`, refused: nil,
-	},
+	return []renderingCase{
+		{
+			name: "a map attribute's identifier key stays dotted",
+			path: statePrefix + "example_thing.app].values.triggers.plain", baseline: steadyBaseline,
+			schemas: schemaTyping("triggers", `["map","string"]`),
+			want:    `example_thing.app.triggers.plain == "steady"`, refused: nil,
+		},
 		{
 			name: "an object attribute's non-identifier key",
 			path: statePrefix + "example_thing.app].values.settings.app.io/x", baseline: steadyBaseline,
@@ -506,6 +509,7 @@ func structuredAdmissionRows() []renderingCase {
 		},
 	}
 }
+
 func TestTheRenderingContractMatrix(t *testing.T) {
 	t.Parallel()
 
