@@ -40,6 +40,7 @@ type TestResult struct {
 	// Payloads holds the per-run plan or state documents a verbose run emits,
 	// and is empty for a plain one.
 	Payloads []RunPayload
+	Started  bool
 	ExitCode int
 	TimedOut bool
 	Duration time.Duration
@@ -128,6 +129,7 @@ func (r Runner) Test(ctx context.Context, dir string, options TestOptions) (Test
 		var decodeErr error
 
 		decoded, decodeErr = decodeTestStream(stdout)
+		decoded.Started = true
 
 		return decodeErr
 	}, args...)

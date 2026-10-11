@@ -179,9 +179,8 @@ func (a *attributor) attribute(ctx context.Context, pool []suggest.Candidate) er
 	}
 
 	a.budget--
-	a.costs.fullSuite++
 
-	run, err := runBatch(ctx, a.plan, a.file, pool)
+	run, err := runBatch(ctx, a.plan, a.file, pool, &a.costs.fullSuite)
 	if err != nil {
 		return err
 	}
@@ -320,15 +319,13 @@ func decide(
 	details := []string{}
 
 	for _, mutantID := range append([]string{candidate.MutantID()}, candidate.AlsoKills()...) {
-		leg, err := verifyAgainstMutant(ctx, plan, mutated, candidate, mutantID)
+		leg, err := verifyAgainstMutant(ctx, plan, mutated, candidate, mutantID, &costs.isolated)
 		if err != nil {
 			return candidate.Refute(
 				"the isolated mutant leg could not be executed: "+err.Error(),
 				suggest.NewVerification(baseline, suggest.NewLeg(false, nil, err.Error())),
 			)
 		}
-
-		costs.isolated++
 
 		runs = append(runs, leg.Runs()...)
 		details = append(details, leg.Detail())
@@ -388,6 +385,7 @@ func runBatch(
 	plan executionPlan,
 	file string,
 	candidates []suggest.Candidate,
+	executions *int,
 ) (batchRun, error) {
 	content, digest, err := batched(plan, file, candidates)
 	if err != nil {
@@ -396,7 +394,7 @@ func runBatch(
 
 	result, err := runVerification(ctx, plan, "batch-"+shortName(file), map[string][]byte{
 		closureRelative(plan, file): content,
-	})
+	}, executions)
 	if err != nil {
 		return batchRun{}, err //nolint:exhaustruct // nothing ran.
 	}
@@ -428,6 +426,7 @@ func verifyAgainstMutant(
 	mutated map[string]mutation.Mutant,
 	candidate suggest.Candidate,
 	mutantID string,
+	executions *int,
 ) (suggest.Leg, error) {
 	mutant, found := mutated[mutantID]
 	if !found {
@@ -449,7 +448,7 @@ func verifyAgainstMutant(
 	result, err := runVerification(ctx, plan, "kill-"+candidate.ID()+"-"+mutantID, map[string][]byte{
 		closureRelative(plan, candidate.TargetFile()): alone,
 		mutant.File: mutant.Mutated,
-	})
+	}, executions)
 	if err != nil {
 		return suggest.Leg{}, err //nolint:exhaustruct // nothing ran.
 	}
@@ -478,6 +477,7 @@ func runVerification(
 	plan executionPlan,
 	name string,
 	mutations map[string][]byte,
+	executions *int,
 ) (tfexec.TestResult, error) {
 	built, err := sandbox.Materialise(sandbox.Spec{
 		SourceRoot: plan.configuration.ClosureRoot,
@@ -503,6 +503,10 @@ func runVerification(
 		Verbose:       false,
 		Timeout:       0,
 	})
+	if result.Started {
+		*executions += 1
+	}
+
 	if err != nil {
 		return tfexec.TestResult{}, //nolint:exhaustruct // the run did not complete.
 			fmt.Errorf("running the verification suite: %w", err)

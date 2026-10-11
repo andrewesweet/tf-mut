@@ -2,7 +2,9 @@ package engine_test
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -238,6 +240,53 @@ func TestAScopedSuggestRunStatesItsVerificationCost(t *testing.T) {
 	}
 
 	t.Fatalf("the scoped run does not state its verification cost: %v", result.Warnings)
+}
+
+func TestVerificationCountsOnlyStartedIsolatedRuns(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		script     string
+		wantCost   string
+		wantReason string
+	}{
+		"a truncated stream counts the started run": {
+			script: "case \"$1\" in\n" +
+				"  */verify-kill-*) terraform \"$@\" | { head -c 2; cat >/dev/null; }; exit ;;\n" +
+				"esac\n",
+			wantCost:   "verification executed 1 full-suite run(s) plus 1 isolated mutant run(s)",
+			wantReason: "terraform output could not be decoded",
+		},
+		"a missing executable does not count a run": {
+			script: "case \"$1\" in\n" +
+				"  */verify-batch-*) terraform \"$@\"; status=$?; rm -- \"$0\"; exit \"$status\" ;;\n" +
+				"esac\n",
+			wantCost:   "verification executed 1 full-suite run(s) plus 0 isolated mutant run(s)",
+			wantReason: "terraform could not be executed",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			request := suggestRequest(t, copyFixture(t, suggestBasicFixture))
+			wrapper := filepath.Join(t.TempDir(), "terraform-verification")
+			script := "#!/usr/bin/env bash\n" + test.script + "exec terraform \"$@\"\n"
+			if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil { //nolint:gosec // test-owned executable.
+				t.Fatalf("writing the Terraform wrapper: %v", err)
+			}
+
+			request.TerraformBinary = wrapper
+			result := runSuggest(t, request)
+			refuted := withStatus(result, report.SuggestionRefuted)
+			if len(refuted) != 1 || !strings.Contains(refuted[0].StatusReason, test.wantReason) {
+				t.Fatalf("want one refutation naming %q, got %+v", test.wantReason, result.Suggestions)
+			}
+
+			if !slices.Contains(result.Warnings, test.wantCost) {
+				t.Fatalf("want verification cost %q, got %v", test.wantCost, result.Warnings)
+			}
+		})
+	}
 }
 
 // TestSurvivorsSharingOneAssertionCollapseIntoOneSuggestion is the round-3

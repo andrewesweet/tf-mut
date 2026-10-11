@@ -147,6 +147,7 @@ func decodeTestStream(reader io.Reader) (TestResult, error) {
 		Runs:        []RunOutcome{},
 		Diagnostics: []Diagnostic{},
 		Payloads:    []RunPayload{},
+		Started:     false,
 		ExitCode:    exitCodeUnavailable,
 		TimedOut:    false,
 		Duration:    0,
