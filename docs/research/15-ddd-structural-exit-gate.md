@@ -296,12 +296,20 @@ so that the decision reopens on evidence rather than fashion.
 
 One point the record shows built differently from #86's words. The specification said the
 named results would be `PopulationClassified`, `SuggestionVerified`, `SuggestionRefuted` and
-`SuiteCharacterised`, "each a plain immutable value returned from the context". No type of
-any of those names exists in the tree; `report.SuggestionVerified` and
-`report.SuggestionRefuted` are the pre-existing wire-status constants. The handoffs return the
-context types themselves, which are immutable and context-owned; a named fact per handoff
+`SuiteCharacterised`, "each a plain immutable value returned from the context". At `fd5a2d3`
+no type of any of those names existed in the tree; `report.SuggestionVerified` and
+`report.SuggestionRefuted` are the pre-existing wire-status constants. The handoffs returned
+the context types themselves, which are immutable and context-owned; a named fact per handoff
 was not minted. See §7 for what this means against the rubric. For the current population
 handoff, see the [context map](../../CONTEXT.md#oracle--verdict).
+
+[ADR-0005](../adr/0005-in-process-domain-event-dispatch.md) has since superseded ADR-0003.
+The four names now exist as engine domain events (`internal/engine/events.go`):
+`PopulationClassified` carries `oracle.Population`, `SuggestionVerified` and
+`SuggestionRefuted` carry `suggest.Suggestion`, and `SuiteCharacterised` carries the
+concluded characterisation block. They are published to a synchronous in-process
+dispatcher, alongside a per-mutant `MutantEvaluated` event. The report projection and the
+progress line subscribe to it, as do the suggestion leg and the acceptance gate.
 
 ### 3.4 `discovery` publishes `hcl.Expression`; native syntax has named accessors — ADR-0004
 
@@ -601,7 +609,7 @@ review.
 | 2 | Bounded contexts explicit | Six named contexts with an owned glossary; the direction enforced by `depguard` over eight package globs including tests. |
 | 3 | Aggregates small, transaction boundaries narrow | The exported input is six closed request types; `curate` cannot carry a population by construction. `report.Report` remains one union DTO by decision (§8), pinned per command by `blocks_test.go`. The review's projection gave full credit here on the increments as specified, which included leaving the DTO one union. |
 | 4 | Domain objects behaviour-rich | Outcome and evidence, candidate and suggestion, judgement point, pin, scaffold and scenario are constructed and transitioned, never assigned; the published DTOs are now projections. |
-| 5 | Domain events across aggregate boundaries | **0.5/1 by design** (ADR-0003). The handoffs return immutable context-owned values, and the four named facts #86 sketched were not minted (§3.3). Whether a reviewer scores the unnamed form the same half point is theirs to decide; the deliberate part is the absence of infrastructure, which stands. |
+| 5 | Domain events across aggregate boundaries | **0.5/1 by design** (ADR-0003). The handoffs return immutable context-owned values, and the four named facts #86 sketched were not minted (§3.3). Whether a reviewer scores the unnamed form the same half point is theirs to decide; the deliberate part is the absence of infrastructure, which stands. Since superseded: ADR-0005 mints the four facts as named domain events published to an in-process synchronous dispatcher (§3.3). |
 | 6 | Anti-corruption layer at every external integration | The discovery boundary publishes `hcl.Expression` with two named fail-closed routes to native syntax; JSON declarations are read rather than re-parsed; no domain context imports the publication DTO. |
 | 7 | Core subdomain identified | Unchanged from full credit. |
 | +1 | Rich core-domain model | Unchanged from full credit, and the core now owns its own outcome type. |

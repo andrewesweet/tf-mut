@@ -38,26 +38,54 @@ type executionPlan struct {
 	// collector is the run's performance telemetry; every mutant's record is
 	// a child of it.
 	collector *runCollector
+	// events is the grading's dispatcher: each executed mutant's result and
+	// the classified population are published to it (ADR-0005).
+	events *dispatcher
 }
 
-// execute runs every executable mutant, bounded by the configured job count.
+// evaluatedPopulation is the per-mutant result's report projection: every
+// row and its classified outcome in its own slot, in row order, and every
+// operational failure.
+type evaluatedPopulation struct {
+	rows       []report.Mutant
+	classified []oracle.Classified
+	failures   []report.ExecutionError
+}
+
+func (p *evaluatedPopulation) observe(event MutantEvaluated) error {
+	p.rows[event.index] = event.row
+	p.classified[event.index] = event.classified
+
+	if event.failure != nil {
+		p.failures = append(p.failures, *event.failure)
+	}
+
+	return nil
+}
+
+// execute runs every executable mutant, bounded by the configured job count,
+// and publishes each one's result.
 //
 // Verdicts do not depend on the parallelism level: each mutant gets its own
 // sandbox, results are written back to their own slot, and a failure in one
-// worker cannot reach another.
-func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []oracle.Classified, []report.ExecutionError) {
-	results := make([]report.Mutant, len(plan.described))
-	copy(results, plan.described)
+// worker cannot reach another. Workers publish under one lock, so subscribers
+// see one result at a time, in the order the evaluations finished.
+func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, error) {
+	population := evaluatedPopulation{
+		rows:       make([]report.Mutant, len(plan.described)),
+		classified: make([]oracle.Classified, len(plan.classified)),
+		failures:   make([]report.ExecutionError, 0),
+	}
+	copy(population.rows, plan.described)
+	copy(population.classified, plan.classified)
 
-	classified := make([]oracle.Classified, len(plan.classified))
-	copy(classified, plan.classified)
-
-	failures := make([]report.ExecutionError, 0)
 	budget := timeoutBudget(plan.settings, plan.prepared.baselineDuration)
 
 	queue := make(chan int)
 	mutex := sync.Mutex{}
 	group := sync.WaitGroup{}
+
+	var delivery error
 
 	pending := 0
 	for _, mutant := range plan.described {
@@ -71,6 +99,10 @@ func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []oracle
 	progress := startProgress(ctx, plan, pending)
 	defer progress.stopLine()
 
+	// The report projection first, then the progress line.
+	plan.events.mutantEvaluated.subscribe(population.observe)
+	plan.events.mutantEvaluated.subscribe(progress.observe)
+
 	workers := min(plan.settings.Jobs, len(plan.described))
 
 	for range workers {
@@ -79,18 +111,19 @@ func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []oracle
 				verdict, outcome, failure := evaluateSafely(ctx, plan, index, budget)
 
 				mutex.Lock()
-				results[index] = verdict
-				classified[index] = oracle.Classified{
-					Operator: plan.generated[index].Operator,
-					Outcome:  outcome,
-				}
-
-				if failure != nil {
-					failures = append(failures, *failure)
+				err := plan.events.mutantEvaluated.publish(MutantEvaluated{
+					index: index,
+					row:   verdict,
+					classified: oracle.Classified{
+						Operator: plan.generated[index].Operator,
+						Outcome:  outcome,
+					},
+					failure: failure,
+				})
+				if delivery == nil {
+					delivery = err
 				}
 				mutex.Unlock()
-
-				progress.tick()
 			}
 		})
 	}
@@ -109,11 +142,15 @@ func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []oracle
 	close(queue)
 	group.Wait()
 
-	slices.SortFunc(failures, func(left, right report.ExecutionError) int {
+	if delivery != nil {
+		return evaluatedPopulation{}, delivery
+	}
+
+	slices.SortFunc(population.failures, func(left, right report.ExecutionError) int {
 		return strings.Compare(left.MutantID, right.MutantID)
 	})
 
-	return results, classified, failures
+	return population, nil
 }
 
 // timeoutBudget is max(factor × baseline, floor), per the milestone spec.

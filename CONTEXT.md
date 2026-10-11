@@ -67,8 +67,9 @@ policy; these lint rules do not enforce them.
 The rationale for these boundaries is recorded in
 [ADR-0001](docs/adr/0001-package-group-contexts-and-lint-enforced-dependencies.md),
 [ADR-0002](docs/adr/0002-closed-constructors-and-report-projection.md),
-[ADR-0003](docs/adr/0003-synchronous-immutable-result-facts.md), and
-[ADR-0004](docs/adr/0004-expression-boundary-and-atomic-replacement.md).
+[ADR-0003](docs/adr/0003-synchronous-immutable-result-facts.md) (superseded),
+[ADR-0004](docs/adr/0004-expression-boundary-and-atomic-replacement.md), and
+[ADR-0005](docs/adr/0005-in-process-domain-event-dispatch.md).
 
 ## Glossary
 
