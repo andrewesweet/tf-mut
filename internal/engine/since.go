@@ -488,6 +488,20 @@ func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	return string(output), nil
 }
 
+// checkoutRoot returns the git work tree containing dir, or the empty string
+// when dir is not inside one. The discovery boundary uses it to decide the
+// run-block checkout check; without a root the boundary still refuses a
+// retarget that resolves to nothing, it just cannot call the resolution an
+// escape. An error is a missing checkout, not a failure of the run.
+func checkoutRoot(ctx context.Context, dir string) string {
+	root, err := gitRun(ctx, dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(root)
+}
+
 // apply reduces the described population to the selected one, keeps the
 // generated list aligned index for index, and computes the population split.
 // Omitted mutants leave the report entirely; their count is the record that

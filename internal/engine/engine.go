@@ -302,7 +302,7 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	switch request.(type) {
 	case TodosRequest, *TodosRequest:
 		listed, listErr := discovery.DiscoverWith(moduleDir, s.TestDirectory,
-			discovery.Options{SkipJSON: disableJSONReading(s)})
+			discovery.Options{SkipJSON: disableJSONReading(s), CheckoutRoot: checkoutRoot(ctx, moduleDir)})
 		if listErr != nil {
 			return report.Report{}, listErr
 		}
@@ -321,7 +321,7 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 
 	discoveryPhase := collector.phase(phaseDiscovery)
 	configuration, err := discovery.DiscoverWith(moduleDir, s.TestDirectory,
-		discovery.Options{SkipJSON: disableJSONReading(s)})
+		discovery.Options{SkipJSON: disableJSONReading(s), CheckoutRoot: checkoutRoot(ctx, moduleDir)})
 	discoveryPhase()
 	if err != nil {
 		return report.Report{}, err
