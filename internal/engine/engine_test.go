@@ -194,16 +194,9 @@ func TestAnInvalidHeavyRunIsMarkedIncompleteAndWarns(t *testing.T) {
 		t.Fatalf("an Invalid-heavy run without a gate exits %d, want %d", code, report.ExitClean)
 	}
 
-	var shareWarning string
-
-	for _, warning := range result.Warnings {
-		if strings.Contains(warning, "were rejected by terraform validate") {
-			shareWarning = warning
-		}
-
-		if strings.Contains(warning, "the mutation score is not trustworthy") {
-			t.Fatalf("a scored population raised an unscored warning: %s", warning)
-		}
+	shareWarning := warningContaining(result.Warnings, "were rejected by terraform validate")
+	if warning := warningContaining(result.Warnings, "the mutation score is not trustworthy"); warning != "" {
+		t.Fatalf("a scored population raised an unscored warning: %s", warning)
 	}
 
 	if !strings.Contains(shareWarning, "3 of 4 mutants judged (75%)") ||
@@ -217,6 +210,8 @@ func TestAnInvalidHeavyRunIsMarkedIncompleteAndWarns(t *testing.T) {
 		"markdown": report.WriteMarkdown,
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
 			var rendered strings.Builder
 			if err := write(&rendered, result); err != nil {
 				t.Fatalf("rendering: %v", err)
@@ -229,6 +224,18 @@ func TestAnInvalidHeavyRunIsMarkedIncompleteAndWarns(t *testing.T) {
 	}
 
 	assertTreeUnchanged(t, module, before)
+}
+
+func warningContaining(warnings []string, fragment string) string {
+	var found string
+
+	for _, warning := range warnings {
+		if strings.Contains(warning, fragment) {
+			found = warning
+		}
+	}
+
+	return found
 }
 
 func TestAnEmptyRunStaysCompleteWithoutUnscoredWarnings(t *testing.T) {
