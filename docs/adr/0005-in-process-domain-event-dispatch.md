@@ -78,9 +78,25 @@ publication DTOs the contexts may not import.
 
 The review that reopened ADR-0003 scored row 5, "Domain events for cross-aggregate
 flow", at 0.0. Its decision 1 asked for the reversal once the per-mutant consumer
-existed, and that consumer landed in #199. The change is behaviour-preserving
-across 27 CLI cases covering run, preview, suggest, characterise and curate. On each
-case, the JSON, SARIF, mutation-testing-elements and JUnit outputs, the exit code,
-the files written and the baseline file are identical to master. The only
-differences are the three fields that also differ between two runs of master: a
-characterise input digest, a random value in the volatile fixture and a UUID.
+existed, and that consumer landed in #199.
+
+The comparison used a tf-mut binary built from master commit `b6dbf16` and this
+branch's binary. It covered 27 CLI cases across `run`, `preview`, `suggest`,
+`characterise` and `curate`, each on a fresh copy of an engine fixture. It compared
+the JSON report, SARIF, mutation-testing-elements and JUnit outputs, exit codes,
+the list of files each run wrote in the module directory (excluding `.terraform`),
+and the written `.tf-mut-baseline.json`.
+
+Before comparison, it masked only these values:
+
+- In the JSON report, the top-level `telemetry` block, every mutant's `telemetry`
+  block and `baseline.duration_ms`.
+- In JUnit, every `time` and `timestamp` attribute.
+- In mutation-testing-elements, `framework.dependencies`.
+
+The JSON, SARIF, mutation-testing-elements and baseline files were compared with
+keys sorted (`jq -S`). After masking, three values differed: the
+`characterise --write` case's `input_digest`, a randomly generated value in the
+volatile fixture's mutant delta, and a UUID in the suggest-count case's mutant
+delta. The same three also differ between two runs of the master binary. All other
+compared values matched.
