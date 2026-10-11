@@ -15,22 +15,68 @@ import (
 func TestAnInstanceCountsOnlyWhereItsRootRecordVanished(t *testing.T) {
 	t.Parallel()
 
-	valueBodyOnly := []fingerprint.Change{
-		changeAt(statePrefix+"example_thing.counted[1]].values.id", `"aaaaaaaa"`),
-		changeAt(statePrefix+"example_thing.counted[0]].values.id", `"aaaaaaaa"`),
-	}
-	evidence := suggest.NewEvidence(valueBodyOnly)
-	if len(evidence.InstanceCounts) != 0 {
-		t.Fatalf("value-body-only delta counted %v, want none", evidence.InstanceCounts)
-	}
+	for _, representation := range []struct {
+		name, prefix, body string
+	}{
+		{"state", statePrefix, ".values.id"},
+		{"plan", "resource_changes[", ".change.after.id"},
+	} {
+		for _, record := range []string{"", ".address", ".index"} {
+			t.Run(representation.name+"/"+record, func(t *testing.T) {
+				t.Parallel()
 
-	withRecord := append(append([]fingerprint.Change{}, valueBodyOnly...),
-		changeAt(statePrefix+"example_thing.counted[1]].address", `"example_thing.counted[1]"`),
-		changeAt(statePrefix+"example_thing.counted[0]].address", `"example_thing.counted[0]"`),
-	)
-	evidence = suggest.NewEvidence(withRecord)
-	if evidence.InstanceCounts["example_thing.counted"] != 2 {
-		t.Fatalf("delta with root records counted %v, want example_thing.counted = 2",
-			evidence.InstanceCounts)
+				valueBodyOnly := []fingerprint.Change{
+					changeAt(representation.prefix+"example_thing.counted[1]]"+representation.body, steadyBaseline),
+					changeAt(representation.prefix+"example_thing.counted[0]]"+representation.body, steadyBaseline),
+				}
+				changes := append([]fingerprint.Change{}, valueBodyOnly...)
+				want := `example_thing.counted[1].id == "steady"`
+				if record != "" {
+					want = "length(example_thing.counted) == 2"
+
+					first, second := "0", "1"
+					if record == ".address" {
+						first, second = `"example_thing.counted[0]"`, `"example_thing.counted[1]"`
+					}
+
+					changes = append(changes,
+						changeAt(representation.prefix+"example_thing.counted[1]]"+record, second),
+						changeAt(representation.prefix+"example_thing.counted[0]]"+record, first),
+					)
+				}
+
+				expression, err := suggest.Express(runIn("applied", ""), untyped(),
+					suggest.NewEvidence(changes), valueBodyOnly[0])
+				assertAdapter(t, expression, err, want, nil)
+			})
+		}
+	}
+}
+
+func TestANulledValueRequiresAnUnambiguousBaselineMember(t *testing.T) {
+	t.Parallel()
+
+	for _, representation := range []struct {
+		name, prefix string
+	}{
+		{"state resource", statePrefix + "example_thing.app].values.triggers"},
+		{"plan resource", "resource_changes[example_thing.app].change.after.triggers"},
+		{"state output", "outputs.identity.value"},
+		{"plan output", "output_changes.identity.after"},
+	} {
+		for _, suffix := range []string{".b", "[0]"} {
+			t.Run(representation.name+suffix, func(t *testing.T) {
+				t.Parallel()
+
+				nulled := nulledAt(representation.prefix + ".a")
+				changes := []fingerprint.Change{
+					nulled,
+					changeAt(nulled.Path+suffix, steadyBaseline),
+				}
+				expression, err := suggest.Express(runIn("applied", ""),
+					schemaTyping("triggers", `["map","string"]`), suggest.NewEvidence(changes), nulled)
+				assertAdapter(t, expression, err, "", suggest.ErrUnrenderable)
+			})
+		}
 	}
 }

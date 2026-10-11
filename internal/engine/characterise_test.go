@@ -38,6 +38,61 @@ const (
 	rungOutputs = "outputs"
 )
 
+func TestPinAddressesMatchListAndScalarOutputAssertions(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		fixture string
+		want    map[string]string
+	}{
+		{
+			fixture: suggestOutputList,
+			want: map[string]string{
+				"output.region_list[0].short_name": `output.region_list[0].short_name == "eu"`,
+			},
+		},
+		{
+			fixture: untestedBranchesFixture,
+			want: map[string]string{
+				"output.tier":     `output.tier == "standard"`,
+				"output.units[0]": `output.units[0] == "dev-0"`,
+			},
+		},
+	} {
+		t.Run(testCase.fixture, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, testCase.fixture)
+			if err := os.RemoveAll(filepath.Join(module, "tests")); err != nil {
+				t.Fatalf("removing fixture suite: %v", err)
+			}
+
+			result, err := engine.Run(t.Context(), characteriseRequest(t, module))
+			if err != nil {
+				t.Fatalf("characterise: %v", err)
+			}
+
+			block := result.Characterisation
+			if block == nil || !block.Complete {
+				t.Fatal("no complete characterisation was returned")
+			}
+
+			for address, expression := range testCase.want {
+				found := false
+				for _, pin := range block.Pins {
+					if pin.Address == address && pin.Expression == expression && pin.Status == report.Pinned {
+						found = true
+					}
+				}
+
+				if !found {
+					t.Fatalf("no pin publishes address %q with expression %q: %+v", address, expression, block.Pins)
+				}
+			}
+		})
+	}
+}
+
 // TestAnUntestedAliasedProviderModuleCharacterisesWithNoOptIn is the first half
 // of the M4.5 spec review's mandatory acceptance pair. The unscaffolded module
 // mocks nothing, so a provider gate judged against it would refuse; judged

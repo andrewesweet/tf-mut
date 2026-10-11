@@ -23,6 +23,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
@@ -423,14 +425,17 @@ func (e *Evidence) absorb(change fingerprint.Change, changes []fingerprint.Chang
 // a real baseline value on the container or inside it: the mutation's nulling
 // is provable rather than an absence the baseline shared.
 func (e *Evidence) proveNonNull(change fingerprint.Change, changes []fingerprint.Change) {
+	address, attribute, split := fingerprint.Split(change.Path)
+	container := split && !strings.HasPrefix(address, "output.") && hclsyntax.ValidIdentifier(attribute)
+
 	for _, other := range changes {
-		if other.Baseline == "" || other.Baseline == nullMarker {
+		if other.Run != change.Run || other.Baseline == "" || other.Baseline == nullMarker {
 			continue
 		}
 
 		if other.Path == change.Path ||
-			strings.HasPrefix(other.Path, change.Path+".") ||
-			strings.HasPrefix(other.Path, change.Path+"[") {
+			(container && (strings.HasPrefix(other.Path, change.Path+".") ||
+				strings.HasPrefix(other.Path, change.Path+"["))) {
 			e.ProvenNonNull[change.Path] = true
 
 			break
@@ -449,7 +454,7 @@ func (e *Evidence) countInstance(change fingerprint.Change, changes []fingerprin
 	}
 
 	resource, index, counted := fingerprint.CountedInstance(change.Path)
-	if !counted || !instanceRecorded(resource, index, changes) {
+	if !counted || !instanceRecorded(change.Path, changes) {
 		return
 	}
 
@@ -461,8 +466,8 @@ func (e *Evidence) countInstance(change fingerprint.Change, changes []fingerprin
 // instanceRecorded reports whether the change set carries a change at an
 // instance's root record: the address or index Terraform writes for the
 // instance itself, whose mutant side vanished with it.
-func instanceRecorded(resource string, index int, changes []fingerprint.Change) bool {
-	root := fingerprint.CountedInstanceRoot(resource, index)
+func instanceRecorded(path string, changes []fingerprint.Change) bool {
+	root := fingerprint.CountedInstanceRoot(path)
 
 	for _, change := range changes {
 		if change.Mutant != "" {

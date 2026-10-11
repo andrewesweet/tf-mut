@@ -156,6 +156,7 @@ func TestAnUnknownObjectOutputAssertsNonNullAndNeverALength(t *testing.T) {
 
 	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestUnknownObjectFixture)))
 
+	sawNonNull := false
 	for _, suggestion := range result.Suggestions {
 		if strings.HasPrefix(suggestion.Expression, "length(output.identity)") {
 			t.Fatal("a length was rendered over a value whose members the plan marks unknown")
@@ -168,12 +169,14 @@ func TestAnUnknownObjectOutputAssertsNonNullAndNeverALength(t *testing.T) {
 					suggestion.TargetFile, suggestion.TargetRun)
 			}
 
-			return
+			sawNonNull = true
 		}
 	}
 
-	t.Fatalf("no verified suggestion renders the output's non-null form; statuses were %s",
-		statusSummary(result.Suggestions))
+	if !sawNonNull {
+		t.Fatalf("no verified suggestion renders the output's non-null form; statuses were %s",
+			statusSummary(result.Suggestions))
+	}
 }
 
 // The count fixture: a resource whose count is two. A count mutation removes
@@ -210,32 +213,47 @@ func TestAVanishedInstanceIsAssertedAsAResourceCount(t *testing.T) {
 func TestAZeroCountMutationIsAssertedAsAResourceCount(t *testing.T) {
 	t.Parallel()
 
-	moduleDir := copyFixture(t, suggestCountZeroFixture)
+	for _, command := range []string{"apply", "plan"} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
 
-	mutation, err := engine.Run(t.Context(), previewRequest(t, moduleDir))
-	if err != nil {
-		t.Fatalf("preview: %v", err)
+			moduleDir := copyFixture(t, suggestCountZeroFixture)
+			testContent := fmt.Sprintf("run %q {\n  command = %s\n}\n", command, command)
+			if err := os.WriteFile(filepath.Join(moduleDir, unitTestFile), []byte(testContent), 0o644); err != nil {
+				t.Fatalf("writing %s suite: %v", command, err)
+			}
+
+			mutation, err := engine.Run(t.Context(), previewRequest(t, moduleDir))
+			if err != nil {
+				t.Fatalf("preview: %v", err)
+			}
+
+			zeroed := mutantsWithOperator(mutation, "EXT-RESOURCE-DELETE")
+			if len(zeroed) != 1 {
+				t.Fatalf("expected exactly one zero-count mutant, got %d", len(zeroed))
+			}
+
+			request := suggestRequest(t, moduleDir)
+			request.SurvivorIDs = []string{zeroed[0].ID}
+
+			result := runSuggest(t, request)
+
+			for _, suggestion := range result.Suggestions {
+				if suggestion.Expression == "length(terraform_data.zeroed) == 2" &&
+					suggestion.Status == report.SuggestionVerified {
+					if suggestion.TargetRun != command {
+						t.Fatalf("placement = %s:%s, want the %s run carrying the delta",
+							suggestion.TargetFile, suggestion.TargetRun, command)
+					}
+
+					return
+				}
+			}
+
+			t.Fatalf("no verified suggestion renders the resource's count; statuses were %s",
+				statusSummary(result.Suggestions))
+		})
 	}
-
-	zeroed := mutantsWithOperator(mutation, "EXT-RESOURCE-DELETE")
-	if len(zeroed) != 1 {
-		t.Fatalf("expected exactly one zero-count mutant, got %d", len(zeroed))
-	}
-
-	request := suggestRequest(t, moduleDir)
-	request.SurvivorIDs = []string{zeroed[0].ID}
-
-	result := runSuggest(t, request)
-
-	for _, suggestion := range result.Suggestions {
-		if suggestion.Expression == "length(terraform_data.zeroed) == 2" &&
-			suggestion.Status == report.SuggestionVerified {
-			return
-		}
-	}
-
-	t.Fatalf("no verified suggestion renders the resource's count; statuses were %s",
-		statusSummary(result.Suggestions))
 }
 
 func TestSuggestGeneratesTheAssertionThatWouldHaveKilledASurvivor(t *testing.T) {
