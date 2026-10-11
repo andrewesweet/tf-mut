@@ -413,18 +413,6 @@ func templateKeyRows() []renderingCase {
 			want: `example_thing.app.timeouts.create == "5m"`, refused: nil,
 		},
 		{
-			name: "a map-nested block's entry by its payload key",
-			path: statePrefix + "example_thing.app].values.mounts[shared].source", baseline: `"/data"`,
-			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
-				"mounts": {NestingMode: tfexec.NestingMap, Block: tfexec.SchemaBlock{
-					Attributes: map[string]tfexec.SchemaAttribute{
-						"source": {Optional: true, Type: json.RawMessage(`"string"`)},
-					},
-				}},
-			}),
-			want: `example_thing.app.mounts["shared"].source == "/data"`, refused: nil,
-		},
-		{
 			name: "a typed object attribute's list element",
 			path: statePrefix + "example_thing.app].values.spec[0].replicas", baseline: "3",
 			schemas: schemaTyping("spec",
@@ -499,6 +487,41 @@ func nullFormRows() []renderingCase {
 
 // keyAndBlockRows holds the admitted keyed and nested-block forms.
 func keyAndBlockRows() []renderingCase {
+	return append(mapBlockRows(), keyRows()...)
+}
+
+// mapBlockRows holds the admitted and refused map-nested block forms.
+func mapBlockRows() []renderingCase {
+	return []renderingCase{
+		{
+			name: "a map-nested block's entry by its dotted payload key",
+			path: statePrefix + "example_thing.app].values.mounts.shared.source", baseline: `"/data"`,
+			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
+				"mounts": {NestingMode: tfexec.NestingMap, Block: tfexec.SchemaBlock{
+					Attributes: map[string]tfexec.SchemaAttribute{
+						"source": {Optional: true, Type: json.RawMessage(`"string"`)},
+					},
+				}},
+			}),
+			want: `example_thing.app.mounts["shared"].source == "/data"`, refused: nil,
+		},
+		{
+			name: "a map-nested block whose path stops at the block is refused",
+			path: statePrefix + "example_thing.app].values.mounts.shared", baseline: `"/data"`,
+			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
+				"mounts": {NestingMode: tfexec.NestingMap, Block: tfexec.SchemaBlock{
+					Attributes: map[string]tfexec.SchemaAttribute{
+						"source": {Optional: true, Type: json.RawMessage(`"string"`)},
+					},
+				}},
+			}),
+			want: "", refused: suggest.ErrUnrenderable,
+		},
+	}
+}
+
+// keyRows holds the admitted keyed and scalar forms.
+func keyRows() []renderingCase {
 	return []renderingCase{
 		{
 			name: "a map attribute's identifier key stays dotted",

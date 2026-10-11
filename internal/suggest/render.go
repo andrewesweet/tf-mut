@@ -207,10 +207,26 @@ func (r render) spellContinuation(resource, attribute string) (string, error) {
 // attributes; the first attribute consumes the remainder of the path in type
 // space, because inside a block an attribute is never a map key.
 func walkBlockSteps(block tfexec.SchemaBlock, steps []string, builder *strings.Builder) error {
-	for i, step := range steps {
+	insideBlock := false
+
+	for i := 0; i < len(steps); i++ {
+		step := steps[i]
 		name, key, indexed := cutIndex(step)
 
 		if blockType, found := block.BlockTypes[name]; found {
+			if blockType.NestingMode == tfexec.NestingMap && !indexed {
+				consumed, nested, err := mapBlockStep(blockType, name, steps, i, builder)
+				if err != nil {
+					return err
+				}
+
+				block = nested
+				insideBlock = true
+				i += consumed
+
+				continue
+			}
+
 			piece, nested, err := blockTypeStep(blockType, name, key, indexed)
 			if err != nil {
 				return err
@@ -218,6 +234,7 @@ func walkBlockSteps(block tfexec.SchemaBlock, steps []string, builder *strings.B
 
 			builder.WriteString(piece)
 			block = nested
+			insideBlock = true
 
 			continue
 		}
@@ -229,7 +246,40 @@ func walkBlockSteps(block tfexec.SchemaBlock, steps []string, builder *strings.B
 		return walkAttributeSteps(block, name, key, indexed, steps[i+1:], builder)
 	}
 
+	if insideBlock {
+		return fmt.Errorf("%w: the path ends at a nested block, and no scalar "+
+			"equality reads a block value", ErrUnrenderable)
+	}
+
 	return nil
+}
+
+// mapBlockStep consumes a map-nested block step and its payload key. The key
+// travels as the next dotted segment — `mounts.shared.source` — and an
+// attached bracketed key is the same key written inline. A path that stops at
+// the block names no entry, and no assertion can read the block set itself.
+// The int is how many extra steps the key consumed; the render lands in the
+// builder the walk shares.
+func mapBlockStep(
+	blockType tfexec.SchemaBlockType,
+	name string,
+	steps []string,
+	i int,
+	builder *strings.Builder,
+) (int, tfexec.SchemaBlock, error) {
+	if i+1 >= len(steps) {
+		return 0, tfexec.SchemaBlock{}, fmt.Errorf("%w: the block %s is map-nested, "+
+			"and the payload path names no key for it", ErrUnrenderable, name)
+	}
+
+	piece, nested, err := blockTypeStep(blockType, name, steps[i+1], true)
+	if err != nil {
+		return 0, tfexec.SchemaBlock{}, err
+	}
+
+	builder.WriteString(piece)
+
+	return 1, nested, nil
 }
 
 // blockTypeStep renders one nested-block step under its nesting mode's rules:
