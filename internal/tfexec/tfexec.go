@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
@@ -317,6 +318,42 @@ func (r Runner) FmtCheck(ctx context.Context, dir string) ([]string, Result, err
 	}
 
 	return unformatted, result, nil
+}
+
+// waitDelay bounds how long a stopped command's I/O may keep Wait waiting:
+// long enough that a mid-shutdown descendant cannot flip a healthy run into
+// an operational failure, short enough that a stuck pipe is reported rather
+// than hung on.
+const waitDelay = 5 * time.Second
+
+// GroupCommand builds a command that runs in its own process group, so that
+// stopping it stops everything it started.
+//
+// exec.CommandContext kills the direct child alone when the context expires.
+// A Terraform command starts one provider plugin per configured provider, and
+// a plugin survives its parent's SIGKILL: reparented, still running, still
+// executing the plugin cache's binary — so the next command that installs
+// that provider version fails with "text file busy". This constructor puts
+// the child in a process group of its own and makes the context's
+// cancellation signal the whole group, so no descendant outlives the command.
+//
+// The signal is SIGKILL because cancellation here is a deadline: the budget
+// is already spent, and a graceful stop would spend more of it on processes
+// the caller has stopped waiting for. exec invokes Cancel only after the
+// process has started, so Process is always set when it runs. Setpgid and the
+// group signal are Unix interfaces, shared by every platform the project
+// builds for; the package does not build on Windows today in any case.
+func GroupCommand(ctx context.Context, name string, args ...string) *exec.Cmd { //nolint:gosec // the binary and arguments are tool-controlled values.
+	command := exec.CommandContext(ctx, name, args...)
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// A killed descendant can hold a pipe open past its death; without the
+	// delay, Wait would block on the pipe instead of returning the verdict.
+	command.WaitDelay = waitDelay
+	command.Cancel = func() error {
+		return syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
+	}
+
+	return command
 }
 
 // inheritedEnvironment is the process environment minus the variables that
