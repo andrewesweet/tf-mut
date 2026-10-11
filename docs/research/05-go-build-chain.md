@@ -84,15 +84,15 @@ ignored.
 This makes the default suite “unit-sized” in cost and isolation, but integration-shaped in its
 use of the real executable. Naming must not tempt a later contributor to replace it with mocks.
 
-## Current machine and proposed pins
+## Initial machine audit and tool snapshot
 
 The local audit found Go 1.26.3, mise 2026.5.3, Just 1.57.0, Terraform 1.15.8,
 golangci-lint 2.12.2, gopls 0.21.1 and Gitleaks 8.30.1. The remaining proposed tools were not
-installed. The initial locks should resolve to the following snapshot:
+installed. The initial proposal used the following snapshot. The Go row points to its current lock:
 
 | Tool | Snapshot | Authority | Role |
 | --- | --- | --- | --- |
-| Go | `1.26.9` | `mise.lock` | compiler, tests, race and native fuzz driver |
+| Go | See lock | [`mise.lock`](../../mise.lock) | compiler, tests, race and native fuzz driver |
 | mise | `2026.8.6` | bootstrap pin | provisioning layer; cannot manage itself |
 | Just | `1.58.0` | `mise.lock` | sole public task interface after bootstrap |
 | Terraform | `1.15.8` | `mise.lock` | executable required by the fixed test seam |
@@ -114,10 +114,8 @@ installed. The initial locks should resolve to the following snapshot:
 | zizmor | `1.29.0` | `mise.lock` | GitHub Actions and Dependabot security analysis |
 | Rapid | `1.3.0` | root `go.sum` | property/state-machine test dependency |
 
-Go's live download feed identified 1.26.6 as the current stable release; it should replace the
-machine's 1.26.3. Just 1.58.0 likewise replaces the installed 1.57.0. The table is dated
-generated evidence for the first locks, not a permanent hand-maintained authority;
-`just tools-outdated` becomes the authoritative report after implementation.
+The table records the initial tool snapshot. For current versions, read the committed locks.
+`just tools-outdated` reports available updates.
 
 Primary version sources: [Go downloads](https://go.dev/dl/?mode=json),
 [mise releases](https://github.com/jdx/mise/releases/latest),
@@ -204,9 +202,9 @@ scheduled job may run the update recipes in mise safe mode and open a reviewable
 Dependabot owns action-SHA update pull requests. A release-age delay remains deferred because
 the initial requirement is latest stable; adopting one later requires an explicit policy change.
 
-The application module should start with a language floor and a patch-level preference, for
-example `go 1.26.0` and `toolchain go1.26.9`. With `GOTOOLCHAIN=local`, a mismatch fails instead
-of downloading an unreviewed toolchain. Go documents both behaviours in
+The application module records its language floor and patch-level preference in
+[`go.mod`](../../go.mod). For drift checks and download restrictions, see
+[Lock domains and backend policy](#lock-domains-and-backend-policy). Go explains the directives in
 [toolchain selection](https://go.dev/doc/toolchain).
 
 ## Just command contract
@@ -452,11 +450,11 @@ artifacts in a second invocation rather than treating SARIF generation as the ga
 The first live scan found that gopls v0.23.0's graph contains three advisory-affected modules.
 The fixed `x/mod` release requires `x/tools` v0.49.0, which does not compile gopls v0.23.0.
 Because there is no fixed stable gopls release, OSV excludes only `tools/gopls`; the blocking
-gate instead runs current govulncheck symbol analysis on the exact Go 1.26.9-built gopls binary.
-That analysis found the affected modules but no reachable vulnerable symbols. Root, goimports,
-and govulncheck manifests remain under OSV's non-reachability-filtered scan; the latter two pin
-the fixed `x/mod` v0.40.0. Remove this narrow build-tool exception as soon as a compatible stable
-gopls release exists.
+gate instead runs current govulncheck symbol analysis on the exact gopls binary built by
+`just tools-install`. The first scan found the affected modules but no reachable vulnerable
+symbols. Root, goimports, and govulncheck manifests remain under OSV's non-reachability-filtered
+scan. The latter two pin the fixed `x/mod` v0.40.0. Remove this narrow build-tool exception as soon
+as a compatible stable gopls release exists.
 
 Pin scanner binaries exactly, but expect their advisory databases to change. Record the scan
 time/database metadata in artifacts. Local/CI parity means the same recipe and arguments, not
