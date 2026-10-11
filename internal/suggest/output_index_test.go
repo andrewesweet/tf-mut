@@ -8,7 +8,10 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/suggest"
 )
 
-const emptyListBaseline = "[]"
+const (
+	emptyListBaseline   = "[]"
+	aliasesFirstElement = ".aliases[0]"
+)
 
 func TestOutputIndicesRequireBaselineListOrTupleEvidence(t *testing.T) {
 	t.Parallel()
@@ -17,30 +20,36 @@ func TestOutputIndicesRequireBaselineListOrTupleEvidence(t *testing.T) {
 		name, attribute, baseline, mutant, want string
 		declared                                cty.Type
 	}{
-		{"missing type", "[0]", steadyBaseline, "", "", cty.NilType},
-		{"set scalar", "[0]", steadyBaseline, "", "", cty.Set(cty.String)},
-		{"set null", "[0]", steadyBaseline, nulledValue, "", cty.Set(cty.String)},
-		{"set emptiness", "[0]", emptyListBaseline, "", "", cty.Set(cty.List(cty.String))},
-		{"list scalar", "[0]", steadyBaseline, "", `output.regions[0] == "steady"`, cty.List(cty.String)},
-		{"tuple scalar", "[0]", steadyBaseline, "", `output.regions[0] == "steady"`, cty.Tuple([]cty.Type{cty.String})},
-		{"list null", "[0]", steadyBaseline, nulledValue, "output.regions[0] != null", cty.List(cty.String)},
-		{"list emptiness", "[0]", emptyListBaseline, "", "length(output.regions[0]) == 0", cty.List(cty.List(cty.String))},
+		{"missing type", firstElementIndex, steadyBaseline, "", "", cty.NilType},
+		{"set scalar", firstElementIndex, steadyBaseline, "", "", cty.Set(cty.String)},
+		{"set null", firstElementIndex, steadyBaseline, nulledValue, "", cty.Set(cty.String)},
+		{"set emptiness", firstElementIndex, emptyListBaseline, "", "", cty.Set(cty.List(cty.String))},
+		{"list scalar", firstElementIndex, steadyBaseline, "", `output.regions[0] == "steady"`, cty.List(cty.String)},
+		{
+			"tuple scalar", firstElementIndex, steadyBaseline, "", `output.regions[0] == "steady"`,
+			cty.Tuple([]cty.Type{cty.String}),
+		},
+		{"list null", firstElementIndex, steadyBaseline, nulledValue, "output.regions[0] != null", cty.List(cty.String)},
+		{
+			"list emptiness", firstElementIndex, emptyListBaseline, "", "length(output.regions[0]) == 0",
+			cty.List(cty.List(cty.String)),
+		},
 		{"tuple out of range", "[1]", steadyBaseline, "", "", cty.Tuple([]cty.Type{cty.String})},
 		{
 			"nested set", "[0].aliases[0]", steadyBaseline, "", "",
-			cty.List(cty.Object(map[string]cty.Type{"aliases": cty.Set(cty.String)})),
+			cty.List(cty.Object(map[string]cty.Type{aliasesAttribute: cty.Set(cty.String)})),
 		},
 		{
-			"member set null", ".aliases[0]", steadyBaseline, nulledValue, "",
-			cty.Object(map[string]cty.Type{"aliases": cty.Set(cty.String)}),
+			"member set null", aliasesFirstElement, steadyBaseline, nulledValue, "",
+			cty.Object(map[string]cty.Type{aliasesAttribute: cty.Set(cty.String)}),
 		},
 		{
-			"member set emptiness", ".aliases[0]", emptyListBaseline, "", "",
-			cty.Object(map[string]cty.Type{"aliases": cty.Set(cty.List(cty.String))}),
+			"member set emptiness", aliasesFirstElement, emptyListBaseline, "", "",
+			cty.Object(map[string]cty.Type{aliasesAttribute: cty.Set(cty.List(cty.String))}),
 		},
 		{
-			"member list", ".aliases[0]", steadyBaseline, "", `output.regions.aliases[0] == "steady"`,
-			cty.Object(map[string]cty.Type{"aliases": cty.List(cty.String)}),
+			"member list", aliasesFirstElement, steadyBaseline, "", `output.regions.aliases[0] == "steady"`,
+			cty.Object(map[string]cty.Type{aliasesAttribute: cty.List(cty.String)}),
 		},
 	} {
 		for _, prefix := range []string{"outputs.regions.value", "output_changes.regions.after"} {

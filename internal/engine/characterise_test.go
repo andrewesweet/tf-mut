@@ -77,19 +77,25 @@ func TestPinAddressesMatchListAndScalarOutputAssertions(t *testing.T) {
 				t.Fatal("no complete characterisation was returned")
 			}
 
-			for address, expression := range testCase.want {
-				found := false
-				for _, pin := range block.Pins {
-					if pin.Address == address && pin.Expression == expression && pin.Status == report.Pinned {
-						found = true
-					}
-				}
-
-				if !found {
-					t.Fatalf("no pin publishes address %q with expression %q: %+v", address, expression, block.Pins)
-				}
-			}
+			assertPinnedOutputAssertions(t, block.Pins, testCase.want)
 		})
+	}
+}
+
+func assertPinnedOutputAssertions(t *testing.T, pins []report.Pin, want map[string]string) {
+	t.Helper()
+
+	for address, expression := range want {
+		found := false
+		for _, pin := range pins {
+			if pin.Address == address && pin.Expression == expression && pin.Status == report.Pinned {
+				found = true
+			}
+		}
+
+		if !found {
+			t.Fatalf("no pin publishes address %q with expression %q: %+v", address, expression, pins)
+		}
 	}
 }
 
@@ -110,7 +116,7 @@ output "stable" {
   value = "steady"
 }
 `
-	if err := os.WriteFile(filepath.Join(module, "main.tf"), []byte(source), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(module, "main.tf"), []byte(source), 0o600); err != nil {
 		t.Fatalf("writing set-valued module: %v", err)
 	}
 
@@ -130,8 +136,8 @@ output "stable" {
 		t.Fatalf("set indexing was not refused: %+v", result.Suggestions)
 	}
 
-	if err := os.RemoveAll(filepath.Join(module, "tests")); err != nil {
-		t.Fatalf("removing fixture suite: %v", err)
+	if removeErr := os.RemoveAll(filepath.Join(module, "tests")); removeErr != nil {
+		t.Fatalf("removing fixture suite: %v", removeErr)
 	}
 	result, err = engine.Run(t.Context(), characteriseRequest(t, module))
 	if err != nil {

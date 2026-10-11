@@ -32,7 +32,7 @@ func TestAnInstanceCountsOnlyWhereItsRootRecordVanished(t *testing.T) {
 				changes := append([]fingerprint.Change{}, valueBodyOnly...)
 				want := `example_thing.counted[1].id == "steady"`
 				if record != "" {
-					want = "length(example_thing.counted) == 2"
+					want = baselineCountAssertion
 
 					first, second := "0", "1"
 					if record == ".address" {
@@ -64,7 +64,7 @@ func TestANulledValueRequiresAnUnambiguousBaselineMember(t *testing.T) {
 		{"state output", "outputs.identity.value"},
 		{"plan output", "output_changes.identity.after"},
 	} {
-		for _, suffix := range []string{".b", "[0]"} {
+		for _, suffix := range []string{".b", firstElementIndex} {
 			t.Run(representation.name+suffix, func(t *testing.T) {
 				t.Parallel()
 

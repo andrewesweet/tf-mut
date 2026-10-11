@@ -219,7 +219,7 @@ func TestAZeroCountMutationIsAssertedAsAResourceCount(t *testing.T) {
 
 			moduleDir := copyFixture(t, suggestCountZeroFixture)
 			testContent := fmt.Sprintf("run %q {\n  command = %s\n}\n", command, command)
-			if err := os.WriteFile(filepath.Join(moduleDir, unitTestFile), []byte(testContent), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(moduleDir, unitTestFile), []byte(testContent), 0o600); err != nil {
 				t.Fatalf("writing %s suite: %v", command, err)
 			}
 

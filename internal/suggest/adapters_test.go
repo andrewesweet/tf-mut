@@ -97,13 +97,16 @@ func untyped() tfexec.Schemas {
 }
 
 const (
-	statePrefix     = "root_module.resources["
-	steadyBaseline  = `"steady"`
-	emptiedObject   = "{}"
-	secondValue     = `"second"`
-	countedResource = "example_thing.counted"
-	nestedMarker    = `"deep"`
-	nulledValue     = "null"
+	statePrefix            = "root_module.resources["
+	steadyBaseline         = `"steady"`
+	emptiedObject          = "{}"
+	secondValue            = `"second"`
+	countedResource        = "example_thing.counted"
+	nestedMarker           = `"deep"`
+	nulledValue            = "null"
+	aliasesAttribute       = "aliases"
+	baselineCountAssertion = "length(example_thing.counted) == 2"
+	firstElementIndex      = "[0]"
 )
 
 // TestTheAddressAdapterMatrix is the seven mandatory address fixtures, quoted
@@ -152,7 +155,7 @@ func TestTheAddressAdapterMatrix(t *testing.T) {
 		},
 		{
 			name:       "a fused name-and-index segment renders in index form",
-			outputType: cty.List(cty.Object(map[string]cty.Type{"aliases": cty.List(cty.String)})),
+			outputType: cty.List(cty.Object(map[string]cty.Type{aliasesAttribute: cty.List(cty.String)})),
 			run:        runIn("applied", ""),
 			path:       "outputs.from_child.value[0].aliases[0]",
 			baseline:   steadyBaseline,
@@ -591,14 +594,14 @@ func keyRows() []renderingCase {
 			baseline: steadyBaseline, mutant: "",
 			schemas:  untyped(),
 			evidence: suggest.Evidence{InstanceCounts: map[string]int{countedResource: 2}},
-			want:     "length(example_thing.counted) == 2", refused: nil,
+			want:     baselineCountAssertion, refused: nil,
 		},
 		{
 			name: "a vanished count instance is a count equality",
 			path: statePrefix + "example_thing.counted[1]].values.input", baseline: steadyBaseline, mutant: "",
 			schemas:  untyped(),
 			evidence: suggest.Evidence{InstanceCounts: map[string]int{countedResource: 2}},
-			want:     "length(example_thing.counted) == 2", refused: nil,
+			want:     baselineCountAssertion, refused: nil,
 		},
 		{
 			name: "an index above the proven count is no count equality",
