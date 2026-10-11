@@ -27,6 +27,7 @@ const (
 	suggestBatchFixture     = "suggest-batch"
 	suggestCountFixture     = "suggest-count"
 	suggestOutputList       = "suggest-output-list"
+	suggestMapKeyFixture    = "suggest-map-key"
 	secretValue             = "s3cret-value"
 	unitTestFile            = "tests/unit.tftest.hcl"
 )
@@ -50,6 +51,36 @@ func runSuggest(t *testing.T, request engine.SuggestRequest) report.Report {
 	}
 
 	return result
+}
+
+// The map-key fixture: a null_resource map attribute whose key is a dotted
+// Kubernetes label. The payload path flattens the key across segments no
+// dotted traversal can spell, and only the provider's map type can tell the
+// key from a nested attribute — so every value mutation under that key used to
+// be refused, and now renders in index form.
+func TestANonIdentifierMapKeyIsRenderedInIndexForm(t *testing.T) {
+	t.Parallel()
+	requireProviderMirror(t)
+
+	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestMapKeyFixture)))
+
+	for _, skipped := range result.Suggestions {
+		switch skipped.Status {
+		case report.SuggestionSkippedUnaddressable, report.SuggestionSkippedUnrenderable:
+			t.Fatalf("a map-key survivor was skipped as %s: %s",
+				skipped.Status, skipped.StatusReason)
+		}
+	}
+
+	const dotted = `null_resource.app.triggers["app.kubernetes.io/part-of"] == "tf-mut-observe"`
+	for _, suggestion := range result.Suggestions {
+		if suggestion.Expression == dotted {
+			return
+		}
+	}
+
+	t.Fatalf("no suggestion carries %q; statuses were %s",
+		dotted, statusSummary(result.Suggestions))
 }
 
 // The list-valued output fixture: mutations of the output's element and a

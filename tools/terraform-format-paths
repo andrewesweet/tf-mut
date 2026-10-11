@@ -142,10 +142,14 @@ internal/engine/testdata/suggest-batch/tests/unit.tftest.hcl
 internal/engine/testdata/suggest-count/main.tf
 internal/engine/testdata/suggest-count/tests/unit.tftest.hcl
 internal/engine/testdata/suggest-json-target/main.tf
+internal/engine/testdata/suggest-map-key/main.tf
+internal/engine/testdata/suggest-map-key/tests/unit.tftest.hcl
 internal/engine/testdata/suggest-multifile/child/main.tf
 internal/engine/testdata/suggest-multifile/main.tf
 internal/engine/testdata/suggest-multifile/root.tftest.hcl
 internal/engine/testdata/suggest-multifile/tests/unit.tftest.hcl
+internal/engine/testdata/suggest-output-list/main.tf
+internal/engine/testdata/suggest-output-list/tests/unit.tftest.hcl
 internal/engine/testdata/suggest-sensitive/main.tf
 internal/engine/testdata/suggest-sensitive/tests/unit.tftest.hcl
 internal/engine/testdata/testdir-helper/child/main.tf

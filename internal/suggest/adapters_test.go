@@ -45,7 +45,24 @@ func changeAt(path, baseline string) fingerprint.Change {
 // schemaTyping publishes one attribute's cty type, which is the rendering
 // contract's normative type source.
 func schemaTyping(attribute, ctyType string) tfexec.Schemas {
+	return schemaBlock(map[string]string{attribute: ctyType}, nil)
+}
+
+// schemaBlock publishes a resource schema with the named attributes and nested
+// block types, the shape the walk is a contract about.
+func schemaBlock(
+	attributes map[string]string,
+	blockTypes map[string]tfexec.SchemaBlockType,
+) tfexec.Schemas {
 	const resourceType = "example_thing"
+
+	published := map[string]tfexec.SchemaAttribute{}
+	for name, ctyType := range attributes {
+		published[name] = tfexec.SchemaAttribute{
+			Required: false, Optional: true, Computed: false,
+			Type: json.RawMessage(ctyType),
+		}
+	}
 
 	return tfexec.Schemas{
 		FormatVersion: "1.0",
@@ -53,12 +70,8 @@ func schemaTyping(attribute, ctyType string) tfexec.Schemas {
 			"registry.terraform.io/example/example": {
 				ResourceSchemas: map[string]tfexec.Schema{
 					resourceType: {Block: tfexec.SchemaBlock{
-						Attributes: map[string]tfexec.SchemaAttribute{
-							attribute: {
-								Required: false, Optional: true, Computed: false,
-								Type: json.RawMessage(ctyType),
-							},
-						},
+						Attributes: published,
+						BlockTypes: blockTypes,
 					}},
 				},
 				DataSourceSchemas: map[string]tfexec.Schema{},
@@ -269,6 +282,36 @@ func TestTheRenderingContractMatrix(t *testing.T) {
 			path:     statePrefix + "example_thing.app].values.tags.my.key",
 			baseline: `"value"`, schemas: untyped(), want: "", refused: suggest.ErrUnrenderable,
 		},
+		{
+			name: "a dynamic attribute types nothing beyond itself",
+			path: statePrefix + "example_thing.app].values.manifest[0].spec", baseline: `"deep"`,
+			schemas: schemaTyping("manifest", `"dynamic"`),
+			want:    "", refused: suggest.ErrUnrenderable,
+		},
+		{
+			name: "an unknown name inside a typed block stays a nested value",
+			path: statePrefix + "example_thing.app].values.settings.unknown", baseline: `"deep"`,
+			schemas: schemaTyping("settings", `["object",{"a":"string"}]`),
+			want:    "", refused: suggest.ErrUnrenderable,
+		},
+		{
+			name: "a nested map-in-map key is ambiguous",
+			path: statePrefix + "example_thing.app].values.matrix.a.b.c", baseline: `"deep"`,
+			schemas: schemaTyping("matrix", `["map",["map","string"]]`),
+			want:    "", refused: suggest.ErrUnrenderable,
+		},
+		{
+			name: "a set-nested block cannot be indexed",
+			path: statePrefix + "example_thing.app].values.replicas[0].arn", baseline: `"deep"`,
+			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
+				"replicas": {NestingMode: tfexec.NestingSet, Block: tfexec.SchemaBlock{
+					Attributes: map[string]tfexec.SchemaAttribute{
+						"arn": {Optional: true, Type: json.RawMessage(`"string"`)},
+					},
+				}},
+			}),
+			want: "", refused: suggest.ErrUnrenderable,
+		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
@@ -321,6 +364,77 @@ func TestTheRenderingContractAdmissions(t *testing.T) {
 			name: "a value absent from the baseline is not expressible",
 			path: statePrefix + "example_thing.app].values.input", baseline: "",
 			schemas: untyped(), want: "", refused: suggest.ErrUnrenderable,
+		},
+		{
+			name:     "a list-nested block's attribute",
+			path:     statePrefix + "example_thing.app].values.connection[0].subresource_names[0]",
+			baseline: `"second"`,
+			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
+				"connection": {NestingMode: tfexec.NestingList, Block: tfexec.SchemaBlock{
+					Attributes: map[string]tfexec.SchemaAttribute{
+						"subresource_names": {Optional: true, Type: json.RawMessage(`["list","string"]`)},
+					},
+				}},
+			}),
+			want:    `example_thing.app.connection[0].subresource_names[0] == "second"`,
+			refused: nil,
+		},
+		{
+			name: "a single-nested block's attribute",
+			path: statePrefix + "example_thing.app].values.timeouts.create", baseline: `"5m"`,
+			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
+				"timeouts": {NestingMode: tfexec.NestingSingle, Block: tfexec.SchemaBlock{
+					Attributes: map[string]tfexec.SchemaAttribute{
+						"create": {Optional: true, Type: json.RawMessage(`"string"`)},
+					},
+				}},
+			}),
+			want: `example_thing.app.timeouts.create == "5m"`, refused: nil,
+		},
+		{
+			name: "a map-nested block's entry by its payload key",
+			path: statePrefix + "example_thing.app].values.mounts[shared].source", baseline: `"/data"`,
+			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
+				"mounts": {NestingMode: tfexec.NestingMap, Block: tfexec.SchemaBlock{
+					Attributes: map[string]tfexec.SchemaAttribute{
+						"source": {Optional: true, Type: json.RawMessage(`"string"`)},
+					},
+				}},
+			}),
+			want: `example_thing.app.mounts["shared"].source == "/data"`, refused: nil,
+		},
+		{
+			name: "a typed object attribute's list element",
+			path: statePrefix + "example_thing.app].values.spec[0].replicas", baseline: "3",
+			schemas: schemaTyping("spec",
+				`["list",["object",{"replicas":"number","name":"string"}]]`),
+			want: "example_thing.app.spec[0].replicas == 3", refused: nil,
+		},
+		{
+			name:     "a map attribute's non-identifier key",
+			path:     statePrefix + "example_thing.app].values.triggers.app.kubernetes.io/part-of",
+			baseline: steadyBaseline,
+			schemas:  schemaTyping("triggers", `["map","string"]`),
+			want:     `example_thing.app.triggers["app.kubernetes.io/part-of"] == "steady"`,
+			refused:  nil,
+		},
+		{
+			name: "a map attribute's identifier key stays dotted",
+			path: statePrefix + "example_thing.app].values.triggers.plain", baseline: steadyBaseline,
+			schemas: schemaTyping("triggers", `["map","string"]`),
+			want:    `example_thing.app.triggers.plain == "steady"`, refused: nil,
+		},
+		{
+			name: "an object attribute's non-identifier key",
+			path: statePrefix + "example_thing.app].values.settings.app.io/x", baseline: steadyBaseline,
+			schemas: schemaTyping("settings", `["object",{"app.io/x":"string","plain":"string"}]`),
+			want:    `example_thing.app.settings["app.io/x"] == "steady"`, refused: nil,
+		},
+		{
+			name: "a map attribute's numeric key is not an index",
+			path: statePrefix + "example_thing.app].values.tags.0", baseline: steadyBaseline,
+			schemas: schemaTyping("tags", `["map","string"]`),
+			want:    `example_thing.app.tags["0"] == "steady"`, refused: nil,
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
