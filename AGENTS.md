@@ -262,8 +262,9 @@ named.
 - Safety gates (`--allow-real-infrastructure`, `--allow-unsandboxed-effects`) are
   load-bearing product decisions, not defaults to soften.
 - Engine fixtures live in `internal/engine/testdata/`. They are `terraform_data`-based and
-  offline unless the name says otherwise; `mocked-null`, `mocked-aliases`, `unmocked` and
-  `untested-aliases` need the provider mirror (`just tools-install`) and skip without it, and
+  offline unless the name says otherwise; `mocked-null`, `mocked-aliases`, `unmocked`,
+  `unmocked-timeout` and `untested-aliases` need the provider mirror (`just tools-install`)
+  and skip without it, and
   the other `untested-*` fixtures — the modules characterisation is exercised against — are
   `terraform_data`-based and offline like the rest. `aws-mocked` is
   network-gated behind the `integration` tag. Every fixture is in the Terraform format manifest
