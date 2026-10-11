@@ -242,6 +242,12 @@ func TestAShapeChangeBetweenBaselineRunsMakesTheComparisonIndeterminate(t *testi
 	}
 }
 
+const (
+	identityMarker      = "output_changes.identity.after_unknown"
+	identityValue       = "outputs.identity.value"
+	identityChangeAfter = "output_changes.identity.after"
+)
+
 // The metadata members of an output record are never assertable, and a
 // candidate selector has to tell them from the value delta without rebuilding
 // the path grammar.
@@ -252,7 +258,7 @@ func TestOutputMetadataPathsAreRecognisedWithoutRebuildingTheGrammar(t *testing.
 		"outputs.identity.type",
 		"outputs.identity.type[0]",
 		"outputs.identity.sensitive",
-		"output_changes.identity.after_unknown",
+		identityMarker,
 		"output_changes.identity.after_unknown.principal_id",
 		"output_changes.identity.after_sensitive",
 		"output_changes.identity.before_sensitive",
@@ -263,10 +269,10 @@ func TestOutputMetadataPathsAreRecognisedWithoutRebuildingTheGrammar(t *testing.
 	}
 
 	for _, path := range []string{
-		"outputs.identity.value",
+		identityValue,
 		"outputs.identity.value.principal_id",
 		"outputs.region_list.value[0].short_name",
-		"output_changes.identity.after",
+		identityChangeAfter,
 		"output_changes.identity.after.principal_id",
 		"outputs.after.value",
 		"root_module.resources[example_thing.app].values.input",
@@ -300,7 +306,7 @@ func TestSplitCarriesAnOutputElementPathPastItsBody(t *testing.T) {
 			"output.region_list", "[1].short_name",
 		},
 		{
-			"outputs.identity.value",
+			identityValue,
 			"output.identity", "",
 		},
 		{
@@ -316,7 +322,7 @@ func TestSplitCarriesAnOutputElementPathPastItsBody(t *testing.T) {
 			"", "",
 		},
 		{
-			"output_changes.identity.after_unknown",
+			identityMarker,
 			"", "",
 		},
 	} {
@@ -354,8 +360,8 @@ func TestAnUnknownMarkerPathMapsOntoTheValueItMarks(t *testing.T) {
 		value  string
 	}{
 		{
-			"output_changes.identity.after_unknown",
-			"output_changes.identity.after",
+			identityMarker,
+			identityChangeAfter,
 		},
 		{
 			"output_changes.identity.after_unknown.principal_id",
@@ -394,7 +400,7 @@ func TestNonMarkerPathsNameNoMarkerRecord(t *testing.T) {
 	t.Parallel()
 
 	for _, path := range []string{
-		"output_changes.identity.after",
+		identityChangeAfter,
 		"output_changes.identity.after_sensitive",
 		"output_changes.identity.after_unknownish.children",
 		"resource_changes[null_resource.app].change.before",
@@ -404,6 +410,63 @@ func TestNonMarkerPathsNameNoMarkerRecord(t *testing.T) {
 	} {
 		if fingerprint.IsUnknownMarker(path) {
 			t.Fatalf("IsUnknownMarker(%q) = true, want false", path)
+		}
+	}
+}
+
+// TestACountedInstancePathNamesItsResourceAndIndex pins the instance grammar
+// the count evidence reads: state and plan resource paths with numeric
+// instance indices name their resource; singletons, for_each instances and
+// everything outside a resource do not.
+func TestACountedInstancePathNamesItsResourceAndIndex(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		path     string
+		resource string
+		index    int
+	}{
+		{
+			"root_module.resources[null_resource.app[1]].values.triggers",
+			"null_resource.app", 1,
+		},
+		{
+			"resource_changes[terraform_data.counted[0]].change.after.output",
+			"terraform_data.counted", 0,
+		},
+		{
+			"resource_changes[module.child.terraform_data.inner[12]].change.after",
+			"module.child.terraform_data.inner", 12,
+		},
+	} {
+		t.Run(testCase.path, func(t *testing.T) {
+			t.Parallel()
+
+			resource, index, ok := fingerprint.CountedInstance(testCase.path)
+			if !ok || resource != testCase.resource || index != testCase.index {
+				t.Fatalf("CountedInstance(%q) = (%q, %d, %v), want (%q, %d, true)",
+					testCase.path, resource, index, ok, testCase.resource, testCase.index)
+			}
+		})
+	}
+}
+
+// TestPathsOutsideTheInstanceGrammarNameNoInstance keeps the count evidence
+// from widening: singletons and string-keyed for_each instances carry no
+// count index, and paths outside any resource name nothing.
+func TestPathsOutsideTheInstanceGrammarNameNoInstance(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		"root_module.resources[null_resource.app].values.triggers",
+		`root_module.resources[null_resource.app["blue"]].values.triggers`,
+		"root_module.resources[null_resource.app[blue]].values.triggers",
+		identityChangeAfter,
+		identityValue,
+		"resource_changes[null_resource.app].change.after",
+	} {
+		if _, _, ok := fingerprint.CountedInstance(path); ok {
+			t.Fatalf("CountedInstance(%q) reported an instance, want none", path)
 		}
 	}
 }

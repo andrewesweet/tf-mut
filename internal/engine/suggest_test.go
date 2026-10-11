@@ -29,6 +29,7 @@ const (
 	suggestOutputList           = "suggest-output-list"
 	suggestMapKeyFixture        = "suggest-map-key"
 	suggestUnknownObjectFixture = "suggest-unknown-object"
+	suggestCountDeletionFixture = "suggest-count-deletion"
 	secretValue                 = "s3cret-value"
 	unitTestFile                = "tests/unit.tftest.hcl"
 )
@@ -68,10 +69,11 @@ func TestANonIdentifierMapKeyIsRenderedInIndexForm(t *testing.T) {
 	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestMapKeyFixture)))
 
 	for _, skipped := range result.Suggestions {
-		switch skipped.Status {
+		switch skipped.Status { //nolint:exhaustive // a guard: only the skip statuses are defects here.
 		case report.SuggestionSkippedUnaddressable, report.SuggestionSkippedUnrenderable:
 			t.Fatalf("a map-key survivor was skipped as %s: %s",
 				skipped.Status, skipped.StatusReason)
+		default:
 		}
 	}
 
@@ -84,6 +86,7 @@ func TestANonIdentifierMapKeyIsRenderedInIndexForm(t *testing.T) {
 		case suggestion.Expression == "null_resource.app.triggers != null" &&
 			suggestion.Status == report.SuggestionVerified:
 			sawNonNull = true
+		default:
 		}
 	}
 
@@ -112,13 +115,14 @@ func TestAListValuedOutputElementIsAddressedThroughItsIndex(t *testing.T) {
 
 	const want = `output.region_list[0].short_name == "eu"`
 	for _, skipped := range result.Suggestions {
-		switch skipped.Status {
+		switch skipped.Status { //nolint:exhaustive // a guard: only the skip statuses are defects here.
 		case report.SuggestionSkippedUnaddressable, report.SuggestionSkippedUnrenderable:
 			t.Fatalf("a survivor of the list-valued output was skipped as %s: %s",
 				skipped.Status, skipped.StatusReason)
 		case report.SuggestionSkippedSensitive:
 			t.Fatalf("a survivor of the list-valued output was skipped as sensitive: %s",
 				skipped.StatusReason)
+		default:
 		}
 	}
 
@@ -153,7 +157,7 @@ func TestAnUnknownObjectOutputAssertsNonNullAndNeverALength(t *testing.T) {
 
 	for _, suggestion := range result.Suggestions {
 		if strings.HasPrefix(suggestion.Expression, "length(output.identity)") {
-			t.Fatalf("a length was rendered over a value whose members the plan marks unknown")
+			t.Fatal("a length was rendered over a value whose members the plan marks unknown")
 		}
 
 		if suggestion.Expression == "output.identity != null" &&
@@ -168,6 +172,29 @@ func TestAnUnknownObjectOutputAssertsNonNullAndNeverALength(t *testing.T) {
 	}
 
 	t.Fatalf("no verified suggestion renders the output's non-null form; statuses were %s",
+		statusSummary(result.Suggestions))
+}
+
+// The count fixture: a resource whose count is two. A count mutation removes
+// an instance, and the vanishing instance's payload paths carry values on
+// their baseline side alone — evidence of how large the baseline collection
+// was. The suggestion is a length equality over the un-indexed resource,
+// which is false on the mutant and kills it, where an assertion against the
+// vanished instance itself would be refused by Terraform as an invalid index
+// and a run error is no kill.
+func TestAVanishedInstanceIsAssertedAsAResourceCount(t *testing.T) {
+	t.Parallel()
+
+	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestCountDeletionFixture)))
+
+	for _, suggestion := range result.Suggestions {
+		if suggestion.Expression == "length(terraform_data.counted) == 2" &&
+			suggestion.Status == report.SuggestionVerified {
+			return
+		}
+	}
+
+	t.Fatalf("no verified suggestion renders the resource's count; statuses were %s",
 		statusSummary(result.Suggestions))
 }
 

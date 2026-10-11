@@ -67,7 +67,7 @@ func TestASchemaWithNestedBlocksDecodesAndLooksUp(t *testing.T) {
 		t.Fatalf("connection nesting = %q, want %q", connection.NestingMode, tfexec.NestingList)
 	}
 
-	if _, found := connection.Block.Attributes["subresource_names"]; !found {
+	if _, hasSubresource := connection.Block.Attributes["subresource_names"]; !hasSubresource {
 		t.Fatal("the nested block's attributes did not decode")
 	}
 

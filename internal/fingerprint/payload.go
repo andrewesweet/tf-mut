@@ -888,3 +888,44 @@ func digitsOnly(key string) bool {
 
 	return true
 }
+
+// CountedInstance reads a state or plan resource path onto the counted
+// instance it names: `root_module.resources[null_resource.app[1]].values…`
+// onto resource `null_resource.app`, index 1, and a resource change's
+// `resource_changes[null_resource.app[0]].change…` likewise. A path whose
+// address carries no numeric instance index — a singleton resource, a
+// string-keyed `for_each` instance, a value outside any resource — reports
+// false. `count` is the only instance numbering this can read, which is the
+// point: a vanishing instance is what a count mutation does.
+func CountedInstance(path string) (resource string, index int, ok bool) {
+	var rest string
+	if cut, found := strings.CutPrefix(path, rootModule+".resources["); found {
+		rest = cut
+	} else if cut, found := strings.CutPrefix(path, resourceChanges+"["); found {
+		rest = cut
+	} else {
+		return "", 0, false
+	}
+
+	inner, _, found := cutBracketed(rest)
+	if !found {
+		return "", 0, false
+	}
+
+	name, tail, hasIndex := strings.Cut(inner, "[")
+	if !hasIndex || !strings.HasSuffix(tail, "]") || name == "" {
+		return "", 0, false
+	}
+
+	key := strings.TrimSuffix(tail, "]")
+	if !digitsOnly(key) {
+		return "", 0, false
+	}
+
+	index, err := strconv.Atoi(key)
+	if err != nil {
+		return "", 0, false
+	}
+
+	return name, index, true
+}

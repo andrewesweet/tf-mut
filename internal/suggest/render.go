@@ -54,8 +54,20 @@ func (r render) equality(
 	// A whole value absent from the baseline payload is a non-empty container —
 	// empty ones render — and anything else needs the delta to have proven the
 	// baseline value existed.
-	if mutant == "null" && (attribute == "" || baseline != "" || evidence.ProvenNonNull[parts.path]) {
+	if mutant == nullMarker && (attribute == "" || baseline != "" || evidence.ProvenNonNull[parts.path]) {
 		return expression + " != null", nil
+	}
+
+	// A change whose value side is empty under a counted instance is a
+	// vanishing instance — the mutant removed it, along with everything under
+	// it — and the count equality is what that proves: the baseline had a
+	// collection of instances, one more than the highest vanished index, and
+	// `length` over the un-indexed resource is type-correct over exactly
+	// that. Asserting the vanished instance's own values would be refused by
+	// Terraform as an invalid index under the mutant, which is a run error
+	// and no kill; the count is the assertion that kills.
+	if counted, handled, err := countEquality(resource, mutant, evidence); handled {
+		return counted, err
 	}
 
 	if baseline == "" {
@@ -94,6 +106,38 @@ func (r render) equality(
 	default:
 		return r.leafEquality(expression, resource, segments[0], baseline)
 	}
+}
+
+// countEquality renders the vanished-instance form: a resource whose mutant
+// side lost a change proves instances vanished, and the delta-rooted count is
+// a baseline-true, mutant-false length equality. The bool reports whether the
+// branch applies at all; where it does, the error carries the refusal.
+func countEquality(resource, mutant string, evidence Evidence) (string, bool, error) {
+	if mutant != "" || evidence.InstanceCounts == nil {
+		return "", false, nil
+	}
+
+	base, index, has := splitInstanceIndex(resource)
+	if !has {
+		return "", false, nil
+	}
+
+	count, counted := evidence.InstanceCounts[base]
+	if !counted || index >= count {
+		return "", false, nil
+	}
+
+	if evidence.VanishedRoots[base] {
+		return "", true, fmt.Errorf("%w: the mutant removed the resource's root instance, so a "+
+			"length over its address is a run error and no kill", ErrUnrenderable)
+	}
+
+	if err := parseTraversal(base); err != nil {
+		return "", true, fmt.Errorf("%w: %s is not expressible as a dotted traversal",
+			ErrUnrenderable, base)
+	}
+
+	return "length(" + base + ") == " + strconv.Itoa(count), true, nil
 }
 
 // walkEquality renders a path that continues past a first segment: a list-
@@ -584,7 +628,7 @@ func scalarEquality(expression, baseline string) (string, error) {
 
 func scalarValue(baseline string) (cty.Value, error) {
 	switch {
-	case baseline == "null":
+	case baseline == nullMarker:
 		return cty.NilVal, fmt.Errorf("%w: the payload's null has lost its type, and a "+
 			"typed null is not expressible as an equality", ErrUnrenderable)
 	case baseline == "true" || baseline == "false":

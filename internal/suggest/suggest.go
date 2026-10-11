@@ -28,6 +28,10 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
+// nullMarker is the spelling Terraform gives a value that is null, in test
+// payloads and in assertion expressions alike.
+const nullMarker = "null"
+
 // Defect is a deliberately wrong assertion the generator can be made to emit.
 //
 // It exists for the suggestion-soundness gate and for nothing else: a
@@ -272,17 +276,18 @@ func (g Generator) suggestFor(
 	evidence := NewEvidence(carried)
 
 	for _, pass := range [][]fingerprint.Change{value, metadata} {
-		expression, first, sensitive, admitted := walkChanges(renderer, evidence, pass)
-		if admitted {
-			return build(survivor, target, expression)
+		walked := walkChanges(renderer, evidence, pass)
+		if walked.admitted {
+			return build(survivor, target, walked.expression)
 		}
 
+		first := walked.first
 		if first == nil {
 			first = fmt.Errorf("%w: the delta carries no change in the target run", ErrUnaddressable)
 		}
 
-		if sensitive != nil {
-			first = sensitive
+		if walked.sensitive != nil {
+			first = walked.sensitive
 		}
 
 		if len(pass) > 0 {
@@ -298,18 +303,30 @@ func (g Generator) suggestFor(
 	return generated{skip: &skip}
 }
 
+// walked is one pass of walkChanges: the expression a change admitted, the
+// first refusal and the first sensitivity refusal out of the ones it did not,
+// and whether anything was admitted.
+type walked struct {
+	expression string
+	first      error
+	sensitive  error
+	admitted   bool
+}
+
 // walkChanges renders the first change a renderer admits, and carries the
 // first refusal and the first sensitivity refusal out of the ones it does not.
 func walkChanges(
 	renderer render,
 	evidence Evidence,
 	changes []fingerprint.Change,
-) (expression string, first, sensitive error, admitted bool) {
+) walked {
+	result := walked{}
+
 	for _, change := range changes {
 		rendered, err := expressChange(renderer, evidence, change)
 		if err != nil {
-			if first == nil {
-				first = err
+			if result.first == nil {
+				result.first = err
 			}
 
 			// A sensitivity refusal outranks every other refusal for the
@@ -317,17 +334,19 @@ func walkChanges(
 			// delta is sensitive, "the value appears in no artefact" is the
 			// contract the reader has to know about, not the addressing
 			// detail of some other change.
-			if sensitive == nil && errors.Is(err, ErrSensitive) {
-				sensitive = err
+			if result.sensitive == nil && errors.Is(err, ErrSensitive) {
+				result.sensitive = err
 			}
 
 			continue
 		}
 
-		return rendered, nil, nil, true
+		result.expression, result.admitted = rendered, true
+
+		return result
 	}
 
-	return "", first, sensitive, false
+	return result
 }
 
 // Express maps one delta change onto the assertion condition that would catch
@@ -364,45 +383,90 @@ type Evidence struct {
 	// was neither absent nor null: another change under the same path carried
 	// a value.
 	ProvenNonNull map[string]bool
+	// InstanceCounts records, per resource address, the instance count the
+	// delta proves the baseline had: a change whose value side is empty under
+	// `resource[N]` proves instance N existed on the baseline.
+	InstanceCounts map[string]int
+	// VanishedRoots records the resources whose instance `[0]` the delta proves
+	// absent from the mutant. When the root instance is gone the whole
+	// resource is, and a length over its address is a run error, not a kill.
+	VanishedRoots map[string]bool
 }
 
 // NewEvidence reads a delta into the evidence its changes prove. It is the
 // generator's own construction, and the matrices build it by hand.
 func NewEvidence(changes []fingerprint.Change) Evidence {
-	evidence := Evidence{ProvenNonNull: map[string]bool{}}
-
-	for _, change := range changes {
-		if fingerprint.IsUnknownMarker(change.Path) {
-			evidence.UnknownMarkers = append(evidence.UnknownMarkers, change.Path)
-		}
+	evidence := Evidence{
+		ProvenNonNull:  map[string]bool{},
+		InstanceCounts: map[string]int{},
+		VanishedRoots:  map[string]bool{},
 	}
 
 	for _, change := range changes {
-		if change.Mutant != "null" || evidence.ProvenNonNull[change.Path] {
-			continue
-		}
-
-		for _, other := range changes {
-			if other.Baseline == "" || other.Baseline == "null" {
-				continue
-			}
-
-			if other.Path == change.Path ||
-				strings.HasPrefix(other.Path, change.Path+".") ||
-				strings.HasPrefix(other.Path, change.Path+"[") {
-				evidence.ProvenNonNull[change.Path] = true
-
-				break
-			}
-		}
+		evidence.absorb(change, changes)
 	}
 
 	return evidence
 }
 
+// absorb folds one change into the accumulating evidence. The full change set
+// travels with it: a nulled container only proves non-null where a peer change
+// shows a value that survived underneath it.
+func (e *Evidence) absorb(change fingerprint.Change, changes []fingerprint.Change) {
+	if fingerprint.IsUnknownMarker(change.Path) {
+		e.UnknownMarkers = append(e.UnknownMarkers, change.Path)
+	}
+
+	if change.Mutant == nullMarker && !e.ProvenNonNull[change.Path] {
+		e.proveNonNull(change, changes)
+	}
+
+	e.countInstance(change)
+}
+
+// proveNonNull marks a nulled container non-null where any peer change carries
+// a real baseline value on the container or inside it: the mutation's nulling
+// is provable rather than an absence the baseline shared.
+func (e *Evidence) proveNonNull(change fingerprint.Change, changes []fingerprint.Change) {
+	for _, other := range changes {
+		if other.Baseline == "" || other.Baseline == nullMarker {
+			continue
+		}
+
+		if other.Path == change.Path ||
+			strings.HasPrefix(other.Path, change.Path+".") ||
+			strings.HasPrefix(other.Path, change.Path+"[") {
+			e.ProvenNonNull[change.Path] = true
+
+			break
+		}
+	}
+}
+
+// countInstance folds a vanished instance's change into the resource count and
+// the vanished-root proof the count rendering is judged against.
+func (e *Evidence) countInstance(change fingerprint.Change) {
+	if change.Mutant != "" {
+		return
+	}
+
+	resource, index, counted := fingerprint.CountedInstance(change.Path)
+	if !counted {
+		return
+	}
+
+	if index+1 > e.InstanceCounts[resource] {
+		e.InstanceCounts[resource] = index + 1
+	}
+
+	if index == 0 {
+		e.VanishedRoots[resource] = true
+	}
+}
+
 // markersUnder reports whether the delta's markers reach the subtree a value
 // path names.
-func (e Evidence) markersUnder(valuePath string) bool {
+func (e *Evidence) markersUnder(valuePath string) bool {
 	for _, marker := range e.UnknownMarkers {
 		base, found := fingerprint.UnknownValueBase(marker)
 		if !found {

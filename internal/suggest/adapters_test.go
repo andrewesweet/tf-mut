@@ -46,7 +46,7 @@ func changeAt(path, baseline string) fingerprint.Change {
 // branch answers.
 func nulledAt(path string) fingerprint.Change {
 	change := changeAt(path, "")
-	change.Mutant = "null"
+	change.Mutant = nulledValue
 
 	return change
 }
@@ -96,8 +96,11 @@ func untyped() tfexec.Schemas {
 }
 
 const (
-	statePrefix    = "root_module.resources["
-	steadyBaseline = `"steady"`
+	statePrefix     = "root_module.resources["
+	steadyBaseline  = `"steady"`
+	countedResource = "example_thing.counted"
+	nestedMarker    = `"deep"`
+	nulledValue     = "null"
 )
 
 // TestTheAddressAdapterMatrix is the seven mandatory address fixtures, quoted
@@ -226,23 +229,27 @@ func TestAGeneratorLimitIsNeverARefutation(t *testing.T) {
 // names — "lists, tuples, sets, maps, objects, typed nulls, nested values,
 // non-identifier map keys" — and TestTheRenderingContractAdmissions admits the
 // three forms it allows.
-func TestTheRenderingContractMatrix(t *testing.T) {
-	t.Parallel()
+// renderingCase is one row of the rendering contract tables.
+type renderingCase struct {
+	name     string
+	path     string
+	baseline string
+	mutant   string
+	evidence suggest.Evidence
+	schemas  tfexec.Schemas
+	want     string
+	refused  error
+}
 
-	for _, testCase := range []struct {
-		name     string
-		path     string
-		baseline string
-		schemas  tfexec.Schemas
-		want     string
-		refused  error
-	}{
-		{
-			name: "list element by concrete key, schema-typed",
-			path: statePrefix + "example_thing.app].values.items[0]", baseline: `"first"`,
-			schemas: schemaTyping("items", `["list","string"]`),
-			want:    `example_thing.app.items[0] == "first"`, refused: nil,
-		},
+// matrixRows is the refusal half of the rendering contract: shapes the
+// contract refuses, one row each.
+func matrixRows() []renderingCase {
+	return []renderingCase{{
+		name: "list element by concrete key, schema-typed",
+		path: statePrefix + "example_thing.app].values.items[0]", baseline: `"first"`,
+		schemas: schemaTyping("items", `["list","string"]`),
+		want:    `example_thing.app.items[0] == "first"`, refused: nil,
+	},
 		{
 			name: "tuple element by concrete key, schema-typed",
 			path: statePrefix + "example_thing.app].values.pair[1]", baseline: "2",
@@ -274,11 +281,11 @@ func TestTheRenderingContractMatrix(t *testing.T) {
 		},
 		{
 			name: "typed null", path: statePrefix + "example_thing.app].values.input",
-			baseline: "null", schemas: untyped(), want: "", refused: suggest.ErrUnrenderable,
+			baseline: nulledValue, schemas: untyped(), want: "", refused: suggest.ErrUnrenderable,
 		},
 		{
 			name: "nested value", path: statePrefix + "example_thing.app].values.settings.a",
-			baseline: `"deep"`, schemas: untyped(), want: "", refused: suggest.ErrUnrenderable,
+			baseline: nestedMarker, schemas: untyped(), want: "", refused: suggest.ErrUnrenderable,
 		},
 		{
 			// A genuinely non-identifier key: HCL identifiers permit hyphens,
@@ -293,25 +300,25 @@ func TestTheRenderingContractMatrix(t *testing.T) {
 		},
 		{
 			name: "a dynamic attribute types nothing beyond itself",
-			path: statePrefix + "example_thing.app].values.manifest[0].spec", baseline: `"deep"`,
+			path: statePrefix + "example_thing.app].values.manifest[0].spec", baseline: nestedMarker,
 			schemas: schemaTyping("manifest", `"dynamic"`),
 			want:    "", refused: suggest.ErrUnrenderable,
 		},
 		{
 			name: "an unknown name inside a typed block stays a nested value",
-			path: statePrefix + "example_thing.app].values.settings.unknown", baseline: `"deep"`,
+			path: statePrefix + "example_thing.app].values.settings.unknown", baseline: nestedMarker,
 			schemas: schemaTyping("settings", `["object",{"a":"string"}]`),
 			want:    "", refused: suggest.ErrUnrenderable,
 		},
 		{
 			name: "a nested map-in-map key is ambiguous",
-			path: statePrefix + "example_thing.app].values.matrix.a.b.c", baseline: `"deep"`,
+			path: statePrefix + "example_thing.app].values.matrix.a.b.c", baseline: nestedMarker,
 			schemas: schemaTyping("matrix", `["map",["map","string"]]`),
 			want:    "", refused: suggest.ErrUnrenderable,
 		},
 		{
 			name: "a set-nested block cannot be indexed",
-			path: statePrefix + "example_thing.app].values.replicas[0].arn", baseline: `"deep"`,
+			path: statePrefix + "example_thing.app].values.replicas[0].arn", baseline: nestedMarker,
 			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
 				"replicas": {NestingMode: tfexec.NestingSet, Block: tfexec.SchemaBlock{
 					Attributes: map[string]tfexec.SchemaAttribute{
@@ -321,38 +328,24 @@ func TestTheRenderingContractMatrix(t *testing.T) {
 			}),
 			want: "", refused: suggest.ErrUnrenderable,
 		},
-	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-
-			expression, err := suggest.Express(runIn("applied", ""),
-				testCase.schemas, suggest.Evidence{}, changeAt(testCase.path, testCase.baseline))
-
-			assertAdapter(t, expression, err, testCase.want, testCase.refused)
-		})
 	}
 }
 
-// TestTheRenderingContractAdmissions is the matrix's other half: the three
-// forms the contract admits, each rendering type-correctly.
-func TestTheRenderingContractAdmissions(t *testing.T) {
-	t.Parallel()
+// admissionRows is the matrix's other half: the three forms the contract
+// admits, each rendering type-correctly.
+// admissionRows is the matrix's other half: the three forms the contract
+// admits, each rendering type-correctly.
+func admissionRows() []renderingCase {
+	return append(scalarAdmissionRows(), structuredAdmissionRows()...)
+}
 
-	for _, testCase := range []struct {
-		name     string
-		path     string
-		baseline string
-		mutant   string
-		evidence suggest.Evidence
-		schemas  tfexec.Schemas
-		want     string
-		refused  error
-	}{
-		{
-			name: "scalar leaf where nothing types the attribute",
-			path: statePrefix + "example_thing.app].values.input", baseline: steadyBaseline,
-			schemas: untyped(), want: `example_thing.app.input == "steady"`, refused: nil,
-		},
+// scalarAdmissionRows holds the admitted scalar forms.
+func scalarAdmissionRows() []renderingCase {
+	return []renderingCase{{
+		name: "scalar leaf where nothing types the attribute",
+		path: statePrefix + "example_thing.app].values.input", baseline: steadyBaseline,
+		schemas: untyped(), want: `example_thing.app.input == "steady"`, refused: nil,
+	},
 		{
 			name: "number leaf", path: statePrefix + "example_thing.app].values.size",
 			baseline: "3", schemas: untyped(), want: "example_thing.app.size == 3", refused: nil,
@@ -429,12 +422,18 @@ func TestTheRenderingContractAdmissions(t *testing.T) {
 			want:     `example_thing.app.triggers["app.kubernetes.io/part-of"] == "steady"`,
 			refused:  nil,
 		},
-		{
-			name: "a map attribute's identifier key stays dotted",
-			path: statePrefix + "example_thing.app].values.triggers.plain", baseline: steadyBaseline,
-			schemas: schemaTyping("triggers", `["map","string"]`),
-			want:    `example_thing.app.triggers.plain == "steady"`, refused: nil,
-		},
+	}
+}
+
+// structuredAdmissionRows holds the admitted container, nested and count
+// forms.
+func structuredAdmissionRows() []renderingCase {
+	return []renderingCase{{
+		name: "a map attribute's identifier key stays dotted",
+		path: statePrefix + "example_thing.app].values.triggers.plain", baseline: steadyBaseline,
+		schemas: schemaTyping("triggers", `["map","string"]`),
+		want:    `example_thing.app.triggers.plain == "steady"`, refused: nil,
+	},
 		{
 			name: "an object attribute's non-identifier key",
 			path: statePrefix + "example_thing.app].values.settings.app.io/x", baseline: steadyBaseline,
@@ -449,25 +448,28 @@ func TestTheRenderingContractAdmissions(t *testing.T) {
 		},
 		{
 			name: "a nulled whole output asserts non-null",
-			path: "outputs.identity.value", baseline: "", mutant: "null",
+			path: "outputs.identity.value", baseline: "", mutant: nulledValue,
 			schemas: untyped(), want: "output.identity != null", refused: nil,
 		},
 		{
 			name: "a nulled leaf with a baseline value asserts non-null",
 			path: statePrefix + "example_thing.app].values.input", baseline: steadyBaseline,
-			mutant: "null", schemas: untyped(),
+			mutant: nulledValue, schemas: untyped(),
 			want: "example_thing.app.input != null", refused: nil,
 		},
 		{
 			name: "a nulled container the delta proves non-null asserts non-null",
-			path: statePrefix + "example_thing.app].values.triggers", baseline: "", mutant: "null",
-			schemas:  schemaTyping("triggers", `["map","string"]`),
-			evidence: suggest.NewEvidence([]fingerprint.Change{nulledAt(statePrefix + "example_thing.app].values.triggers"), changeAt(statePrefix+"example_thing.app].values.triggers.plain", steadyBaseline)}),
-			want:     "example_thing.app.triggers != null", refused: nil,
+			path: statePrefix + "example_thing.app].values.triggers", baseline: "", mutant: nulledValue,
+			schemas: schemaTyping("triggers", `["map","string"]`),
+			evidence: suggest.NewEvidence([]fingerprint.Change{
+				nulledAt(statePrefix + "example_thing.app].values.triggers"),
+				changeAt(statePrefix+"example_thing.app].values.triggers.plain", steadyBaseline),
+			}),
+			want: "example_thing.app.triggers != null", refused: nil,
 		},
 		{
 			name: "a vanished value without neighbourhood proof stays refused",
-			path: statePrefix + "example_thing.app].values.triggers", baseline: "", mutant: "null",
+			path: statePrefix + "example_thing.app].values.triggers", baseline: "", mutant: nulledValue,
 			schemas: schemaTyping("triggers", `["map","string"]`), want: "", refused: suggest.ErrUnrenderable,
 		},
 		{
@@ -477,7 +479,54 @@ func TestTheRenderingContractAdmissions(t *testing.T) {
 			evidence: suggest.Evidence{UnknownMarkers: []string{"output_changes.identity.after_unknown.principal_id"}},
 			want:     "", refused: suggest.ErrUnrenderable,
 		},
-	} {
+		{
+			name:     "a vanished root instance proves the resource gone and stays refused",
+			path:     statePrefix + "example_thing.counted[0]].values.input",
+			baseline: steadyBaseline, mutant: "",
+			schemas: untyped(),
+			evidence: suggest.Evidence{
+				InstanceCounts: map[string]int{countedResource: 2},
+				VanishedRoots:  map[string]bool{countedResource: true},
+			},
+			want: "", refused: suggest.ErrUnrenderable,
+		},
+		{
+			name: "a vanished count instance is a count equality",
+			path: statePrefix + "example_thing.counted[1]].values.input", baseline: steadyBaseline, mutant: "",
+			schemas:  untyped(),
+			evidence: suggest.Evidence{InstanceCounts: map[string]int{countedResource: 2}},
+			want:     "length(example_thing.counted) == 2", refused: nil,
+		},
+		{
+			name: "an index above the proven count is no count equality",
+			path: statePrefix + `example_thing.app["blue"]].values.input`, baseline: steadyBaseline, mutant: "",
+			schemas:  untyped(),
+			evidence: suggest.Evidence{InstanceCounts: map[string]int{"example_thing.app": 2}},
+			want:     `example_thing.app["blue"].input == "steady"`, refused: nil,
+		},
+	}
+}
+func TestTheRenderingContractMatrix(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range matrixRows() {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			expression, err := suggest.Express(runIn("applied", ""),
+				testCase.schemas, suggest.Evidence{}, changeAt(testCase.path, testCase.baseline))
+
+			assertAdapter(t, expression, err, testCase.want, testCase.refused)
+		})
+	}
+}
+
+// TestTheRenderingContractAdmissions is the matrix's other half: the three
+// forms the contract admits, each rendering type-correctly.
+func TestTheRenderingContractAdmissions(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range admissionRows() {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 

@@ -3,6 +3,7 @@ package suggest
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
@@ -121,4 +122,26 @@ func parseTraversal(expression string) error {
 	}
 
 	return nil
+}
+
+// splitInstanceIndex reads a resource address that names a counted instance —
+// `null_resource.app[1]` — onto the resource and the instance index. An
+// address without a numeric trailing index reports false.
+func splitInstanceIndex(resource string) (base string, index int, ok bool) {
+	open := strings.LastIndex(resource, "[")
+	if open < 0 || !strings.HasSuffix(resource, "]") {
+		return "", 0, false
+	}
+
+	key := resource[open+1 : len(resource)-1]
+	if !digitsOnly(key) {
+		return "", 0, false
+	}
+
+	index, err := strconv.Atoi(key)
+	if err != nil {
+		return "", 0, false
+	}
+
+	return resource[:open], index, true
 }
