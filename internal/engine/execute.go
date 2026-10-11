@@ -195,7 +195,7 @@ func evaluate(
 		Filters:       plan.settings.TestSelection,
 		Timeout:       budget,
 	})
-	testPhase()
+	testPhase(telemetry.child("test", result.Usage, result.Started)...)
 	if err != nil {
 		return verdict, plan.classified[index].Outcome, &report.ExecutionError{
 			MutantID: verdict.ID,
@@ -203,8 +203,6 @@ func evaluate(
 			Message:  "terraform could not be executed: " + err.Error(),
 		}
 	}
-
-	telemetry.child("test", result.Usage)
 
 	verdict.Runs = runOutcomes(result)
 	verdict.ExecutedRuns = result.ExecutedRuns()
@@ -215,9 +213,7 @@ func evaluate(
 
 	if observation.NeedsValidate() {
 		var failure *report.ExecutionError
-		validatePhase := telemetry.phase(phaseValidate)
-		verdict, observation, failure = judge.validate(ctx, built, verdict, observation)
-		validatePhase()
+		verdict, observation, failure = judge.validate(ctx, built, verdict, observation, telemetry)
 		if failure != nil {
 			return verdict, plan.classified[index].Outcome, failure
 		}
@@ -256,8 +252,11 @@ func (o executionOracle) validate(
 	built sandbox.Sandbox,
 	verdict report.Mutant,
 	observation oracle.Observation,
+	telemetry *mutantCollector,
 ) (report.Mutant, oracle.Observation, *report.ExecutionError) {
+	validatePhase := telemetry.phase(phaseValidate)
 	validation, err := o.plan.runner.Validate(ctx, built.ModuleDir)
+	defer validatePhase(telemetry.child("validate", validation.Usage, validation.Started)...)
 	if err != nil {
 		return verdict, observation, &report.ExecutionError{
 			MutantID: verdict.ID,

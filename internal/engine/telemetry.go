@@ -129,13 +129,13 @@ func (c *runCollector) endRun() {
 
 // phase times one named step of the run. The returned function ends the step
 // and records its wall time; a step that panics never records.
-func (c *runCollector) phase(name string) func() {
+func (c *runCollector) phase(name string) func(...attribute.KeyValue) {
 	start := time.Now()
 	_, span := c.tracer.Start(c.base, spanPhase, attribute.String(attrPhase, name))
 
-	return func() {
+	return func(attributes ...attribute.KeyValue) {
 		elapsed := time.Since(start)
-		span.End()
+		span.End(attributes...)
 
 		marked := time.Now()
 		c.mutex.Lock()
@@ -146,7 +146,11 @@ func (c *runCollector) phase(name string) func() {
 }
 
 // child records one child Terraform process's usage under its subcommand.
-func (c *runCollector) child(command string, usage tfexec.Usage) {
+func (c *runCollector) child(command string, usage tfexec.Usage, started bool) []attribute.KeyValue {
+	if !started {
+		return nil
+	}
+
 	marked := time.Now()
 	c.mutex.Lock()
 
@@ -165,7 +169,15 @@ func (c *runCollector) child(command string, usage tfexec.Usage) {
 	}
 
 	c.mutex.Unlock()
+	attributes := []attribute.KeyValue{
+		attribute.String("tf-mut.child.command", command),
+		attribute.Int64("tf-mut.child.user_cpu_ms", usage.UserCPU.Milliseconds()),
+		attribute.Int64("tf-mut.child.system_cpu_ms", usage.SystemCPU.Milliseconds()),
+		attribute.Int64("tf-mut.child.peak_rss_kb", usage.PeakRSSKB),
+	}
 	c.overhead.Add(int64(time.Since(marked)))
+
+	return attributes
 }
 
 // finish completes the run-level block.
@@ -203,13 +215,13 @@ func (c *runCollector) mutant(ctx context.Context, id, operator string) *mutantC
 // phase times one named step of the mutant's evaluation. It runs on the
 // worker goroutine that owns the collector, so the only lock it takes is the
 // run aggregate's, through the overhead ledger.
-func (m *mutantCollector) phase(name string) func() {
+func (m *mutantCollector) phase(name string) func(...attribute.KeyValue) {
 	start := time.Now()
 	_, span := m.run.tracer.Start(m.base, spanPhase, attribute.String(attrPhase, name))
 
-	return func() {
+	return func(attributes ...attribute.KeyValue) {
 		elapsed := time.Since(start)
-		span.End()
+		span.End(attributes...)
 
 		marked := time.Now()
 		m.phases = append(m.phases, report.PhaseTiming{Phase: name, DurationMS: elapsed.Milliseconds()})
@@ -219,7 +231,11 @@ func (m *mutantCollector) phase(name string) func() {
 
 // child records one child process of this evaluation, per invocation, and
 // merges it into the run aggregate.
-func (m *mutantCollector) child(command string, usage tfexec.Usage) {
+func (m *mutantCollector) child(command string, usage tfexec.Usage, started bool) []attribute.KeyValue {
+	if !started {
+		return nil
+	}
+
 	marked := time.Now()
 
 	m.children = append(m.children, report.ProcessUsage{
@@ -231,7 +247,7 @@ func (m *mutantCollector) child(command string, usage tfexec.Usage) {
 	})
 
 	m.run.overhead.Add(int64(time.Since(marked)))
-	m.run.child(command, usage)
+	return m.run.child(command, usage, true)
 }
 
 // finish completes the mutant's record and closes its span.

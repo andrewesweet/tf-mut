@@ -68,9 +68,9 @@ type Common struct {
 	// default — prints nothing; the CLI passes os.Stderr, which is never a
 	// report sink.
 	Progress io.Writer
-	// ProgressInterval is how often a progress line is written. Zero selects
-	// the default ten seconds; it is honoured only when Progress is set.
-	ProgressInterval time.Duration
+	// ProgressIntervalForTesting overrides the cadence for engine-seam tests.
+	// Zero selects the default ten seconds; it is honoured only when Progress is set.
+	ProgressIntervalForTesting time.Duration
 }
 
 // Population selects the mutants a command acts on.
@@ -307,7 +307,7 @@ func commonConfig(c Common) settings {
 	s.CPUProfile = c.CPUProfile
 	s.OTLPEndpoint = c.OTLPEndpoint
 	s.Progress = c.Progress
-	s.ProgressInterval = c.ProgressInterval
+	s.ProgressIntervalForTesting = c.ProgressIntervalForTesting
 
 	return s
 }

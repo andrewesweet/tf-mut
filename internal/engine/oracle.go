@@ -38,7 +38,7 @@ func (o executionOracle) observe(
 ) (report.Mutant, oracle.Outcome, *report.ExecutionError) {
 	fingerprintPhase := telemetry.phase(phaseFingerprint)
 	run, err := o.fingerprintRun(ctx, built)
-	fingerprintPhase()
+	fingerprintPhase(telemetry.child("test", run.result.Usage, run.result.Started)...)
 	if err != nil {
 		return verdict, phaseOne, &report.ExecutionError{
 			MutantID: verdict.ID,
@@ -46,8 +46,6 @@ func (o executionOracle) observe(
 			Message:  "the fingerprint run could not be evaluated: " + err.Error(),
 		}
 	}
-
-	telemetry.child("test", run.result.Usage)
 
 	verdict.Runs = append(verdict.Runs, run.outcomes...)
 
@@ -64,10 +62,8 @@ func (o executionOracle) observe(
 
 	if observation.NeedsVolatilityRerun() {
 		var rerunErr *report.ExecutionError
-		rerunPhase := telemetry.phase(phaseVolatilityRerun)
 		observation, rerunErr = o.rerunForVolatility(ctx, built, verdict, run.payloads, observation,
 			telemetry)
-		rerunPhase()
 		if rerunErr != nil {
 			return verdict, phaseOne, rerunErr
 		}
@@ -107,7 +103,9 @@ func (o executionOracle) rerunForVolatility(
 	observation oracle.Observation,
 	telemetry *mutantCollector,
 ) (oracle.Observation, *report.ExecutionError) {
+	rerunPhase := telemetry.phase(phaseVolatilityRerun)
 	second, err := o.fingerprintRun(ctx, built)
+	defer rerunPhase(telemetry.child("test", second.result.Usage, second.result.Started)...)
 	if err != nil {
 		return observation, &report.ExecutionError{
 			MutantID: verdict.ID,
@@ -115,8 +113,6 @@ func (o executionOracle) rerunForVolatility(
 			Message:  "the volatility re-run could not be evaluated: " + err.Error(),
 		}
 	}
-
-	telemetry.child("test", second.result.Usage)
 
 	mutantMask := fingerprint.Derive(payloads, second.payloads)
 	mask := o.plan.prepared.mask.MergeMutantVolatility(mutantMask)
@@ -203,12 +199,12 @@ func (o executionOracle) fingerprintRun(
 		Timeout:       0,
 	})
 	if err != nil {
-		return fingerprintSnapshot{}, err
+		return fingerprintSnapshot{result: result}, err
 	}
 
 	payloads, err := fingerprint.Canonicalise(result.Payloads)
 	if err != nil {
-		return fingerprintSnapshot{}, err
+		return fingerprintSnapshot{result: result}, err
 	}
 
 	outcomes := make([]report.RunOutcome, 0, len(result.Runs))

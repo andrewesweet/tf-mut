@@ -24,6 +24,7 @@ type collector struct {
 	mutex  sync.Mutex
 	server *httptest.Server
 	names  []string
+	paths  []string
 	bodies int
 }
 
@@ -32,7 +33,7 @@ func newCollector(t *testing.T) *collector {
 
 	sink := &collector{}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/traces", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -50,6 +51,7 @@ func newCollector(t *testing.T) *collector {
 		sink.mutex.Lock()
 		defer sink.mutex.Unlock()
 		sink.bodies++
+		sink.paths = append(sink.paths, r.URL.Path)
 		for _, resource := range request.GetResourceSpans() {
 			for _, scope := range resource.GetScopeSpans() {
 				for _, span := range scope.GetSpans() {
@@ -162,6 +164,42 @@ func TestUnusableEndpointDisablesInsteadOfFailing(t *testing.T) {
 	tracer := tracing.New(ctx, "://not-a-url")
 	if tracer.Enabled() {
 		t.Fatal("a tracer over an unusable endpoint must disable itself")
+	}
+}
+
+func TestEndpointPathsUseTheTraceSuffix(t *testing.T) {
+	for _, endpointPath := range []string{"", "/", "/otlp", "/otlp/", "/v1/traces", "/otlp/v1/traces"} {
+		for _, ambient := range []bool{false, true} {
+			t.Run(fmt.Sprintf("path=%q/environment=%t", endpointPath, ambient), func(t *testing.T) {
+				sink := newCollector(t)
+				t.Setenv(tracing.EndpointEnv, "")
+				endpoint := sink.server.URL + endpointPath
+				if ambient {
+					t.Setenv(tracing.EndpointEnv, endpoint)
+					endpoint = ""
+				}
+
+				tracer := tracing.New(t.Context(), endpoint)
+				_, span := tracer.Start(t.Context(), "tf-mut.run")
+				span.End()
+				shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := tracer.Shutdown(shutdown); err != nil {
+					t.Fatal(err)
+				}
+
+				want := "/v1/traces"
+				if endpointPath == "/otlp" || endpointPath == "/otlp/" || endpointPath == "/otlp/v1/traces" {
+					want = "/otlp/v1/traces"
+				}
+
+				sink.mutex.Lock()
+				defer sink.mutex.Unlock()
+				if len(sink.paths) != 1 || sink.paths[0] != want || len(sink.names) != 1 {
+					t.Fatalf("export paths = %v, spans = %v; want one span at %s", sink.paths, sink.names, want)
+				}
+			})
+		}
 	}
 }
 

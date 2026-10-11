@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/buildinfo"
@@ -189,9 +190,9 @@ type settings struct {
 	// Progress receives the periodic long-run progress lines. Nil prints
 	// nothing; the CLI passes os.Stderr, which is never a report sink.
 	Progress io.Writer
-	// ProgressInterval is how often a progress line is written. Zero selects
-	// the ten-second default; honoured only when Progress is set.
-	ProgressInterval time.Duration
+	// ProgressIntervalForTesting overrides the cadence for engine-seam tests.
+	// Zero selects the ten-second default; honoured only when Progress is set.
+	ProgressIntervalForTesting time.Duration
 
 	// mode is the command these settings serve: the projection of the request
 	// type that produced them, written by that type's settings method and by
@@ -248,20 +249,22 @@ func Run(ctx context.Context, request Request) (report.Report, error) {
 			return report.Report{}, profileErr
 		}
 
-		profileFile, profileErr := os.Create(profilePath)
+		profileFile, profileErr := os.OpenFile(profilePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if profileErr != nil {
 			return report.Report{}, fmt.Errorf("opening the CPU profile file: %w", profileErr)
 		}
 
-		if startErr := pprof.StartCPUProfile(profileFile); startErr != nil {
+		writer := &cpuProfileWriter{Writer: profileFile}
+		if startErr := pprof.StartCPUProfile(writer); startErr != nil {
 			_ = profileFile.Close()
 			return report.Report{}, fmt.Errorf("starting the CPU profile: %w", startErr)
 		}
 
 		defer func() {
 			pprof.StopCPUProfile()
-			if closeErr := profileFile.Close(); closeErr != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "tf-mut: CPU profile may be incomplete: %v\n", closeErr)
+			if profileErr := errors.Join(writer.err, profileFile.Close()); profileErr != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "tf-mut: CPU profile may be incomplete: %s\n",
+					strings.ReplaceAll(profileErr.Error(), "\n", "; "))
 			}
 		}()
 	}
@@ -318,8 +321,8 @@ func Run(ctx context.Context, request Request) (report.Report, error) {
 	runner := tfexec.Runner{Binary: s.TerraformBinary, Env: s.Env}
 
 	versionPhase := collector.phase(phaseVersion)
-	version, err := checkVersion(ctx, runner, moduleDir, collector)
-	versionPhase()
+	version, err := checkVersion(ctx, runner, moduleDir)
+	versionPhase(collector.child("version", version.Usage, version.Started)...)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -339,9 +342,9 @@ func Run(ctx context.Context, request Request) (report.Report, error) {
 	// scope is the grading pipeline, so these two commands publish none.
 	switch request.(type) {
 	case CurateRequest, *CurateRequest:
-		return curateSuite(ctx, runner, configuration, s, version, moduleDir)
+		return curateSuite(ctx, runner, configuration, s, version, moduleDir, collector)
 	case CharacteriseRequest, *CharacteriseRequest:
-		return characteriseModule(ctx, runner, configuration, s, version)
+		return characteriseModule(ctx, runner, configuration, s, version, collector)
 	default:
 		// run, preview and suggest share the grading pipeline: the mode each
 		// request carries decides preview's shortcuts and the suggest leg.
@@ -375,20 +378,30 @@ func cpuProfilePath(moduleDir, destination string) (string, error) {
 	}
 
 	path = filepath.Join(parent, filepath.Base(path))
-	if _, statErr := os.Lstat(path); statErr == nil {
-		path, err = filepath.EvalSymlinks(path)
-		if err != nil {
-			return "", fmt.Errorf("resolving the CPU profile destination: %w", err)
-		}
-	} else if !os.IsNotExist(statErr) {
-		return "", fmt.Errorf("checking the CPU profile destination: %w", statErr)
-	}
 
 	if within(module, path) {
 		return "", fmt.Errorf("%w: %q", errCPUProfileInModule, destination)
 	}
 
 	return path, nil
+}
+
+type cpuProfileWriter struct {
+	io.Writer
+	err error
+}
+
+func (w *cpuProfileWriter) Write(data []byte) (int, error) {
+	n, err := w.Writer.Write(data)
+	if err == nil && n != len(data) {
+		err = io.ErrShortWrite
+	}
+
+	if w.err == nil {
+		w.err = err
+	}
+
+	return n, err
 }
 
 // mutate is the grading pipeline: gates, generation, selection, execution and
@@ -891,17 +904,14 @@ func checkVersion(
 	ctx context.Context,
 	runner tfexec.Runner,
 	dir string,
-	collector *runCollector,
 ) (tfexec.Version, error) {
 	version, err := runner.Version(ctx, dir)
 	if err != nil {
-		return tfexec.Version{}, err
+		return version, err
 	}
 
-	collector.child("version", version.Usage)
-
 	if !version.AtLeast(minimumMajor, minimumMinor) {
-		return tfexec.Version{}, fmt.Errorf(
+		return version, fmt.Errorf(
 			"%w: found %s, but the terraform test framework requires %d.%d or later "+
 				"(provider mocking requires %d.%d)",
 			ErrTerraformVersion, version.Terraform, minimumMajor, minimumMinor, minimumMajor, mockingMinor,

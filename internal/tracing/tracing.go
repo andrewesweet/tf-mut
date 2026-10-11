@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path"
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -63,7 +64,12 @@ func New(ctx context.Context, endpoint string) *Tracer {
 		return &Tracer{disabled: true}
 	}
 
-	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(endpoint))
+	if !strings.HasSuffix(parsed.Path, "/v1/traces") {
+		parsed.Path = path.Join(parsed.Path, "v1/traces")
+		parsed.RawPath = ""
+	}
+
+	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(parsed.String()))
 	if err != nil {
 		warn(parsed)
 
@@ -106,8 +112,9 @@ func (t *Tracer) Start(ctx context.Context, name string, attributes ...attribute
 }
 
 // End closes the span. A disabled span's End is a no-op.
-func (s *Span) End() {
+func (s *Span) End(attributes ...attribute.KeyValue) {
 	if s != nil && s.span != nil {
+		s.span.SetAttributes(attributes...)
 		s.span.End()
 	}
 }

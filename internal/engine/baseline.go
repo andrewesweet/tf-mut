@@ -112,12 +112,10 @@ func warmUp(
 		TestDirectory: configuration.TestDirRelative(),
 		ReadonlyLock:  hasLock,
 	})
-	initPhase()
+	initPhase(collector.child("init", initResult.Usage, initResult.Started)...)
 	if initErr != nil {
 		return warm{}, initErr
 	}
-
-	collector.child("init", initResult.Usage)
 
 	if path := filepath.Join(prepared.moduleDir, sandbox.LockFileName); fileExists(path) {
 		prepared.lockFile = path
@@ -125,12 +123,10 @@ func warmUp(
 
 	schemaPhase := collector.phase(phaseWarmSchema)
 	prepared.schemas, err = runner.ProvidersSchema(ctx, prepared.moduleDir)
-	schemaPhase()
+	schemaPhase(collector.child("providers", prepared.schemas.Usage, prepared.schemas.Started)...)
 	if err != nil {
 		return warm{}, err
 	}
-
-	collector.child("providers", prepared.schemas.Usage)
 
 	for _, rewrite := range rewrites {
 		if restoreErr := sandbox.WriteFresh(rewrite.target, rewrite.source, rewrite.original); restoreErr != nil {
@@ -140,16 +136,12 @@ func warmUp(
 
 	fmtPhase := collector.phase(phaseWarmFmt)
 	unformatted, fmtResult, fmtErr := runner.FmtCheck(ctx, prepared.moduleDir)
-	fmtPhase()
+	fmtPhase(collector.child("fmt", fmtResult.Usage, fmtResult.Started)...)
 	if fmtErr == nil && len(unformatted) > 0 {
 		prepared.warnings = append(prepared.warnings, fmt.Sprintf(
 			"%d file(s) are not canonically formatted; mutant diffs may span more than one line: %s",
 			len(unformatted), strings.Join(unformatted, ", "),
 		))
-	}
-
-	if fmtErr == nil {
-		collector.child("fmt", fmtResult.Usage)
 	}
 
 	sources, err := moduleSources(configuration)
@@ -184,12 +176,10 @@ func runBaseline(
 		Verbose:       true,
 		Timeout:       0,
 	})
-	testPhase()
+	testPhase(collector.child("test", result.Usage, result.Started)...)
 	if err != nil {
 		return err
 	}
-
-	collector.child("test", result.Usage)
 
 	prepared.baselineRuns = result.ExecutedRuns()
 	prepared.baselineDuration = result.Duration
@@ -233,12 +223,10 @@ func calibrateOracle(
 		Verbose:       true,
 		Timeout:       0,
 	})
-	fingerprintPhase()
+	fingerprintPhase(collector.child("test", second.Usage, second.Started)...)
 	if err != nil {
 		return err
 	}
-
-	collector.child("test", second.Usage)
 
 	secondPayloads, err := fingerprint.Canonicalise(second.Payloads)
 	if err != nil {

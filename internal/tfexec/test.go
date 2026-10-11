@@ -133,12 +133,12 @@ func (r Runner) Test(ctx context.Context, dir string, options TestOptions) (Test
 		var decodeErr error
 
 		decoded, decodeErr = decodeTestStream(stdout)
-		decoded.Started = true
 
 		return decodeErr
 	}, args...)
 
 	decoded.ExitCode = result.ExitCode
+	decoded.Started = result.Started
 	decoded.TimedOut = result.TimedOut
 	decoded.Duration = result.Duration
 	decoded.Usage = result.Usage

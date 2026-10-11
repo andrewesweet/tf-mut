@@ -97,6 +97,7 @@ func childUsage(state *os.ProcessState) Usage {
 
 // Result holds the raw outcome of one Terraform invocation.
 type Result struct {
+	Started  bool
 	Stdout   []byte
 	Stderr   []byte
 	ExitCode int
@@ -145,26 +146,25 @@ type Version struct {
 	Platform  string `json:"platform"`
 	// Usage is the invocation's child-process accounting, not part of the
 	// decoded document.
-	Usage Usage `json:"-"`
+	Usage   Usage `json:"-"`
+	Started bool  `json:"-"`
 }
 
 // Version reports the Terraform version of the configured binary.
 func (r Runner) Version(ctx context.Context, dir string) (Version, error) {
 	result, err := r.Run(ctx, dir, "version", "-json")
+	version := Version{Usage: result.Usage, Started: result.Started}
 	if err != nil {
-		return Version{}, err
+		return version, err
 	}
 
 	if result.ExitCode != 0 {
-		return Version{}, fmt.Errorf("%w: version: %s", ErrCommandFailed, strings.TrimSpace(string(result.Stderr)))
+		return version, fmt.Errorf("%w: version: %s", ErrCommandFailed, strings.TrimSpace(string(result.Stderr)))
 	}
 
-	version := Version{}
 	if err := json.Unmarshal(result.Stdout, &version); err != nil {
-		return Version{}, fmt.Errorf("decoding terraform version: %w", err)
+		return version, fmt.Errorf("decoding terraform version: %w", err)
 	}
-
-	version.Usage = result.Usage
 
 	return version, nil
 }
@@ -279,22 +279,21 @@ type ValidateResult struct {
 	Diagnostics []Diagnostic `json:"diagnostics"`
 	// Usage is the invocation's child-process accounting, not part of the
 	// decoded document.
-	Usage Usage `json:"-"`
+	Usage   Usage `json:"-"`
+	Started bool  `json:"-"`
 }
 
 // Validate statically checks the configuration in dir.
 func (r Runner) Validate(ctx context.Context, dir string) (ValidateResult, error) {
 	result, err := r.Run(ctx, dir, "validate", "-json", "-no-color")
+	validation := ValidateResult{Usage: result.Usage, Started: result.Started}
 	if err != nil {
-		return ValidateResult{}, err
+		return validation, err
 	}
 
-	validation := ValidateResult{}
 	if err := json.Unmarshal(result.Stdout, &validation); err != nil {
-		return ValidateResult{}, fmt.Errorf("decoding terraform validate output: %w", err)
+		return validation, fmt.Errorf("decoding terraform validate output: %w", err)
 	}
-
-	validation.Usage = result.Usage
 
 	return validation, nil
 }

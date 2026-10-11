@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,10 +18,12 @@ import (
 	"time"
 
 	collectortrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/tracing"
 )
 
 // The telemetry tests hold the P1 contract: a run's JSON report records where
@@ -343,7 +346,7 @@ func TestProgressLinesReportTheLongRun(t *testing.T) {
 
 	var line lockedBuffer
 	config.Progress = &line
-	config.ProgressInterval = time.Millisecond
+	config.ProgressIntervalForTesting = time.Millisecond
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {
@@ -393,7 +396,7 @@ func TestProgressStaysSilentWithoutAWriter(t *testing.T) {
 
 	var line lockedBuffer
 	config.Progress = &line
-	config.ProgressInterval = 0 // the default interval, still no writer below
+	config.ProgressIntervalForTesting = 0 // the default interval, still no writer below
 
 	config.Progress = nil
 
@@ -403,6 +406,53 @@ func TestProgressStaysSilentWithoutAWriter(t *testing.T) {
 
 	if text := line.String(); text != "" {
 		t.Fatalf("a run with no progress writer wrote %q", text)
+	}
+}
+
+func TestShortRunPrintsNoProgress(t *testing.T) {
+	t.Parallel()
+
+	config := baseConfig(t, copyFixture(t, "discriminate"))
+	var line lockedBuffer
+	config.Progress = &line
+	config.ProgressIntervalForTesting = time.Hour
+	if _, err := engine.Run(t.Context(), config); err != nil {
+		t.Fatal(err)
+	}
+
+	if text := line.String(); text != "" {
+		t.Fatalf("a run shorter than the first progress interval printed %q", text)
+	}
+}
+
+func TestExpiredMutantBudgetCountsNoTestChild(t *testing.T) {
+	t.Parallel()
+
+	config := baseConfig(t, copyFixture(t, "discriminate"))
+	config.NoCache = true
+	config.TimeoutFloor = time.Nanosecond
+	config.TimeoutFactor = 1e-12
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if result.Count(report.Timeout) == 0 {
+		t.Fatal("the expired budget produced no timeout")
+	}
+
+	for _, mutant := range result.Mutants {
+		if mutant.State != report.Timeout {
+			continue
+		}
+
+		if mutant.Telemetry == nil {
+			t.Fatalf("timed-out mutant %s carries no telemetry", mutant.ID)
+		}
+
+		if _, found := childUsage(mutant.Telemetry.Children, testSubcommand); found {
+			t.Fatalf("mutant %s counted a test child that could not start: %+v", mutant.ID, mutant.Telemetry)
+		}
 	}
 }
 
@@ -438,7 +488,7 @@ func TestOTLPExportCarriesRunAndPhaseSpans(t *testing.T) {
 type spanCollector struct {
 	server *httptest.Server
 	mutex  sync.Mutex
-	names  []string
+	spans  []*tracepb.Span
 }
 
 func newSpanCollector(t *testing.T) *spanCollector {
@@ -466,7 +516,7 @@ func newSpanCollector(t *testing.T) *spanCollector {
 		for _, resource := range request.GetResourceSpans() {
 			for _, scope := range resource.GetScopeSpans() {
 				for _, span := range scope.GetSpans() {
-					sink.names = append(sink.names, span.GetName())
+					sink.spans = append(sink.spans, span)
 				}
 			}
 		}
@@ -484,24 +534,217 @@ func newSpanCollector(t *testing.T) *spanCollector {
 func (s *spanCollector) spanNames(t *testing.T) []string {
 	t.Helper()
 
-	// The batcher exports on its own schedule; wait briefly for the flush the
-	// deferred Shutdown performs before reading.
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		s.mutex.Lock()
-		count := len(s.names)
-		s.mutex.Unlock()
-		if count > 0 {
-			break
-		}
-
-		time.Sleep(20 * time.Millisecond)
+	names := []string{}
+	for _, span := range s.exportedSpans() {
+		names = append(names, span.GetName())
 	}
 
+	return names
+}
+
+func (s *spanCollector) exportedSpans() []*tracepb.Span {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	return append([]string{}, s.names...)
+	return slices.Clone(s.spans)
+}
+
+func TestTraceMeasurementsMatchTheReport(t *testing.T) {
+	t.Parallel()
+
+	for _, fixture := range []string{"discriminate", "mutant-volatile", suggestBasicFixture} {
+		t.Run(fixture, func(t *testing.T) {
+			t.Parallel()
+
+			sink := newSpanCollector(t)
+			config := suggestRequest(t, copyFixture(t, fixture))
+			config.NoCache = true
+			config.OTLPEndpoint = sink.server.URL
+			result, err := engine.Run(t.Context(), config)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			assertTraceUsageMatches(t, sink.exportedSpans(), result)
+		})
+	}
+}
+
+func assertTraceUsageMatches(t *testing.T, spans []*tracepb.Span, result report.Report) {
+	t.Helper()
+
+	children := []report.ProcessUsage{}
+	for _, span := range spans {
+		if usage, found := tracedChildUsage(t, span); found {
+			children = append(children, usage)
+		}
+	}
+
+	if len(children) == 0 || result.Telemetry == nil {
+		t.Fatal("no child resource measurements to compare")
+	}
+
+	if got, want := aggregateChildUsage(children), aggregateChildUsage(result.Telemetry.Children); !maps.Equal(got, want) {
+		t.Fatalf("trace child measurements = %v, report = %v", got, want)
+	}
+
+	for _, mutant := range result.Mutants {
+		if mutant.Telemetry != nil {
+			assertMutantPhaseChildCounts(t, mutant)
+			assertMutantTraceUsage(t, spans, mutant)
+		}
+	}
+}
+
+func assertMutantPhaseChildCounts(t *testing.T, mutant report.Mutant) {
+	t.Helper()
+
+	expected := map[string]int{}
+	for _, phase := range mutant.Telemetry.Phases {
+		switch phase.Phase {
+		case "test", "fingerprint", "volatility-rerun":
+			expected[testSubcommand]++
+		case "validate":
+			expected["validate"]++
+		}
+	}
+
+	actual := map[string]int{}
+	for command, usage := range aggregateChildUsage(mutant.Telemetry.Children) {
+		actual[command] = usage.Invocations
+	}
+
+	if !maps.Equal(actual, expected) {
+		t.Fatalf("mutant %s child invocations = %v, executed phases require %v", mutant.ID, actual, expected)
+	}
+}
+
+func assertMutantTraceUsage(t *testing.T, spans []*tracepb.Span, mutant report.Mutant) {
+	t.Helper()
+
+	for _, parent := range spans {
+		if parent.GetName() != "tf-mut.mutant" || spanAttributeString(parent, "tf-mut.mutant_id") != mutant.ID {
+			continue
+		}
+
+		children := []report.ProcessUsage{}
+		for _, phase := range spans {
+			if bytes.Equal(phase.GetParentSpanId(), parent.GetSpanId()) {
+				if usage, found := tracedChildUsage(t, phase); found {
+					children = append(children, usage)
+				}
+			}
+		}
+
+		if got, want := aggregateChildUsage(children), aggregateChildUsage(mutant.Telemetry.Children); !maps.Equal(got, want) {
+			t.Fatalf("mutant %s trace child measurements = %v, report = %v", mutant.ID, got, want)
+		}
+
+		return
+	}
+
+	t.Fatalf("mutant %s has telemetry but no exported parent span", mutant.ID)
+}
+
+func spanAttributeString(span *tracepb.Span, key string) string {
+	for _, attr := range span.GetAttributes() {
+		if attr.GetKey() == key {
+			return attr.GetValue().GetStringValue()
+		}
+	}
+
+	return ""
+}
+
+func tracedChildUsage(t *testing.T, span *tracepb.Span) (report.ProcessUsage, bool) {
+	t.Helper()
+
+	usage := report.ProcessUsage{Invocations: 1}
+	measurements := map[string]int64{}
+	for _, attr := range span.GetAttributes() {
+		if attr.GetKey() == "tf-mut.child.command" {
+			usage.Command = attr.GetValue().GetStringValue()
+		} else {
+			measurements[attr.GetKey()] = attr.GetValue().GetIntValue()
+		}
+	}
+
+	if usage.Command == "" {
+		return report.ProcessUsage{}, false
+	}
+
+	for _, name := range []string{"user_cpu_ms", "system_cpu_ms", "peak_rss_kb"} {
+		if _, found := measurements["tf-mut.child."+name]; !found {
+			t.Fatalf("child %s trace omits %s", usage.Command, name)
+		}
+	}
+
+	usage.UserCPUMS = measurements["tf-mut.child.user_cpu_ms"]
+	usage.SystemCPUMS = measurements["tf-mut.child.system_cpu_ms"]
+	usage.PeakRSSKB = measurements["tf-mut.child.peak_rss_kb"]
+
+	return usage, true
+}
+
+func aggregateChildUsage(children []report.ProcessUsage) map[string]report.ProcessUsage {
+	aggregates := map[string]report.ProcessUsage{}
+	for _, child := range children {
+		usage := aggregates[child.Command]
+		usage.Command = child.Command
+		usage.Invocations += child.Invocations
+		usage.UserCPUMS += child.UserCPUMS
+		usage.SystemCPUMS += child.SystemCPUMS
+		usage.PeakRSSKB = max(usage.PeakRSSKB, child.PeakRSSKB)
+		aggregates[child.Command] = usage
+	}
+
+	return aggregates
+}
+
+func TestNestedCommandsFlushToTheExplicitEndpoint(t *testing.T) {
+	for _, command := range []string{"curate", "characterise", "until-dry"} {
+		t.Run(command, func(t *testing.T) {
+			ambient := newSpanCollector(t)
+			t.Setenv(tracing.EndpointEnv, ambient.server.URL)
+			target := newSpanCollector(t)
+			var request engine.Request
+			if command == "curate" {
+				config := curateRequest(t, copyFixture(t, curateFixture))
+				config.OTLPEndpoint = target.server.URL
+				config.NoCache = true
+				request = config
+			} else {
+				config := characteriseRequest(t, copyFixture(t, untestedBranchesFixture))
+				config.OTLPEndpoint = target.server.URL
+				config.UntilDry = command == "until-dry"
+				request = config
+			}
+
+			if _, err := engine.Run(t.Context(), request); err != nil {
+				t.Fatal(err)
+			}
+
+			if names := ambient.spanNames(t); len(names) != 0 {
+				t.Fatalf("ambient endpoint received spans: %v", names)
+			}
+
+			names := target.spanNames(t)
+			if !slices.Contains(names, "tf-mut.phase") || (command != "characterise" && !slices.Contains(names, "tf-mut.mutant")) {
+				t.Fatalf("nested command returned before exporting its spans: %v", names)
+			}
+
+			warmInit := false
+			for _, span := range target.exportedSpans() {
+				if spanAttributeString(span, "tf-mut.phase") == "warm-init" {
+					warmInit = true
+				}
+			}
+
+			if !warmInit {
+				t.Fatal("the explicit endpoint received no nested warm-up span")
+			}
+		})
+	}
 }
 
 // TestCPUProfileWritesTheNamedFile pins the profile switch: a run with
@@ -541,7 +784,7 @@ func TestCPUProfileRefusesModuleDestinations(t *testing.T) {
 
 	for _, kind := range []string{
 		"existing", "new", "module-directory", "relative", "file-symlink",
-		"parent-symlink-existing", "parent-symlink-new", "module-symlink", "missing-parent",
+		"parent-symlink-existing", "parent-symlink-new", "module-symlink", "missing-parent", "hardlink", "dangling-symlink",
 	} {
 		t.Run(kind, func(t *testing.T) {
 			t.Parallel()
@@ -606,6 +849,7 @@ func profileRefusalRequest(t *testing.T, module, kind string) (engine.Common, st
 		switch kind {
 		case "file-symlink":
 			common.CPUProfile = alias
+			wantError = "file exists"
 		case "parent-symlink-existing":
 			common.CPUProfile = filepath.Join(alias, mainFile)
 		case "parent-symlink-new":
@@ -616,9 +860,68 @@ func profileRefusalRequest(t *testing.T, module, kind string) (engine.Common, st
 	case "missing-parent":
 		common.CPUProfile = filepath.Join(t.TempDir(), "missing", "tf-mut.pprof")
 		wantError = "CPU profile parent directory"
+	case "hardlink":
+		alias := filepath.Join(t.TempDir(), "profile")
+		if err := os.Link(common.CPUProfile, alias); err != nil {
+			t.Fatal(err)
+		}
+
+		common.CPUProfile = alias
+		wantError = "file exists"
+	case "dangling-symlink":
+		alias := filepath.Join(t.TempDir(), "profile")
+		if err := os.Symlink(filepath.Join(filepath.Dir(alias), "missing"), alias); err != nil {
+			t.Fatal(err)
+		}
+
+		common.CPUProfile = alias
+		wantError = "file exists"
 	}
 
 	return common, wantError
+}
+
+func TestCPUProfileNeverOverwritesExistingFiles(t *testing.T) {
+	t.Parallel()
+
+	for _, kind := range []string{"outside", "upward-input", "outward-source-symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+
+			root := copyFixture(t, "upward")
+			module := filepath.Join(root, "root")
+			target := filepath.Join(root, "shared", mainFile)
+			if kind != "upward-input" {
+				target = filepath.Join(t.TempDir(), mainFile)
+				writeFile(t, target, "output \"protected\" { value = true }\n")
+			}
+
+			if kind == "outward-source-symlink" {
+				if err := os.Symlink(target, filepath.Join(module, "versions.tf")); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			before := treeDigest(t, root)
+			content, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			config := baseConfig(t, module)
+			config.CPUProfile = target
+			if _, err := engine.Run(t.Context(), config); err == nil || !strings.Contains(err.Error(), "file exists") {
+				t.Fatalf("run = %v, want an existing-destination refusal", err)
+			}
+
+			after, err := os.ReadFile(target)
+			if err != nil || !bytes.Equal(content, after) {
+				t.Fatalf("existing profile target changed: %q, %v", after, err)
+			}
+
+			assertTreeUnchanged(t, root, before)
+		})
+	}
 }
 
 func TestSuggestTelemetryIncludesVerification(t *testing.T) {

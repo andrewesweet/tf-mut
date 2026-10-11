@@ -504,9 +504,8 @@ func runVerification(
 		Verbose:       false,
 		Timeout:       0,
 	})
-	verificationPhase()
+	verificationPhase(plan.collector.child("test", result.Usage, result.Started)...)
 	if result.Started {
-		plan.collector.child("test", result.Usage)
 		*executions++
 	}
 

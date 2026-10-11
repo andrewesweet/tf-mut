@@ -17,8 +17,6 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
-
-	"github.com/andrewesweet/tf-mut/internal/tracing"
 )
 
 // staging is what every staged run needs: the closure to materialise, the
@@ -36,6 +34,7 @@ type staging struct {
 	// terraform is the version gate's result, carried so that a staged round
 	// can drive the mutation pipeline without checking the binary again.
 	terraform tfexec.Version
+	collector *runCollector
 }
 
 // ErrScaffoldRed reports a generated suite that did not pass in the sandbox.
@@ -73,6 +72,7 @@ func characteriseModule(
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
 	settings settings, version tfexec.Version,
+	collector *runCollector,
 ) (report.Report, error) {
 	rung, answers, err := characteriseInputs(configuration, settings)
 	if err != nil {
@@ -109,7 +109,7 @@ func characteriseModule(
 	// Characterisation publishes no telemetry: its warm-up is recorded into a
 	// collector whose record is dropped, because the command has no grading
 	// pipeline to attach it to.
-	prepared, err := warmUp(ctx, runner, configuration, workRoot, newRunCollector(ctx, tracing.New(ctx, "")))
+	prepared, err := warmUp(ctx, runner, configuration, workRoot, collector)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -131,7 +131,7 @@ func characteriseModule(
 
 	stage := staging{
 		configuration: configuration, settings: settings,
-		prepared: prepared, workRoot: workRoot, terraform: version,
+		prepared: prepared, workRoot: workRoot, terraform: version, collector: collector,
 	}
 
 	var block report.Characterisation

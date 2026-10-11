@@ -28,13 +28,14 @@ type progressTracker struct {
 	stop     chan struct{}
 	loopDone chan struct{}
 	finished sync.Once
+	printed  bool
 }
 
 // startProgress begins the tracker for the pending population. It returns
 // nil — and costs nothing — when there is no writer or nothing pending. The
 // caller defers the returned tracker's stop exactly once.
 func startProgress(ctx context.Context, plan executionPlan, pending int) *progressTracker {
-	interval := plan.settings.ProgressInterval
+	interval := plan.settings.ProgressIntervalForTesting
 	if interval <= 0 {
 		interval = DefaultProgressInterval
 	}
@@ -76,7 +77,9 @@ func (t *progressTracker) stopLine() {
 	t.finished.Do(func() {
 		close(t.stop)
 		<-t.loopDone
-		t.write()
+		if t.printed {
+			t.write()
+		}
 	})
 }
 
@@ -107,7 +110,7 @@ func (t *progressTracker) write() {
 	var remaining string
 	if done > 0 {
 		pace := elapsed / time.Duration(done)
-		eta := pace.Round(time.Second) * time.Duration(t.total-done)
+		eta := (pace * time.Duration(t.total-done)).Round(time.Second)
 		remaining = "~" + eta.String()
 	} else {
 		remaining = "unknown"
@@ -115,6 +118,9 @@ func (t *progressTracker) write() {
 
 	// Best effort by contract: a progress line nobody could read must never
 	// fail a run that was otherwise fine.
-	_, _ = fmt.Fprintf(t.writer, "tf-mut: %d/%d mutants, %s elapsed, ETA %s\n",
+	n, _ := fmt.Fprintf(t.writer, "tf-mut: %d/%d mutants, %s elapsed, ETA %s\n",
 		done, t.total, elapsed.Round(time.Second), remaining)
+	if n > 0 {
+		t.printed = true
+	}
 }

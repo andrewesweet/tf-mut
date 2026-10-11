@@ -82,6 +82,7 @@ func completed(ctx context.Context, command *exec.Cmd, started time.Time, stderr
 	waitErr := command.Wait()
 
 	result := Result{
+		Started:  true,
 		Stdout:   nil,
 		Stderr:   stderr.Bytes(),
 		ExitCode: exitCodeUnavailable,

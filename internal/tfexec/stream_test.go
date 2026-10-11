@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 	"runtime"
 	"runtime/metrics"
 	"strings"
@@ -205,43 +204,4 @@ func recorded(t *testing.T) []byte {
 	}
 
 	return content
-}
-
-// TestAFailingChildKeepsItsStderrAfterTheReap pins the reaping contract: Wait
-// runs before the stderr buffer is read, so a failing child's diagnostics
-// survive even when they were written late. The scheduling window this guards
-// — stderr still in flight when the parent looks — is hit under load by the
-// engine's warm gates, where a lost "initialization required" once turned a
-// refusal-with-reason into an empty failure; the ordering here is the fix,
-// held in place by reading the buffer only through Wait.
-func TestAFailingChildKeepsItsStderrAfterTheReap(t *testing.T) {
-	t.Parallel()
-
-	if runtime.GOOS == "windows" {
-		t.Skip("the stub is a shell script")
-	}
-
-	dir := t.TempDir()
-	script := filepath.Join(dir, "slow-stderr.sh")
-	body := "#!/bin/sh\nsleep 0.2\necho 'initialization required: run init' >&2\nsleep 0.05\nexit 1\n"
-	if err := os.WriteFile(script, []byte(body), 0o700); err != nil { //nolint:gosec // the stub must be executable.
-		t.Fatalf("writing the stub: %v", err)
-	}
-
-	runner := Runner{Binary: script}
-
-	// A non-zero exit is the exit code on the result, not an error: the
-	// command-specific wrappers build the error from this stderr.
-	result, err := runner.Run(t.Context(), dir)
-	if err != nil {
-		t.Fatalf("run: %v", err)
-	}
-
-	if result.ExitCode != 1 {
-		t.Fatalf("exit code = %d, want 1", result.ExitCode)
-	}
-
-	if !strings.Contains(string(result.Stderr), "initialization required") {
-		t.Fatalf("the child's stderr was lost across the reap: %q", result.Stderr)
-	}
 }

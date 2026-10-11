@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -357,11 +358,7 @@ func assertDocumentRepairs(t *testing.T, documents vocabularyDocuments) {
 func assertReadmeVocabulary(t *testing.T, readme string, reporters []string) {
 	t.Helper()
 
-	schemaPath := "docs/schema/report-" + report.SchemaVersion + ".json"
-	schemaRow := "| [`" + schemaPath + "`](" + schemaPath +
-		") | The versioned JSON report schema the `json` reporter emits, including the pack tier, " +
-		"the origins provenance and the performance telemetry |"
-	containsToken(t, readme, schemaRow, "README emitted schema row")
+	assertReadmeSchemaLink(t, readme)
 
 	reporterPattern := "(?m)^\\| `--reporter ([^`]+)` \\| " +
 		"Output format \\(`mte` is ([^)]+)\\) \\|$"
@@ -381,12 +378,43 @@ func assertReadmeVocabulary(t *testing.T, readme string, reporters []string) {
 	usageFlags := captureVocabulary(t, usage, "binary flag list", `(?m)^  (--[a-z][a-z-]*)`)
 	readmeFlags := captureVocabulary(t, readme, "README flag table", "(?m)^\\| `(--[a-z][a-z-]*)(?: [^`]*)?` \\|")
 	assertVocabularyKnown(t, "README flag table", readmeFlags, usageFlags)
+}
 
-	staleSchemaRow := "| [`docs/schema/report-2.1.0.json`](docs/schema/report-2.1.0.json) | " +
-		"The versioned JSON report schema the `json` reporter emits |"
-	if strings.Contains(readme, staleSchemaRow) {
-		t.Fatal("README still claims the json reporter emits schema 2.1.0")
+func assertReadmeSchemaLink(t *testing.T, readme string) {
+	t.Helper()
+
+	want := "docs/schema/report-" + report.SchemaVersion + ".json"
+	links := regexp.MustCompile(`(?m)^\|\s*\[[^\]]+\]\(([^)]+)\)\s*\|`).FindAllStringSubmatch(readme, -1)
+	for _, link := range links {
+		target, err := url.Parse(link[1])
+		if err != nil || target.Scheme != "" || target.Host != "" || filepath.Clean(target.Path) != want {
+			continue
+		}
+
+		content, err := os.ReadFile(filepath.Join("../..", target.Path))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var schema struct {
+			Properties struct {
+				SchemaVersion struct {
+					Const string `json:"const"`
+				} `json:"schema_version"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal(content, &schema); err != nil {
+			t.Fatal(err)
+		}
+
+		if schema.Properties.SchemaVersion.Const != report.SchemaVersion {
+			t.Fatalf("linked schema version = %q, want %q", schema.Properties.SchemaVersion.Const, report.SchemaVersion)
+		}
+
+		return
 	}
+
+	t.Fatalf("README document map has no link to emitted schema %s", want)
 }
 
 func assertAgentIntegrationVocabulary(t *testing.T, agentIntegration string, reporters []string) {

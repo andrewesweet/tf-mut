@@ -18,7 +18,8 @@ type Schemas struct {
 	ProviderSchemas map[string]ProviderSchema `json:"provider_schemas"`
 	// Usage is the invocation's child-process accounting, not part of the
 	// decoded document.
-	Usage Usage `json:"-"`
+	Usage   Usage `json:"-"`
+	Started bool  `json:"-"`
 }
 
 // ProviderSchema holds one provider's resource and data source schemas.
@@ -119,20 +120,18 @@ func BlockAttributeType(block SchemaBlock, name string) (cty.Type, bool) {
 // colour codes so captured failure diagnostics remain plain text.
 func (r Runner) ProvidersSchema(ctx context.Context, dir string) (Schemas, error) {
 	result, err := r.Run(ctx, dir, "providers", "schema", "-json", "-no-color")
+	schemas := Schemas{Usage: result.Usage, Started: result.Started}
 	if err != nil {
-		return Schemas{}, err
+		return schemas, err
 	}
 
 	if result.ExitCode != 0 {
-		return Schemas{}, fmt.Errorf("%w: providers schema: %s", ErrCommandFailed, combinedTail(result))
+		return schemas, fmt.Errorf("%w: providers schema: %s", ErrCommandFailed, combinedTail(result))
 	}
 
-	schemas := Schemas{}
 	if err := json.Unmarshal(result.Stdout, &schemas); err != nil {
-		return Schemas{}, fmt.Errorf("decoding provider schemas: %w", err)
+		return schemas, fmt.Errorf("decoding provider schemas: %w", err)
 	}
-
-	schemas.Usage = result.Usage
 
 	return schemas, nil
 }
