@@ -234,12 +234,15 @@ var (
 // died never hangs on the way out.
 const traceFlushTimeout = 5 * time.Second
 
+const cpuProfileFileMode = 0o600
+
 // Run performs a complete mutation run and returns the report.
 func Run(ctx context.Context, request Request) (result report.Report, err error) {
 	started := time.Now()
 	var collector *runCollector
 	defer func() {
-		if err != nil || collector == nil || result.Command == report.CommandCharacterise || result.Command == report.CommandTodos {
+		if err != nil || collector == nil ||
+			result.Command == report.CommandCharacterise || result.Command == report.CommandTodos {
 			return
 		}
 
@@ -252,15 +255,15 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 		return report.Report{}, err
 	}
 
-	// The CPU profile writes where the caller pointed it and nothing else: it
-	// is a file the user asked for by name, never a default location.
+	// The CPU profile writes only to the file the user explicitly requested.
 	if s.CPUProfile != "" {
 		profilePath, profileErr := cpuProfilePath(s.ModuleDir, s.CPUProfile)
 		if profileErr != nil {
 			return report.Report{}, profileErr
 		}
 
-		profileFile, profileErr := os.OpenFile(profilePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		//nolint:gosec // caller-selected diagnostic file; O_EXCL refuses existing files and final symlinks.
+		profileFile, profileErr := os.OpenFile(profilePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, cpuProfileFileMode)
 		if profileErr != nil {
 			return report.Report{}, fmt.Errorf("opening the CPU profile file: %w", profileErr)
 		}
@@ -280,10 +283,7 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 		}()
 	}
 
-	// Tracing exists only when an endpoint is configured, by the flag or the
-	// OTel environment variable; otherwise every span call is a no-op. The
-	// flush outlives the request's context so a cancelled run still ships the
-	// spans it recorded.
+	// The flush outlives request cancellation so recorded spans can still reach the collector.
 	tracer := tracing.New(ctx, s.OTLPEndpoint)
 	defer func() {
 		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), traceFlushTimeout)
@@ -291,8 +291,7 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 		_ = tracer.Shutdown(flushCtx)
 	}()
 
-	// The telemetry collector is always on: its own cost is measured and
-	// published beside the numbers it gathers.
+	// Telemetry records its own overhead without affecting verdicts.
 	collector = newRunCollector(ctx, tracer)
 	//nolint:contextcheck // beginRun returns the run-span context on purpose: the
 	// pipeline below runs under it, so every span it starts parents correctly.
@@ -346,11 +345,8 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 		return report.Report{}, err
 	}
 
-	// Characterisation is the same machinery pointed the other way: it has no
-	// suite to baseline, no population to grade, and its safety gates are
-	// judged against the suite it plans rather than the one on disk. The
-	// dispatch is on the request's type: the type is the mode. The telemetry
-	// scope is the grading pipeline, so these two commands publish none.
+	// Characterisation judges safety gates against its planned suite rather than the one on disk.
+	// Request types choose dispatch; characterise and todos publish no telemetry.
 	switch request.(type) {
 	case CurateRequest, *CurateRequest:
 		return curateSuite(ctx, runner, configuration, s, version, moduleDir, collector)
@@ -399,6 +395,7 @@ func cpuProfilePath(moduleDir, destination string) (string, error) {
 
 type cpuProfileWriter struct {
 	io.Writer
+
 	err error
 }
 

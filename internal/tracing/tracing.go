@@ -45,8 +45,8 @@ type Span struct {
 // returns a tracer that exports over OTLP/HTTP. Any failure to build the
 // exporter disables tracing rather than failing the run: the telemetry is a
 // passenger, and a misconfigured endpoint must not cost the verdicts. A
-// disabled or misconfigured endpoint is reported on stderr, which is not a
-// report sink.
+// misconfigured endpoint is reported on stderr, which is not a report sink.
+// With no endpoint configured, tracing is disabled silently.
 func New(ctx context.Context, endpoint string) *Tracer {
 	if endpoint == "" {
 		endpoint = os.Getenv(EndpointEnv)

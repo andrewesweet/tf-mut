@@ -36,15 +36,9 @@ package report
 // field added, removed or renamed. The identity and migration contract is
 // documented in docs/design/product-design.md; wire compatibility is
 // documented in docs/schema/report-2.6.0.json.
-// 2.7.0 is the performance-telemetry additive revision: the run-level
-// `telemetry` block — the command's wall time, the named phases it executed,
-// the resource usage of every child Terraform process aggregated by
-// subcommand, the instrumentation's own recorded cost, and a statement of
-// what the child numbers cover — and per-mutant `telemetry` on every mutant
-// this run executed. No existing field changed name, type or meaning, and no
-// verdict, score or gate reads the telemetry: a report of the same verdicts
-// differs from its 2.6.0 counterpart only in the new fields and the
-// schema_version stamp.
+// 2.7.0 adds command and per-mutant performance telemetry. See Telemetry and
+// MutantTelemetry for availability and accounting; the wire contract is
+// documented in docs/schema/report-2.7.0.json.
 const SchemaVersion = "2.7.0"
 
 // Command names what produced a report.
@@ -283,10 +277,8 @@ type Mutant struct {
 	// (pack, entry). Present exactly when at least one pack entry produced
 	// the bytes — never empty, and always present on a pack-tier mutant.
 	Origins []Origin `json:"origins,omitempty"`
-	// Telemetry is the mutant's own execution record (2.7.0): where its
-	// evaluation spent wall time and what its child Terraform processes cost.
-	// Present on every mutant this run executed; absent for a verdict
-	// replayed from the cache, assigned statically, or never executed.
+	// Telemetry records this invocation's evaluation of the mutant. See
+	// MutantTelemetry for availability and fields.
 	Telemetry *MutantTelemetry `json:"telemetry,omitempty"`
 }
 
@@ -530,9 +522,8 @@ type Report struct {
 	// Characterisation is the scaffold, pin, TODO and curate block (2.3.0).
 	// Present only for the characterise, todos and curate commands.
 	Characterisation *Characterisation `json:"characterisation,omitempty"`
-	// Telemetry is the run-level performance record (2.7.0). Present for the
-	// commands that execute Terraform through the grading pipeline: run,
-	// preview and suggest, and the graded run behind curate.
+	// Telemetry is the command's performance record. See Telemetry for
+	// availability and fields.
 	Telemetry *Telemetry `json:"telemetry,omitempty"`
 }
 

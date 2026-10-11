@@ -1782,7 +1782,7 @@
           "items": {
             "$ref": "#/$defs/phase_timing"
           },
-          "description": "The named steps the command executed, in execution order. Not an exhaustive partition of the wall time: sub-millisecond bookkeeping between them is accounted only in the wall total."
+          "description": "The named steps the command executed, in completion order. Nested phases can overlap, and the list does not partition the wall time."
         },
         "children": {
           "type": "array",

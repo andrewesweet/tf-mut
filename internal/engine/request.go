@@ -61,8 +61,8 @@ type Common struct {
 	// person tuning tf-mut itself, not part of any report.
 	CPUProfile string
 	// OTLPEndpoint is the OTLP/HTTP endpoint the run's spans are exported to.
-	// Empty — the default — disables tracing entirely; the OTel environment
-	// variable OTEL_EXPORTER_OTLP_ENDPOINT is honoured when the flag is unset.
+	// Empty — the default — falls back to OTEL_EXPORTER_OTLP_ENDPOINT.
+	// Tracing is disabled when neither supplies an endpoint.
 	OTLPEndpoint string
 	// Progress receives the periodic long-run progress lines. Nil — the
 	// default — prints nothing; the CLI passes os.Stderr, which is never a
