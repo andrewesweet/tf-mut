@@ -2,7 +2,7 @@ module github.com/andrewesweet/tf-mut
 
 go 1.26.0
 
-toolchain go1.26.6
+toolchain go1.26.9
 
 require (
 	github.com/hashicorp/hcl/v2 v2.24.0
