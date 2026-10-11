@@ -344,6 +344,12 @@ func admissionRows() []renderingCase {
 
 // scalarAdmissionRows holds the admitted scalar forms.
 func scalarAdmissionRows() []renderingCase {
+	return append(templateKeyRows(), scalarKeyRows()...)
+}
+
+// templateKeyRows holds the admitted forms whose keys carry HCL template
+// syntax.
+func templateKeyRows() []renderingCase {
 	return []renderingCase{
 		{
 			name: "scalar leaf where nothing types the attribute",
@@ -426,6 +432,12 @@ func scalarAdmissionRows() []renderingCase {
 			want:     `example_thing.app.triggers["$${part}%%{blk}"] == "steady"`,
 			refused:  nil,
 		},
+	}
+}
+
+// scalarKeyRows holds the admitted scalar and keyed-scalar forms.
+func scalarKeyRows() []renderingCase {
+	return []renderingCase{
 		{
 			name:     "a map attribute's non-identifier key",
 			path:     statePrefix + "example_thing.app].values.triggers.app.kubernetes.io/part-of",
