@@ -300,3 +300,121 @@ func TestSuggestRefusesATestSelection(t *testing.T) {
 		t.Fatalf("error = %v, want a refusal: verification runs the full suite by contract", err)
 	}
 }
+
+// TestABatchFailureIsRefutedOnlyWhereTheRunNamesIt is the batch-attribution
+// proof: one target file carries several valid suggestions and one seeded
+// assertion that is false on the baseline. The batch leg fails once, and the
+// failing run names the false assertion — every applied assertion carries its
+// suggestion's identifier in its error_message, and Terraform copies that
+// message into the failing run's diagnostic — so only the named suggestion is
+// refuted and the valid ones are verified.
+//
+//nolint:paralleltest // owns package-global suggestion hook for its lifetime.
+func TestABatchFailureIsRefutedOnlyWhereTheRunNamesIt(t *testing.T) {
+	config := suggestRequest(t, copyFixture(t, suggestBatchFixture))
+	engine.SetSuggestionDefectSeed(t, config.ModuleDir, suggest.DefectWrongValue)
+
+	result := runSuggest(t, config)
+
+	refuted := withStatus(result, report.SuggestionRefuted)
+	if len(refuted) != 1 {
+		t.Fatalf("want exactly the seeded wrong value refuted, got %s",
+			statusSummary(result.Suggestions))
+	}
+
+	if !strings.Contains(refuted[0].Expression, suggest.SeededWrongValue) {
+		t.Fatalf("the refuted suggestion is not the seeded wrong value: %q", refuted[0].Expression)
+	}
+
+	if refuted[0].StatusReason == "" {
+		t.Fatal("the refuted suggestion carries no reason")
+	}
+
+	verified := withStatus(result, report.SuggestionVerified)
+	if len(verified) != 2 {
+		t.Fatalf("want both valid suggestions verified beside the refuted one, got %s",
+			statusSummary(result.Suggestions))
+	}
+
+	for _, suggestion := range verified {
+		if suggestion.Verification == nil || !suggestion.Verification.Baseline.Passed {
+			t.Fatalf("verified suggestion %s does not carry a passed baseline leg", suggestion.ID)
+		}
+	}
+}
+
+// TestABatchFailureNamingNothingIsBisected is the attribution fallback: the
+// seeded assertion references an output the baseline does not declare, so the
+// run carrying it errors rather than fails and Terraform's diagnostic reports
+// its own error, not the assertion's message — no diagnostic names a
+// suggestion, and only splitting the batch can attribute the failure.
+//
+//nolint:paralleltest // owns package-global suggestion hook for its lifetime.
+func TestABatchFailureNamingNothingIsBisected(t *testing.T) {
+	config := suggestRequest(t, copyFixture(t, suggestBatchFixture))
+	engine.SetSuggestionDefectSeed(t, config.ModuleDir, suggest.DefectVanishing)
+
+	result := runSuggest(t, config)
+
+	refuted := withStatus(result, report.SuggestionRefuted)
+	if len(refuted) != 1 {
+		t.Fatalf("want exactly the seeded vanishing suggestion refuted, got %s",
+			statusSummary(result.Suggestions))
+	}
+
+	if !strings.Contains(refuted[0].Expression, suggest.SeededVanishingOutput) {
+		t.Fatalf("the refuted suggestion is not the seeded vanishing one: %q", refuted[0].Expression)
+	}
+
+	if len(withStatus(result, report.SuggestionVerified)) != 2 {
+		t.Fatalf("want both valid suggestions verified beside the refuted one, got %s",
+			statusSummary(result.Suggestions))
+	}
+}
+
+// TestARefutationIsWordedFromTheStatusesTheRunProduced is the wording half of
+// the count-indexed refutation: the generated assertion indexes an instance
+// its own mutant removes, so the isolated leg's run errors rather than fails.
+// The refutation must say what actually happened — "survived" would be false
+// about a run that crashed.
+func TestARefutationIsWordedFromTheStatusesTheRunProduced(t *testing.T) {
+	t.Parallel()
+
+	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestCountFixture)))
+
+	refuted := withStatus(result, report.SuggestionRefuted)
+	if len(refuted) != 1 {
+		t.Fatalf("want exactly the count-shaped suggestion refuted, got %s",
+			statusSummary(result.Suggestions))
+	}
+
+	suggestion := refuted[0]
+	if suggestion.Verification == nil {
+		t.Fatal("the refuted suggestion carries no verification evidence")
+	}
+
+	if suggestion.Verification.Mutant.Passed {
+		t.Fatal("the mutant leg passed; the fixture no longer produces the errored leg")
+	}
+
+	errored := false
+	for _, run := range suggestion.Verification.Mutant.Runs {
+		if run.Status == "error" {
+			errored = true
+		}
+	}
+
+	if !errored {
+		t.Fatal("no run in the mutant leg errored; the fixture no longer produces the errored leg")
+	}
+
+	if strings.Contains(suggestion.StatusReason, "survived") {
+		t.Fatalf("the refutation claims the mutant survived a run that errored: %q",
+			suggestion.StatusReason)
+	}
+
+	if !strings.Contains(suggestion.StatusReason, "errored") {
+		t.Fatalf("the refutation does not word the error the run produced: %q",
+			suggestion.StatusReason)
+	}
+}
