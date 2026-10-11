@@ -13,6 +13,8 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
+const warmupOutputNullOperator = "EXT-OUTPUT-NULL"
+
 // The two admissions here are about the workspace tf-mut stages before any
 // test runs: init must be told the same test directory the test run will use,
 // or the modules that directory's run blocks call are never installed; and a
@@ -87,14 +89,45 @@ func TestDeclaredBackendDoesNotBlockTheSchemaOrTheSuite(t *testing.T) {
 				t.Run(assertion, func(t *testing.T) {
 					t.Parallel()
 
-					module := copyFixture(t, testCase.fixture)
-					if err := os.Chmod(filepath.Join(module, testCase.file), 0o444); err != nil {
-						t.Fatalf("making backend file read-only: %v", err)
-					}
+					checkDeclaredBackend(t, testCase.fixture, testCase.file, assertion)
+				})
+			}
+		})
+	}
+}
 
-					if assertion == "asserted" {
-						digest := treeDigest(t, module)[testCase.file]
-						writeFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), fmt.Sprintf(`run "plans" {
+func checkDeclaredBackend(t *testing.T, fixture, file, assertion string) {
+	t.Helper()
+
+	module := copyFixture(t, fixture)
+	//nolint:gosec // deliberate read-only fixture exercising the fresh-inode write path.
+	if err := os.Chmod(filepath.Join(module, file), 0o444); err != nil {
+		t.Fatalf("making backend file read-only: %v", err)
+	}
+
+	if assertion == "asserted" {
+		assertBackendFileChecksum(t, module, file)
+	}
+
+	before := treeDigest(t, module)
+	request := baseConfig(t, module)
+	request.IncludeOperators = []string{warmupOutputNullOperator}
+	request.NoCache = true
+
+	result, err := engine.Run(t.Context(), request)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	assertTreeUnchanged(t, module, before)
+	assertBackendMutationFingerprint(t, result)
+}
+
+func assertBackendFileChecksum(t *testing.T, module, file string) {
+	t.Helper()
+
+	digest := treeDigest(t, module)[file]
+	writeFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), fmt.Sprintf(`run "plans" {
   command = plan
 
   assert {
@@ -103,41 +136,28 @@ func TestDeclaredBackendDoesNotBlockTheSchemaOrTheSuite(t *testing.T) {
   }
 }
 `, digest))
-					}
+}
 
-					before := treeDigest(t, module)
-					request := baseConfig(t, module)
-					request.IncludeOperators = []string{"EXT-OUTPUT-NULL"}
-					request.NoCache = true
+func assertBackendMutationFingerprint(t *testing.T, result report.Report) {
+	t.Helper()
 
-					result, err := engine.Run(t.Context(), request)
-					if err != nil {
-						t.Fatalf("run: %v", err)
-					}
+	if len(result.Mutants) != 1 {
+		t.Fatalf("got %d mutants, want one output mutation", len(result.Mutants))
+	}
 
-					assertTreeUnchanged(t, module, before)
+	mutant := result.Mutants[0]
+	if mutant.State != report.Survived || mutant.Verdict == nil || mutant.ExecutedRuns == 0 {
+		t.Fatalf("output mutation did not survive execution: %+v", mutant)
+	}
 
-					if len(result.Mutants) != 1 {
-						t.Fatalf("got %d mutants, want one output mutation", len(result.Mutants))
-					}
+	if len(mutant.Verdict.Evidence.Delta) == 0 {
+		t.Fatal("output mutation has no fingerprint delta")
+	}
 
-					mutant := result.Mutants[0]
-					if mutant.State != report.Survived || mutant.Verdict == nil || mutant.ExecutedRuns == 0 {
-						t.Fatalf("output mutation did not survive execution: %+v", mutant)
-					}
-
-					if len(mutant.Verdict.Evidence.Delta) == 0 {
-						t.Fatal("output mutation has no fingerprint delta")
-					}
-
-					for _, change := range mutant.Verdict.Evidence.Delta {
-						if strings.Contains(change.Path, "terraform_data.checksum") {
-							t.Fatalf("unmutated backend file changed the fingerprint: %+v", change)
-						}
-					}
-				})
-			}
-		})
+	for _, change := range mutant.Verdict.Evidence.Delta {
+		if strings.Contains(change.Path, "terraform_data.checksum") {
+			t.Fatalf("unmutated backend file changed the fingerprint: %+v", change)
+		}
 	}
 }
 
@@ -149,7 +169,7 @@ func TestUnformattedBackendSourceIsWarnedAbout(t *testing.T) {
 	writeFile(t, path, strings.Replace(readFile(t, path), "  backend", "    backend", 1))
 	before := treeDigest(t, module)
 	request := baseConfig(t, module)
-	request.IncludeOperators = []string{"EXT-OUTPUT-NULL"}
+	request.IncludeOperators = []string{warmupOutputNullOperator}
 
 	result, err := engine.Run(t.Context(), request)
 	if err != nil {
@@ -231,23 +251,15 @@ func TestJSONBackendNeutralisationKeepsRepeatedDeclarations(t *testing.T) {
 			module := copyFixture(t, "backend-json-object")
 			backend := filepath.Join(module, "backend.tf.json")
 			writeFile(t, backend, testCase.document)
+			//nolint:gosec // deliberate read-only fixture exercising the fresh-inode write path.
 			if err := os.Chmod(backend, 0o444); err != nil {
 				t.Fatalf("making backend read-only: %v", err)
 			}
 
-			digest := treeDigest(t, module)["backend.tf.json"]
-			writeFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), fmt.Sprintf(`run "plans" {
-  command = plan
-
-  assert {
-    condition     = terraform_data.checksum.input == %q
-    error_message = "backend file changed"
-  }
-}
-`, digest))
+			assertBackendFileChecksum(t, module, "backend.tf.json")
 			before := treeDigest(t, module)
 			request := baseConfig(t, module)
-			request.IncludeOperators = []string{"EXT-OUTPUT-NULL"}
+			request.IncludeOperators = []string{warmupOutputNullOperator}
 			request.NoCache = true
 			var command engine.Request = request
 			if testCase.preview {
@@ -259,31 +271,37 @@ func TestJSONBackendNeutralisationKeepsRepeatedDeclarations(t *testing.T) {
 			result, err := engine.Run(t.Context(), command)
 			assertTreeUnchanged(t, module, before)
 
-			if testCase.refuseInit {
-				if !errors.Is(err, tfexec.ErrCommandFailed) || !strings.Contains(err.Error(), "init:") ||
-					!strings.Contains(err.Error(), "Unsupported Terraform Core version") {
-					t.Fatalf("error = %v, want the declared version's init refusal", err)
-				}
-
-				return
-			}
-
-			if err != nil {
-				t.Fatalf("run: %v", err)
-			}
-
-			if testCase.preview {
-				if len(result.Mutants) != 1 || executedAny(t, result) {
-					t.Fatalf("preview did not describe an unexecuted output mutation: %+v", result.Mutants)
-				}
-
-				return
-			}
-
-			if len(result.Mutants) != 1 || result.Mutants[0].State != report.Survived || !executedAny(t, result) {
-				t.Fatalf("output mutation did not survive execution: %+v", result.Mutants)
-			}
+			assertJSONBackendResult(t, result, err, testCase.refuseInit, testCase.preview)
 		})
+	}
+}
+
+func assertJSONBackendResult(t *testing.T, result report.Report, err error, refuseInit, preview bool) {
+	t.Helper()
+
+	if refuseInit {
+		if !errors.Is(err, tfexec.ErrCommandFailed) || !strings.Contains(err.Error(), "init:") ||
+			!strings.Contains(err.Error(), "Unsupported Terraform Core version") {
+			t.Fatalf("error = %v, want the declared version's init refusal", err)
+		}
+
+		return
+	}
+
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if preview {
+		if len(result.Mutants) != 1 || executedAny(t, result) {
+			t.Fatalf("preview did not describe an unexecuted output mutation: %+v", result.Mutants)
+		}
+
+		return
+	}
+
+	if len(result.Mutants) != 1 || result.Mutants[0].State != report.Survived || !executedAny(t, result) {
+		t.Fatalf("output mutation did not survive execution: %+v", result.Mutants)
 	}
 }
 
@@ -340,7 +358,7 @@ func TestNullTerraformJSONBodiesAreAdmitted(t *testing.T) {
 
 			before := treeDigest(t, module)
 			request := baseConfig(t, module)
-			request.IncludeOperators = []string{"EXT-OUTPUT-NULL"}
+			request.IncludeOperators = []string{warmupOutputNullOperator}
 			request.NoCache = true
 			var command engine.Request = request
 			if testCase.preview {
@@ -395,6 +413,7 @@ func TestBackendOverridesKeepClearedCloudDeclarationsOutOfWarmUp(t *testing.T) {
 
 			module := copyFixture(t, testCase.fixture)
 			for _, file := range []string{testCase.primary, testCase.override} {
+				//nolint:gosec // deliberate read-only fixture exercising the fresh-inode write path.
 				if err := os.Chmod(filepath.Join(module, file), 0o444); err != nil {
 					t.Fatalf("making %s read-only: %v", file, err)
 				}
@@ -417,7 +436,7 @@ func TestBackendOverridesKeepClearedCloudDeclarationsOutOfWarmUp(t *testing.T) {
 `, digests[testCase.primary], digests[testCase.override]))
 			before := treeDigest(t, module)
 			request := baseConfig(t, module)
-			request.IncludeOperators = []string{"EXT-OUTPUT-NULL"}
+			request.IncludeOperators = []string{warmupOutputNullOperator}
 			request.NoCache = true
 			result, err := engine.Run(t.Context(), request)
 			if err != nil {

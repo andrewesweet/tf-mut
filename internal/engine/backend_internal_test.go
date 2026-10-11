@@ -7,6 +7,8 @@ import (
 	"testing"
 )
 
+const mainFile = "main.tf"
+
 func TestNeutraliseBackendsPreservesFilesWithoutABackend(t *testing.T) {
 	t.Parallel()
 
@@ -15,7 +17,7 @@ func TestNeutraliseBackendsPreservesFilesWithoutABackend(t *testing.T) {
 		"array.tf.json":      `[{"terraform":{"required_version":">= 1.6"}}]`,
 		"null.tf.json":       "{\n  \"terraform\": null\n}\n",
 		"null-array.tf.json": `{"terraform":[null,{"required_version":">= 1.6"},null]}`,
-		"main.tf":            "resource   \"terraform_data\" \"r\" {\n  input = \"kept\"\n}\n",
+		mainFile:             "resource   \"terraform_data\" \"r\" {\n  input = \"kept\"\n}\n",
 		"providers.tf.json": "{\n  \"terraform\": {\n    \"required_providers\": {\n" +
 			"      \"null\": {\n        \"source\": \"hashicorp/null\"\n      }\n" +
 			"    }\n  }\n}\n",
@@ -51,7 +53,7 @@ func TestNeutraliseBackendsRefusesAMalformedStagedFile(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "main.tf"), []byte("terraform {\n  backend\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, mainFile), []byte("terraform {\n  backend\n"), 0o600); err != nil {
 		t.Fatalf("writing main.tf: %v", err)
 	}
 

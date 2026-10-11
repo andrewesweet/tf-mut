@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -147,6 +148,14 @@ const backendBlock = "backend"
 
 const terraformBlock = "terraform"
 
+var (
+	errInvalidBackendJSON     = errors.New("invalid JSON")
+	errExpectedJSONBody       = errors.New("expected a JSON body")
+	errExpectedJSONProperty   = errors.New("expected a JSON property name")
+	errExpectedJSONBodyObject = errors.New("expected a JSON body object")
+	errExpectedJSONClosing    = errors.New("expected a closing JSON delimiter")
+)
+
 // stripHCLBackend removes backend blocks and, when requested, cloud blocks
 // from a staged .tf file, returning the original bytes when it rewrites the file.
 func stripHCLBackend(path, sourcePath string, removeCloud bool) ([]byte, error) {
@@ -199,7 +208,7 @@ func stripJSONBackend(path, sourcePath string, removeCloud bool) ([]byte, error)
 	}
 
 	if !json.Valid(source) {
-		return nil, fmt.Errorf("decoding %s: invalid JSON", name)
+		return nil, fmt.Errorf("decoding %s: %w", name, errInvalidBackendJSON)
 	}
 
 	rewritten, stripped, err := stripJSONBackendBody(source, false, removeCloud)
@@ -231,46 +240,35 @@ func stripJSONBackendBody(source []byte, terraformBody, removeCloud bool) ([]byt
 
 	delimiter, ok := opening.(json.Delim)
 	if !ok || delimiter != '{' && delimiter != '[' {
-		return nil, false, fmt.Errorf("expected a JSON body, got %v", opening)
+		return nil, false, fmt.Errorf("%w, got %v", errExpectedJSONBody, opening)
 	}
 
-	object := delimiter == '{'
-	rewritten := []byte{byte(delimiter)}
+	if delimiter == '{' {
+		return stripJSONBackendObject(decoder, terraformBody, removeCloud)
+	}
+
+	return stripJSONBackendArray(decoder, terraformBody, removeCloud)
+}
+
+func stripJSONBackendObject(decoder *json.Decoder, terraformBody, removeCloud bool) ([]byte, bool, error) {
+	rewritten := []byte{'{'}
 	stripped := false
 	kept := false
 	for decoder.More() {
-		key := ""
-		if object {
-			token, tokenErr := decoder.Token()
-			if tokenErr != nil {
-				return nil, false, tokenErr
-			}
-
-			key, ok = token.(string)
-			if !ok {
-				return nil, false, fmt.Errorf("expected a JSON property name, got %v", token)
-			}
+		key, value, err := readJSONBackendProperty(decoder)
+		if err != nil {
+			return nil, false, err
 		}
 
-		var value json.RawMessage
-		if decodeErr := decoder.Decode(&value); decodeErr != nil {
-			return nil, false, decodeErr
-		}
-
-		if object && terraformBody && (key == backendBlock || removeCloud && key == "cloud") {
+		if terraformBody && (key == backendBlock || removeCloud && key == "cloud") {
 			stripped = true
 
 			continue
 		}
 
-		if !object || !terraformBody && key == terraformBlock {
-			if !object && bytes.TrimSpace(value)[0] != '{' &&
-				(!terraformBody || !bytes.Equal(bytes.TrimSpace(value), []byte("null"))) {
-				return nil, false, fmt.Errorf("expected a JSON body object, got %s", value)
-			}
-
+		if !terraformBody && key == terraformBlock {
 			var changed bool
-			value, changed, err = stripJSONBackendBody(value, terraformBody || object, removeCloud)
+			value, changed, err = stripJSONBackendBody(value, true, removeCloud)
 			if err != nil {
 				return nil, false, err
 			}
@@ -282,28 +280,80 @@ func stripJSONBackendBody(source []byte, terraformBody, removeCloud bool) ([]byt
 			rewritten = append(rewritten, ',')
 		}
 
-		if object {
-			encodedKey, encodeErr := json.Marshal(key)
-			if encodeErr != nil {
-				return nil, false, encodeErr
-			}
-
-			rewritten = append(rewritten, encodedKey...)
-			rewritten = append(rewritten, ':')
+		encodedKey, encodeErr := json.Marshal(key)
+		if encodeErr != nil {
+			return nil, false, encodeErr
 		}
 
+		rewritten = append(rewritten, encodedKey...)
+		rewritten = append(rewritten, ':')
 		rewritten = append(rewritten, value...)
 		kept = true
 	}
 
+	return closeJSONBackendBody(decoder, rewritten, stripped)
+}
+
+func readJSONBackendProperty(decoder *json.Decoder) (string, json.RawMessage, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return "", nil, err
+	}
+
+	key, ok := token.(string)
+	if !ok {
+		return "", nil, fmt.Errorf("%w, got %v", errExpectedJSONProperty, token)
+	}
+
+	var value json.RawMessage
+	if err := decoder.Decode(&value); err != nil {
+		return "", nil, err
+	}
+
+	return key, value, nil
+}
+
+func stripJSONBackendArray(decoder *json.Decoder, terraformBody, removeCloud bool) ([]byte, bool, error) {
+	rewritten := []byte{'['}
+	stripped := false
+	kept := false
+	for decoder.More() {
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return nil, false, err
+		}
+
+		if bytes.TrimSpace(value)[0] != '{' &&
+			(!terraformBody || !bytes.Equal(bytes.TrimSpace(value), []byte("null"))) {
+			return nil, false, fmt.Errorf("%w, got %s", errExpectedJSONBodyObject, value)
+		}
+
+		body, changed, err := stripJSONBackendBody(value, terraformBody, removeCloud)
+		if err != nil {
+			return nil, false, err
+		}
+
+		stripped = stripped || changed
+		if kept {
+			rewritten = append(rewritten, ',')
+		}
+
+		rewritten = append(rewritten, body...)
+		kept = true
+	}
+
+	return closeJSONBackendBody(decoder, rewritten, stripped)
+}
+
+func closeJSONBackendBody(decoder *json.Decoder, rewritten []byte, stripped bool) ([]byte, bool, error) {
 	closing, err := decoder.Token()
 	if err != nil {
 		return nil, false, err
 	}
 
-	delimiter, ok = closing.(json.Delim)
+	delimiter, ok := closing.(json.Delim)
 	if !ok {
-		return nil, false, fmt.Errorf("expected a closing JSON delimiter, got %v", closing)
+		return nil, false, fmt.Errorf("%w, got %v", errExpectedJSONClosing, closing)
 	}
 
 	rewritten = append(rewritten, byte(delimiter)) //nolint:gosec // json.Decoder returns only ASCII delimiters.
