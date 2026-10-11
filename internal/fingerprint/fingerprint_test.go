@@ -242,6 +242,42 @@ func TestAShapeChangeBetweenBaselineRunsMakesTheComparisonIndeterminate(t *testi
 	}
 }
 
+// The metadata members of an output record are never assertable, and a
+// candidate selector has to tell them from the value delta without rebuilding
+// the path grammar.
+func TestOutputMetadataPathsAreRecognisedWithoutRebuildingTheGrammar(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{
+		"outputs.identity.type",
+		"outputs.identity.type[0]",
+		"outputs.identity.sensitive",
+		"output_changes.identity.after_unknown",
+		"output_changes.identity.after_unknown.principal_id",
+		"output_changes.identity.after_sensitive",
+		"output_changes.identity.before_sensitive",
+	} {
+		if !fingerprint.IsOutputMetadata(path) {
+			t.Fatalf("IsOutputMetadata(%q) = false, want true", path)
+		}
+	}
+
+	for _, path := range []string{
+		"outputs.identity.value",
+		"outputs.identity.value.principal_id",
+		"outputs.region_list.value[0].short_name",
+		"output_changes.identity.after",
+		"output_changes.identity.after.principal_id",
+		"outputs.after.value",
+		"root_module.resources[example_thing.app].values.input",
+		"resource_changes[example_thing.app].change.after.input",
+	} {
+		if fingerprint.IsOutputMetadata(path) {
+			t.Fatalf("IsOutputMetadata(%q) = true, want false", path)
+		}
+	}
+}
+
 // Split's contract is about payload paths, so the shapes are stated directly
 // here: state paths carry the output body under `value`, plan paths under
 // `after`, and both may continue past the body into an element of the output's

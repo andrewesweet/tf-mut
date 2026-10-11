@@ -564,6 +564,7 @@ const (
 	beforeSensitive  = "before_sensitive"
 	sensitiveValues  = "sensitive_values"
 	outputSensitive  = "sensitive"
+	outputType       = "type"
 	planValues       = "values"
 	changeAfter      = "change.after"
 	changeBefore     = "change.before"
@@ -775,6 +776,50 @@ func splitOutput(rest, body string) (address, attribute string, ok bool) {
 	}
 
 	return "", "", false
+}
+
+// IsOutputMetadata reports whether a canonical path names an output record's
+// metadata — its type descriptor or a sensitivity or unknown marker — rather
+// than its value.
+//
+// The grammar of a canonical path is this package's, so the question is asked
+// here rather than by rebuilding the prefixes at the call site (the M3 spec
+// review's twice-recorded drift rule). A candidate selector asks it to prefer
+// the value delta: the metadata members change whenever the value does, they
+// are never assertable, and the refusal they produce otherwise outranks the
+// value's own in the report.
+func IsOutputMetadata(path string) bool {
+	var remainder string
+
+	switch {
+	case strings.HasPrefix(path, outputChanges+"."):
+		remainder = strings.TrimPrefix(path, outputChanges+".")
+	case strings.HasPrefix(path, stateOutputs+"."):
+		remainder = strings.TrimPrefix(path, stateOutputs+".")
+	default:
+		return false
+	}
+
+	_, rest, _ := strings.Cut(remainder, ".")
+	if rest == "" {
+		return false
+	}
+
+	field, _, _ := strings.Cut(rest, ".")
+	if bracket := strings.IndexByte(field, '['); bracket >= 0 {
+		field = field[:bracket]
+	}
+
+	switch field {
+	case outputValueField, outputAfterField:
+		return false
+	case outputSensitive, outputType:
+		return true
+	case afterSensitive, beforeSensitive, afterUnknown, beforeUnknown:
+		return true
+	default:
+		return false
+	}
 }
 
 // digitsOnly reports whether a bracketed key is a numeric index.

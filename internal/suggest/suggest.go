@@ -239,6 +239,11 @@ func runKey(run discovery.RunBlock) string {
 
 // suggestFor walks the delta for the first change all three adapters admit,
 // and reports the first change's own refusal where none is admitted.
+//
+// An output record's metadata paths — its type descriptor, its sensitivity and
+// unknown markers — are walked last: they change whenever the value does, they
+// are never assertable, and otherwise the refusal they produce outranks the
+// value's own in the report.
 func (g Generator) suggestFor(
 	survivor Survivor,
 	target discovery.RunBlock,
@@ -246,14 +251,56 @@ func (g Generator) suggestFor(
 ) generated {
 	renderer := render{schemas: g.Schemas}
 
-	var first, sensitive error
-
+	var value, metadata []fingerprint.Change
 	for _, change := range changes {
 		if change.Run != runKey(target) {
 			continue
 		}
 
-		expression, err := expressChange(renderer, change)
+		if fingerprint.IsOutputMetadata(change.Path) {
+			metadata = append(metadata, change)
+
+			continue
+		}
+
+		value = append(value, change)
+	}
+
+	for _, pass := range [][]fingerprint.Change{value, metadata} {
+		expression, first, sensitive, admitted := walkChanges(renderer, pass)
+		if admitted {
+			return build(survivor, target, expression)
+		}
+
+		if first == nil {
+			first = fmt.Errorf("%w: the delta carries no change in the target run", ErrUnaddressable)
+		}
+
+		if sensitive != nil {
+			first = sensitive
+		}
+
+		if len(pass) > 0 {
+			skip := Skipped(survivor.id, target.Rel, target.Name, reasonOf(first), first.Error())
+
+			return generated{skip: &skip}
+		}
+	}
+
+	skip := Skipped(survivor.id, target.Rel, target.Name, SkipUnaddressable,
+		"the delta carries no change in the target run")
+
+	return generated{skip: &skip}
+}
+
+// walkChanges renders the first change a renderer admits, and carries the
+// first refusal and the first sensitivity refusal out of the ones it does not.
+func walkChanges(
+	renderer render,
+	changes []fingerprint.Change,
+) (expression string, first, sensitive error, admitted bool) {
+	for _, change := range changes {
+		rendered, err := expressChange(renderer, change)
 		if err != nil {
 			if first == nil {
 				first = err
@@ -271,20 +318,10 @@ func (g Generator) suggestFor(
 			continue
 		}
 
-		return build(survivor, target, expression)
+		return rendered, nil, nil, true
 	}
 
-	if sensitive != nil {
-		first = sensitive
-	}
-
-	if first == nil {
-		first = fmt.Errorf("%w: the delta carries no change in the target run", ErrUnaddressable)
-	}
-
-	skip := Skipped(survivor.id, target.Rel, target.Name, reasonOf(first), first.Error())
-
-	return generated{skip: &skip}
+	return "", first, sensitive, false
 }
 
 // Express maps one delta change onto the assertion condition that would catch
