@@ -6,11 +6,8 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/suggest"
 )
 
-// The domain events a grading or characterisation publishes, one per
-// conclusion a context reaches (ADR-0005). Each is a value with unexported
-// fields: only the engine raises one, and every subscriber receives its own
-// copy. The payloads are the contexts' own values — the population fact, the
-// Suggestion context's terminal outcomes — and not copies of their fields.
+// Engine-owned domain events for grading and characterisation. ADR-0005 owns
+// their payload, delivery and immutability contract.
 
 // MutantEvaluated is one executed mutant's result: its published row, carrying
 // the evaluation's telemetry record, the outcome the oracle classified, and

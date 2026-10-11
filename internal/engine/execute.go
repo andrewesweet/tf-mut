@@ -54,6 +54,8 @@ type evaluatedPopulation struct {
 
 func (p *evaluatedPopulation) observe(event MutantEvaluated) error {
 	p.rows[event.index] = event.row
+	// Baseline labelling mutates report provenance after publication. Keep
+	// that storage report-owned so the published event stays unchanged.
 	if event.row.Provenance != nil {
 		provenance := *event.row.Provenance
 		p.rows[event.index].Provenance = &provenance
@@ -74,7 +76,7 @@ func (p *evaluatedPopulation) observe(event MutantEvaluated) error {
 // Verdicts do not depend on the parallelism level: each mutant gets its own
 // sandbox, results are written back to their own slot, and a failure in one
 // worker cannot reach another. Workers publish under one lock, so subscribers
-// see one result at a time, in the order the evaluations finished.
+// see one result at a time, in the order workers acquire the lock.
 func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, error) {
 	population := evaluatedPopulation{
 		rows:       make([]report.Mutant, len(plan.described)),

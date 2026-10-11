@@ -6,13 +6,14 @@ Supersedes: [ADR-0003](0003-synchronous-immutable-result-facts.md)
 
 ## Decision
 
-Each conclusion a context reaches is published as a named domain event to a
-small in-process dispatcher in the application layer (`internal/engine/events.go`),
-and the code that used to call the next context directly subscribes to it instead.
+Grading and characterisation publish named domain events through an in-process
+dispatcher in the application layer (`internal/engine/events.go`). The report
+projection and the downstream consumers subscribe to these events.
 
-The events are values with unexported fields, raised only by the engine, and every
-subscriber receives its own copy. Their payloads are the contexts' own values, not
-new DTOs:
+The engine alone raises these values, whose fields are unexported. Dispatch passes
+a value copy to each subscriber, with referenced payload data treated as immutable.
+Context-owned payloads pass through unchanged. Two events carry publication DTOs,
+as detailed below:
 
 | Event | Payload | Raised by | Subscribers, in delivery order |
 | --- | --- | --- | --- |
@@ -23,12 +24,15 @@ new DTOs:
 | `VerificationCosted` | the verification cost ledger | the suggestion leg, once, last | the report projection |
 | `SuiteCharacterised` | the concluded `report.Characterisation` | characterisation, at either conclusion | the report projection |
 
-The events live in the engine, not in the contexts that reached the conclusions.
-Two payloads are publication DTOs (the per-mutant row and the characterisation
-block), and the context-boundary lint rule forbids every context from importing
-`internal/report`; the application layer raises each event as it receives each
-context's conclusion, which keeps the dependency direction in
-[CONTEXT.md](../../CONTEXT.md) unchanged.
+The events live in the engine because two payloads are publication DTOs: the
+per-mutant row and the characterisation block. See the
+[dependency policy](../../CONTEXT.md#dependency-direction) for the boundary these
+types must respect.
+
+The per-mutant report projection copies the row's provenance into report-owned
+storage before baseline labelling mutates it. `TestBaselineLabellingPreservesPublishedEvent`
+in `internal/engine/events_internal_test.go` holds the published payload unchanged
+while the report receives its baseline label.
 
 ADR-0003 named three costs of a dispatcher. This design settles each one:
 

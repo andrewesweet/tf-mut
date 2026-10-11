@@ -285,31 +285,24 @@ own review round, which found the first version's census vacuous in one directio
 `internal/engine/blocks_test.go` (#110, pull request #147) pins each request type's
 projection to its own report blocks, one test per command (§4).
 
-### 3.3 Cross-context handoffs are synchronous immutable result facts, not events — ADR-0003
+### 3.3 Synchronous immutable result facts at structural exit — ADR-0003
 
-Each context returns its own values — `[]oracle.Classified` and `oracle.Metrics`, a
+At `fd5a2d3`, each context returned its own values — `[]oracle.Classified` and `oracle.Metrics`, a
 `suggest.Suggestion` concluded through `Verify` or `Refute`, `characterise.Pin`, `Todo`,
-`Scaffold` and `Scenario` — and the engine projects them. Nothing is persisted, dispatched,
-subscribed to or replayed. An event bus, dispatcher or event store is reconsidered only when
-an actual independent asynchronous consumer exists; the condition is written into the record
-so that the decision reopens on evidence rather than fashion.
+`Scaffold` and `Scenario` — and the engine projected them. ADR-0003 recorded that
+decision and its condition for reconsideration.
 
 One point the record shows built differently from #86's words. The specification said the
 named results would be `PopulationClassified`, `SuggestionVerified`, `SuggestionRefuted` and
 `SuiteCharacterised`, "each a plain immutable value returned from the context". At `fd5a2d3`
 no type of any of those names existed in the tree; `report.SuggestionVerified` and
-`report.SuggestionRefuted` are the pre-existing wire-status constants. The handoffs returned
-the context types themselves, which are immutable and context-owned; a named fact per handoff
+`report.SuggestionRefuted` were the pre-existing wire-status constants. The handoffs returned
+the immutable, context-owned types themselves; a named fact per handoff
 was not minted. See §7 for what this means against the rubric. For the current population
 handoff, see the [context map](../../CONTEXT.md#oracle--verdict).
 
 [ADR-0005](../adr/0005-in-process-domain-event-dispatch.md) has since superseded ADR-0003.
-The four names now exist as engine domain events (`internal/engine/events.go`):
-`PopulationClassified` carries `oracle.Population`, `SuggestionVerified` and
-`SuggestionRefuted` carry `suggest.Suggestion`, and `SuiteCharacterised` carries the
-concluded characterisation block. They are published to a synchronous in-process
-dispatcher, alongside a per-mutant `MutantEvaluated` event. The report projection and the
-progress line subscribe to it, as do the suggestion leg and the acceptance gate.
+It owns the current event, payload and subscriber contract.
 
 ### 3.4 `discovery` publishes `hcl.Expression`; native syntax has named accessors — ADR-0004
 
@@ -600,7 +593,7 @@ the target binary alone and are pre-existing nondeterminism, not the programme's
 of event infrastructure. A 10/10 is not worth an event bus." Nobody in the record has
 re-scored the tree; the review was a fixed-point document and the programme did not
 commission a second. The position below is therefore stated criterion by criterion against
-what the tree now enforces, with the honest qualifications, and the total is left to the next
+what the tree enforced at `fd5a2d3`, with the honest qualifications, and the total is left to the next
 review.
 
 | # | Criterion | Position at `fd5a2d3` |
@@ -609,17 +602,17 @@ review.
 | 2 | Bounded contexts explicit | Six named contexts with an owned glossary; the direction enforced by `depguard` over eight package globs including tests. |
 | 3 | Aggregates small, transaction boundaries narrow | The exported input is six closed request types; `curate` cannot carry a population by construction. `report.Report` remains one union DTO by decision (§8), pinned per command by `blocks_test.go`. The review's projection gave full credit here on the increments as specified, which included leaving the DTO one union. |
 | 4 | Domain objects behaviour-rich | Outcome and evidence, candidate and suggestion, judgement point, pin, scaffold and scenario are constructed and transitioned, never assigned; the published DTOs are now projections. |
-| 5 | Domain events across aggregate boundaries | **0.5/1 by design** (ADR-0003). The handoffs return immutable context-owned values, and the four named facts #86 sketched were not minted (§3.3). Whether a reviewer scores the unnamed form the same half point is theirs to decide; the deliberate part is the absence of infrastructure, which stands. Since superseded: ADR-0005 mints the four facts as named domain events published to an in-process synchronous dispatcher (§3.3). |
+| 5 | Domain events across aggregate boundaries | **0.5/1 by design** (ADR-0003). The handoffs returned immutable context-owned values, and the four named facts #86 sketched were not minted (§3.3). Whether a reviewer scores the unnamed form the same half point is theirs to decide. ADR-0003 was subsequently superseded (§3.3). |
 | 6 | Anti-corruption layer at every external integration | The discovery boundary publishes `hcl.Expression` with two named fail-closed routes to native syntax; JSON declarations are read rather than re-parsed; no domain context imports the publication DTO. |
 | 7 | Core subdomain identified | Unchanged from full credit. |
 | +1 | Rich core-domain model | Unchanged from full credit, and the core now owns its own outcome type. |
 | +1 | Invariants inside aggregates, not services | Every state, diagnosis and evidence combination the domain expresses is legal by construction; the cache path is closed; population authority and freshness are values; the projection is proven total. |
 | +1 | Ubiquitous language consistent | The drift #85 listed is repaired and held by `TestTheDocumentedVocabularyMatchesTheBinary`; the two documented deprecations are named exemptions in the totality proof. |
 
-The half point deliberately not chased is criterion 5's. The record adds one qualification
-the review's projection did not anticipate: the result facts exist as the contexts' own
-types rather than under the names the specification proposed. That is a naming choice the
-tree made and this document records; it is not the event bus the review declined.
+At structural exit, the programme deliberately left criterion 5's half point unchased.
+The review's projection did not anticipate one qualification: the result facts existed as
+the contexts' own types rather than under the names the specification proposed.
+This records the naming choice at `fd5a2d3`; §3.3 points to the subsequent decision.
 
 ## 8. What was deferred, and the condition on each
 
