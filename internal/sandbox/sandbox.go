@@ -275,14 +275,30 @@ func confine(root, relative string) (string, error) {
 }
 
 // share links or copies a file the sandbox will not mutate.
+//
+// A symlink is copied, never linked. os.Link binds the link itself, and a
+// relative link transplanted into the sandbox no longer resolves — its
+// target names a neighbourhood of the source tree that does not exist in the
+// sandbox, so Terraform reads "Failed to read file" where the warm workspace
+// read the file fine. copyFile opens through the link, so the sandbox gets
+// the target's bytes under the link's own name — the same bytes the warm
+// workspace copied and the input digest hashed.
 func share(source, target string, hardlink bool) error {
-	if hardlink && linkable(source) {
+	if hardlink && linkable(source) && !isSymlink(source) {
 		if err := os.Link(source, target); err == nil {
 			return nil
 		}
 	}
 
 	return copyFile(source, target)
+}
+
+// isSymlink reports whether path names a symlink itself, as opposed to a
+// regular file whose open would follow one.
+func isSymlink(path string) bool {
+	info, err := os.Lstat(path)
+
+	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
 func linkable(path string) bool {
@@ -445,11 +461,18 @@ func assertDistinct(target, source string) error {
 // moduleRecord mirrors one entry of Terraform's own module manifest, whose
 // keys are PascalCase.
 //
+// Version must round-trip even though nothing here reads it: Terraform
+// re-checks the version recorded at install time against the configuration's
+// constraint on every command, so a re-marshalled manifest that silently
+// drops it makes Terraform refuse the working directory with "Module version
+// requirements have changed". The manifest schema is Terraform's, not ours.
+//
 //nolint:tagliatelle // the manifest schema is Terraform's, not ours.
 type moduleRecord struct {
-	Key    string `json:"Key"`
-	Source string `json:"Source"`
-	Dir    string `json:"Dir"`
+	Key     string `json:"Key"`
+	Source  string `json:"Source"`
+	Version string `json:"Version,omitempty"`
+	Dir     string `json:"Dir"`
 }
 
 //nolint:tagliatelle // the manifest schema is Terraform's, not ours.
