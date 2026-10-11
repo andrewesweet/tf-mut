@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -226,6 +227,50 @@ func TestPreviewIsNeverRefusedBecauseItExecutesNothing(t *testing.T) {
 
 	if _, statErr := os.Stat(marker); statErr == nil {
 		t.Fatal("preview executed the provisioner")
+	}
+}
+
+func TestPreviewReportsWhatTheSafetyGatesWouldDecide(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "provisioner")
+
+	result, err := engine.Run(t.Context(), previewRequest(t, module))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+
+	// The gates would refuse the grading run: the preview does not refuse,
+	// but it must carry their verdict, so the person reading the population
+	// sees the risk the run would have stopped at.
+	if !slices.ContainsFunc(result.Warnings, func(warning string) bool {
+		return strings.Contains(warning, "the safety gates would refuse a mutation run")
+	}) {
+		t.Fatalf("a gated module's preview carried no gate verdict: %v", result.Warnings)
+	}
+
+	verdict := ""
+
+	for _, warning := range result.Warnings {
+		if strings.Contains(warning, "the safety gates would refuse a mutation run") {
+			verdict = warning
+
+			break
+		}
+	}
+
+	if !strings.Contains(verdict, "provisioner") {
+		t.Fatalf("the gate verdict does not name the offending construct: %s", verdict)
+	}
+
+	// The warning names the same refusal the run produces, quoted: the
+	_, runErr := engine.Run(t.Context(), baseConfig(t, module))
+	if !errors.Is(runErr, engine.ErrUnsandboxedEffects) {
+		t.Fatalf("run error = %v, want the unsandboxed-effects refusal", runErr)
+	}
+
+	if !strings.Contains(verdict, runErr.Error()) {
+		t.Fatalf("the preview verdict %q does not quote the run refusal %q", verdict, runErr.Error())
 	}
 }
 

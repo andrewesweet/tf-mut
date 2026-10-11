@@ -408,7 +408,7 @@ waste.
 | --- | --- | --- | --- | --- | --- |
 | `EXT-ATTR-DELETE` | A top-level argument assignment in a `resource`, `data` or `module` body | Provider schema marks the attribute optional and not required | — | Meta-arguments; attributes the schema does not describe; required attributes | `Killed` where an assertion reads the attribute; otherwise a survivor diagnosed from the delta |
 | `EXT-RESOURCE-DELETE` | A `resource` with `count` or `for_each` | Every recorded consumption of the address tolerates an empty collection | — | Bare or exact-index consumers, which get `EXT-BODY-BLANK` instead | `Killed` where an assertion counts or indexes instances |
-| `EXT-BODY-BLANK` | A `resource` block with at least one schema-optional argument | Provider schema optionality of every argument removed | — | Resources with no optional argument, which raise the unanswerable-resource warning | `Killed` or `KilledByError`; a survivor makes the resource pseudo-tested |
+| `EXT-BODY-BLANK` | A `resource` block with at least one schema-optional argument | Provider schema optionality of every argument removed | — | Resources with no optional argument | `Killed` or `KilledByError`; a survivor makes the resource pseudo-tested |
 | `EXT-OUTPUT-NULL` | An `output` block with a `value` | — | — | Outputs with no value | `Killed` where an assertion reads the output |
 | `EXT-LOCAL-NULL` | A `locals` entry | — | — | — | `Killed` where an assertion reads anything downstream |
 | `EXT-MODULE-INPUT-DELETE` | An input argument on a local `module` call | The child module declares a variable of that name | — | Inputs the child does not declare | `Invalid` where the child variable has no default; otherwise classified by execution |

@@ -411,6 +411,15 @@ type Options struct {
 	// holds for content the tool has not read, over the same fixtures whose
 	// content the reader normally lifts the floor with.
 	SkipJSON bool
+
+	// CheckoutRoot is the git work tree the module lives in, when the caller
+	// knows one; empty disables the boundary. A run block whose local module
+	// source resolves outside the root is refused with the test file, the run
+	// and the source string named — not with the raw read error of the
+	// directory that is not there. The boundary is the work tree on purpose:
+	// the closure legitimately spans monorepo siblings through `..`, so only
+	// leaving the checkout is the defect.
+	CheckoutRoot string
 }
 
 // Discover parses the module at moduleDir together with the test files in
@@ -444,16 +453,12 @@ func DiscoverWith(moduleDir, testDir string, options Options) (Configuration, er
 	queue := []queued{{dir: absoluteModuleDir, key: ""}}
 
 	// Run blocks may retarget another local module, which makes that module
-	// part of the closure even when no module call references it.
-	for _, run := range suite.Runs {
-		if run.ModuleSource == "" || !isLocalSource(run.ModuleSource) {
-			continue
-		}
-
-		queue = append(queue, queued{
-			dir: filepath.Clean(filepath.Join(absoluteModuleDir, run.ModuleSource)),
-			key: "test." + run.Name,
-		})
+	// part of the closure even when no module call references it. A retarget
+	// that resolves outside the checkout is refused
+	// here, before anything reads the directory it names.
+	queue, queueErr := queueRunBlockRetargets(queue, suite, absoluteModuleDir, options)
+	if queueErr != nil {
+		return Configuration{}, queueErr
 	}
 
 	for len(queue) > 0 {
@@ -525,6 +530,75 @@ func joinKey(parent, name string) string {
 	}
 
 	return parent + "." + name
+}
+
+// queueRunBlockRetargets appends every run block's local module retarget to
+// the discovery queue, refusing one that resolves outside the checkout.
+func queueRunBlockRetargets(
+	queue []queued,
+	suite TestSuite,
+	moduleDir string,
+	options Options,
+) ([]queued, error) {
+	for _, run := range suite.Runs {
+		if run.ModuleSource == "" || !isLocalSource(run.ModuleSource) {
+			continue
+		}
+
+		resolved := filepath.Clean(filepath.Join(moduleDir, run.ModuleSource))
+		if refuseErr := refuseRunSource(options, resolved, run); refuseErr != nil {
+			return nil, refuseErr
+		}
+
+		queue = append(queue, queued{
+			dir: resolved,
+			key: "test." + run.Name,
+		})
+	}
+
+	return queue, nil
+}
+
+// refuseRunSource refuses a run-block retarget outside a known checkout root,
+// naming the declaring test file, the run and the source string.
+// nil means the retarget proceeds. The comparison resolves
+// symlinks best-effort on both sides first, so a platform-level temporary
+// directory's alias cannot read as an escape.
+func refuseRunSource(options Options, resolved string, run RunBlock) error {
+	root := options.CheckoutRoot
+
+	if root != "" {
+		if rootReal, err := filepath.EvalSymlinks(root); err == nil {
+			root = rootReal
+		}
+
+		if resolvedReal, err := filepath.EvalSymlinks(resolved); err == nil {
+			resolved = resolvedReal
+		}
+
+		if !withinRoot(root, resolved) {
+			return fmt.Errorf(
+				"%w: %s declares run %q with module source %q, which resolves to %s: the closure leaves the checkout",
+				ErrParse, run.Rel, run.Name, run.ModuleSource, resolved,
+			)
+		}
+	}
+
+	return nil
+}
+
+// withinRoot reports whether path is the root or somewhere beneath it.
+func withinRoot(root, path string) bool {
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+
+	if relative == "." {
+		return true
+	}
+
+	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func commonRoot(moduleDir string, modules []Module) (string, error) {

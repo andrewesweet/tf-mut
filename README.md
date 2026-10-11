@@ -54,7 +54,7 @@ tf-mut version                   # print the build version
 | `--jobs N` | Mutants executing concurrently (default: CPU count) |
 | `--timeout-factor F` | Multiple of the baseline run time; the budget is `max(F × baseline, 30 s)` |
 | `--min-score N` | Fail below this mutation score percentage |
-| `--allow-incomplete-score` | Let a timeout-affected score satisfy `--min-score` |
+| `--allow-incomplete-score` | Let an [incomplete score](docs/design/product-design.md#5-metrics) satisfy `--min-score` |
 | `--allow-real-infrastructure` | Required when any provider is unmocked |
 | `--allow-unsandboxed-effects` | Required for apply-mode provisioners and unsevered data sources |
 | `--reporter terminal\|json\|sarif\|mte\|html\|junit\|markdown` | Output format (`mte` is Mutation Testing Elements) |
@@ -65,6 +65,10 @@ For suites under `tests/unit`, pass `--test-directory tests/unit` so Terraform i
 the modules called by those tests. Mocked suites can run in roots with a `backend` block,
 including a remote backend, without initializing that backend. An effective `cloud`
 declaration still causes provider schema retrieval to fail.
+
+Preview records safety-gate advisories and refusals in the report's warnings while still
+listing the mutant population. It executes no test run blocks. For run blocks targeting
+local modules, see the [checkout boundary](docs/design/product-design.md#discover).
 
 For supported suggestion forms and skip rules, see the
 [suggestion contract](docs/design/product-design.md#7-the-differentiator--suggested-assertions).
@@ -157,7 +161,8 @@ work. An independent adversarial review drove these corrections — see
 | [`docs/schema/report-2.4.0.json`](docs/schema/report-2.4.0.json) | The M5c.1 JSON report schema, still published for earlier consumers |
 | [`docs/schema/report-2.5.0.json`](docs/schema/report-2.5.0.json) | The M5c.1 `PACK-WIDEN-CIDR` JSON report schema, still published for earlier consumers |
 | [`docs/schema/report-2.6.0.json`](docs/schema/report-2.6.0.json) | The mutant-id derivation revision, still published for earlier consumers |
-| [`docs/schema/report-2.7.0.json`](docs/schema/report-2.7.0.json) | The versioned JSON report schema the `json` reporter emits, including the pack tier, the origins provenance and the performance telemetry |
+| [`docs/schema/report-2.7.0.json`](docs/schema/report-2.7.0.json) | The telemetry JSON report schema, still published for earlier consumers |
+| [`docs/schema/report-2.8.0.json`](docs/schema/report-2.8.0.json) | The versioned JSON report schema the `json` reporter emits, including the pack tier, the origins provenance and the widened incomplete semantics |
 | [`docs/research/09-m3-real-provider-gate.md`](docs/research/09-m3-real-provider-gate.md) | The M3 inner-loop measurement, both real-provider debts settled, the M3e admission evidence |
 | [`docs/research/10-m3-exit-gate.md`](docs/research/10-m3-exit-gate.md) | The M3 exit-gate map: every normative behaviour to its test |
 | [`docs/schema/sarif-2.1.0.json`](docs/schema/sarif-2.1.0.json) | The published SARIF schema the `sarif` reporter's output is validated against |

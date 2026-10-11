@@ -488,6 +488,18 @@ func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	return string(output), nil
 }
 
+// checkoutRoot returns the git work tree containing dir, or the empty string
+// when the git lookup fails. Without a root, discovery leaves the run-block
+// checkout check disabled. A failed lookup does not fail the invocation.
+func checkoutRoot(ctx context.Context, dir string) string {
+	root, err := gitRun(ctx, dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(root)
+}
+
 // apply reduces the described population to the selected one, keeps the
 // generated list aligned index for index, and computes the population split.
 // Omitted mutants leave the report entirely; their count is the record that

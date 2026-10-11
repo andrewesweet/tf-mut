@@ -24,7 +24,7 @@ type Gate struct {
 	MinScore float64
 	// HasMinScore reports whether a minimum score was requested.
 	HasMinScore bool
-	// AllowIncompleteScore permits a passing gate despite a timeout.
+	// AllowIncompleteScore permits a passing gate despite an incomplete score.
 	AllowIncompleteScore bool
 	// FailOnNew fails on any finding the baseline does not accept.
 	FailOnNew bool
@@ -117,7 +117,7 @@ func (r Report) ExitCode(gate Gate) int {
 }
 
 // minScorePasses applies the score gate. The incomplete-score marker is never
-// suppressed by anything: a baseline cannot make a timeout-affected score
+// suppressed by anything: a baseline cannot make an incomplete score
 // trustworthy.
 func (r Report) minScorePasses(gate Gate) bool {
 	if r.Metrics.Incomplete && !gate.AllowIncompleteScore {
@@ -424,7 +424,9 @@ func writeMetrics(builder *strings.Builder, value Report) {
 	writeDiagnoses(builder, value)
 
 	if metrics.Incomplete {
-		builder.WriteString("\n  Score is INCOMPLETE: at least one mutant timed out.\n")
+		builder.WriteString("\n  Score is INCOMPLETE: the population does not support this score.\n" +
+			"  A mutant timed out, nothing in the population could be scored, or a high share " +
+			"of judged mutants were rejected by terraform validate.\n")
 	}
 }
 

@@ -30,7 +30,9 @@ func WriteMarkdown(writer io.Writer, value Report) error {
 		value.Metrics.Reachability*percent)
 
 	if value.Metrics.Incomplete {
-		page.WriteString("> **Incomplete:** a timeout made this score untrustworthy.\n\n")
+		page.WriteString("> **Incomplete:** this score is untrustworthy — " +
+			"a mutant timed out, nothing in the population could be scored, or a high share " +
+			"of judged mutants were rejected by terraform validate.\n\n")
 	}
 
 	writePopulation(&page, value)

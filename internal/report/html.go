@@ -66,7 +66,9 @@ func writeAuthoritativeHeader(page *strings.Builder, value Report) {
 		value.Metrics.Scored)
 
 	if value.Metrics.Incomplete {
-		page.WriteString("<p><strong>Incomplete:</strong> a timeout made this score untrustworthy.</p>\n")
+		page.WriteString("<p><strong>Incomplete:</strong> this score is untrustworthy &mdash; " +
+			"a mutant timed out, nothing in the population could be scored, or a high share " +
+			"of judged mutants were rejected by terraform validate.</p>\n")
 	}
 
 	page.WriteString("<p>The viewer below recomputes a score from mapped statuses and " +

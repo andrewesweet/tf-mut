@@ -81,7 +81,7 @@ type settings struct {
 	MinScore float64
 	// HasMinScore reports whether MinScore was requested.
 	HasMinScore bool
-	// AllowIncompleteScore lets a timeout-affected score satisfy MinScore.
+	// AllowIncompleteScore lets an incomplete score satisfy MinScore.
 	AllowIncompleteScore bool
 	// AllowRealInfrastructure permits execution against unmocked providers.
 	AllowRealInfrastructure bool
@@ -302,7 +302,7 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	switch request.(type) {
 	case TodosRequest, *TodosRequest:
 		listed, listErr := discovery.DiscoverWith(moduleDir, s.TestDirectory,
-			discovery.Options{SkipJSON: disableJSONReading(s)})
+			discovery.Options{SkipJSON: disableJSONReading(s), CheckoutRoot: checkoutRoot(ctx, moduleDir)})
 		if listErr != nil {
 			return report.Report{}, listErr
 		}
@@ -321,7 +321,7 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 
 	discoveryPhase := collector.phase(phaseDiscovery)
 	configuration, err := discovery.DiscoverWith(moduleDir, s.TestDirectory,
-		discovery.Options{SkipJSON: disableJSONReading(s)})
+		discovery.Options{SkipJSON: disableJSONReading(s), CheckoutRoot: checkoutRoot(ctx, moduleDir)})
 	discoveryPhase()
 	if err != nil {
 		return report.Report{}, err
@@ -421,6 +421,39 @@ func (w *cpuProfileWriter) Write(data []byte) (int, error) {
 	return n, err
 }
 
+// applyGates runs the static safety gates and the JSON floor's static half.
+// A run is refused at a gate; a preview executes nothing and cannot be
+// refused, so it carries the gates' verdict in the warnings instead: a pass
+// contributes the same advisories a run would, a refusal contributes a
+// warning quoting that refusal in full.
+func applyGates(
+	configuration discovery.Configuration,
+	settings settings,
+	collector *runCollector,
+) (settings, []string, error) {
+	if settings.mode != previewMode {
+		gatePhase := collector.phase(phaseGates)
+		checked, err := checkSafety(configuration, settings)
+		if err != nil {
+			return settings, nil, err
+		}
+
+		gated, warnings := applyFloor(configuration, settings, checked)
+		gatePhase()
+
+		return gated, warnings, nil
+	}
+
+	checked, gateErr := checkSafety(configuration, settings)
+	if gateErr != nil {
+		checked = append(checked, "the safety gates would refuse a mutation run: "+gateErr.Error())
+	}
+
+	gated, warnings := applyFloor(configuration, settings, checked)
+
+	return gated, warnings, nil
+}
+
 // mutate is the grading pipeline: gates, generation, selection, execution and
 // the completed report.
 func mutate(
@@ -434,19 +467,9 @@ func mutate(
 	// The gates guard execution, and a preview executes nothing. Refusing a
 	// preview would only hide the population from the person deciding whether
 	// to accept the risk.
-	warnings := make([]string, 0, 1)
-
-	if settings.mode != previewMode {
-		gatePhase := collector.phase(phaseGates)
-		checked, err := checkSafety(configuration, settings)
-		if err != nil {
-			return report.Report{}, oracle.Population{}, err
-		}
-
-		settings, warnings = applyFloor(configuration, settings, checked)
-		gatePhase()
-	} else {
-		settings, warnings = applyFloor(configuration, settings, warnings)
+	settings, warnings, err := applyGates(configuration, settings, collector)
+	if err != nil {
+		return report.Report{}, oracle.Population{}, err
 	}
 
 	workRoot, err := prepareWorkRoot(configuration, settings)
@@ -485,7 +508,9 @@ func mutate(
 	result.Warnings = append(result.Warnings, rejected...)
 
 	// The count levers: --since and --sample scope the population, and the
-	// report says distinctly what was selected and what was left out.
+	// report says distinctly what was selected and what was left out. The
+	// described population before selection is what coverage claims are judged
+	// over, so the plan carries it beside the selected rows.
 	selectionPhase := collector.phase(phaseSelection)
 	selected, err := applyCountLevers(ctx, configuration, settings, &result, mutants,
 		generated.Mutants, classified)
@@ -504,18 +529,19 @@ func mutate(
 	}
 
 	plan := executionPlan{
-		runner:        runner,
-		configuration: configuration,
-		settings:      settings,
-		prepared:      prepared,
-		generated:     selected.generated,
-		described:     selected.mutants,
-		classified:    selected.classified,
-		workRoot:      workRoot,
-		closure:       configuration.BuildClosure(),
-		graph:         graph,
-		collector:     collector,
-		events:        &dispatcher{},
+		runner:              runner,
+		configuration:       configuration,
+		settings:            settings,
+		prepared:            prepared,
+		generated:           selected.generated,
+		described:           selected.mutants,
+		populationDescribed: mutants,
+		classified:          selected.classified,
+		workRoot:            workRoot,
+		closure:             configuration.BuildClosure(),
+		graph:               graph,
+		collector:           collector,
+		events:              &dispatcher{},
 	}
 
 	executionPhase := collector.phase(phaseExecution)
@@ -623,7 +649,7 @@ type gradingProjection struct {
 // complete computes the aggregates over the classified population.
 func (p *gradingProjection) complete(event PopulationClassified) error {
 	finalisePhase := p.plan.collector.phase(phaseFinalise)
-	p.completed = complete(p.plan.configuration, p.plan.settings, p.shell,
+	p.completed = complete(p.plan.configuration, p.plan.settings, p.plan.populationDescribed, p.shell,
 		p.evaluated.rows, event.population)
 	finalisePhase()
 
@@ -839,6 +865,7 @@ func build(
 func complete(
 	configuration discovery.Configuration,
 	settings settings,
+	populationDescribed []report.Mutant,
 	shell report.Report,
 	executed []report.Mutant,
 	population oracle.Population,
@@ -849,8 +876,9 @@ func complete(
 		metrics:        metrics,
 		operatorErrors: projectOperatorErrors(oracle.ComputeOperatorErrors(population)),
 		findings:       findingsOf(configuration, executed, population),
-		warnings:       unanswerableResources(configuration, executed),
-		gates:          gateOutcomes(settings, shell, metrics),
+		warnings: append(unanswerableResources(configuration, populationDescribed),
+			unscoredWarnings(population, metrics)...),
+		gates: gateOutcomes(settings, shell, metrics),
 	}
 }
 

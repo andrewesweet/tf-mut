@@ -26,6 +26,10 @@ type executionPlan struct {
 	prepared      warm
 	generated     []mutation.Mutant
 	described     []report.Mutant
+	// populationDescribed is the whole post-suppression described population,
+	// selection included, so a coverage warning is decided over what the
+	// operators generated rather than over what the count levers kept.
+	populationDescribed []report.Mutant
 	// classified is the outcome classified for each described row, in row
 	// order: the static shortcuts and suppressions classified theirs before
 	// selection, and execution and the cache replay classify the rest.
