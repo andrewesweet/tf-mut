@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 
 	"github.com/hashicorp/hcl/v2"
 )
@@ -175,6 +176,57 @@ const idLength = 12
 func identify(operator Operator, file, site, original, replacement string) string {
 	digest := sha256.Sum256(fmt.Appendf(nil, "%s|%s|%s|%s|%s",
 		operator, file, site, original, replacement))
+
+	return hex.EncodeToString(digest[:])[:idLength]
+}
+
+// collisionGroupSize is the population a group of shared-identity mutants
+// reaches before each member needs an occurrence ordinal of its own.
+const collisionGroupSize = 2
+
+// disambiguateIdentifiers gives every mutant that shares its full identity
+// tuple with another — the same rewrite fired at several positions of one
+// attribute, which the position-free hash cannot tell apart — an identifier
+// of its own: the tuple's hash is re-derived with the occurrence ordinal in
+// source order, the order of the mutants' byte offsets within the file.
+//
+// The ordinal, not the byte offset itself, is what the identifier mixes in:
+// an offset inside one attribute shifts under any edit earlier in the same
+// attribute — renaming the local one condition reads is enough — while the
+// ordinal changes only when the group's own membership or order changes,
+// which is exactly when the identity should break. Every member of a group is
+// re-derived, the earliest position included, so no identifier that once
+// named two mutants survives to replay one of their verdicts from a cache an
+// earlier binary wrote: such an entry's name is derived from the identifier,
+// and no current mutant carries it any more.
+func disambiguateIdentifiers(mutants []Mutant) {
+	groups := map[string][]int{}
+
+	for index, mutant := range mutants {
+		groups[mutant.ID] = append(groups[mutant.ID], index)
+	}
+
+	for _, members := range groups {
+		if len(members) < collisionGroupSize {
+			continue
+		}
+
+		slices.SortFunc(members, func(left, right int) int {
+			return mutants[left].Range.Start.Byte - mutants[right].Range.Start.Byte
+		})
+
+		base := mutants[members[0]].ID
+
+		for ordinal, index := range members {
+			mutants[index].ID = ordinalIdentifier(base, ordinal)
+		}
+	}
+}
+
+// ordinalIdentifier re-derives an identity from the tuple hash it collides
+// with and the collision group's occurrence ordinal.
+func ordinalIdentifier(base string, ordinal int) string {
+	digest := sha256.Sum256(fmt.Appendf(nil, "%s|%d", base, ordinal))
 
 	return hex.EncodeToString(digest[:])[:idLength]
 }

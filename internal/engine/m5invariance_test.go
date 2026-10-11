@@ -15,13 +15,15 @@ import (
 // TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperators
 // is the M5a headline proof: the operator-matrix fixture's standard report from
 // a binary built at the merge-base with the default branch and one built from
-// this tree are identical under matched cache-off legs, with two exclusions
+// this tree are identical under matched cache-off legs, with three exclusions
 // and nothing beyond them: `baseline.duration_ms`, the timing the gate exists
-// to ignore, and the `schema_version` stamp, whose movement is governed
-// entirely by the schema contract itself (the published file's constant, the
-// suite's validation of real documents against it) and not by this gate.
-// Every other field's content is compared, so a bump that moved anything but
-// the stamp still goes red.
+// to ignore; the `schema_version` stamp, whose movement is governed entirely
+// by the schema contract itself (the published file's constant, the suite's
+// validation of real documents against it) and not by this gate; and the
+// identifier of an identity-collision member, whose movement the D5 repair
+// re-derives by design and which `blankCollisionIdentifiers` removes from
+// both legs symmetrically. Every other field's content is compared, so a
+// bump that moved anything but the stamps still goes red.
 //
 // One normalisation applies to both legs: each mutant's diagnostics are put
 // into a canonical order before the comparison. Terraform's parallel
@@ -82,6 +84,10 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperator
 		delete(document, "schema_version")
 		canonicaliseDiagnosticOrder(document)
 	}
+
+	// The D5 repair re-derives an identity collision's identifiers by design;
+	// blank them symmetrically and compare everything else by content.
+	blankCollisionIdentifiers(before, after)
 
 	if !reflect.DeepEqual(before, after) {
 		t.Fatalf("the standard report of the matrix fixture moved under M5a:\n  %s",
@@ -160,6 +166,85 @@ func canonicaliseDiagnosticOrder(document map[string]any) {
 			return strings.Compare(diagnosticSortKey(leftObject), diagnosticSortKey(rightObject))
 		})
 	}
+}
+
+// blankCollisionIdentifiers removes the one field the D5 repair is allowed
+// to move from a cross-binary comparison: an identity collision — the same
+// rewrite fired at several positions of one attribute, whose position-free
+// identity hashes are equal — has every member's identifier re-derived from
+// the collision group's occurrence ordinal, so exactly those identifiers
+// differ between a leg that predates the repair and one that carries it,
+// while the populations stay identical field for field. The colliding
+// positions are read off either leg (the pre-repair leg publishes the
+// collision itself; the post-repair leg publishes distinct identifiers at
+// the same positions) and their identifiers are blanked on both, so every
+// other field is still compared by content.
+func blankCollisionIdentifiers(before, after map[string]any) {
+	colliding := map[string]bool{}
+
+	for _, document := range []map[string]any{before, after} {
+		counts := map[string]int{}
+
+		for _, entry := range documentMutants(document) {
+			if id, ok := entry["id"].(string); ok {
+				counts[id]++
+			}
+		}
+
+		for _, entry := range documentMutants(document) {
+			id, ok := entry["id"].(string)
+			if ok && counts[id] > 1 {
+				colliding[mutantPosition(entry)] = true
+			}
+		}
+	}
+
+	for _, document := range []map[string]any{before, after} {
+		for _, entry := range documentMutants(document) {
+			if colliding[mutantPosition(entry)] {
+				entry["id"] = ""
+			}
+		}
+	}
+}
+
+// documentMutants returns a decoded report's mutants list, empty when the
+// document carries none.
+func documentMutants(document map[string]any) []map[string]any {
+	entries, ok := document["mutants"].([]any)
+	if !ok {
+		return nil
+	}
+
+	mutants := make([]map[string]any, 0, len(entries))
+
+	for _, entry := range entries {
+		mutant, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		mutants = append(mutants, mutant)
+	}
+
+	return mutants
+}
+
+// mutantPosition names one mutant's rewrite position the way the engine
+// orders the population: file, start line and column, operator.
+func mutantPosition(mutant map[string]any) string {
+	rangeKey, hasRange := mutant["range"].(map[string]any)
+	if !hasRange {
+		return ""
+	}
+
+	start, hasStart := rangeKey["start"].(map[string]any)
+	if !hasStart {
+		return ""
+	}
+
+	return fmt.Sprintf("%v|%s|%v",
+		rangeKey["file"], positionKey(start), mutant["operator"])
 }
 
 // diagnosticSortKey renders one diagnostic as the canonical comparison string

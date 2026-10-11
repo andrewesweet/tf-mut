@@ -19,9 +19,12 @@ const wholeMilestoneBase = "d57f2cd"
 // the operator-matrix fixture's standard report from a binary built at M5's
 // base tree and one built from this tree are identical under matched
 // cache-off legs with `baseline.duration_ms` excluded — and the only
-// difference the whole milestone is allowed beyond that exclusion is the
-// schema-addition stamp `schema_version`, moved 2.3.0 to 2.5.0 by the pack
-// work. Both ends are literals: the admitted stamp tracks
+// differences the whole milestone is allowed beyond that exclusion are the
+// schema-addition stamp `schema_version`, moved 2.3.0 to 2.6.0 by the pack
+// work and the identity-collision identifier repair, and the identifier of
+// an identity-collision member, whose movement the D5 repair re-derives by
+// design and which `blankCollisionIdentifiers` removes from both legs
+// symmetrically. Both ends are literals: the admitted stamp tracks
 // `report.SchemaVersion` and is edited here deliberately with any schema bump,
 // because a bump is a minor-version consumer-contract event this proof has to
 // see. With no pack selected, `origins` is absent from every mutant on either
@@ -74,13 +77,17 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone(t
 		canonicaliseDiagnosticOrder(document)
 	}
 
+	// The D5 repair re-derives an identity collision's identifiers by design;
+	// blank them symmetrically and compare everything else by content.
+	blankCollisionIdentifiers(before, after)
+
 	// The authorised difference: the schema-addition stamp, exactly one step.
 	if before["schema_version"] != "2.3.0" {
 		t.Fatalf("the M5 base tree publishes schema %q, want 2.3.0", before["schema_version"])
 	}
 
-	if after["schema_version"] != "2.5.0" {
-		t.Fatalf("this tree publishes schema %q, want 2.5.0", after["schema_version"])
+	if after["schema_version"] != "2.6.0" {
+		t.Fatalf("this tree publishes schema %q, want 2.6.0", after["schema_version"])
 	}
 
 	delete(before, "schema_version")
