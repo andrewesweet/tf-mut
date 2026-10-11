@@ -50,7 +50,7 @@ tf-mut version                   # print the build version
 
 | Flag | Purpose |
 | --- | --- |
-| `--test-directory PATH` | Test directory relative to the module (default `tests`); used for initialization and test execution |
+| `--test-directory PATH` | Test directory relative to the module (default `tests`); used for initialization, test execution and [helper exclusion from the mutation surface](docs/design/mutation-operators.md#the-mutation-surface) |
 | `--jobs N` | Mutants executing concurrently (default: CPU count) |
 | `--timeout-factor F` | Multiple of the baseline run time; the budget is `max(F × baseline, 30 s)` |
 | `--min-score N` | Fail below this mutation score percentage |

@@ -180,25 +180,17 @@ func identify(operator Operator, file, site, original, replacement string) strin
 	return hex.EncodeToString(digest[:])[:idLength]
 }
 
-// collisionGroupSize is the population a group of shared-identity mutants
-// reaches before each member needs an occurrence ordinal of its own.
+// collisionGroupSize is the number of distinct rewrites needed before a
+// shared identity requires occurrence ordinals.
 const collisionGroupSize = 2
 
-// disambiguateIdentifiers gives every mutant that shares its full identity
-// tuple with another — the same rewrite fired at several positions of one
-// attribute, which the position-free hash cannot tell apart — an identifier
-// of its own: the tuple's hash is re-derived with the occurrence ordinal in
-// source order, the order of the mutants' byte offsets within the file.
+// disambiguateIdentifiers implements the identity contract in
+// docs/design/product-design.md. Duplicate producers of identical bytes must
+// share an occurrence so provenance alone cannot move identity.
 //
-// The ordinal, not the byte offset itself, is what the identifier mixes in:
-// an offset inside one attribute shifts under any edit earlier in the same
-// attribute — renaming the local one condition reads is enough — while the
-// ordinal changes only when the group's own membership or order changes,
-// which is exactly when the identity should break. Every member of a group is
-// re-derived, the earliest position included, so no identifier that once
-// named two mutants survives to replay one of their verdicts from a cache an
-// earlier binary wrote: such an entry's name is derived from the identifier,
-// and no current mutant carries it any more.
+// Every distinct rewrite in a colliding group is re-derived, the earliest
+// position included, so no identifier that once named two mutants survives
+// to replay an ambiguous verdict from an earlier binary's cache.
 func disambiguateIdentifiers(mutants []Mutant) {
 	groups := map[string][]int{}
 

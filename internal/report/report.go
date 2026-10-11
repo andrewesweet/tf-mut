@@ -32,14 +32,10 @@ package report
 // a top-level scalar IPv4 CIDR literal to `0.0.0.0/0`. Nothing else changes:
 // a report of a command run with no pack selected is byte-identical under
 // 2.4.0 and 2.5.0 semantics.
-// 2.6.0 changes one documented derivation, with no field added, removed or
-// renamed: the mutant `id` of an identity collision — the same rewrite fired
-// at several positions of one attribute, where the position-free tuple hash
-// is equal — is re-derived with the collision group's occurrence ordinal in
-// source order, so every mutant of a population carries a distinct identifier
-// and cached, fresh, baseline and finding references resolve to one mutant
-// each. A population with no collision reads identically under 2.5.0 and
-// 2.6.0 semantics; colliding mutants' identifiers move by design.
+// 2.6.0 changes the mutant id derivation for identity collisions, with no
+// field added, removed or renamed. The identity and migration contract is
+// documented in docs/design/product-design.md; wire compatibility is
+// documented in docs/schema/report-2.6.0.json.
 const SchemaVersion = "2.6.0"
 
 // Command names what produced a report.

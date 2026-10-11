@@ -670,15 +670,18 @@ graph-derived invalidation waits for a measurement proving the coarse key insuff
 hash over the operator, the closure-relative path, the site address, the replaced content and
 the replacement — stable under line moves and unrelated edits, broken by renaming the file.
 That hash is position-free, so the same rewrite fired at several positions of one attribute —
-the same literal twice in one conditional — collides; every member of such a group re-derives
-its identifier with the group's occurrence ordinal in source order, assigned before any
-selection lever, so identifiers do not depend on `--since`, sampling or operator selection.
+the same literal twice in one conditional — collides. Each distinct rewritten file in such a
+group gets an occurrence ordinal in source order, assigned before any selection lever, and
+re-derives its identifier with that ordinal. Duplicate pack producers of the same bytes count
+as one occurrence: they add origins without moving the identifier. Identifiers therefore do
+not depend on `--since`, sampling or operator selection.
 A cache entry, a baseline entry and each mutant reference in a suppression report therefore
 resolve to one mutant. An operator-scoped suppression directive can match several mutants.
-A pre-2.6.0 acceptance list over a colliding population is stale by design and is rewritten.
+A pre-2.6.0 acceptance list over a colliding population is stale by design; renew it explicitly
+with `--write-baseline` under the baseline-writing rules above.
 The ordinal, not a byte offset, is what the identifier mixes in: an offset inside
 one attribute shifts under any earlier edit in it, while the ordinal changes only when the
-group's own membership or order changes.
+group's distinct rewrite occurrences are added, removed or reordered.
 
 ---
 
