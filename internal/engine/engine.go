@@ -485,7 +485,9 @@ func mutate(
 	result.Warnings = append(result.Warnings, rejected...)
 
 	// The count levers: --since and --sample scope the population, and the
-	// report says distinctly what was selected and what was left out.
+	// report says distinctly what was selected and what was left out. The
+	// described population before selection is what coverage claims are judged
+	// over, so the plan carries it beside the selected rows.
 	selectionPhase := collector.phase(phaseSelection)
 	selected, err := applyCountLevers(ctx, configuration, settings, &result, mutants,
 		generated.Mutants, classified)
@@ -504,18 +506,19 @@ func mutate(
 	}
 
 	plan := executionPlan{
-		runner:        runner,
-		configuration: configuration,
-		settings:      settings,
-		prepared:      prepared,
-		generated:     selected.generated,
-		described:     selected.mutants,
-		classified:    selected.classified,
-		workRoot:      workRoot,
-		closure:       configuration.BuildClosure(),
-		graph:         graph,
-		collector:     collector,
-		events:        &dispatcher{},
+		runner:              runner,
+		configuration:       configuration,
+		settings:            settings,
+		prepared:            prepared,
+		generated:           selected.generated,
+		described:           selected.mutants,
+		populationDescribed: mutants,
+		classified:          selected.classified,
+		workRoot:            workRoot,
+		closure:             configuration.BuildClosure(),
+		graph:               graph,
+		collector:           collector,
+		events:              &dispatcher{},
 	}
 
 	executionPhase := collector.phase(phaseExecution)
@@ -623,7 +626,7 @@ type gradingProjection struct {
 // complete computes the aggregates over the classified population.
 func (p *gradingProjection) complete(event PopulationClassified) error {
 	finalisePhase := p.plan.collector.phase(phaseFinalise)
-	p.completed = complete(p.plan.configuration, p.plan.settings, p.shell,
+	p.completed = complete(p.plan.configuration, p.plan.settings, p.plan.populationDescribed, p.shell,
 		p.evaluated.rows, event.population)
 	finalisePhase()
 
@@ -839,6 +842,7 @@ func build(
 func complete(
 	configuration discovery.Configuration,
 	settings settings,
+	populationDescribed []report.Mutant,
 	shell report.Report,
 	executed []report.Mutant,
 	population oracle.Population,
@@ -849,7 +853,7 @@ func complete(
 		metrics:        metrics,
 		operatorErrors: projectOperatorErrors(oracle.ComputeOperatorErrors(population)),
 		findings:       findingsOf(configuration, executed, population),
-		warnings:       unanswerableResources(configuration, executed),
+		warnings:       unanswerableResources(configuration, populationDescribed),
 		gates:          gateOutcomes(settings, shell, metrics),
 	}
 }
