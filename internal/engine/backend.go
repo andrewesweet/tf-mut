@@ -216,6 +216,10 @@ func stripJSONBackendBody(source []byte, terraformBody, removeCloud bool) ([]byt
 		return nil, false, err
 	}
 
+	if terraformBody && opening == nil {
+		return source, false, nil
+	}
+
 	delimiter, ok := opening.(json.Delim)
 	if !ok || delimiter != '{' && delimiter != '[' {
 		return nil, false, fmt.Errorf("expected a JSON body, got %v", opening)
@@ -251,7 +255,8 @@ func stripJSONBackendBody(source []byte, terraformBody, removeCloud bool) ([]byt
 		}
 
 		if !object || !terraformBody && key == "terraform" {
-			if !object && bytes.TrimSpace(value)[0] != '{' {
+			if !object && bytes.TrimSpace(value)[0] != '{' &&
+				!(terraformBody && bytes.Equal(bytes.TrimSpace(value), []byte("null"))) {
 				return nil, false, fmt.Errorf("expected a JSON body object, got %s", value)
 			}
 

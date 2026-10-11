@@ -37,3 +37,4 @@ internal/engine/testdata/backend-cloud-json-object/cloud.tf.json
 internal/engine/testdata/backend-cloud-json-object/state_override.tf.json
 internal/engine/testdata/backend-cloud-json-array/cloud.tf.json
 internal/engine/testdata/backend-cloud-hcl-json-override/override.tf.json
+internal/engine/testdata/backendless-json-null/settings.tf.json

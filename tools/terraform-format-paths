@@ -222,3 +222,6 @@ internal/engine/testdata/backend-cloud-earlier-override/state_override.tf
 internal/engine/testdata/backend-cloud-earlier-override/main.tf
 internal/engine/testdata/backend-cloud-earlier-override/outputs.tf
 internal/engine/testdata/backend-cloud-earlier-override/tests/unit.tftest.hcl
+internal/engine/testdata/backendless-json-null/main.tf
+internal/engine/testdata/backendless-json-null/outputs.tf
+internal/engine/testdata/backendless-json-null/tests/unit.tftest.hcl

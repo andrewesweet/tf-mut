@@ -207,6 +207,17 @@ func TestJSONBackendNeutralisationKeepsRepeatedDeclarations(t *testing.T) {
 "terraform":[{"required_version":">= 1.6"}]}`,
 		},
 		{
+			name: "null-properties-around-backend",
+			document: `{"terraform":null,"terraform":{"backend":{"azurerm":{}}},
+"terraform":null}`,
+		},
+		{
+			name:    "null-array-bodies-around-backend",
+			preview: true,
+			document: `{"terraform":[null,{"backend":{"azurerm":{}}},null,
+{"required_version":">= 1.6"}]}`,
+		},
+		{
 			name:    "root-array",
 			preview: true,
 			document: `[{"terraform":{"backend":{"azurerm":{}}}},
@@ -291,6 +302,77 @@ func TestABackendlessJSONRootArrayIsAdmittedByPreview(t *testing.T) {
 	}
 
 	assertTreeUnchanged(t, module, before)
+}
+
+func TestNullTerraformJSONBodiesAreAdmitted(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		document string
+		preview  bool
+	}{
+		{name: "property", document: "", preview: false},
+		{
+			name:     "repeated-properties",
+			document: `{"terraform":null,"terraform":{"required_version":">= 1.6"},"terraform":null}`,
+			preview:  false,
+		},
+		{
+			name:     "array-bodies",
+			document: `{"terraform":[null,{"required_version":">= 1.6"},null]}`,
+			preview:  true,
+		},
+		{
+			name:     "root-array",
+			document: `[{"terraform":null},{"terraform":[null,{"required_version":">= 1.6"}]}]`,
+			preview:  true,
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, "backendless-json-null")
+			if testCase.document != "" {
+				writeFile(t, filepath.Join(module, "settings.tf.json"), testCase.document)
+			}
+
+			before := treeDigest(t, module)
+			request := baseConfig(t, module)
+			request.IncludeOperators = []string{"EXT-OUTPUT-NULL"}
+			request.NoCache = true
+			var command engine.Request = request
+			if testCase.preview {
+				preview := previewRequest(t, module)
+				preview.IncludeOperators = request.IncludeOperators
+				command = preview
+			}
+
+			result, err := engine.Run(t.Context(), command)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			assertTreeUnchanged(t, module, before)
+
+			if len(result.Mutants) != 1 {
+				t.Fatalf("got %d mutants, want one output mutation", len(result.Mutants))
+			}
+
+			if testCase.preview {
+				if executedAny(t, result) {
+					t.Fatalf("preview executed an output mutation: %+v", result.Mutants)
+				}
+
+				return
+			}
+
+			if result.Mutants[0].State != report.Survived || !executedAny(t, result) {
+				t.Fatalf("output mutation did not survive execution: %+v", result.Mutants)
+			}
+		})
+	}
 }
 
 func TestBackendOverridesKeepClearedCloudDeclarationsOutOfWarmUp(t *testing.T) {
