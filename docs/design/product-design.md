@@ -248,17 +248,20 @@ Per mutant, in parallel across `min(NumCPU, --jobs)` workers:
 1. Materialise a sandbox rooted at the **`..`-closure of local module sources** (the review's
    M6: a `source = "../shared"` — the standard monorepo layout — escapes a sandbox rooted at
    the module directory and fails with "Module not installed"; `fixture-c` only proved the
-   downward case). Files are hardlinked or reflinked; for large closures an overlay mount is
-   the planned optimisation. The sandbox gets its **own `.terraform` directory** containing a
-   synthesised `modules.json` (needed for run-block file splitting) and `.terraform.lock.hcl`
-   is always copied — omitting it classifies the entire population `Invalid` with zero tests
-   executed (m14). Two sharing rules, both review-corrected: `providers/` is shared
-   read-only (symlink, NTFS junction on Windows, `TF_DATA_DIR` as the portable fallback;
+   downward case). Unmutated regular Terraform input files are hardlinked when possible.
+   Other unmutated files are copied. Symlinked source files are materialised from their
+   target's contents under the link's own name. Reflinks and overlay mounts remain planned
+   optimisations for large closures. The sandbox gets its **own `.terraform` directory**
+   containing a synthesised `modules.json` (needed for run-block file splitting).
+   `.terraform.lock.hcl` is always copied — omitting it classifies the entire population
+   `Invalid` with zero tests executed (m14). Two sharing rules, both review-corrected:
+   `providers/` is shared read-only (symlink, NTFS junction on Windows, `TF_DATA_DIR` as the
+   portable fallback;
    verified: eight concurrent readers neither contend nor corrupt), and — R2-7 — **remote
    module payloads under `.terraform/modules/` are shared as well**, with the synthesised
-   `modules.json` entries rewritten to sandbox-visible paths. Remote modules are excluded
-   from mutation *generation*, but a root consuming a registry or git child cannot execute
-   without their code present.
+   `modules.json` entries resolving to sandbox-visible paths and retaining each recorded
+   `Version` for registry modules. Remote modules are excluded from mutation *generation*,
+   but a root consuming a registry or git child cannot execute without their code present.
 2. Write the mutated file — **always as a fresh inode, never through a hardlink**. R2-3
    demonstrated the trap: a hardlink shares the source's inode, so an in-place write
    (`os.WriteFile`) mutates the original checkout — exactly the drift this design claims is
@@ -659,12 +662,13 @@ verdicts from a project-local cache (`.tf-mut-cache/`, `0700`, atomic writes,
 corruption-as-miss, advisory locking, deterministic size-capped eviction) under a coarse key:
 the entire materialised source closure, all tests, the resolved configuration, the lock and
 module inventory with remote payloads, the relevant environment, the Terraform identity, the
-cache format version and the masked baseline fingerprint — any doubt is a miss, and cache
-reads and writes are disabled under `--allow-real-infrastructure` and
-`--allow-unsandboxed-effects`, whose external state cannot be keyed soundly. **Cached evidence
-may embed plan values and source text.** Sharing a cache across repositories, or restoring it
-through a broad CI cache key, is a documented risk; `--no-cache` is the mitigation. Finer
-graph-derived invalidation waits for a measurement proving the coarse key insufficient.
+cache version ([invalidation policy](../../internal/engine/cache.go)) and the masked baseline
+fingerprint — any doubt is a miss, and cache reads and writes are disabled under
+`--allow-real-infrastructure` and `--allow-unsandboxed-effects`, whose external state cannot
+be keyed soundly. **Cached evidence may embed plan values and source text.** Sharing a cache
+across repositories, or restoring it through a broad CI cache key, is a documented risk;
+`--no-cache` is the mitigation. Finer graph-derived invalidation waits for a measurement
+proving the coarse key insufficient.
 
 **One identifier names one mutant (report schema 2.6.0).** The mutant identifier is a content
 hash over the operator, the closure-relative path, the site address, the replaced content and

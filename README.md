@@ -136,7 +136,7 @@ reproduction steps in [`docs/research/04-harness-spike.md`](docs/research/04-har
 
 | Finding | Consequence |
 | --- | --- |
-| `terraform init` costs 5.2 s; a mocked test run costs 0.167 s | Init once, share `.terraform` read-only across mutant sandboxes |
+| `terraform init` costs 5.2 s; a mocked test run costs 0.167 s | Init once, then follow the [sandbox sharing rules](docs/design/product-design.md#execute) |
 | Local module paths in `.terraform/modules/modules.json` are **relative** | Provider sharing is safe and downward child-module mutations propagate; upward (`../`) sources require rooting the sandbox at their closure |
 | 100 mutants, 8 workers, mocked plan tests, small-schema provider: **2.3 s** | The inner loop can be interactive — with the two-phase execution and test selection the design specifies for real-provider schemas |
 | `-filter` is **file**-scoped, not run-scoped, and exits **0** when it matches nothing | Test selection is per-file; the executed-test count must be asserted explicitly |
@@ -152,8 +152,8 @@ reproduction steps in [`docs/research/04-harness-spike.md`](docs/research/04-har
   catalogue at attribute assignments.
 - Language-level operators that fire on any module and any provider, rather than curated
   `(resource_type, attribute)` pairs that only match specific AWS resources.
-- Copy-on-write sandboxes with a shared `.terraform`. The source tree is never written to, so
-  there is no git dependency and no drift on crash.
+- Isolated [sandboxes](docs/design/product-design.md#execute). The source tree is never
+  written to, so there is no git dependency and no drift on crash.
 - Automatic detection of mutants that *cannot* be observed, so the tool does not generate work
   that has no fix.
 - Mock-aware diagnosis, so a mocked suite is not told to assert on values the mock invented.

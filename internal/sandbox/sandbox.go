@@ -115,7 +115,7 @@ type Spec struct {
 	Staged map[string][]byte
 	// Share borrows the provider tree and remote module payloads when set.
 	Share *Share
-	// Hardlink shares unmutated files by link rather than by copy.
+	// Hardlink shares unmutated regular Terraform input files when possible.
 	Hardlink bool
 }
 
