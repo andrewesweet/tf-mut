@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -364,16 +366,20 @@ func TestProgressLinesReportTheLongRun(t *testing.T) {
 
 	// The final count reached the total: the tracker did not stop early.
 	counted := regexp.MustCompile(`tf-mut: (\d+)/`)
-	best := 0
+	last := 0
 	for _, match := range counted.FindAllStringSubmatch(text, -1) {
-		if n, err := strconv.Atoi(match[1]); err == nil && n > best {
-			best = n
+		if n, err := strconv.Atoi(match[1]); err == nil {
+			if n < last {
+				t.Fatalf("progress moved backwards from %d to %d:\n%s", last, n, text)
+			}
+
+			last = n
 		}
 	}
 
-	if best != result.Population.Selected {
-		t.Errorf("progress reached %d of %d mutants; the line must reach the total",
-			best, result.Population.Selected)
+	if last != result.Population.Selected {
+		t.Errorf("final progress reached %d of %d mutants; the line must reach the total",
+			last, result.Population.Selected)
 	}
 }
 
@@ -527,5 +533,162 @@ func TestCPUProfileWritesTheNamedFile(t *testing.T) {
 	// gzip.NewWriter wrote it; the first two bytes are the gzip magic.
 	if content[0] != 0x1f || content[1] != 0x8b {
 		t.Fatalf("the profile does not begin with the gzip magic: % x", content[:2])
+	}
+}
+
+func TestCPUProfileRefusesModuleDestinations(t *testing.T) {
+	t.Parallel()
+
+	for _, kind := range []string{
+		"existing", "new", "module-directory", "relative", "file-symlink",
+		"parent-symlink-existing", "parent-symlink-new", "module-symlink", "missing-parent",
+	} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, "discriminate")
+			before := treeDigest(t, module)
+			common, wantError := profileRefusalRequest(t, module, kind)
+
+			for _, request := range []engine.Request{
+				engine.RunRequest{Common: common},
+				engine.PreviewRequest{Common: common},
+				engine.SuggestRequest{Common: common},
+				engine.CharacteriseRequest{Common: common},
+				engine.TodosRequest{Common: common},
+				engine.CurateRequest{Common: common},
+			} {
+				if _, err := engine.Run(t.Context(), request); err == nil || !strings.Contains(err.Error(), wantError) {
+					t.Fatalf("%T returned %v, want a profile refusal containing %q", request, err, wantError)
+				}
+
+				assertTreeUnchanged(t, module, before)
+			}
+		})
+	}
+}
+
+func profileRefusalRequest(t *testing.T, module, kind string) (engine.Common, string) {
+	t.Helper()
+
+	common := commonRequest(t, module)
+	common.CPUProfile = filepath.Join(module, mainFile)
+	wantError := "inside the module directory"
+
+	switch kind {
+	case "new":
+		common.CPUProfile = filepath.Join(module, "tf-mut.pprof")
+	case "module-directory":
+		common.CPUProfile = module
+	case "relative":
+		working, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		common.ModuleDir, err = filepath.Rel(working, module)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		common.CPUProfile = filepath.Join(common.ModuleDir, mainFile)
+	case "file-symlink", "parent-symlink-existing", "parent-symlink-new", "module-symlink":
+		alias := filepath.Join(t.TempDir(), "alias")
+		target := module
+		if kind == "file-symlink" {
+			target = common.CPUProfile
+		}
+
+		if err := os.Symlink(target, alias); err != nil {
+			t.Fatal(err)
+		}
+
+		switch kind {
+		case "file-symlink":
+			common.CPUProfile = alias
+		case "parent-symlink-existing":
+			common.CPUProfile = filepath.Join(alias, mainFile)
+		case "parent-symlink-new":
+			common.CPUProfile = filepath.Join(alias, "tf-mut.pprof")
+		case "module-symlink":
+			common.ModuleDir = alias
+		}
+	case "missing-parent":
+		common.CPUProfile = filepath.Join(t.TempDir(), "missing", "tf-mut.pprof")
+		wantError = "CPU profile parent directory"
+	}
+
+	return common, wantError
+}
+
+func TestSuggestTelemetryIncludesVerification(t *testing.T) {
+	t.Parallel()
+
+	for _, dryRun := range []bool{false, true} {
+		t.Run(fmt.Sprintf("dry-run=%t", dryRun), func(t *testing.T) {
+			t.Parallel()
+
+			request := suggestRequest(t, copyFixture(t, suggestBasicFixture))
+			request.DryRun = dryRun
+			request.NoCache = true
+			result := runSuggest(t, request)
+
+			verificationRuns := 0
+			for _, warning := range result.Warnings {
+				var fullSuite, isolated int
+				if matched, err := fmt.Sscanf(warning,
+					"verification executed %d full-suite run(s) plus %d isolated mutant run(s)",
+					&fullSuite, &isolated); err == nil && matched == 2 {
+					verificationRuns += fullSuite + isolated
+				}
+			}
+
+			if !dryRun && verificationRuns == 0 {
+				t.Fatal("the fixture verified no suggestions")
+			}
+
+			if dryRun && verificationRuns != 0 {
+				t.Fatalf("dry run executed %d verification runs", verificationRuns)
+			}
+
+			assertVerificationTelemetry(t, result, verificationRuns)
+		})
+	}
+}
+
+func assertVerificationTelemetry(t *testing.T, result report.Report, verificationRuns int) {
+	t.Helper()
+
+	if result.Telemetry == nil {
+		t.Fatal("the suggest report carries no telemetry")
+	}
+
+	phases := 0
+	for _, phase := range result.Telemetry.Phases {
+		if phase.Phase == "suggest-verification" {
+			phases++
+		}
+	}
+
+	if phases != verificationRuns {
+		t.Errorf("recorded %d verification phases, want %d", phases, verificationRuns)
+	}
+
+	wantTests := 2 + verificationRuns
+	for _, mutant := range result.Mutants {
+		if mutant.Telemetry == nil {
+			continue
+		}
+
+		for _, child := range mutant.Telemetry.Children {
+			if child.Command == testSubcommand {
+				wantTests += child.Invocations
+			}
+		}
+	}
+
+	usage, found := childUsage(result.Telemetry.Children, testSubcommand)
+	if !found || usage.Invocations != wantTests {
+		t.Errorf("recorded %d test children, want %d including both verification legs", usage.Invocations, wantTests)
 	}
 }

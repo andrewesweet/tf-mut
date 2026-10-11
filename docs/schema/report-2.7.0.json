@@ -521,7 +521,7 @@
       "properties": {
         "id": {
           "type": "string",
-          "description": "Hash of operator, closure-relative path, site address, replaced content and replacement. Stable under line moves and unrelated edits; broken by renaming the file."
+          "description": "Stable content-derived mutant identifier. Its derivation, collision handling and stability contract are documented in docs/design/product-design.md."
         },
         "operator": {
           "$ref": "#/$defs/operator"

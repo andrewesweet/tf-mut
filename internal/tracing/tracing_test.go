@@ -2,9 +2,11 @@ package tracing_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -135,9 +137,8 @@ func TestEnvironmentConfiguresExport(t *testing.T) {
 	}
 
 	ctx, run := tracer.Start(ctx, "tf-mut.run")
-	nested := run.Attach(ctx)
 
-	_, mutant := tracer.Start(nested, "tf-mut.mutant")
+	_, mutant := tracer.Start(ctx, "tf-mut.mutant")
 	mutant.End()
 	run.End()
 
@@ -161,5 +162,65 @@ func TestUnusableEndpointDisablesInsteadOfFailing(t *testing.T) {
 	tracer := tracing.New(ctx, "://not-a-url")
 	if tracer.Enabled() {
 		t.Fatal("a tracer over an unusable endpoint must disable itself")
+	}
+}
+
+func TestUnusableEndpointWarningsRedactSecrets(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		endpoint string
+		safeURL  string
+	}{
+		{
+			name:     "unsupported-scheme",
+			endpoint: "ftp://user:password@collector.example/private?api_key=secret#token",
+			safeURL:  " ftp://collector.example",
+		},
+		{
+			name:     "malformed-url",
+			endpoint: "https://user:password@collector.example/%zz?api_key=secret#token",
+		},
+	} {
+		for _, ambient := range []bool{false, true} {
+			t.Run(test.name+fmt.Sprintf("/environment=%t", ambient), func(t *testing.T) {
+				t.Setenv(tracing.EndpointEnv, "")
+				endpoint := test.endpoint
+				if ambient {
+					t.Setenv(tracing.EndpointEnv, endpoint)
+					endpoint = ""
+				}
+
+				log, err := os.CreateTemp(t.TempDir(), "stderr")
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				original := os.Stderr
+				os.Stderr = log
+				t.Cleanup(func() {
+					os.Stderr = original
+					_ = log.Close()
+				})
+
+				tracer := tracing.New(t.Context(), endpoint)
+				if tracer.Enabled() {
+					t.Fatal("an unusable endpoint enabled tracing")
+				}
+
+				if _, err := log.Seek(0, io.SeekStart); err != nil {
+					t.Fatal(err)
+				}
+
+				warning, err := io.ReadAll(log)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				want := "tf-mut: tracing disabled: an unusable OTLP endpoint" + test.safeURL + "\n"
+				if string(warning) != want {
+					t.Fatalf("warning = %q, want %q", warning, want)
+				}
+			})
+		}
 	}
 }

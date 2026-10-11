@@ -10,7 +10,6 @@ package tracing
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -39,10 +38,6 @@ type Span struct {
 	span oteltrace.Span
 }
 
-// errEndpointURL is the refusal for a configured endpoint that is not an
-// absolute http or https URL with a host.
-var errEndpointURL = errors.New("the URL needs an http or https scheme and a host")
-
 // New resolves the endpoint — the argument first, then the environment — and
 // returns a tracer that exports over OTLP/HTTP. Any failure to build the
 // exporter disables tracing rather than failing the run: the telemetry is a
@@ -63,18 +58,14 @@ func New(ctx context.Context, endpoint string) *Tracer {
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Host == "" ||
 		(parsed.Scheme != "http" && parsed.Scheme != "https") {
-		if err == nil {
-			err = errEndpointURL
-		}
-
-		warn(endpoint, err)
+		warn(parsed)
 
 		return &Tracer{disabled: true}
 	}
 
 	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(endpoint))
 	if err != nil {
-		warn(endpoint, err)
+		warn(parsed)
 
 		return &Tracer{disabled: true}
 	}
@@ -87,8 +78,13 @@ func New(ctx context.Context, endpoint string) *Tracer {
 	}
 }
 
-func warn(endpoint string, err error) {
-	fmt.Fprintf(os.Stderr, "tf-mut: tracing disabled: OTLP endpoint %q unusable: %v\n", endpoint, err)
+func warn(endpoint *url.URL) {
+	target := ""
+	if endpoint != nil && endpoint.Scheme != "" && endpoint.Host != "" {
+		target = " " + (&url.URL{Scheme: endpoint.Scheme, Host: endpoint.Host}).Redacted()
+	}
+
+	_, _ = fmt.Fprintf(os.Stderr, "tf-mut: tracing disabled: an unusable OTLP endpoint%s\n", target)
 }
 
 // Enabled reports whether spans are being recorded.
@@ -114,16 +110,6 @@ func (s *Span) End() {
 	if s != nil && s.span != nil {
 		s.span.End()
 	}
-}
-
-// Attach returns a context that carries the span, so spans started later from
-// the returned context nest under it.
-func (s *Span) Attach(ctx context.Context) context.Context {
-	if s == nil || s.span == nil {
-		return ctx
-	}
-
-	return oteltrace.ContextWithSpan(ctx, s.span)
 }
 
 // Shutdown flushes whatever the batcher still holds. It is the caller's job

@@ -42,28 +42,6 @@ const (
 	curateMode
 )
 
-// label is the mode's name, for spans and logs that have to say which command
-// is running without exporting the internal type.
-func (m mode) label() string {
-	switch m {
-	case gradeMode:
-		return "run"
-	case previewMode:
-		return "preview"
-	case suggestMode:
-		return "suggest"
-	case characteriseMode:
-		return "characterise"
-	case todosMode:
-		return "todos"
-	case curateMode:
-		return "curate"
-	}
-
-	return "run"
-}
-
-// Common carries the options shared by every engine command.
 // Common carries the options shared by every engine command.
 type Common struct {
 	ModuleDir               string

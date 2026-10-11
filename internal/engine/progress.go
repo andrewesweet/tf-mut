@@ -23,10 +23,10 @@ type progressTracker struct {
 	total    int
 	done     atomic.Int64
 	writer   io.Writer
-	mutex    sync.Mutex
 	interval time.Duration
 	started  time.Time
 	stop     chan struct{}
+	loopDone chan struct{}
 	finished sync.Once
 }
 
@@ -49,6 +49,7 @@ func startProgress(ctx context.Context, plan executionPlan, pending int) *progre
 		interval: interval,
 		started:  time.Now(),
 		stop:     make(chan struct{}),
+		loopDone: make(chan struct{}),
 	}
 
 	go tracker.loop(ctx)
@@ -74,11 +75,14 @@ func (t *progressTracker) stopLine() {
 
 	t.finished.Do(func() {
 		close(t.stop)
+		<-t.loopDone
 		t.write()
 	})
 }
 
 func (t *progressTracker) loop(ctx context.Context) {
+	defer close(t.loopDone)
+
 	ticker := time.NewTicker(t.interval)
 	defer ticker.Stop()
 
@@ -95,8 +99,7 @@ func (t *progressTracker) loop(ctx context.Context) {
 }
 
 // write emits one line. Elapsed and ETA are second-resolution: the line is
-// read by a person, and a wall of changing milliseconds is noise. The mutex
-// keeps the periodic write and the final one from interleaving.
+// read by a person, and a wall of changing milliseconds is noise.
 func (t *progressTracker) write() {
 	done := int(t.done.Load())
 	elapsed := time.Since(t.started)
@@ -109,9 +112,6 @@ func (t *progressTracker) write() {
 	} else {
 		remaining = "unknown"
 	}
-
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
 
 	// Best effort by contract: a progress line nobody could read must never
 	// fail a run that was otherwise fine.

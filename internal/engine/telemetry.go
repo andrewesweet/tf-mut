@@ -34,6 +34,7 @@ const (
 	phaseCacheStore          = "cache-store"
 	phaseExecution           = "execution"
 	phaseSuggest             = "suggest"
+	phaseSuggestVerification = "suggest-verification"
 	phaseFinalise            = "finalise"
 
 	// Per-mutant phases.
@@ -229,8 +230,8 @@ func (m *mutantCollector) child(command string, usage tfexec.Usage) {
 		PeakRSSKB:   usage.PeakRSSKB,
 	})
 
-	m.run.child(command, usage)
 	m.run.overhead.Add(int64(time.Since(marked)))
+	m.run.child(command, usage)
 }
 
 // finish completes the mutant's record and closes its span.

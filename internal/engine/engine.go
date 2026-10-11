@@ -215,6 +215,8 @@ var seedGenerationDefect = func(settings) mutation.Defect { return mutation.Defe
 // Operational failures. Every one of them aborts the run: none of them can be
 // reported as a mutant verdict without misleading the reader.
 var (
+	errCPUProfileInModule = errors.New("CPU profile destination is inside the module directory")
+
 	// ErrTerraformVersion reports a Terraform release the tool cannot drive.
 	ErrTerraformVersion = errors.New("unsupported Terraform version")
 	// ErrRealInfrastructure reports an unmocked provider.
@@ -241,7 +243,12 @@ func Run(ctx context.Context, request Request) (report.Report, error) {
 	// The CPU profile writes where the caller pointed it and nothing else: it
 	// is a file the user asked for by name, never a default location.
 	if s.CPUProfile != "" {
-		profileFile, profileErr := os.Create(s.CPUProfile)
+		profilePath, profileErr := cpuProfilePath(s.ModuleDir, s.CPUProfile)
+		if profileErr != nil {
+			return report.Report{}, profileErr
+		}
+
+		profileFile, profileErr := os.Create(profilePath)
 		if profileErr != nil {
 			return report.Report{}, fmt.Errorf("opening the CPU profile file: %w", profileErr)
 		}
@@ -253,7 +260,9 @@ func Run(ctx context.Context, request Request) (report.Report, error) {
 
 		defer func() {
 			pprof.StopCPUProfile()
-			_ = profileFile.Close()
+			if closeErr := profileFile.Close(); closeErr != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "tf-mut: CPU profile may be incomplete: %v\n", closeErr)
+			}
 		}()
 	}
 
@@ -273,7 +282,7 @@ func Run(ctx context.Context, request Request) (report.Report, error) {
 	collector := newRunCollector(ctx, tracer)
 	//nolint:contextcheck // beginRun returns the run-span context on purpose: the
 	// pipeline below runs under it, so every span it starts parents correctly.
-	ctx = collector.beginRun(s.mode.label())
+	ctx = collector.beginRun(string(commandName(s.mode)))
 	defer collector.endRun()
 
 	moduleDir, err := filepath.Abs(s.ModuleDir)
@@ -342,6 +351,44 @@ func Run(ctx context.Context, request Request) (report.Report, error) {
 
 		return result, err
 	}
+}
+
+func cpuProfilePath(moduleDir, destination string) (string, error) {
+	module, err := filepath.Abs(moduleDir)
+	if err != nil {
+		return "", fmt.Errorf("resolving module directory for the CPU profile: %w", err)
+	}
+
+	module, err = filepath.EvalSymlinks(module)
+	if err != nil {
+		return "", fmt.Errorf("resolving module directory for the CPU profile: %w", err)
+	}
+
+	path, err := filepath.Abs(destination)
+	if err != nil {
+		return "", fmt.Errorf("resolving the CPU profile destination: %w", err)
+	}
+
+	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if err != nil {
+		return "", fmt.Errorf("resolving the CPU profile parent directory: %w", err)
+	}
+
+	path = filepath.Join(parent, filepath.Base(path))
+	if _, statErr := os.Lstat(path); statErr == nil {
+		path, err = filepath.EvalSymlinks(path)
+		if err != nil {
+			return "", fmt.Errorf("resolving the CPU profile destination: %w", err)
+		}
+	} else if !os.IsNotExist(statErr) {
+		return "", fmt.Errorf("checking the CPU profile destination: %w", statErr)
+	}
+
+	if within(module, path) {
+		return "", fmt.Errorf("%w: %q", errCPUProfileInModule, destination)
+	}
+
+	return path, nil
 }
 
 // mutate is the grading pipeline: gates, generation, selection, execution and
