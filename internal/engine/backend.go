@@ -7,12 +7,19 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/andrewesweet/tf-mut/internal/sandbox"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 )
 
+type backendRewrite struct {
+	target   string
+	source   string
+	original []byte
+}
+
 // neutraliseBackends drops every root-module backend declaration from the
-// staged copy the warm workspace initialises, in place, before init runs.
+// staged copy the warm workspace initialises, before init runs.
 //
 // tf-mut always initialises with -backend=false, and a root that declares a
 // backend — even a vacuous `backend "azurerm" {}` with no configured
@@ -27,12 +34,13 @@ import (
 // sources, share only the warm data directory, and run terraform test, which
 // runs green on such a tree after the warm workspace has been initialised
 // without one.
-func neutraliseBackends(rootDir string) error {
+func neutraliseBackends(rootDir, sourceDir string) ([]backendRewrite, error) {
 	entries, err := os.ReadDir(rootDir)
 	if err != nil {
-		return fmt.Errorf("reading staged module: %w", err)
+		return nil, fmt.Errorf("reading staged module: %w", err)
 	}
 
+	rewrites := []backendRewrite{}
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -40,45 +48,48 @@ func neutraliseBackends(rootDir string) error {
 
 		name := entry.Name()
 		path := filepath.Join(rootDir, name)
+		source := filepath.Join(sourceDir, name)
 
+		var original []byte
 		var stripErr error
 		switch {
 		case strings.HasSuffix(name, ".tf"):
-			_, stripErr = stripHCLBackend(path)
+			original, stripErr = stripHCLBackend(path, source)
 		case strings.HasSuffix(name, ".tf.json"):
-			_, stripErr = stripJSONBackend(path)
+			original, stripErr = stripJSONBackend(path, source)
 		default:
 			continue
 		}
 
 		if stripErr != nil {
-			return stripErr
+			return nil, stripErr
+		}
+
+		if original != nil {
+			rewrites = append(rewrites, backendRewrite{target: path, source: source, original: original})
 		}
 	}
 
-	return nil
+	return rewrites, nil
 }
 
 // backendBlock names the terraform sub-block that declares a backend, in
 // both syntaxes.
 const backendBlock = "backend"
 
-// stagedFileMode is the permission the staged workspace's rewrites carry.
-const stagedFileMode = 0o600
-
 // stripHCLBackend removes every backend block from every terraform block in
-// one staged .tf file, and reports whether it rewrote the file.
-func stripHCLBackend(path string) (bool, error) {
+// one staged .tf file, returning the original bytes when it rewrites the file.
+func stripHCLBackend(path, sourcePath string) ([]byte, error) {
 	name := filepath.Base(path)
 
 	source, err := os.ReadFile(path) //nolint:gosec // the staged module's own path.
 	if err != nil {
-		return false, fmt.Errorf("reading %s: %w", name, err)
+		return nil, fmt.Errorf("reading %s: %w", name, err)
 	}
 
 	file, diagnostics := hclwrite.ParseConfig(source, name, hcl.InitialPos)
 	if diagnostics.HasErrors() {
-		return false, fmt.Errorf("parsing %s: %w", name, diagnostics)
+		return nil, fmt.Errorf("parsing %s: %w", name, diagnostics)
 	}
 
 	stripped := false
@@ -96,60 +107,59 @@ func stripHCLBackend(path string) (bool, error) {
 	}
 
 	if !stripped {
-		return false, nil
+		return nil, nil
 	}
 
-	//nolint:gosec // the staged module's own path.
-	if err := os.WriteFile(path, file.Bytes(), stagedFileMode); err != nil {
-		return false, fmt.Errorf("writing %s: %w", name, err)
+	if err := sandbox.WriteFresh(path, sourcePath, file.Bytes()); err != nil {
+		return nil, fmt.Errorf("writing %s: %w", name, err)
 	}
 
-	return true, nil
+	return source, nil
 }
 
 // stripJSONBackend removes the backend key from every terraform block of one
-// staged .tf.json file, and reports whether it rewrote the file. Terraform's
+// staged .tf.json file, returning the original bytes when rewritten. Terraform's
 // JSON configuration syntax lets a block type map to one object or to an
 // array of them; both spellings appear in the wild.
-func stripJSONBackend(path string) (bool, error) {
+func stripJSONBackend(path, sourcePath string) ([]byte, error) {
 	name := filepath.Base(path)
 
 	source, readErr := os.ReadFile(path) //nolint:gosec // the staged module's own path.
 	if readErr != nil {
-		return false, fmt.Errorf("reading %s: %w", name, readErr)
+		return nil, fmt.Errorf("reading %s: %w", name, readErr)
 	}
 
 	document := map[string]json.RawMessage{}
 	if err := json.Unmarshal(source, &document); err != nil {
-		return false, fmt.Errorf("decoding %s: %w", name, err)
+		return nil, fmt.Errorf("decoding %s: %w", name, err)
 	}
 
 	blocks, declared := document["terraform"]
 	if !declared {
-		return false, nil
+		return nil, nil
 	}
 
 	rewritten, stripped, err := stripJSONBackendBlocks(blocks)
 	if err != nil {
-		return false, fmt.Errorf("decoding %s: %w", name, err)
+		return nil, fmt.Errorf("decoding %s: %w", name, err)
 	}
 
 	if !stripped {
-		return false, nil
+		return nil, nil
 	}
 
 	document["terraform"] = rewritten
 
 	encoded, err := json.Marshal(document)
 	if err != nil {
-		return false, fmt.Errorf("encoding %s: %w", name, err)
+		return nil, fmt.Errorf("encoding %s: %w", name, err)
 	}
 
-	if err := os.WriteFile(path, encoded, stagedFileMode); err != nil {
-		return false, fmt.Errorf("writing %s: %w", name, err)
+	if err := sandbox.WriteFresh(path, sourcePath, encoded); err != nil {
+		return nil, fmt.Errorf("writing %s: %w", name, err)
 	}
 
-	return true, nil
+	return source, nil
 }
 
 // stripJSONBackendBlocks removes the backend key from the terraform payload

@@ -1,10 +1,16 @@
 package engine_test
 
 import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
 // The two admissions here are about the workspace tf-mut stages before any
@@ -61,22 +67,116 @@ func TestUnitTestDirectoryModuleCallsAreAdmittedAndScored(t *testing.T) {
 // declares backend "azurerm" with no configured credentials anywhere. Init
 // runs with -backend=false, and the next command in that workspace then
 // demands backend initialisation; the first is providers schema, so the run
-// died before the baseline. The staged workspace must not carry the backend.
+// died before the baseline. Schema retrieval must not see the backend.
 func TestDeclaredBackendDoesNotBlockTheSchemaOrTheSuite(t *testing.T) {
 	t.Parallel()
 
-	module := copyFixture(t, "backend-declared")
+	cases := []struct {
+		fixture string
+		file    string
+	}{
+		{fixture: "backend-declared", file: mainFile},
+		{fixture: "backend-json-object", file: "backend.tf.json"},
+		{fixture: "backend-json-array", file: "backend.tf.json"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.fixture, func(t *testing.T) {
+			t.Parallel()
 
-	result, err := engine.Run(t.Context(), baseConfig(t, module))
+			for _, assertion := range []string{"unasserted", "asserted"} {
+				t.Run(assertion, func(t *testing.T) {
+					t.Parallel()
+
+					module := copyFixture(t, testCase.fixture)
+					if err := os.Chmod(filepath.Join(module, testCase.file), 0o444); err != nil {
+						t.Fatalf("making backend file read-only: %v", err)
+					}
+
+					if assertion == "asserted" {
+						digest := treeDigest(t, module)[testCase.file]
+						writeFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), fmt.Sprintf(`run "plans" {
+  command = plan
+
+  assert {
+    condition     = terraform_data.checksum.input == %q
+    error_message = "backend file changed"
+  }
+}
+`, digest))
+					}
+
+					before := treeDigest(t, module)
+					request := baseConfig(t, module)
+					request.IncludeOperators = []string{"EXT-OUTPUT-NULL"}
+					request.NoCache = true
+
+					result, err := engine.Run(t.Context(), request)
+					if err != nil {
+						t.Fatalf("run: %v", err)
+					}
+
+					assertTreeUnchanged(t, module, before)
+
+					if len(result.Mutants) != 1 {
+						t.Fatalf("got %d mutants, want one output mutation", len(result.Mutants))
+					}
+
+					mutant := result.Mutants[0]
+					if mutant.State != report.Survived || mutant.Verdict == nil || mutant.ExecutedRuns == 0 {
+						t.Fatalf("output mutation did not survive execution: %+v", mutant)
+					}
+
+					if len(mutant.Verdict.Evidence.Delta) == 0 {
+						t.Fatal("output mutation has no fingerprint delta")
+					}
+
+					for _, change := range mutant.Verdict.Evidence.Delta {
+						if strings.Contains(change.Path, "terraform_data.checksum") {
+							t.Fatalf("unmutated backend file changed the fingerprint: %+v", change)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestUnformattedBackendSourceIsWarnedAbout(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "backend-declared")
+	path := filepath.Join(module, mainFile)
+	writeFile(t, path, strings.Replace(readFile(t, path), "  backend", "    backend", 1))
+	before := treeDigest(t, module)
+	request := baseConfig(t, module)
+	request.IncludeOperators = []string{"EXT-OUTPUT-NULL"}
+
+	result, err := engine.Run(t.Context(), request)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
-	if len(result.Mutants) == 0 {
-		t.Fatal("run produced no mutants")
+	if !strings.Contains(strings.Join(result.Warnings, " "), "formatted") {
+		t.Fatalf("warnings do not mention formatting: %v", result.Warnings)
 	}
 
-	if !executedAny(t, result) {
-		t.Fatal("no mutant executed; the suite did not exercise the population")
+	assertTreeUnchanged(t, module, before)
+}
+
+func TestProvidersSchemaFailureCarriesNoColourCodes(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "schema-uninitialised-cloud")
+	_, err := engine.Run(t.Context(), baseConfig(t, module))
+	if !errors.Is(err, tfexec.ErrCommandFailed) {
+		t.Fatalf("error = %v, want a Terraform command failure", err)
+	}
+
+	if !strings.Contains(err.Error(), "providers schema") || !strings.Contains(err.Error(), "initialization required") {
+		t.Fatalf("error = %v, want the schema's initialization demand", err)
+	}
+
+	if strings.Contains(err.Error(), "\x1b[") {
+		t.Fatalf("error text carries ANSI colour codes: %q", err.Error())
 	}
 }

@@ -30,3 +30,5 @@ internal/engine/testdata/untested-json-validation/main.tf.json
 internal/engine/testdata/untested-json-variable/main.tf.json
 research/corpus/m45-synthesis.json
 research/corpus/m5-benchmark.json
+internal/engine/testdata/backend-json-object/backend.tf.json
+internal/engine/testdata/backend-json-array/backend.tf.json

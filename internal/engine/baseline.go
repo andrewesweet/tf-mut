@@ -98,7 +98,9 @@ func warmUp(
 	// neutralised: init skips backend initialisation, and the schema call that
 	// follows it is the first command to demand it. Mutant sandboxes never
 	// run such a command, and materialise from the original sources anyway.
-	if stripErr := neutraliseBackends(prepared.moduleDir); stripErr != nil {
+	rewrites, stripErr := neutraliseBackends(prepared.moduleDir,
+		filepath.Join(configuration.ClosureRoot, filepath.FromSlash(configuration.RootRelative())))
+	if stripErr != nil {
 		return warm{}, stripErr
 	}
 
@@ -117,6 +119,12 @@ func warmUp(
 	prepared.schemas, err = runner.ProvidersSchema(ctx, prepared.moduleDir)
 	if err != nil {
 		return warm{}, err
+	}
+
+	for _, rewrite := range rewrites {
+		if restoreErr := sandbox.WriteFresh(rewrite.target, rewrite.source, rewrite.original); restoreErr != nil {
+			return warm{}, fmt.Errorf("restoring %s: %w", filepath.Base(rewrite.target), restoreErr)
+		}
 	}
 
 	unformatted, fmtErr := runner.FmtCheck(ctx, prepared.moduleDir)

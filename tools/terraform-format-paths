@@ -192,3 +192,12 @@ internal/engine/testdata/preview-refusal-import/tests/unit.tftest.hcl
 internal/engine/testdata/preview-refusal-nosuite/main.tf
 internal/engine/testdata/preview-refusal-unparseable/tests/unit.tftest.hcl
 internal/engine/testdata/untested-notype/main.tf
+internal/engine/testdata/backend-declared/outputs.tf
+internal/engine/testdata/backend-json-object/main.tf
+internal/engine/testdata/backend-json-object/outputs.tf
+internal/engine/testdata/backend-json-object/tests/unit.tftest.hcl
+internal/engine/testdata/backend-json-array/main.tf
+internal/engine/testdata/backend-json-array/outputs.tf
+internal/engine/testdata/backend-json-array/tests/unit.tftest.hcl
+internal/engine/testdata/schema-uninitialised-cloud/main.tf
+internal/engine/testdata/schema-uninitialised-cloud/tests/unit.tftest.hcl
