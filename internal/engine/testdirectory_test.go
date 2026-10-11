@@ -52,39 +52,120 @@ func TestTheTestDirectorysHelperModulesAreNotMutated(t *testing.T) {
 func TestTheModuleRootStaysMutableUnderARootColocatedTestDirectory(t *testing.T) {
 	t.Parallel()
 
+	for _, syntax := range []string{"hcl", "json"} {
+		t.Run(syntax, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, testdirHelperFixture)
+			if syntax == "json" {
+				writeFile(t, filepath.Join(module, mainFile), "output \"greeting\" {\n  value = \"hello\"\n}\n")
+				writeFile(t, filepath.Join(module, "modules.tf.json"),
+					`{"module":{"child":{"source":"./child"}}}`)
+			}
+
+			before, err := engine.Run(t.Context(), previewRequest(t, module))
+			if err != nil {
+				t.Fatalf("preview with the default test directory: %v", err)
+			}
+
+			assertMutationTiersIn(t, "child/main.tf", before)
+			assertMutationTiersIn(t, "leaf/main.tf", before)
+
+			if err := os.Rename(filepath.Join(module, "tests", "unit.tftest.hcl"),
+				filepath.Join(module, "unit.tftest.hcl")); err != nil {
+				t.Fatalf("moving the suite to the module root: %v", err)
+			}
+
+			request := previewRequest(t, module)
+			request.TestDirectory = "."
+
+			after, err := engine.Run(t.Context(), request)
+			if err != nil {
+				t.Fatalf("preview with a root-colocated test directory: %v", err)
+			}
+
+			assertNoMutantsUnder(t, "tests/", after)
+
+			if len(after.Mutants) != len(before.Mutants) {
+				t.Fatalf("root-colocated suite changed population size: %d -> %d",
+					len(before.Mutants), len(after.Mutants))
+			}
+
+			for index, mutant := range before.Mutants {
+				if after.Mutants[index].ID != mutant.ID {
+					t.Errorf("root-colocated suite changed mutant %s to %s",
+						mutant.ID, after.Mutants[index].ID)
+				}
+			}
+		})
+	}
+}
+
+func TestAHelperRootedAtTheTestDirectoryIsNotMutated(t *testing.T) {
+	t.Parallel()
+
 	module := copyFixture(t, testdirHelperFixture)
-	before, err := engine.Run(t.Context(), previewRequest(t, module))
+	path := filepath.Join(module, "tests", "unit.tftest.hcl")
+	suite := readFile(t, path)
+	writeFile(t, path, strings.ReplaceAll(suite, "./tests/setup", "./tests"))
+	before := treeDigest(t, module)
+
+	preview, err := engine.Run(t.Context(), previewRequest(t, module))
 	if err != nil {
-		t.Fatalf("preview with the default test directory: %v", err)
+		t.Fatalf("preview: %v", err)
 	}
 
-	if len(before.Mutants) == 0 {
-		t.Fatal("the default test directory produced no mutants")
-	}
+	assertNoMutantsUnder(t, "tests/", preview)
+	assertMutationTiersIn(t, "child/main.tf", preview)
 
-	if err := os.Rename(filepath.Join(module, "tests", "unit.tftest.hcl"),
-		filepath.Join(module, "unit.tftest.hcl")); err != nil {
-		t.Fatalf("moving the suite to the module root: %v", err)
-	}
-
-	request := previewRequest(t, module)
-	request.TestDirectory = "."
-
-	after, err := engine.Run(t.Context(), request)
+	result, err := engine.Run(t.Context(), baseConfig(t, module))
 	if err != nil {
-		t.Fatalf("preview with a root-colocated test directory: %v", err)
+		t.Fatalf("run with a helper rooted at the test directory: %v", err)
 	}
 
-	if len(after.Mutants) != len(before.Mutants) {
-		t.Fatalf("root-colocated suite changed population size: %d -> %d",
-			len(before.Mutants), len(after.Mutants))
-	}
+	assertNoMutantsUnder(t, "tests/", result)
+	assertMutationTiersIn(t, "child/main.tf", result)
+	assertTreeUnchanged(t, module, before)
+}
 
-	for index, mutant := range before.Mutants {
-		if after.Mutants[index].ID != mutant.ID {
-			t.Errorf("root-colocated suite changed mutant %s to %s",
-				mutant.ID, after.Mutants[index].ID)
+func TestAProductionModuleUnderTheTestDirectoryStaysMutable(t *testing.T) {
+	t.Parallel()
+
+	for _, syntax := range []string{"hcl", "json"} {
+		t.Run(syntax, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, testdirHelperFixture)
+			if syntax == "json" {
+				writeFile(t, filepath.Join(module, "shared.tf.json"),
+					`{"module":{"shared":{"source":"./tests"}}}`)
+			} else {
+				appendFile(t, filepath.Join(module, mainFile), "\nmodule \"shared\" {\n  source = \"./tests\"\n}\n")
+			}
+
+			result, err := engine.Run(t.Context(), previewRequest(t, module))
+			if err != nil {
+				t.Fatalf("preview of a production module under the test directory: %v", err)
+			}
+
+			assertMutationTiersIn(t, "tests/main.tf", result)
+			assertMutationTiersIn(t, "tests/setup/main.tf", result)
+		})
+	}
+}
+
+func assertMutationTiersIn(t *testing.T, file string, result report.Report) {
+	t.Helper()
+
+	tiers := map[string]bool{}
+	for _, mutant := range result.Mutants {
+		if mutant.Range.File == file {
+			tiers[mutant.Tier] = true
 		}
+	}
+
+	if !tiers["smoke"] || !tiers["standard"] {
+		t.Errorf("mutation tiers in %s = %v, want smoke and standard", file, tiers)
 	}
 }
 

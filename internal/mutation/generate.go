@@ -121,8 +121,8 @@ type Generator struct {
 	// Packs are the selected domain packs whose entries parameterise the
 	// form operators. Empty means no pack operator is generated at all.
 	Packs []Pack
-	// TestDirectory is the absolute test directory whose files stay out of
-	// the mutation surface. A helper module the suite calls from under that
+	// TestDirectory is the absolute test directory whose helper-only modules
+	// stay out of the mutation surface. A helper module the suite calls from under that
 	// directory is part of the test's scaffolding, not of the module under
 	// test: a survivor there grades the fixture, not the module. It stays in
 	// the closure, so the run blocks that call it still materialise it.
@@ -151,9 +151,10 @@ func (g Generator) Generate() (Result, error) {
 
 	mutants := []Mutant{}
 	warnings := []string{}
+	production := g.productionModules()
 
 	for _, module := range g.Configuration.Modules {
-		if g.underTestDirectory(module.Dir) {
+		if !production[module.Dir] && g.underTestDirectory(module.Dir) {
 			continue
 		}
 
@@ -200,8 +201,42 @@ func (g Generator) underTestDirectory(path string) bool {
 
 	relative, err := filepath.Rel(g.TestDirectory, path)
 
-	return err == nil && relative != "." && relative != ".." &&
+	return err == nil && relative != ".." &&
 		!strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+func (g Generator) productionModules() map[string]bool {
+	modules := map[string]discovery.Module{}
+	for _, module := range g.Configuration.Modules {
+		modules[module.Dir] = module
+	}
+
+	production := map[string]bool{}
+	queue := []string{g.Configuration.ModuleDir}
+
+	for len(queue) > 0 {
+		directory := queue[0]
+		queue = queue[1:]
+
+		if production[directory] {
+			continue
+		}
+
+		module, found := modules[directory]
+		if !found {
+			continue
+		}
+
+		production[directory] = true
+
+		for _, call := range module.Calls {
+			if call.Local {
+				queue = append(queue, call.Dir)
+			}
+		}
+	}
+
+	return production
 }
 
 type sourceFile struct {
