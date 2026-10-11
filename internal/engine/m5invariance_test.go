@@ -102,7 +102,7 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperator
 	}
 }
 
-// stripMutantTelemetry removes the per-mutant telemetry blocks a 2.6.0 report
+// stripMutantTelemetry removes the per-mutant telemetry blocks a 2.7.0 report
 // carries: they are this run's own cost, not the verdict, and the before leg
 // predates the field.
 func stripMutantTelemetry(document map[string]any) {
