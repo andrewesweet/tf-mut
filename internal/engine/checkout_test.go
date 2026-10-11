@@ -26,7 +26,7 @@ func TestARunBlockSourceLeavingTheCheckoutIsRefusedWithTheRunNamed(t *testing.T)
 
 	for _, fragment := range []string{
 		"leaves the checkout",
-		"tests/unit.tftest.hcl",
+		unitTestFile,
 		`run "outside"`,
 		`"../outside-sibling"`,
 	} {
@@ -50,7 +50,7 @@ func TestARunBlockSourceMissingInsideTheCheckoutIsRefusedPrecisely(t *testing.T)
 
 	for _, fragment := range []string{
 		"no such directory in the checkout",
-		"tests/unit.tftest.hcl",
+		unitTestFile,
 		`run "missing"`,
 	} {
 		if !strings.Contains(err.Error(), fragment) {
@@ -88,11 +88,13 @@ func rewriteRunSource(t *testing.T, module string, replacements ...string) {
 
 		rewritten := string(content)
 
-		for index := 0; index < len(replacements); index += 2 {
-			rewritten = strings.Replace(rewritten, replacements[index], replacements[index+1], 1)
+		for index := 0; index+1 < len(replacements); index += 2 {
+			rewritten = strings.Replace(rewritten,
+				replacements[index], replacements[index+1], 1)
 		}
 
-		if err := os.WriteFile(path, []byte(rewritten), 0o600); err != nil { //nolint:gosec // the path is a test-owned fixture copy.
+		//nolint:gosec // the path is a test-owned fixture copy.
+		if err := os.WriteFile(path, []byte(rewritten), 0o600); err != nil {
 			t.Fatalf("writing %s: %v", path, err)
 		}
 	}

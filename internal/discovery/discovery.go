@@ -458,20 +458,9 @@ func DiscoverWith(moduleDir, testDir string, options Options) (Configuration, er
 	// part of the closure even when no module call references it. A retarget
 	// that resolves outside the checkout — or nowhere at all — is refused
 	// here, before anything reads the directory it names.
-	for _, run := range suite.Runs {
-		if run.ModuleSource == "" || !isLocalSource(run.ModuleSource) {
-			continue
-		}
-
-		resolved := filepath.Clean(filepath.Join(absoluteModuleDir, run.ModuleSource))
-		if refuseErr := refuseRunSource(options, resolved, run); refuseErr != nil {
-			return Configuration{}, refuseErr
-		}
-
-		queue = append(queue, queued{
-			dir: resolved,
-			key: "test." + run.Name,
-		})
+	queue, queueErr := queueRunBlockRetargets(queue, suite, absoluteModuleDir, options)
+	if queueErr != nil {
+		return Configuration{}, queueErr
 	}
 
 	for len(queue) > 0 {
@@ -545,6 +534,34 @@ func joinKey(parent, name string) string {
 	return parent + "." + name
 }
 
+// queueRunBlockRetargets appends every run block's local module retarget to
+// the discovery queue, refusing one that resolves outside the checkout or to
+// a directory that is not there.
+func queueRunBlockRetargets(
+	queue []queued,
+	suite TestSuite,
+	moduleDir string,
+	options Options,
+) ([]queued, error) {
+	for _, run := range suite.Runs {
+		if run.ModuleSource == "" || !isLocalSource(run.ModuleSource) {
+			continue
+		}
+
+		resolved := filepath.Clean(filepath.Join(moduleDir, run.ModuleSource))
+		if refuseErr := refuseRunSource(options, resolved, run); refuseErr != nil {
+			return nil, refuseErr
+		}
+
+		queue = append(queue, queued{
+			dir: resolved,
+			key: "test." + run.Name,
+		})
+	}
+
+	return queue, nil
+}
+
 // refuseRunSource turns the two ways a run-block retarget can point somewhere
 // useless into refusals that name the declaring test file, the run and the
 // source string. A known checkout root refuses a resolution that leaves it;
@@ -567,14 +584,16 @@ func refuseRunSource(options Options, resolved string, run RunBlock) error {
 		if !withinRoot(root, resolved) {
 			return fmt.Errorf(
 				"%w: %s declares run %q with module source %q, which resolves to %s: the closure leaves the checkout",
-				ErrParse, run.Rel, run.Name, run.ModuleSource, resolved)
+				ErrParse, run.Rel, run.Name, run.ModuleSource, resolved,
+			)
 		}
 	}
 
 	if info, err := os.Stat(resolved); err != nil || !info.IsDir() {
 		return fmt.Errorf(
 			"%w: %s declares run %q with module source %q, which resolves to %s: no such directory in the checkout",
-			ErrParse, run.Rel, run.Name, run.ModuleSource, resolved)
+			ErrParse, run.Rel, run.Name, run.ModuleSource, resolved,
+		)
 	}
 
 	return nil

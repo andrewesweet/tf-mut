@@ -230,7 +230,8 @@ func unscoredWarnings(population oracle.Population, metrics report.Metrics) []st
 		warnings = append(warnings, fmt.Sprintf(
 			"none of the %d mutants in the population could be scored, so the "+
 				"mutation score is not trustworthy and the report is marked incomplete",
-			len(population.Classified())))
+			len(population.Classified()),
+		))
 	}
 
 	if judged > 0 && float64(invalid)/float64(judged) >= invalidShareWarningThreshold {
@@ -245,7 +246,8 @@ func unscoredWarnings(population oracle.Population, metrics report.Metrics) []st
 			"%d of %d mutants judged (%.0f%%) were rejected by terraform validate%s. "+
 				"This points at a systematic mismatch between the enabled operators and "+
 				"the module, not at the tests.",
-			invalid, judged, 100*float64(invalid)/float64(judged), diagnostic))
+			invalid, judged, 100*float64(invalid)/float64(judged), diagnostic,
+		))
 	}
 
 	return warnings
