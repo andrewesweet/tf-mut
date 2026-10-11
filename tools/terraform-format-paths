@@ -134,6 +134,8 @@ internal/engine/testdata/redundant-in-resource/main.tf
 internal/engine/testdata/redundant-in-resource/tests/main.tftest.hcl
 internal/engine/testdata/removed-scoped/main.tf
 internal/engine/testdata/removed-scoped/tests/unit.tftest.hcl
+internal/engine/testdata/runblock-outside/main.tf
+internal/engine/testdata/runblock-outside/tests/unit.tftest.hcl
 internal/engine/testdata/all-invalid/child/main.tf
 internal/engine/testdata/all-invalid/main.tf
 internal/engine/testdata/all-invalid/tests/unit.tftest.hcl
