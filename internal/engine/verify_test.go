@@ -455,8 +455,8 @@ func TestABatchFailureNamingNothingIsBisected(t *testing.T) {
 }
 
 // TestARefutationIsWordedFromTheStatusesTheRunProduced is the wording half of
-// the count-indexed refutation: the generated assertion indexes an instance
-// its own mutant removes, so the isolated leg's run errors rather than fails.
+// the output-indexed refutation: the generated assertion indexes an output
+// element its own mutant removes, so the isolated leg's run errors rather than fails.
 // The refutation must say what actually happened — "survived" would be false
 // about a run that crashed.
 func TestARefutationIsWordedFromTheStatusesTheRunProduced(t *testing.T) {
@@ -473,6 +473,10 @@ func TestARefutationIsWordedFromTheStatusesTheRunProduced(t *testing.T) {
 	suggestion := refuted[0]
 	if suggestion.Verification == nil {
 		t.Fatal("the refuted suggestion carries no verification evidence")
+	}
+
+	if suggestion.Expression != `output.nodes[0] == "node"` || !suggestion.Verification.Baseline.Passed {
+		t.Fatalf("want a baseline-green output-element assertion, got %+v", suggestion)
 	}
 
 	if suggestion.Verification.Mutant.Passed {
