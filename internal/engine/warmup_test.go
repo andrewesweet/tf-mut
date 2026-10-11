@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
+	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
 // The two admissions here are about the workspace tf-mut stages before any
@@ -12,6 +13,21 @@ import (
 // root that declares a backend must not block the provider schema, or the run
 // dies before the baseline. Both fixtures are offline: terraform_data and a
 // variable echo, no provider beyond the builtin.
+
+// executedAny reports whether at least one mutant ran, which is the claim
+// both staging admissions make: the staged workspace let the suite execute
+// the population.
+func executedAny(t *testing.T, result report.Report) bool {
+	t.Helper()
+
+	for _, mutant := range result.Mutants {
+		if mutant.ExecutedRuns > 0 {
+			return true
+		}
+	}
+
+	return false
+}
 
 // TestUnitTestDirectoryModuleCallsAreAdmittedAndScored drives a suite whose
 // unit tests live in tests/unit and call a module from a run block, configured
@@ -36,14 +52,7 @@ func TestUnitTestDirectoryModuleCallsAreAdmittedAndScored(t *testing.T) {
 		t.Fatal("run produced no mutants")
 	}
 
-	executed := 0
-	for _, mutant := range result.Mutants {
-		if mutant.ExecutedRuns > 0 {
-			executed++
-		}
-	}
-
-	if executed == 0 {
+	if !executedAny(t, result) {
 		t.Fatal("no mutant executed; the suite did not exercise the population")
 	}
 }
@@ -67,14 +76,7 @@ func TestDeclaredBackendDoesNotBlockTheSchemaOrTheSuite(t *testing.T) {
 		t.Fatal("run produced no mutants")
 	}
 
-	executed := 0
-	for _, mutant := range result.Mutants {
-		if mutant.ExecutedRuns > 0 {
-			executed++
-		}
-	}
-
-	if executed == 0 {
+	if !executedAny(t, result) {
 		t.Fatal("no mutant executed; the suite did not exercise the population")
 	}
 }

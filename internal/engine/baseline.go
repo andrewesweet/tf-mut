@@ -94,8 +94,19 @@ func warmUp(
 		warnings:  []string{},
 	}
 
+	// The staged copy is the only place a backend declaration may be
+	// neutralised: init skips backend initialisation, and the schema call that
+	// follows it is the first command to demand it. Mutant sandboxes never
+	// run such a command, and materialise from the original sources anyway.
+	if stripErr := neutraliseBackends(prepared.moduleDir); stripErr != nil {
+		return warm{}, stripErr
+	}
+
 	_, hasLock := configuration.LockFilePath()
-	if initErr := runner.Init(ctx, prepared.moduleDir, hasLock); initErr != nil {
+	if initErr := runner.Init(ctx, prepared.moduleDir, tfexec.InitOptions{
+		TestDirectory: configuration.TestDirRelative(),
+		ReadonlyLock:  hasLock,
+	}); initErr != nil {
 		return warm{}, initErr
 	}
 

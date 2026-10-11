@@ -38,7 +38,7 @@ func TestProvidersSchemaFailureCarriesNoColourCodes(t *testing.T) {
 		Env:    []string{"CHECKPOINT_DISABLE=1", "TF_IN_AUTOMATION=1"},
 	}
 
-	if err := runner.Init(t.Context(), dir, false); err != nil {
+	if err := runner.Init(t.Context(), dir, tfexec.InitOptions{}); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 

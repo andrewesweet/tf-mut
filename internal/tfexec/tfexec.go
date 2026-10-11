@@ -148,13 +148,31 @@ func (v Version) parts() (major, minor int) {
 	return major, minor
 }
 
+// InitOptions selects the behaviour of Init.
+type InitOptions struct {
+	// TestDirectory is passed to init as -test-directory. Terraform installs
+	// only the modules called by the test files in the directory init is told
+	// about, so init must receive the same test directory the test run will
+	// use: a suite configured outside the default tests/ calls modules init
+	// would otherwise never install, and its baseline runs red with "Module
+	// not installed".
+	TestDirectory string
+	// ReadonlyLock treats the lock file as read-only, which keeps runs
+	// against a pre-locked fixture hermetic.
+	ReadonlyLock bool
+}
+
 // Init installs providers and modules for the module in dir.
 //
-// The lock file is treated as read-only when readonlyLock is set, which keeps
-// runs against a pre-locked fixture hermetic.
-func (r Runner) Init(ctx context.Context, dir string, readonlyLock bool) error {
+// The lock file is treated as read-only when options.ReadonlyLock is set,
+// which keeps runs against a pre-locked fixture hermetic.
+func (r Runner) Init(ctx context.Context, dir string, options InitOptions) error {
 	args := []string{"init", "-backend=false", "-input=false", "-no-color"}
-	if readonlyLock {
+	if options.TestDirectory != "" {
+		args = append(args, "-test-directory="+options.TestDirectory)
+	}
+
+	if options.ReadonlyLock {
 		args = append(args, "-lockfile=readonly")
 	}
 

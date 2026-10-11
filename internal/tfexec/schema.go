@@ -50,7 +50,7 @@ type SchemaAttribute struct {
 
 // ProvidersSchema retrieves the provider schemas visible from dir.
 func (r Runner) ProvidersSchema(ctx context.Context, dir string) (Schemas, error) {
-	result, err := r.Run(ctx, dir, "providers", "schema", "-json")
+	result, err := r.Run(ctx, dir, "providers", "schema", "-json", "-no-color")
 	if err != nil {
 		return Schemas{}, err
 	}
