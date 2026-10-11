@@ -17,6 +17,8 @@ import (
 // closure so the run blocks that call it still materialise it.
 const testdirHelperFixture = "testdir-helper"
 
+const jsonTestSyntax = "json"
+
 // TestTheTestDirectorysHelperModulesAreNotMutated holds the default surface:
 // files under the configured test directory are never mutated, in preview or
 // in run, and the suite that calls the helper still passes.
@@ -82,12 +84,12 @@ func TestACustomTestDirectoryInstallsItsHelperModules(t *testing.T) {
 func TestTheModuleRootStaysMutableUnderARootColocatedTestDirectory(t *testing.T) {
 	t.Parallel()
 
-	for _, syntax := range []string{"hcl", "json"} {
+	for _, syntax := range []string{"hcl", jsonTestSyntax} {
 		t.Run(syntax, func(t *testing.T) {
 			t.Parallel()
 
 			module := copyFixture(t, testdirHelperFixture)
-			if syntax == "json" {
+			if syntax == jsonTestSyntax {
 				writeFile(t, filepath.Join(module, mainFile), "output \"greeting\" {\n  value = \"hello\"\n}\n")
 				writeFile(t, filepath.Join(module, "modules.tf.json"),
 					`{"module":{"child":{"source":"./child"}}}`)
@@ -101,9 +103,9 @@ func TestTheModuleRootStaysMutableUnderARootColocatedTestDirectory(t *testing.T)
 			assertMutationTiersIn(t, "child/main.tf", before)
 			assertMutationTiersIn(t, "leaf/main.tf", before)
 
-			if err := os.Rename(filepath.Join(module, "tests", "unit.tftest.hcl"),
-				filepath.Join(module, "unit.tftest.hcl")); err != nil {
-				t.Fatalf("moving the suite to the module root: %v", err)
+			if renameErr := os.Rename(filepath.Join(module, "tests", "unit.tftest.hcl"),
+				filepath.Join(module, "unit.tftest.hcl")); renameErr != nil {
+				t.Fatalf("moving the suite to the module root: %v", renameErr)
 			}
 
 			request := previewRequest(t, module)
@@ -161,12 +163,12 @@ func TestAHelperRootedAtTheTestDirectoryIsNotMutated(t *testing.T) {
 func TestAProductionModuleUnderTheTestDirectoryStaysMutable(t *testing.T) {
 	t.Parallel()
 
-	for _, syntax := range []string{"hcl", "json"} {
+	for _, syntax := range []string{"hcl", jsonTestSyntax} {
 		t.Run(syntax, func(t *testing.T) {
 			t.Parallel()
 
 			module := copyFixture(t, testdirHelperFixture)
-			if syntax == "json" {
+			if syntax == jsonTestSyntax {
 				writeFile(t, filepath.Join(module, "shared.tf.json"),
 					`{"module":{"shared":{"source":"./tests"}}}`)
 			} else {
