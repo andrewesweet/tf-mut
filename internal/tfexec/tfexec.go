@@ -195,6 +195,20 @@ type Diagnostic struct {
 	TestRun  string `json:"-"`
 }
 
+// assertionFailure is the summary Terraform reports for a failed test
+// assertion. The message text is a fact about Terraform's output, so it is
+// known here, at the boundary that decodes that output, and nowhere else.
+const assertionFailure = "Test assertion failed"
+
+// IsAssertionFailure reports whether a diagnostic summary is Terraform's
+// report of a failed test assertion — the classification the curate
+// attribution reads its kill sets from. It takes the summary because the
+// published diagnostic is the publication context's own DTO, which this
+// boundary never imports.
+func IsAssertionFailure(summary string) bool {
+	return summary == assertionFailure
+}
+
 // Range is a source range reported by Terraform.
 type Range struct {
 	Filename string `json:"filename"`

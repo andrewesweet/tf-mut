@@ -14,11 +14,11 @@ import (
 // Both are decided statically from the parsed configuration, so a refusal is
 // guaranteed to happen before Terraform has evaluated a single resource — which
 // is the whole point of the provisioner gate.
-func checkSafety(configuration discovery.Configuration, config config) ([]string, error) {
+func checkSafety(configuration discovery.Configuration, settings settings) ([]string, error) {
 	// The JSON safety floor comes first (M4.0). Both gates are decided from
 	// inventories that unread JSON makes incomplete, so a refusal that depended
 	// on those inventories would be a refusal the tool could not stand behind.
-	warnings, err := floorOf(configuration).checkFloor(config)
+	warnings, err := floorOf(configuration).checkFloor(settings)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +27,7 @@ func checkSafety(configuration discovery.Configuration, config config) ([]string
 	if len(unmocked) > 0 {
 		estimate := estimateRuns(configuration)
 
-		if !config.AllowRealInfrastructure {
+		if !settings.AllowRealInfrastructure {
 			return nil, fmt.Errorf(
 				"%w: provider %s is not mocked by any mock_provider block in %s.%s\n"+
 					"  A mutation run would execute about %d test runs against it.\n"+
@@ -49,7 +49,7 @@ func checkSafety(configuration discovery.Configuration, config config) ([]string
 		return warnings, nil
 	}
 
-	if !config.AllowUnsandboxedEffects {
+	if !settings.AllowUnsandboxedEffects {
 		return nil, fmt.Errorf("%w: %s\n"+
 			"  Mocking does not sever these; an apply-mode run executes them once per mutant.\n"+
 			"  Pass --allow-unsandboxed-effects to proceed anyway",

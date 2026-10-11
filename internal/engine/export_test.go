@@ -16,7 +16,7 @@ import (
 // sequential for the hook's complete lifetime.
 func SetGenerationDefectSeed(t *testing.T, moduleDir string, defect mutation.Defect) {
 	t.Helper()
-	seedGenerationDefect = func(settings config) mutation.Defect {
+	seedGenerationDefect = func(settings settings) mutation.Defect {
 		if settings.ModuleDir != moduleDir {
 			return mutation.DefectNone
 		}
@@ -24,7 +24,7 @@ func SetGenerationDefectSeed(t *testing.T, moduleDir string, defect mutation.Def
 		return defect
 	}
 	t.Cleanup(func() {
-		seedGenerationDefect = func(config) mutation.Defect { return mutation.DefectNone }
+		seedGenerationDefect = func(settings) mutation.Defect { return mutation.DefectNone }
 	})
 }
 
@@ -32,11 +32,11 @@ func SetGenerationDefectSeed(t *testing.T, moduleDir string, defect mutation.Def
 // Its callers are sequential for the hook's complete lifetime.
 func SetStaticShortcutsDisabled(t *testing.T, moduleDir string) {
 	t.Helper()
-	disableStaticShortcuts = func(settings config) bool {
+	disableStaticShortcuts = func(settings settings) bool {
 		return settings.ModuleDir == moduleDir
 	}
 	t.Cleanup(func() {
-		disableStaticShortcuts = func(config) bool { return false }
+		disableStaticShortcuts = func(settings) bool { return false }
 	})
 }
 
@@ -44,11 +44,11 @@ func SetStaticShortcutsDisabled(t *testing.T, moduleDir string) {
 // Its callers are sequential for the hook's complete lifetime.
 func SetJSONReadingDisabled(t *testing.T, moduleDir string) {
 	t.Helper()
-	disableJSONReading = func(settings config) bool {
+	disableJSONReading = func(settings settings) bool {
 		return settings.ModuleDir == moduleDir
 	}
 	t.Cleanup(func() {
-		disableJSONReading = func(config) bool { return false }
+		disableJSONReading = func(settings) bool { return false }
 	})
 }
 
@@ -56,7 +56,7 @@ func SetJSONReadingDisabled(t *testing.T, moduleDir string) {
 // for one module. Its callers are sequential for the hook's complete lifetime.
 func SetSuggestionDefectSeed(t *testing.T, moduleDir string, defect suggest.Defect) {
 	t.Helper()
-	seedSuggestionDefect = func(settings config) suggest.Defect {
+	seedSuggestionDefect = func(settings settings) suggest.Defect {
 		if settings.ModuleDir != moduleDir {
 			return suggest.DefectNone
 		}
@@ -64,7 +64,7 @@ func SetSuggestionDefectSeed(t *testing.T, moduleDir string, defect suggest.Defe
 		return defect
 	}
 	t.Cleanup(func() {
-		seedSuggestionDefect = func(config) suggest.Defect { return suggest.DefectNone }
+		seedSuggestionDefect = func(settings) suggest.Defect { return suggest.DefectNone }
 	})
 }
 
@@ -123,7 +123,7 @@ func SetFinalPinDefectSeed(t *testing.T, moduleDir string) {
 // sequential for the hook's complete lifetime.
 func SetUntilDryRounds(t *testing.T, moduleDir string, rounds int) {
 	t.Helper()
-	seedUntilDryRounds = func(settings config) int {
+	seedUntilDryRounds = func(settings settings) int {
 		if settings.ModuleDir != moduleDir {
 			return 0
 		}
@@ -131,7 +131,7 @@ func SetUntilDryRounds(t *testing.T, moduleDir string, rounds int) {
 		return rounds
 	}
 	t.Cleanup(func() {
-		seedUntilDryRounds = func(config) int { return 0 }
+		seedUntilDryRounds = func(settings) int { return 0 }
 	})
 }
 

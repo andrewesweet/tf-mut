@@ -22,7 +22,7 @@ import (
 type executionPlan struct {
 	runner        tfexec.Runner
 	configuration discovery.Configuration
-	config        config
+	settings      settings
 	prepared      warm
 	generated     []mutation.Mutant
 	described     []report.Mutant
@@ -43,13 +43,13 @@ func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []report
 	copy(results, plan.described)
 
 	failures := make([]report.ExecutionError, 0)
-	budget := timeoutBudget(plan.config, plan.prepared.baselineDuration)
+	budget := timeoutBudget(plan.settings, plan.prepared.baselineDuration)
 
 	queue := make(chan int)
 	mutex := sync.Mutex{}
 	group := sync.WaitGroup{}
 
-	workers := min(plan.config.Jobs, len(plan.described))
+	workers := min(plan.settings.Jobs, len(plan.described))
 
 	for range workers {
 		group.Go(func() {
@@ -88,10 +88,10 @@ func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []report
 }
 
 // timeoutBudget is max(factor × baseline, floor), per the milestone spec.
-func timeoutBudget(config config, baseline time.Duration) time.Duration {
-	scaled := time.Duration(float64(baseline) * config.TimeoutFactor)
-	if scaled < config.TimeoutFloor {
-		return config.TimeoutFloor
+func timeoutBudget(settings settings, baseline time.Duration) time.Duration {
+	scaled := time.Duration(float64(baseline) * settings.TimeoutFactor)
+	if scaled < settings.TimeoutFloor {
+		return settings.TimeoutFloor
 	}
 
 	return scaled
@@ -154,7 +154,7 @@ func evaluate(
 
 	result, err := plan.runner.Test(ctx, built.ModuleDir, tfexec.TestOptions{
 		TestDirectory: plan.configuration.TestDirRelative(),
-		Filters:       plan.config.TestSelection,
+		Filters:       plan.settings.TestSelection,
 		Timeout:       budget,
 	})
 	if err != nil {

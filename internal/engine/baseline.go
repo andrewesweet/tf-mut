@@ -45,8 +45,7 @@ func prepare(
 	ctx context.Context,
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
-	config config,
-	workRoot string,
+	settings settings, workRoot string,
 ) (warm, error) {
 	prepared, err := warmUp(ctx, runner, configuration, workRoot)
 	if err != nil {
@@ -56,7 +55,7 @@ func prepare(
 	// A preview executes nothing: it needs the schemas that gate the deletion
 	// operators, and no more. The workspace still exists because init cannot be
 	// allowed to write into the source tree.
-	if config.mode == previewMode {
+	if settings.mode == previewMode {
 		return prepared, nil
 	}
 

@@ -171,7 +171,7 @@ func (o executionOracle) fingerprintRun(
 ) ([]fingerprint.Payload, []report.RunOutcome, error) {
 	result, err := o.plan.runner.Test(ctx, built.ModuleDir, tfexec.TestOptions{
 		TestDirectory: o.plan.configuration.TestDirRelative(),
-		Filters:       o.plan.config.TestSelection,
+		Filters:       o.plan.settings.TestSelection,
 		Verbose:       true,
 		Timeout:       0,
 	})

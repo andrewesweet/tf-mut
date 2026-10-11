@@ -240,13 +240,29 @@ type CharacteriseWrite struct {
 	Partial []string `json:"partial,omitempty"`
 }
 
+// StopReason is the until-dry loop's convergence exit: why the loop stopped.
+// The wire spellings are the schema's `stop_reason` enum at the published
+// schema version; the vocabulary test holds the two together.
+type StopReason string
+
+const (
+	// StopBounded reports the loop reached its round bound with pins still
+	// being added.
+	StopBounded StopReason = "bounded"
+	// StopDry reports a round added no new pins.
+	StopDry StopReason = "dry"
+	// StopRefused reports that a round failed, including a refusal when the
+	// round did not observe its whole population.
+	StopRefused StopReason = "refused"
+)
+
 // Convergence is the until-dry loop's evidence.
 type Convergence struct {
 	Rounds int `json:"rounds"`
 	// NewPinsPerRound records how many new pins each round produced.
 	NewPinsPerRound []int `json:"new_pins_per_round"`
-	// StopReason is dry, bounded or refused.
-	StopReason string `json:"stop_reason"`
+	// StopReason is the convergence exit above.
+	StopReason StopReason `json:"stop_reason"`
 }
 
 // Characterisation is the characterise and curate result block (2.3.0).

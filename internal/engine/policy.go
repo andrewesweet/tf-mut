@@ -29,7 +29,7 @@ const (
 
 // withConfiguration merges `.tf-mut.hcl` into the run's configuration, leaving
 // every scalar the caller set explicitly alone.
-func (c config) withConfiguration(moduleDir string) (config, tfconfig.File, error) {
+func (c settings) withConfiguration(moduleDir string) (settings, tfconfig.File, error) {
 	file, err := tfconfig.Load(moduleDir)
 	if err != nil {
 		return c, file, err
@@ -86,7 +86,7 @@ func (c config) withConfiguration(moduleDir string) (config, tfconfig.File, erro
 	return c, file, nil
 }
 
-func (c config) overridden(flag string) bool {
+func (c settings) overridden(flag string) bool {
 	return slices.Contains(c.SetFlags, flag)
 }
 
