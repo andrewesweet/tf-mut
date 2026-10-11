@@ -271,8 +271,8 @@ func Run(ctx context.Context, request Request) (report.Report, error) {
 	default:
 		// run, preview and suggest share the grading pipeline: the mode each
 		// request carries decides preview's shortcuts and the suggest leg.
-		// The population fact the pipeline returns is published report DTO
-		// material; the seam's consumers read the report.
+		// The population fact stays inside the application layer; the seam's
+		// consumers receive its published report projection.
 		result, _, err := mutate(ctx, runner, configuration, s, version, moduleDir)
 
 		return result, err
@@ -447,10 +447,10 @@ func finish(
 		return report.Report{}, oracle.Population{}, err
 	}
 
-	// The one projection, last: everything the run concluded is spelled onto
-	// the published report here and nowhere else. The shell's bookkeeping —
-	// selection, sampling, the population split, suppressions — passes
-	// through; the values computed over the population fact are attached.
+	// Attach the aggregate results after computing them over the population
+	// fact. Per-mutant projections already accompany their classified rows;
+	// the shell's selection, sampling, population split and suppressions pass
+	// through without becoming inputs to the outcome arithmetic.
 	result := shell
 	result.Mutants = executed
 	result.Errors = failures
@@ -638,8 +638,8 @@ type completedRun struct {
 // The counts are the run's own published provenance split, plus the two
 // observation counts the observation proof refuses on. Timed-out rows are
 // counted from the fact's own members, so the proof can never disagree with
-// the population it judges; the errored are the mutants that never reached a
-// verdict and therefore carry no classified outcome at all.
+// the population it judges. Execution failures are counted separately:
+// affected rows retain their last outcome without proving full observation.
 func classifyRun(
 	shell report.Report,
 	classified []oracle.Classified,

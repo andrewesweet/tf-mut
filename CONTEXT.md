@@ -10,16 +10,18 @@ application layer that coordinates them; `cmd/tf-mut` is an adapter. `internal/c
 The six-context table below names every package grouping and the dependency
 policy between them. The depguard rules in `.golangci.yml` enforce the specific
 boundaries listed below. `internal/oracle` owns the mutant outcome and every
-diagnosis: survivors and terminal outcomes alike are
-constructed only through its constructors, and the population arithmetic
-computes over outcomes; cache rehydration rebuilds a stored verdict through
-its parsing constructor. The judgement points, the input provenance, the pins,
-the scaffolds and the scenarios are owned by `internal/characterise`, which no
-longer imports `internal/report`.
+diagnosis: survivors and terminal outcomes alike are constructed only through
+its constructors. Its `Population` carries classified outcomes and execution
+provenance from the classification sites to metrics and population refusals.
+The engine projects these results onto report DTOs without reconstructing
+outcomes from them. Cache rehydration rebuilds a stored verdict through the
+oracle's parsing constructor. The judgement points, the input provenance, the
+pins, the scaffolds and the scenarios are owned by `internal/characterise`,
+which no longer imports `internal/report`.
 
 | Context | Kind | Packages | Owns |
 | --- | --- | --- | --- |
-| Oracle / Verdict | Core | `internal/fingerprint`, `internal/oracle` | observation, mask, delta, comparison certainty, verdict precedence, mutant outcome, diagnosis, scored population, metrics |
+| Oracle / Verdict | Core | `internal/fingerprint`, `internal/oracle` | observation, mask, delta, comparison certainty, verdict precedence, mutant outcome, diagnosis, classified population, authority, freshness, metrics |
 | Mutation Catalogue | Supporting | `internal/mutation` | operator identity, applicability, site, generated mutant, diff |
 | Suggestion | Supporting | `internal/suggest` | candidate to verified/refuted/skipped, verification evidence, apply plan |
 | Characterisation | Supporting | `internal/characterise` | scenario, input provenance, judgement point, pin, scaffold promotion, convergence, curation finding |
@@ -104,13 +106,16 @@ currently declared by `internal/report`; they are not invitations to add aliases
   means `--since` selected it, and `sample` means `--sample` selected it.
 - **Execution provenance:** `fresh` means this run computed the verdict; `cached`
   means the verdict was replayed from the incremental cache with evidence rehydrated.
+- **Classified population:** outcomes paired with their mutation operators, together
+  with counts of cached verdicts, timeouts and execution errors.
 - **Scored population:** the selected population whose outcomes contribute to the
   reported metrics under the gate rules.
 - **Authoritative population:** a classified population every member of which was
-  observed: no mutant timed out and none failed to evaluate. Curation findings and
-  the until-dry convergence claim are drawn only over one.
+  observed: no mutant timed out and none failed to evaluate. The oracle constructs
+  this proof. Curation findings and the until-dry convergence claim require it.
 - **Fresh population:** an authoritative population in which no verdict was
-  replayed from the cache. The baseline writer accepts only one.
+  replayed from the cache. The oracle constructs this refinement. The baseline
+  writer accepts only one.
 - **Metrics:** the derived counts and scores computed from the classified population.
 
 ### Mutation Catalogue
