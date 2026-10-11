@@ -465,7 +465,7 @@ func prepareCostModelWorkspace(t *testing.T, runner tfexec.Runner, module, workD
 		t.Fatalf("copying fixture: %v", err)
 	}
 
-	if err := runner.Init(context.Background(), warm, false); err != nil {
+	if err := runner.Init(context.Background(), warm, tfexec.InitOptions{}); err != nil {
 		t.Fatalf("terraform init: %v", err)
 	}
 

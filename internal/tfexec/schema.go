@@ -48,9 +48,10 @@ type SchemaAttribute struct {
 	Type json.RawMessage `json:"type"`
 }
 
-// ProvidersSchema retrieves the provider schemas visible from dir.
+// ProvidersSchema retrieves the provider schemas visible from dir. It suppresses
+// colour codes so captured failure diagnostics remain plain text.
 func (r Runner) ProvidersSchema(ctx context.Context, dir string) (Schemas, error) {
-	result, err := r.Run(ctx, dir, "providers", "schema", "-json")
+	result, err := r.Run(ctx, dir, "providers", "schema", "-json", "-no-color")
 	if err != nil {
 		return Schemas{}, err
 	}

@@ -94,8 +94,18 @@ func warmUp(
 		warnings:  []string{},
 	}
 
+	// neutraliseBackends owns the temporary staged rewrite contract.
+	rewrites, stripErr := neutraliseBackends(prepared.moduleDir,
+		filepath.Join(configuration.ClosureRoot, filepath.FromSlash(configuration.RootRelative())))
+	if stripErr != nil {
+		return warm{}, stripErr
+	}
+
 	_, hasLock := configuration.LockFilePath()
-	if initErr := runner.Init(ctx, prepared.moduleDir, hasLock); initErr != nil {
+	if initErr := runner.Init(ctx, prepared.moduleDir, tfexec.InitOptions{
+		TestDirectory: configuration.TestDirRelative(),
+		ReadonlyLock:  hasLock,
+	}); initErr != nil {
 		return warm{}, initErr
 	}
 
@@ -106,6 +116,12 @@ func warmUp(
 	prepared.schemas, err = runner.ProvidersSchema(ctx, prepared.moduleDir)
 	if err != nil {
 		return warm{}, err
+	}
+
+	for _, rewrite := range rewrites {
+		if restoreErr := sandbox.WriteFresh(rewrite.target, rewrite.source, rewrite.original); restoreErr != nil {
+			return warm{}, fmt.Errorf("restoring %s: %w", filepath.Base(rewrite.target), restoreErr)
+		}
 	}
 
 	unformatted, fmtErr := runner.FmtCheck(ctx, prepared.moduleDir)

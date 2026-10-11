@@ -30,3 +30,11 @@ internal/engine/testdata/untested-json-validation/main.tf.json
 internal/engine/testdata/untested-json-variable/main.tf.json
 research/corpus/m45-synthesis.json
 research/corpus/m5-benchmark.json
+internal/engine/testdata/backend-json-object/backend.tf.json
+internal/engine/testdata/backend-json-array/backend.tf.json
+internal/engine/testdata/backendless-json-root-array/main.tf.json
+internal/engine/testdata/backend-cloud-json-object/cloud.tf.json
+internal/engine/testdata/backend-cloud-json-object/state_override.tf.json
+internal/engine/testdata/backend-cloud-json-array/cloud.tf.json
+internal/engine/testdata/backend-cloud-hcl-json-override/override.tf.json
+internal/engine/testdata/backendless-json-null/settings.tf.json

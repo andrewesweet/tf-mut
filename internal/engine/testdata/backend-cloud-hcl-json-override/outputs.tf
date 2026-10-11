@@ -1,0 +1,3 @@
+output "unasserted" {
+  value = "kept"
+}

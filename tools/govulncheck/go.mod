@@ -2,7 +2,7 @@ module github.com/andrewesweet/tf-mut/tools/govulncheck
 
 go 1.26.0
 
-toolchain go1.26.6
+toolchain go1.26.9
 
 tool golang.org/x/vuln/cmd/govulncheck
 

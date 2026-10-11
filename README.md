@@ -50,7 +50,7 @@ tf-mut version                   # print the build version
 
 | Flag | Purpose |
 | --- | --- |
-| `--test-directory PATH` | Test directory relative to the module (default `tests`) |
+| `--test-directory PATH` | Test directory relative to the module (default `tests`); used for initialization and test execution |
 | `--jobs N` | Mutants executing concurrently (default: CPU count) |
 | `--timeout-factor F` | Multiple of the baseline run time; the budget is `max(F × baseline, 30 s)` |
 | `--min-score N` | Fail below this mutation score percentage |
@@ -58,6 +58,11 @@ tf-mut version                   # print the build version
 | `--allow-real-infrastructure` | Required when any provider is unmocked |
 | `--allow-unsandboxed-effects` | Required for apply-mode provisioners and unsevered data sources |
 | `--reporter terminal\|json\|sarif\|mte\|html\|junit\|markdown` | Output format (`mte` is Mutation Testing Elements) |
+
+For suites under `tests/unit`, pass `--test-directory tests/unit` so Terraform installs
+the modules called by those tests. Mocked suites can run in roots with a `backend` block,
+including a remote backend, without initializing that backend. An effective `cloud`
+declaration still causes provider schema retrieval to fail.
 
 Exit codes: `0` ran clean, `1` findings (survivors, or a score below `--min-score`), `2`
 operational failure. The source tree of the module under test is never written to, except for

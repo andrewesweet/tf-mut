@@ -235,9 +235,9 @@ func exerciseTodoStatuses(
 		ID: "todo-1", Variable: "token",
 		Constraint: `length(var.token) == 8`,
 		ConstraintRange: hcl.Range{
-			Filename: "main.tf", Start: hcl.InitialPos, End: hcl.InitialPos,
+			Filename: mainFile, Start: hcl.InitialPos, End: hcl.InitialPos,
 		},
-		File: "main.tf",
+		File: mainFile,
 	})
 
 	for _, row := range []struct {
