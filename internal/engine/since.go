@@ -489,10 +489,8 @@ func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 }
 
 // checkoutRoot returns the git work tree containing dir, or the empty string
-// when dir is not inside one. The discovery boundary uses it to decide the
-// run-block checkout check; without a root the boundary still refuses a
-// retarget that resolves to nothing, it just cannot call the resolution an
-// escape. An error is a missing checkout, not a failure of the run.
+// when the git lookup fails. Without a root, discovery leaves the run-block
+// checkout check disabled. A failed lookup does not fail the invocation.
 func checkoutRoot(ctx context.Context, dir string) string {
 	root, err := gitRun(ctx, dir, "rev-parse", "--show-toplevel")
 	if err != nil {

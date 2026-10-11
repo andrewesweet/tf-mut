@@ -104,6 +104,11 @@ Parse every `.tf` with `hclsyntax` (accurate AST plus source ranges) and open a 
 mocked-provider inventory, and the assertion inventory. Excludes `.terraform/`, `.gitignore`d
 paths and vendored modules.
 
+When Git supplies a checkout root, a run block's local module source must resolve inside
+that work tree. Sibling modules reached through `..` remain allowed within it. A refusal
+names the declaring test file, run block, source string and resolved target. If the Git
+lookup fails, this run-block boundary check is disabled.
+
 ### Baseline
 
 1. `terraform init` **once**, in one shared directory. Measured at 5.2 s cold versus 0.167 s
@@ -436,10 +441,16 @@ partitions. The **scored set** is `K + KE + S + NC + SU + T`; `Invalid`, `Unobse
 | **Reachability** | (K + KE + S + T) ÷ scored set | Coverage |
 
 `T` sits in every denominator it can reach (R2-11): machine load can then only *lower* a
-score, never raise it, and any `T > 0` marks the score **incomplete** — `--min-score` gates
-fail on incomplete scores unless `--allow-incomplete-score` is passed. The `K` versus `KE`
-share is always displayed alongside the mutation score: a score composed mostly of `KE`
-means Terraform is doing the detecting, not the tests.
+score, never raise it. The [published report schema](../schema/report-2.8.0.json) owns the
+conditions that mark a score **incomplete**, including unscored and Invalid-heavy
+populations. `--min-score` gates fail on incomplete scores unless
+`--allow-incomplete-score` is passed. The `K` versus `KE` share is always displayed alongside
+the mutation score: a score composed mostly of `KE` means Terraform is doing the detecting,
+not the tests.
+
+The no-mutant resource warning considers every enabled operator's generated population
+before `--since` or `--sample` selection. It does not warn about a resource merely because
+selection omitted its mutants.
 
 Given Oasis's finding that 78% of survivors were uncovered, the gap between the first two
 numbers is usually the most actionable thing on the screen. A module at 25% / 80% / 31% has a
