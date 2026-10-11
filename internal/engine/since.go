@@ -56,8 +56,7 @@ type selection struct {
 func selectPopulation(
 	ctx context.Context,
 	configuration discovery.Configuration,
-	settings config,
-	mutants []report.Mutant,
+	settings settings, mutants []report.Mutant,
 ) (selection, error) {
 	chosen := selection{
 		keep:       make([]bool, len(mutants)),
@@ -93,8 +92,7 @@ func selectPopulation(
 func applySince(
 	ctx context.Context,
 	configuration discovery.Configuration,
-	settings config,
-	mutants []report.Mutant,
+	settings settings, mutants []report.Mutant,
 	chosen *selection,
 ) error {
 	changes, err := changedPaths(ctx, configuration.ClosureRoot, settings.Since)
@@ -285,7 +283,7 @@ const gitDiff = "diff"
 // diffed on its own, from its own directory, rather than looked for in the
 // closure's diff; a pack git cannot account for fails closed to the full
 // population.
-func changedPack(ctx context.Context, settings config) string {
+func changedPack(ctx context.Context, settings settings) string {
 	for _, pack := range settings.loadedPacks {
 		// A shipped pack's bytes are in the binary: there is no file to diff,
 		// and it cannot change between the ref and HEAD.
@@ -402,7 +400,7 @@ func owningModule(configuration discovery.Configuration, path string) (string, b
 // applySample keeps a deterministic fraction of the currently selected
 // population: mutants ordered by a seeded hash of their identifier, the first
 // N% kept. The report labels the run non-authoritative.
-func applySample(settings config, mutants []report.Mutant, chosen *selection) {
+func applySample(settings settings, mutants []report.Mutant, chosen *selection) {
 	selectedIndexes := []int{}
 
 	for index := range mutants {
@@ -528,7 +526,7 @@ var ErrSampleRange = errors.New("--sample must be a percentage greater than 0 an
 // checkSampledGate refuses gates over a sampled population without the named
 // unsafe opt-in (the gate truth table's sampled row), and rejects a
 // percentage no sample can honour.
-func checkSampledGate(settings config) error {
+func checkSampledGate(settings settings) error {
 	if settings.HasSample &&
 		(settings.SamplePercent <= 0 || settings.SamplePercent > wholePercent) {
 		return fmt.Errorf("%w: %g", ErrSampleRange, settings.SamplePercent)

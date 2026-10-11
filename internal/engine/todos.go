@@ -41,7 +41,7 @@ const todoPlaceholder = "TFMUT_TODO"
 // file, because it is the more recent statement of intent.
 func collectAnswers(
 	configuration discovery.Configuration,
-	settings config,
+	settings settings,
 ) (map[string]string, error) {
 	answers := map[string]string{}
 
@@ -146,8 +146,7 @@ func expressionSource(content []byte, expr hcl.Expression) string {
 // be the wrong shape for the loop it serves.
 func listTodos(
 	configuration discovery.Configuration,
-	settings config,
-	version string,
+	settings settings, version string,
 ) (report.Report, error) {
 	sources, err := declarationSources(configuration)
 	if err != nil {

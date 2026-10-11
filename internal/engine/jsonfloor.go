@@ -93,7 +93,7 @@ func gatesInformedBy(class discovery.JSONClass) []string {
 //
 // The two gates are checked independently: authorising one never lifts the
 // other, because they authorise different risks.
-func (f jsonFloor) checkFloor(config config) ([]string, error) {
+func (f jsonFloor) checkFloor(settings settings) ([]string, error) {
 	warnings := []string{}
 
 	gates := []struct {
@@ -104,14 +104,14 @@ func (f jsonFloor) checkFloor(config config) ([]string, error) {
 	}{
 		{
 			flag:    FlagAllowRealInfrastructure,
-			allowed: config.AllowRealInfrastructure,
+			allowed: settings.AllowRealInfrastructure,
 			err:     ErrRealInfrastructure,
 			risk: "could declare a provider no mock_provider block covers, or a mock this run " +
 				"cannot see, so the provider and mock inventories are unknowable",
 		},
 		{
 			flag:    FlagAllowUnsandboxedEffects,
-			allowed: config.AllowUnsandboxedEffects,
+			allowed: settings.AllowUnsandboxedEffects,
 			err:     ErrUnsandboxedEffects,
 			risk: "could declare a provisioner, an unsevered data source, or the apply-mode run " +
 				"that executes one, so the effect inventory is unknowable",

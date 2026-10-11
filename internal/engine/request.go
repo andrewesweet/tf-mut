@@ -154,15 +154,15 @@ func (CurateRequest) isRequest()       {}
 // names. This is the one route from the closed request set to the internal
 // settings, so the mode the pipeline reads can never disagree with the type
 // the caller passed.
-func settingsFor(request Request) (config, error) {
+func settingsFor(request Request) (settings, error) {
 	switch typed := request.(type) {
 	case nil:
-		return config{}, fmt.Errorf("%w: request must not be nil", errInvalidRequest)
+		return settings{}, fmt.Errorf("%w: request must not be nil", errInvalidRequest)
 	case RunRequest:
 		return typed.settings(), nil
 	case *RunRequest:
 		if typed == nil {
-			return config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+			return settings{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
 		}
 
 		return typed.settings(), nil
@@ -170,7 +170,7 @@ func settingsFor(request Request) (config, error) {
 		return typed.settings(), nil
 	case *PreviewRequest:
 		if typed == nil {
-			return config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+			return settings{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
 		}
 
 		return typed.settings(), nil
@@ -178,7 +178,7 @@ func settingsFor(request Request) (config, error) {
 		return typed.settings(), nil
 	case *SuggestRequest:
 		if typed == nil {
-			return config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+			return settings{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
 		}
 
 		return typed.settings(), nil
@@ -186,7 +186,7 @@ func settingsFor(request Request) (config, error) {
 		return typed.settings(), nil
 	case *CharacteriseRequest:
 		if typed == nil {
-			return config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+			return settings{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
 		}
 
 		return typed.settings(), nil
@@ -194,7 +194,7 @@ func settingsFor(request Request) (config, error) {
 		return typed.settings(), nil
 	case *TodosRequest:
 		if typed == nil {
-			return config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+			return settings{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
 		}
 
 		return typed.settings(), nil
@@ -202,121 +202,121 @@ func settingsFor(request Request) (config, error) {
 		return typed.settings(), nil
 	case *CurateRequest:
 		if typed == nil {
-			return config{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
+			return settings{}, fmt.Errorf("%w: %T is nil", errInvalidRequest, request)
 		}
 
 		return typed.settings(), nil
 	default:
-		return config{}, fmt.Errorf("%w: unsupported type %T", errInvalidRequest, request)
+		return settings{}, fmt.Errorf("%w: unsupported type %T", errInvalidRequest, request)
 	}
 }
 
-func (r RunRequest) settings() config {
-	settings := commonConfig(r.Common)
-	settings = populationConfig(settings, r.Population)
-	settings = gateConfig(settings, r.Gate)
-	settings.NoCache = r.NoCache
+func (r RunRequest) settings() settings {
+	s := commonConfig(r.Common)
+	s = populationConfig(s, r.Population)
+	s = gateConfig(s, r.Gate)
+	s.NoCache = r.NoCache
 
-	return settings
+	return s
 }
 
-func (r PreviewRequest) settings() config {
-	settings := commonConfig(r.Common)
-	settings = populationConfig(settings, r.Population)
-	settings.mode = previewMode
+func (r PreviewRequest) settings() settings {
+	s := commonConfig(r.Common)
+	s = populationConfig(s, r.Population)
+	s.mode = previewMode
 
-	return settings
+	return s
 }
 
-func (r SuggestRequest) settings() config {
-	settings := commonConfig(r.Common)
-	settings = populationConfig(settings, r.Population)
-	settings = gateConfig(settings, r.Gate)
-	settings.NoCache = r.NoCache
-	settings.mode = suggestMode
-	settings.SuggestDryRun = r.DryRun
-	settings.SurvivorIDs = r.SurvivorIDs
-	settings.Apply = r.Apply
-	settings.ApplyAll = r.ApplyAll
+func (r SuggestRequest) settings() settings {
+	s := commonConfig(r.Common)
+	s = populationConfig(s, r.Population)
+	s = gateConfig(s, r.Gate)
+	s.NoCache = r.NoCache
+	s.mode = suggestMode
+	s.SuggestDryRun = r.DryRun
+	s.SurvivorIDs = r.SurvivorIDs
+	s.Apply = r.Apply
+	s.ApplyAll = r.ApplyAll
 
-	return settings
+	return s
 }
 
-func (r CharacteriseRequest) settings() config {
-	settings := commonConfig(r.Common)
-	settings.mode = characteriseMode
-	settings.PinRung = r.PinRung
-	settings.CharacteriseWrite = r.Write
-	settings.CharacteriseForce = r.Force
-	settings.UntilDry = r.UntilDry
-	settings.Resume = r.Resume
-	settings.Answers = r.Answers
+func (r CharacteriseRequest) settings() settings {
+	s := commonConfig(r.Common)
+	s.mode = characteriseMode
+	s.PinRung = r.PinRung
+	s.CharacteriseWrite = r.Write
+	s.CharacteriseForce = r.Force
+	s.UntilDry = r.UntilDry
+	s.Resume = r.Resume
+	s.Answers = r.Answers
 
-	return settings
+	return s
 }
 
-func (r TodosRequest) settings() config {
-	settings := commonConfig(r.Common)
-	settings.mode = todosMode
-	settings.PinRung = r.PinRung
-	settings.Answers = r.Answers
-	settings.Resume = r.Resume
+func (r TodosRequest) settings() settings {
+	s := commonConfig(r.Common)
+	s.mode = todosMode
+	s.PinRung = r.PinRung
+	s.Answers = r.Answers
+	s.Resume = r.Resume
 
-	return settings
+	return s
 }
 
-func (r CurateRequest) settings() config {
-	settings := commonConfig(r.Common)
-	settings = gateConfig(settings, r.Gate)
-	settings.NoCache = r.NoCache
-	settings.mode = curateMode
+func (r CurateRequest) settings() settings {
+	s := commonConfig(r.Common)
+	s = gateConfig(s, r.Gate)
+	s.NoCache = r.NoCache
+	s.mode = curateMode
 
-	return settings
+	return s
 }
 
-func commonConfig(c Common) config {
-	settings := config{}
-	settings.ModuleDir = c.ModuleDir
-	settings.TestDirectory = c.TestDirectory
-	settings.Jobs = c.Jobs
-	settings.TimeoutFactor = c.TimeoutFactor
-	settings.TimeoutFloor = c.TimeoutFloor
-	settings.AllowRealInfrastructure = c.AllowRealInfrastructure
-	settings.AllowUnsandboxedEffects = c.AllowUnsandboxedEffects
-	settings.TerraformBinary = c.TerraformBinary
-	settings.Env = c.Env
-	settings.WorkDir = c.WorkDir
-	settings.ToolVersion = c.ToolVersion
-	settings.SetFlags = c.SetFlags
+func commonConfig(c Common) settings {
+	s := settings{}
+	s.ModuleDir = c.ModuleDir
+	s.TestDirectory = c.TestDirectory
+	s.Jobs = c.Jobs
+	s.TimeoutFactor = c.TimeoutFactor
+	s.TimeoutFloor = c.TimeoutFloor
+	s.AllowRealInfrastructure = c.AllowRealInfrastructure
+	s.AllowUnsandboxedEffects = c.AllowUnsandboxedEffects
+	s.TerraformBinary = c.TerraformBinary
+	s.Env = c.Env
+	s.WorkDir = c.WorkDir
+	s.ToolVersion = c.ToolVersion
+	s.SetFlags = c.SetFlags
 
-	return settings
+	return s
 }
 
-func populationConfig(settings config, p Population) config {
-	settings.TestSelection = p.TestSelection
-	settings.Tier = p.Tier
-	settings.IncludeOperators = p.IncludeOperators
-	settings.ExcludeOperators = p.ExcludeOperators
-	settings.ExcludePaths = p.ExcludePaths
-	settings.ExcludeResources = p.ExcludeResources
-	settings.Since = p.Since
-	settings.SamplePercent = p.SamplePercent
-	settings.HasSample = p.HasSample
-	settings.SampleSeed = p.SampleSeed
-	settings.GeneratedFunctions = p.GeneratedFunctions
-	settings.Packs = p.Packs
+func populationConfig(s settings, p Population) settings {
+	s.TestSelection = p.TestSelection
+	s.Tier = p.Tier
+	s.IncludeOperators = p.IncludeOperators
+	s.ExcludeOperators = p.ExcludeOperators
+	s.ExcludePaths = p.ExcludePaths
+	s.ExcludeResources = p.ExcludeResources
+	s.Since = p.Since
+	s.SamplePercent = p.SamplePercent
+	s.HasSample = p.HasSample
+	s.SampleSeed = p.SampleSeed
+	s.GeneratedFunctions = p.GeneratedFunctions
+	s.Packs = p.Packs
 
-	return settings
+	return s
 }
 
-func gateConfig(settings config, g Gate) config {
-	settings.MinScore = g.MinScore
-	settings.HasMinScore = g.HasMinScore
-	settings.AllowIncompleteScore = g.AllowIncompleteScore
-	settings.AllowSampledGate = g.AllowSampledGate
-	settings.FailOnNew = g.FailOnNew
-	settings.WriteBaseline = g.WriteBaseline
-	settings.BaselinePath = g.BaselinePath
+func gateConfig(s settings, g Gate) settings {
+	s.MinScore = g.MinScore
+	s.HasMinScore = g.HasMinScore
+	s.AllowIncompleteScore = g.AllowIncompleteScore
+	s.AllowSampledGate = g.AllowSampledGate
+	s.FailOnNew = g.FailOnNew
+	s.WriteBaseline = g.WriteBaseline
+	s.BaselinePath = g.BaselinePath
 
-	return settings
+	return s
 }

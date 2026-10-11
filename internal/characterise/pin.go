@@ -233,7 +233,7 @@ func valuePins(
 	pins := []Pin{}
 
 	for _, path := range paths {
-		rung, admitted := rungOf(path)
+		rung, admitted := rungOfPath(path)
 		if !admitted || !scaffold.Rung.Includes(rung) {
 			continue
 		}
@@ -371,14 +371,14 @@ func schemaCoordinates(address string) (kind, resourceType string, ok bool) {
 // names a data source's type.
 const dataAddressParts = 2
 
-// rungOf reports which ladder level a canonical payload path belongs to.
+// rungOfPath reports which ladder level a canonical payload path belongs to.
 //
-// Its twin in the engine, `rungOfExpression`, classifies a *generated
-// expression* rather than a payload path, because that is all a suggestion
-// carries. The two read different inputs and neither can be derived from the
-// other; what they must agree on is the ladder itself, which is the exported
-// `Rung` vocabulary they both return.
-func rungOf(path string) (Rung, bool) {
+// Its twin, `RungOf` below, classifies a *generated expression* rather than a
+// payload path, because that is all a suggestion carries. The two read
+// different inputs and neither can be derived from the other; what they must
+// agree on is the ladder itself, which is the exported `Rung` vocabulary they
+// both return.
+func rungOfPath(path string) (Rung, bool) {
 	switch {
 	case strings.HasPrefix(path, outputPrefix):
 		return RungOutputs, true
@@ -388,6 +388,60 @@ func rungOf(path string) (Rung, bool) {
 		return "", false
 	}
 }
+
+// RungOf classifies a generated assertion by the ladder level it belongs to.
+//
+// It classifies the *subject* the assertion addresses, never the syntax it is
+// rendered in. `length(...)` is not a counts-rung marker: the suggestion
+// engine renders a configured collection attribute the same way, so keying off
+// the call would admit configured-value assertions into a `--pin counts` run —
+// which is exactly the unrequested brittleness the ladder exists to prevent.
+// A `length` over a bare resource address is a count; a `length` over an
+// attribute of one is that attribute's value.
+func RungOf(expression string) Rung {
+	address := AssertedAddress(expression)
+
+	switch {
+	case strings.HasPrefix(address, "output."):
+		return RungOutputs
+	case strings.HasPrefix(expression, lengthCall) && resourceAddressOnly(address):
+		return RungCounts
+	default:
+		return RungConfigured
+	}
+}
+
+// lengthCall is the one collection-safe form the M4 rendering contract admits.
+const lengthCall = "length("
+
+// AssertedAddress reads the address a generated assertion is about: the left
+// side of the equality, with any `length(...)` wrapper removed. The until-dry
+// loop uses it as the pin's address, since a pin is identified by the
+// scenario, the address and the expression.
+func AssertedAddress(expression string) string {
+	subject, _, found := strings.Cut(expression, " == ")
+	if !found {
+		subject = expression
+	}
+
+	subject = strings.TrimSpace(subject)
+
+	if inner, wrapped := strings.CutPrefix(subject, lengthCall); wrapped {
+		subject = strings.TrimSuffix(inner, ")")
+	}
+
+	return strings.TrimSpace(subject)
+}
+
+// resourceAddressOnly reports an address that names a resource collection and
+// nothing inside it — `null_resource.app`, not `null_resource.app.triggers`.
+func resourceAddressOnly(address string) bool {
+	return len(discovery.ParseAddr(address).Parts) == collectionAddressParts
+}
+
+// collectionAddressParts is the length of `<type>.<name>`: a resource
+// collection named whole, with no attribute after it.
+const collectionAddressParts = 2
 
 // expressionAddress rejoins an address and attribute path the way the
 // assertion expression spells it.

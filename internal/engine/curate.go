@@ -35,13 +35,6 @@ var ErrCuratePopulation = errors.New(
 	"curate requires a full, unsampled, unfiltered population",
 )
 
-// assertionFailure is the diagnostic summary Terraform gives a failed
-// assertion. Attribution keys off it, and off the range beside it: measured
-// against Terraform v1.15.8, every failed assertion of a run is reported, each
-// with its own range, in declaration order and independent of which failed
-// first.
-const assertionFailure = "Test assertion failed"
-
 // ErrUntilDryPopulation reports a population the convergence loop will not
 // draw a conclusion from.
 var ErrUntilDryPopulation = errors.New(
@@ -51,7 +44,7 @@ var ErrUntilDryPopulation = errors.New(
 // checkCuratePopulation refuses at configuration time, which is the point: a
 // refusal that arrived after the population ran would have cost the caller the
 // whole run to learn that its evidence is inadmissible.
-func checkCuratePopulation(settings config) error {
+func checkCuratePopulation(settings settings) error {
 	if settings.mode != curateMode {
 		return nil
 	}
@@ -74,7 +67,7 @@ func checkCuratePopulation(settings config) error {
 // becomes "the survivors *this sample* reached stopped yielding", which is a
 // different and much weaker statement — and the report hard-codes the
 // selection as full, so nothing downstream could tell the two apart.
-func checkUntilDryPopulation(settings config) error {
+func checkUntilDryPopulation(settings settings) error {
 	if !settings.UntilDry {
 		return nil
 	}
@@ -92,7 +85,7 @@ func checkUntilDryPopulation(settings config) error {
 
 // populationRefusals names every reason this population is not the default
 // one, which is the standard both commands apply.
-func populationRefusals(settings config) []string {
+func populationRefusals(settings settings) []string {
 	refusals := []string{}
 
 	if settings.Since != "" {
@@ -136,8 +129,7 @@ func curateSuite(
 	ctx context.Context,
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
-	settings config,
-	version tfexec.Version,
+	settings settings, version tfexec.Version,
 	moduleDir string,
 ) (report.Report, error) {
 	graded := settings
@@ -253,7 +245,12 @@ func attributeKills(
 		}
 
 		for _, diagnostic := range mutant.Diagnostics {
-			if diagnostic.Summary != assertionFailure || diagnostic.Range == nil {
+			// Attribution keys off Terraform's assertion-failure summary, and
+			// off the range beside it: measured against Terraform v1.15.8,
+			// every failed assertion of a run is reported, each with its own
+			// range, in declaration order and independent of which failed
+			// first. The message text is the boundary's knowledge.
+			if !tfexec.IsAssertionFailure(diagnostic.Summary) || diagnostic.Range == nil {
 				continue
 			}
 

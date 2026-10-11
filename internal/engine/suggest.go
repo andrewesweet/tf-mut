@@ -21,7 +21,7 @@ import (
 var ErrSurvivorSelection = errors.New("no survivor with that identifier")
 
 //nolint:gochecknoglobals // inert production default; external tests scope and restore it.
-var seedSuggestionDefect = func(config) suggest.Defect { return suggest.DefectNone }
+var seedSuggestionDefect = func(settings) suggest.Defect { return suggest.DefectNone }
 
 // suggestibleDiagnoses names the diagnoses a suggestion is generated for.
 //
@@ -46,7 +46,7 @@ func suggestAssertions(
 	plan executionPlan,
 	result report.Report,
 ) ([]report.Suggestion, string, error) {
-	selected, err := selectSurvivors(plan.config, result)
+	selected, err := selectSurvivors(plan.settings, result)
 	if err != nil {
 		return nil, "", err
 	}
@@ -54,10 +54,10 @@ func suggestAssertions(
 	candidates, skipped := suggest.Generator{
 		Configuration: plan.configuration,
 		Schemas:       plan.prepared.schemas,
-		Defect:        seedSuggestionDefect(plan.config),
+		Defect:        seedSuggestionDefect(plan.settings),
 	}.Generate(suggestable(selected))
 
-	if plan.config.SuggestDryRun {
+	if plan.settings.SuggestDryRun {
 		return projectGeneration(selected, candidates, nil, skipped), "", nil
 	}
 
@@ -132,7 +132,7 @@ func verificationCost(candidates []suggest.Candidate) string {
 
 // selectSurvivors narrows the population to the survivors the caller asked
 // about, and refuses an identifier the population does not carry.
-func selectSurvivors(settings config, result report.Report) ([]report.Mutant, error) {
+func selectSurvivors(settings settings, result report.Report) ([]report.Mutant, error) {
 	if len(settings.SurvivorIDs) == 0 {
 		return result.Survivors(), nil
 	}
@@ -185,7 +185,7 @@ var ErrSuggestCombination = errors.New("contradictory suggest flags")
 //     contract, so a filtered population would let an excluded run's kill be
 //     attributed to a suggestion — the exact laundering the isolated leg
 //     exists to prevent.
-func checkSuggestCombinations(settings config) error {
+func checkSuggestCombinations(settings settings) error {
 	if settings.mode != suggestMode {
 		return nil
 	}

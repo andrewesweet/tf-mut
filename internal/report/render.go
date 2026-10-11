@@ -561,7 +561,7 @@ func incompleteReason(block *Characterisation) string {
 		return "a judgement point is still open"
 	}
 
-	if block.Convergence != nil && block.Convergence.StopReason == "refused" {
+	if block.Convergence != nil && block.Convergence.StopReason == StopRefused {
 		return "the until-dry loop was refused: see the warning below"
 	}
 

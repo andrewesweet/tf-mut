@@ -39,11 +39,11 @@ const defaultRounds = 5
 const stagingRoot = "staged"
 
 //nolint:gochecknoglobals // test seam, inert outside the suite.
-var seedUntilDryRounds = func(config) int { return 0 }
+var seedUntilDryRounds = func(settings) int { return 0 }
 
 // roundLimit is the loop's bound, which a seam control may lower so that the
 // `bounded` exit can be staged rather than argued about.
-func roundLimit(settings config) int {
+func roundLimit(settings settings) int {
 	if rounds := seedUntilDryRounds(settings); rounds > 0 {
 		return rounds
 	}
@@ -65,7 +65,7 @@ func untilDry(
 	scaffolds *scaffoldSet,
 ) ([]characterise.Pin, error) {
 	convergence := &report.Convergence{
-		Rounds: 0, NewPinsPerRound: []int{}, StopReason: "bounded",
+		Rounds: 0, NewPinsPerRound: []int{}, StopReason: report.StopBounded,
 	}
 	block.Convergence = convergence
 
@@ -81,7 +81,7 @@ func untilDry(
 			// the report that carries it has to reach a reporter. The caller
 			// keeps the block and renders it; the loop's failure is a warning
 			// on a report rather than an error that discards one.
-			convergence.StopReason = "refused"
+			convergence.StopReason = report.StopRefused
 
 			return pins, err
 		}
@@ -92,7 +92,7 @@ func untilDry(
 		convergence.NewPinsPerRound = append(convergence.NewPinsPerRound, added)
 
 		if added == 0 {
-			convergence.StopReason = "dry"
+			convergence.StopReason = report.StopDry
 
 			break
 		}
@@ -417,7 +417,7 @@ func absorb(
 			continue
 		}
 
-		level := rungOfExpression(suggestion.Expression)
+		level := characterise.RungOf(suggestion.Expression)
 		if !rung.Includes(level) {
 			continue
 		}
@@ -425,7 +425,7 @@ func absorb(
 		known[key] = true
 		added++
 
-		address := assertedAddress(suggestion.Expression)
+		address := characterise.AssertedAddress(suggestion.Expression)
 
 		pins = append(pins,
 			characterise.Pinned(scenario, address, suggestion.Expression, string(level)))
@@ -491,56 +491,3 @@ func undeclaredInputs(
 
 	return ""
 }
-
-// rungOfExpression classifies a generated assertion by the ladder level it
-// belongs to.
-//
-// It classifies the *subject* the assertion addresses, never the syntax it is
-// rendered in. `length(...)` is not a counts-rung marker: the suggestion
-// engine renders a configured collection attribute the same way, so keying off
-// the call would admit configured-value assertions into a `--pin counts` run —
-// which is exactly the unrequested brittleness the ladder exists to prevent.
-// A `length` over a bare resource address is a count; a `length` over an
-// attribute of one is that attribute's value.
-func rungOfExpression(expression string) characterise.Rung {
-	address := assertedAddress(expression)
-
-	switch {
-	case strings.HasPrefix(address, "output."):
-		return characterise.RungOutputs
-	case strings.HasPrefix(expression, lengthCall) && resourceAddressOnly(address):
-		return characterise.RungCounts
-	default:
-		return characterise.RungConfigured
-	}
-}
-
-// lengthCall is the one collection-safe form the M4 rendering contract admits.
-const lengthCall = "length("
-
-// assertedAddress reads the address a generated assertion is about: the left
-// side of the equality, with any `length(...)` wrapper removed.
-func assertedAddress(expression string) string {
-	subject, _, found := strings.Cut(expression, " == ")
-	if !found {
-		subject = expression
-	}
-
-	subject = strings.TrimSpace(subject)
-
-	if inner, wrapped := strings.CutPrefix(subject, lengthCall); wrapped {
-		subject = strings.TrimSuffix(inner, ")")
-	}
-
-	return strings.TrimSpace(subject)
-}
-
-// resourceAddressOnly reports an address that names a resource collection and
-// nothing inside it — `null_resource.app`, not `null_resource.app.triggers`.
-func resourceAddressOnly(address string) bool {
-	return len(discovery.ParseAddr(address).Parts) == collectionAddressParts
-}
-
-// collectionAddressParts is the length of `<type>.<name>`: a resource
-// collection named whole, with no attribute after it.
-const collectionAddressParts = 2

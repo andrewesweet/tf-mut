@@ -273,6 +273,7 @@ func TestTheDocumentedVocabularyMatchesTheBinary(t *testing.T) {
 	assertReadmeVocabulary(t, documents.readme, reporters)
 	assertAgentIntegrationVocabulary(t, documents.agentIntegration, reporters)
 	assertReportVocabulary(t, documents.productDesign)
+	assertStopReasonVocabulary(t)
 	assertNeverWriteExceptions(t, documents.readme, documents.agents)
 }
 
@@ -473,6 +474,50 @@ func assertReportVocabulary(t *testing.T, productDesign string) {
 	//nolint:staticcheck // Deprecated name is exactly what the historical contract must retain.
 	withdrawnDiagnosis := "Withdrawn in M3: `" + string(report.MockMasked) + "`"
 	containsToken(t, productDesign, withdrawnDiagnosis, "product-design withdrawn diagnosis")
+}
+
+// assertStopReasonVocabulary holds the until-dry convergence exit — the one
+// wire vocabulary the state and diagnosis tables above do not cover — to the
+// published schema's `stop_reason` enum, in the schema's own order.
+func assertStopReasonVocabulary(t *testing.T) {
+	t.Helper()
+
+	schemaPath := "../../docs/schema/report-" + report.SchemaVersion + ".json"
+
+	var schema struct {
+		Defs map[string]struct {
+			Properties map[string]struct {
+				Enum []any `json:"enum"`
+			} `json:"properties"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal([]byte(readDocument(t, schemaPath)), &schema); err != nil {
+		t.Fatalf("reading %s: %v", schemaPath, err)
+	}
+
+	convergence, found := schema.Defs["convergence"]
+	if !found {
+		t.Fatalf("%s has no convergence definition", schemaPath)
+	}
+
+	stopReason, found := convergence.Properties["stop_reason"]
+	if !found {
+		t.Fatalf("%s convergence has no stop_reason", schemaPath)
+	}
+
+	documented := make([]string, 0, len(stopReason.Enum))
+	for _, value := range stopReason.Enum {
+		entry, isString := value.(string)
+		if !isString {
+			t.Fatalf("%s stop_reason enum carries a non-string", schemaPath)
+		}
+
+		documented = append(documented, entry)
+	}
+
+	assertVocabularyEquals(t, schemaPath+" stop_reason enum", documented, []string{
+		string(report.StopDry), string(report.StopBounded), string(report.StopRefused),
+	})
 }
 
 func assertNeverWriteExceptions(t *testing.T, readme, agents string) {
