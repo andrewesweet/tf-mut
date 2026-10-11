@@ -56,8 +56,8 @@ spec absorbs first.
   weak assertion the reader cannot prove.
 - **One suggestion per survivor.** The generator emits the first change all three adapters
   admit, or the first refusal's own status. Several assertions per survivor is unmeasured
-  value at real verification cost (each suggestion is one full-suite run plus one isolated
-  run); the outcome model does not preclude widening later.
+  value at real verification cost (see the [verification contract](../design/product-design.md#7-the-differentiator--suggested-assertions));
+  the outcome model does not preclude widening later.
 - **`--apply` re-verifies in the same invocation.** Selection by ID or `--all-verified`
   operates on the current report's suggestions, freshly verified this run, so the digest
   binding guards the concurrent-editor race rather than a workflow gap; the preflight's

@@ -35,7 +35,7 @@ import (
 // nobody has tested. Each defect is aimed at exactly one leg.
 type Defect string
 
-// The two seeded defects the soundness gate requires.
+// Seeded defects exercise both verification legs and batch attribution.
 const (
 	// DefectNone is the ordinary generator.
 	DefectNone Defect = ""
@@ -45,10 +45,19 @@ const (
 	// DefectVacuous is always true, so it passes the full-suite leg and the
 	// mutant must survive it — which only the isolated leg can see.
 	DefectVacuous Defect = "vacuous"
+	// DefectVanishing references an output the baseline does not declare, so
+	// the run carrying it errors rather than fails, and Terraform's diagnostic
+	// reports its own error instead of the assertion's message — a batch
+	// failure that names no suggestion, which only splitting the batch
+	// attributes.
+	DefectVanishing Defect = "vanishing"
 )
 
 // SeededWrongValue is the value the wrong-value defect compares against.
 const SeededWrongValue = "tf-mut-seeded-wrong-value"
+
+// SeededVanishingOutput is the undeclared output the vanishing defect reads.
+const SeededVanishingOutput = "tf_mut_seeded_missing"
 
 // Survivor is a proven survivor the generator is asked about: the mutant
 // identifier and the masked delta the oracle proved against the baseline. The
@@ -167,6 +176,10 @@ func (g Generator) seed(survivor Survivor, candidate Candidate) generated {
 	expression := reference + " == " + reference
 	if g.Defect == DefectWrongValue {
 		expression = reference + ` == "` + SeededWrongValue + `"`
+	}
+
+	if g.Defect == DefectVanishing {
+		expression = "output." + SeededVanishingOutput + ` == "` + SeededWrongValue + `"`
 	}
 
 	return build(survivor, target, expression)
@@ -393,4 +406,24 @@ func ReadTarget(moduleDir, relative string) ([]byte, error) {
 // assertion itself from drifting between the two.
 func VerifiedMessage(suggestionID, mutantID string) string {
 	return "tf-mut suggestion " + suggestionID + " catches mutant " + mutantID
+}
+
+// SuggestionIDFromMessage recovers the suggestion identifier a failed
+// assertion names: the inverse of VerifiedMessage. Terraform copies a failed
+// assertion's error_message verbatim into the failing run's diagnostic, so a
+// batch run's diagnostics name the suggestions that failed in it, and
+// verification can attribute a failing batch to those suggestions alone. The
+// second result is false for any other text.
+func SuggestionIDFromMessage(message string) (string, bool) {
+	rest, found := strings.CutPrefix(message, "tf-mut suggestion ")
+	if !found {
+		return "", false
+	}
+
+	id, rest, found := strings.Cut(rest, " catches mutant ")
+	if !found || id == "" || rest == "" {
+		return "", false
+	}
+
+	return id, true
 }

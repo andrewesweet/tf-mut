@@ -24,6 +24,8 @@ const (
 	suggestSensitiveFixture = "suggest-sensitive"
 	suggestJSONFixture      = "suggest-json-target"
 	suggestMultiFixture     = "suggest-multifile"
+	suggestBatchFixture     = "suggest-batch"
+	suggestCountFixture     = "suggest-count"
 	secretValue             = "s3cret-value"
 	unitTestFile            = "tests/unit.tftest.hcl"
 )

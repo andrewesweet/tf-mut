@@ -38,9 +38,8 @@ var suggestibleDiagnoses = []report.Diagnosis{
 
 // suggestAssertions generates — and, unless this is a dry run, verifies — the
 // assertion that would have killed each selected survivor. The second result
-// is the verification cost statement: verification is bounded and chosen, so
-// what it will execute is stated in the report rather than discovered on the
-// bill.
+// is the verification cost statement, reporting the executions actually spent
+// on the candidates and on attributing any batch failures.
 func suggestAssertions(
 	ctx context.Context,
 	plan executionPlan,
@@ -61,12 +60,12 @@ func suggestAssertions(
 		return projectGeneration(selected, candidates, nil, skipped), "", nil
 	}
 
-	verified, err := verifySuggestions(ctx, plan, candidates)
+	verified, costs, err := verifySuggestions(ctx, plan, candidates)
 	if err != nil {
 		return nil, "", err
 	}
 
-	return projectGeneration(selected, nil, verified, skipped), verificationCost(candidates), nil
+	return projectGeneration(selected, nil, verified, skipped), costs.Statement(), nil
 }
 
 // suggestable projects the selected survivors onto the Suggestion context's
@@ -109,25 +108,16 @@ func projectSurvivorDelta(changes []report.Change) []fingerprint.Change {
 	return delta
 }
 
-// verificationCost states what the verification contract executes for a
-// candidate set: one full-suite run per target test file, plus one isolated
-// mutant run per candidate.
-func verificationCost(candidates []suggest.Candidate) string {
-	candidatesCount := 0
-	files := map[string]bool{}
-
-	for _, candidate := range candidates {
-		candidatesCount += 1 + len(candidate.AlsoKills())
-		files[candidate.TargetFile()] = true
-	}
-
-	if candidatesCount == 0 {
+// Statement states what verification actually executed: every
+// full-suite run the baseline leg and its attribution executed, and every
+// isolated mutant run.
+func (c verificationCosts) Statement() string {
+	if c.fullSuite == 0 && c.isolated == 0 {
 		return ""
 	}
 
-	return fmt.Sprintf("verification executed %d full-suite run(s) — one per target test "+
-		"file — plus %d isolated mutant run(s), one per mutant a suggestion claims",
-		len(files), candidatesCount)
+	return fmt.Sprintf("verification executed %d full-suite run(s) plus %d isolated mutant run(s)",
+		c.fullSuite, c.isolated)
 }
 
 // selectSurvivors narrows the population to the survivors the caller asked

@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -16,7 +17,7 @@ import (
 
 // Verification, under the one contract the M4 spec review's M1 disposition
 // chose: for each target test file the candidate batch is applied to a sandbox
-// copy and the full suite runs once — green required; each suggestion is then
+// copy and the full suite runs — green required; each suggestion is then
 // checked alone against its re-materialised mutant — failure required.
 //
 // The two legs answer different questions and neither alone is enough. The
@@ -24,6 +25,12 @@ import (
 // leg rejects one that is vacuously true and would have passed anyway.
 // Isolation is what makes the kill attributable: applying the whole batch would
 // let one good assertion launder its neighbours.
+//
+// A baseline leg that comes back not green is attributed before any isolated
+// leg is spent: the failing runs' diagnostics name the suggestions whose
+// assertions failed, only those are refuted, and the batch re-runs without
+// them — bisected when a failure names nothing — so one bad assertion no
+// longer refutes its whole file.
 //
 // Nothing here reads or writes the verdict cache. A verification run is about a
 // file that exists in no source tree, and a cached verdict about it would be a
@@ -37,25 +44,29 @@ func verifySuggestions(
 	ctx context.Context,
 	plan executionPlan,
 	candidates []suggest.Candidate,
-) ([]suggest.Suggestion, error) {
+) ([]suggest.Suggestion, verificationCosts, error) {
 	byFile := groupCandidates(candidates)
 	if len(byFile) == 0 {
-		return nil, nil
+		return nil, verificationCosts{}, nil
 	}
 
 	mutated := mutantsByID(plan)
 	outcomes := map[string]suggest.Suggestion{}
+	costs := verificationCosts{}
 
 	for _, file := range sortedTargets(byFile) {
 		group := byFile[file]
 
-		baseline, digest, err := verifyBatch(ctx, plan, file, group)
+		attributed, err := attributeBatch(ctx, plan, file, group, &costs)
 		if err != nil {
-			return nil, err
+			return nil, verificationCosts{}, err
 		}
 
-		for _, candidate := range group {
-			outcomes[candidate.ID()] = decide(ctx, plan, mutated, candidate, baseline, digest)
+		maps.Copy(outcomes, attributed.refuted)
+
+		for _, candidate := range attributed.survivors {
+			outcomes[candidate.ID()] = decide(ctx, plan, mutated, candidate,
+				attributed.baseline[candidate.ID()], attributed.digest[candidate.ID()], &costs)
 		}
 	}
 
@@ -64,7 +75,222 @@ func verifySuggestions(
 		concluded = append(concluded, outcomes[candidate.ID()])
 	}
 
-	return concluded, nil
+	return concluded, costs, nil
+}
+
+// verificationCosts counts what verification actually executed, so the
+// report's cost statement states runs that happened rather than a contract's
+// upper bound.
+type verificationCosts struct {
+	fullSuite int
+	isolated  int
+}
+
+// batchAttribution is the baseline leg's outcome over one target file's
+// candidates: who it refuted, who survived to the isolated legs, and the
+// green leg and digest each survivor was proven against. A bisected pool
+// proves its halves on different legs, so the baseline evidence is
+// per-candidate rather than one leg for the file.
+type batchAttribution struct {
+	refuted   map[string]suggest.Suggestion
+	survivors []suggest.Candidate
+	baseline  map[string]suggest.Leg
+	digest    map[string]string
+}
+
+// attributionBudget bounds the baseline leg's full-suite runs for one file's
+// batch of n candidates: the initial run plus, per round, either a named
+// refutation (the pool shrinks by at least one) or a bisection split (toward
+// singletons), and a binary decomposition of n candidates never exceeds 2n
+// runs. Past the cap every unattributed candidate is refuted, as the whole
+// batch was before attribution existed: the contract's requirement — the
+// suite green with the batch applied — is unmet, so none of them can be
+// verified.
+func attributionBudget(batch []suggest.Candidate) int {
+	return 2*len(batch) + 1
+}
+
+// attributeBatch runs the baseline leg over one target file and attributes a
+// failing batch before any isolated leg is spent.
+//
+// The contract is the batch green; when the run is not, the failing runs'
+// diagnostics attribute the failure: every applied assertion carries its
+// suggestion's identifier in its error_message, and Terraform copies that
+// message verbatim into the failing run's diagnostic. Only the named
+// candidates are refuted, and the batch re-runs without them. A failure that
+// names no candidate — an assertion whose presence errors the run, whose
+// diagnostic is Terraform's own — bisects the pool until a failing half is a
+// single candidate.
+func attributeBatch(
+	ctx context.Context,
+	plan executionPlan,
+	file string,
+	group []suggest.Candidate,
+	costs *verificationCosts,
+) (batchAttribution, error) {
+	attributed := batchAttribution{
+		refuted:   map[string]suggest.Suggestion{},
+		survivors: []suggest.Candidate{},
+		baseline:  map[string]suggest.Leg{},
+		digest:    map[string]string{},
+	}
+
+	a := &attributor{
+		plan:        plan,
+		file:        file,
+		budget:      attributionBudget(group),
+		costs:       costs,
+		attribution: attributed,
+	}
+
+	if err := a.attribute(ctx, group); err != nil {
+		return batchAttribution{}, err //nolint:exhaustruct // nothing was concluded.
+	}
+
+	return a.attribution, nil
+}
+
+// attributor carries one file's attribution in progress: the remaining
+// budget of full-suite runs, and the verdicts assigned so far.
+type attributor struct {
+	plan        executionPlan
+	file        string
+	budget      int
+	costs       *verificationCosts
+	attribution batchAttribution
+}
+
+// bisectionDivisor is where a failing unnamed pool splits: a failing half
+// retains at least one culprit until the halves are singletons, which no
+// other split ratio guarantees for every pool size.
+const bisectionDivisor = 2
+
+// attribute runs the batch leg over pool and assigns its verdicts, recursing
+// on the failure shapes the attribution contract defines.
+func (a *attributor) attribute(ctx context.Context, pool []suggest.Candidate) error {
+	if len(pool) == 0 {
+		return nil
+	}
+
+	if a.budget <= 0 {
+		a.exhausted(pool)
+
+		return nil
+	}
+
+	a.budget--
+
+	run, err := runBatch(ctx, a.plan, a.file, pool, &a.costs.fullSuite)
+	if err != nil {
+		return err
+	}
+
+	if run.leg.Passed() {
+		for _, candidate := range pool {
+			a.attribution.survivors = append(a.attribution.survivors, candidate)
+			a.attribution.baseline[candidate.ID()] = run.leg
+			a.attribution.digest[candidate.ID()] = run.digest
+		}
+
+		return nil
+	}
+
+	named := namedCandidates(run.result, pool)
+
+	switch {
+	case len(named) > 0:
+		for _, candidate := range named {
+			a.attribution.refuted[candidate.ID()] = candidate.Refute(
+				"the full suite is not green with the suggested assertions applied, and the failing run names this suggestion",
+				suggest.NewVerification(run.leg, suggest.NewLeg(false, nil,
+					"not run: the failing batch run names this suggestion")),
+			)
+		}
+
+		return a.attribute(ctx, withoutCandidates(pool, named))
+
+	case len(pool) == 1:
+		a.attribution.refuted[pool[0].ID()] = pool[0].Refute(
+			"the full suite is not green with this suggestion applied on its own, "+
+				"so it breaks the suite the contract requires green",
+			suggest.NewVerification(run.leg, suggest.NewLeg(false, nil,
+				"not run: the batch of one failed without naming any suggestion")),
+		)
+
+		return nil
+
+	default:
+		half := len(pool) / bisectionDivisor
+
+		if err := a.attribute(ctx, pool[:half]); err != nil {
+			return err
+		}
+
+		return a.attribute(ctx, pool[half:])
+	}
+}
+
+// exhausted refutes every candidate the budget gave out on. It is the bound's
+// failure mode, not a verdict about any one assertion: no candidate still in
+// an unattributed pool has proven the batch green, so none can be verified.
+func (a *attributor) exhausted(pool []suggest.Candidate) {
+	for _, candidate := range pool {
+		a.attribution.refuted[candidate.ID()] = candidate.Refute(
+			"the verification budget ran out while the suite was still not green with the suggested assertions applied",
+			suggest.NewVerification(
+				suggest.NewLeg(false, nil, "not run: the attribution budget was exhausted"),
+				suggest.NewLeg(false, nil, "not run: the attribution budget was exhausted"),
+			),
+		)
+	}
+}
+
+// namedCandidates extracts the pool candidates a failing batch run named, in
+// pool order. A candidate the run names carried an assertion the baseline
+// refutes — that is what a failed assertion is — and no candidate the run
+// says nothing about is refuted on this run's evidence alone.
+func namedCandidates(result tfexec.TestResult, pool []suggest.Candidate) []suggest.Candidate {
+	inPool := make(map[string]suggest.Candidate, len(pool))
+	for _, candidate := range pool {
+		inPool[candidate.ID()] = candidate
+	}
+
+	named := []suggest.Candidate{}
+	seen := map[string]bool{}
+
+	for _, diagnostic := range result.Diagnostics {
+		id, ok := suggest.SuggestionIDFromMessage(diagnostic.Detail)
+		if !ok || seen[id] {
+			continue
+		}
+
+		candidate, found := inPool[id]
+		if !found {
+			continue
+		}
+
+		seen[id] = true
+		named = append(named, candidate)
+	}
+
+	return named
+}
+
+// withoutCandidates removes the named candidates from the pool, keeping order.
+func withoutCandidates(pool, named []suggest.Candidate) []suggest.Candidate {
+	remove := make(map[string]bool, len(named))
+	for _, candidate := range named {
+		remove[candidate.ID()] = true
+	}
+
+	kept := make([]suggest.Candidate, 0, len(pool))
+	for _, candidate := range pool {
+		if !remove[candidate.ID()] {
+			kept = append(kept, candidate)
+		}
+	}
+
+	return kept
 }
 
 // decide runs the isolated mutant leg where the baseline leg allows it, and
@@ -76,6 +302,7 @@ func decide(
 	candidate suggest.Candidate,
 	baseline suggest.Leg,
 	digest string,
+	costs *verificationCosts,
 ) suggest.Suggestion {
 	if !baseline.Passed() {
 		return candidate.Refute(
@@ -92,7 +319,7 @@ func decide(
 	details := []string{}
 
 	for _, mutantID := range append([]string{candidate.MutantID()}, candidate.AlsoKills()...) {
-		leg, err := verifyAgainstMutant(ctx, plan, mutated, candidate, mutantID)
+		leg, err := verifyAgainstMutant(ctx, plan, mutated, candidate, mutantID, &costs.isolated)
 		if err != nil {
 			return candidate.Refute(
 				"the isolated mutant leg could not be executed: "+err.Error(),
@@ -105,8 +332,7 @@ func decide(
 
 		if !leg.Passed() {
 			return candidate.Refute(
-				fmt.Sprintf("mutant %s survived the suggested assertion applied on its own, so the "+
-					"assertion does not kill it", mutantID),
+				mutantLegRefutation(mutantID, leg),
 				suggest.NewVerification(baseline,
 					suggest.NewLeg(false, runs, strings.Join(details, "; "))),
 			)
@@ -117,24 +343,60 @@ func decide(
 		suggest.NewLeg(true, runs, strings.Join(details, "; "))))
 }
 
-// verifyBatch is the baseline leg: every candidate of one target file applied
-// at once, and the full suite run once over the result.
-func verifyBatch(
+// mutantLegRefutation words the refutation from the statuses the leg's runs
+// actually produced. A run that errored did not survive — the mutant's target
+// crashed under the assertion rather than passing it — and a reason claiming
+// survival would be false about what the leg executed.
+func mutantLegRefutation(mutantID string, leg suggest.Leg) string {
+	if legErrored(leg) {
+		return fmt.Sprintf("mutant %s errored the suite with the suggested assertion applied on "+
+			"its own; the run errored rather than failed, so the assertion does not kill it", mutantID)
+	}
+
+	return fmt.Sprintf("mutant %s survived the suggested assertion applied on its own, so the "+
+		"assertion does not kill it", mutantID)
+}
+
+// legErrored reports whether any run the leg executed errored.
+func legErrored(leg suggest.Leg) bool {
+	for _, run := range leg.Runs() {
+		if run.Status() == tfexec.StatusError {
+			return true
+		}
+	}
+
+	return false
+}
+
+// batchRun is one baseline-leg execution: the verdict leg, the raw result —
+// attribution reads the failing runs' diagnostics, which the leg alone does
+// not carry — and the content digest the run was proven on.
+type batchRun struct {
+	leg    suggest.Leg
+	result tfexec.TestResult
+	digest string
+}
+
+// runBatch is one baseline-leg run: the given candidates applied at once to
+// the target file's current content, and the full suite run once over the
+// result.
+func runBatch(
 	ctx context.Context,
 	plan executionPlan,
 	file string,
 	candidates []suggest.Candidate,
-) (suggest.Leg, string, error) {
+	executions *int,
+) (batchRun, error) {
 	content, digest, err := batched(plan, file, candidates)
 	if err != nil {
-		return suggest.Leg{}, "", err //nolint:exhaustruct // nothing ran.
+		return batchRun{}, err //nolint:exhaustruct // nothing ran.
 	}
 
 	result, err := runVerification(ctx, plan, "batch-"+shortName(file), map[string][]byte{
 		closureRelative(plan, file): content,
-	})
+	}, executions)
 	if err != nil {
-		return suggest.Leg{}, "", err //nolint:exhaustruct // nothing ran.
+		return batchRun{}, err //nolint:exhaustruct // nothing ran.
 	}
 
 	green := !result.HasStatus(tfexec.StatusFail) &&
@@ -147,7 +409,11 @@ func verifyBatch(
 			len(candidates), file)
 	}
 
-	return suggest.NewLeg(green, runRecords(result), detail), digest, nil
+	return batchRun{
+		leg:    suggest.NewLeg(green, runRecords(result), detail),
+		result: result,
+		digest: digest,
+	}, nil
 }
 
 // verifyAgainstMutant is the isolated leg: this suggestion alone, against the
@@ -160,6 +426,7 @@ func verifyAgainstMutant(
 	mutated map[string]mutation.Mutant,
 	candidate suggest.Candidate,
 	mutantID string,
+	executions *int,
 ) (suggest.Leg, error) {
 	mutant, found := mutated[mutantID]
 	if !found {
@@ -181,15 +448,20 @@ func verifyAgainstMutant(
 	result, err := runVerification(ctx, plan, "kill-"+candidate.ID()+"-"+mutantID, map[string][]byte{
 		closureRelative(plan, candidate.TargetFile()): alone,
 		mutant.File: mutant.Mutated,
-	})
+	}, executions)
 	if err != nil {
 		return suggest.Leg{}, err //nolint:exhaustruct // nothing ran.
 	}
 
 	killed := result.HasStatus(tfexec.StatusFail)
+	errored := result.HasStatus(tfexec.StatusError)
 
 	detail := fmt.Sprintf("mutant %s survived %d run block(s) with this suggestion applied alone",
 		mutantID, result.ExecutedRuns())
+	if errored && !killed {
+		detail = fmt.Sprintf("mutant %s errored %d run block(s) with this suggestion applied alone; "+
+			"the run errored rather than failed", mutantID, result.ExecutedRuns())
+	}
 	if killed {
 		detail = fmt.Sprintf("mutant %s failed the suggested assertion applied on its own, "+
 			"so the kill is attributable to this suggestion", mutantID)
@@ -205,6 +477,7 @@ func runVerification(
 	plan executionPlan,
 	name string,
 	mutations map[string][]byte,
+	executions *int,
 ) (tfexec.TestResult, error) {
 	built, err := sandbox.Materialise(sandbox.Spec{
 		SourceRoot: plan.configuration.ClosureRoot,
@@ -230,6 +503,10 @@ func runVerification(
 		Verbose:       false,
 		Timeout:       0,
 	})
+	if result.Started {
+		*executions++
+	}
+
 	if err != nil {
 		return tfexec.TestResult{}, //nolint:exhaustruct // the run did not complete.
 			fmt.Errorf("running the verification suite: %w", err)

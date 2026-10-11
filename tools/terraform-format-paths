@@ -137,6 +137,10 @@ internal/engine/testdata/static-unobservable/main.tf
 internal/engine/testdata/static-unobservable/tests/main.tftest.hcl
 internal/engine/testdata/suggest-basic/main.tf
 internal/engine/testdata/suggest-basic/tests/unit.tftest.hcl
+internal/engine/testdata/suggest-batch/main.tf
+internal/engine/testdata/suggest-batch/tests/unit.tftest.hcl
+internal/engine/testdata/suggest-count/main.tf
+internal/engine/testdata/suggest-count/tests/unit.tftest.hcl
 internal/engine/testdata/suggest-json-target/main.tf
 internal/engine/testdata/suggest-multifile/child/main.tf
 internal/engine/testdata/suggest-multifile/main.tf

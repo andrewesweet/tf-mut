@@ -962,7 +962,7 @@
       "properties": {
         "baseline": {
           "$ref": "#/$defs/verification_leg",
-          "description": "The full suite, run once with the target file’s candidate batch applied. Green required."
+          "description": "Baseline evidence for this suggestion. Green required. The verification contract is owned by docs/design/product-design.md#7-the-differentiator--suggested-assertions."
         },
         "mutant": {
           "$ref": "#/$defs/verification_leg",
