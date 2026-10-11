@@ -99,6 +99,7 @@ const (
 	statePrefix     = "root_module.resources["
 	steadyBaseline  = `"steady"`
 	emptiedObject   = "{}"
+	secondValue     = `"second"`
 	countedResource = "example_thing.counted"
 	nestedMarker    = `"deep"`
 	nulledValue     = "null"
@@ -137,7 +138,7 @@ func TestTheAddressAdapterMatrix(t *testing.T) {
 		},
 		{
 			name: "nested collection element", run: runIn("applied", ""),
-			path: statePrefix + "example_thing.app].values.items[1]", baseline: `"second"`,
+			path: statePrefix + "example_thing.app].values.items[1]", baseline: secondValue,
 			schemas: schemaTyping("items", `["list","string"]`),
 			want:    `example_thing.app.items[1] == "second"`, refused: nil,
 		},
@@ -375,7 +376,7 @@ func scalarAdmissionRows() []renderingCase {
 		{
 			name:     "a list-nested block's attribute",
 			path:     statePrefix + "example_thing.app].values.connection[0].subresource_names[0]",
-			baseline: `"second"`,
+			baseline: secondValue,
 			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
 				"connection": {NestingMode: tfexec.NestingList, Block: tfexec.SchemaBlock{
 					Attributes: map[string]tfexec.SchemaAttribute{
@@ -431,6 +432,12 @@ func scalarAdmissionRows() []renderingCase {
 // structuredAdmissionRows holds the admitted container, nested and count
 // forms.
 func structuredAdmissionRows() []renderingCase {
+	return append(nullFormRows(), keyAndBlockRows()...)
+}
+
+// nullFormRows holds the admitted null and emptiness forms over spelled
+// continuations.
+func nullFormRows() []renderingCase {
 	return []renderingCase{
 		{
 			name:     "a nulled keyed entry renders in index form",
@@ -442,7 +449,7 @@ func structuredAdmissionRows() []renderingCase {
 		{
 			name:     "a nulled nested block attribute renders through the walk",
 			path:     statePrefix + "example_thing.app].values.connection[0].subresource_names[0]",
-			baseline: `"second"`, mutant: nulledValue,
+			baseline: secondValue, mutant: nulledValue,
 			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
 				"connection": {NestingMode: tfexec.NestingList, Block: tfexec.SchemaBlock{
 					Attributes: map[string]tfexec.SchemaAttribute{
@@ -460,8 +467,14 @@ func structuredAdmissionRows() []renderingCase {
 			schemas: schemaTyping("triggers", `["map","string"]`),
 			want:    `length(example_thing.app.triggers["app.io/x"]) == 0`, refused: nil,
 		},
+	}
+}
+
+// keyAndBlockRows holds the admitted keyed and nested-block forms.
+func keyAndBlockRows() []renderingCase {
+	return []renderingCase{
 		{
-			name:     "a map attribute's identifier key stays dotted",
+			name: "a map attribute's identifier key stays dotted",
 			path: statePrefix + "example_thing.app].values.triggers.plain", baseline: steadyBaseline,
 			schemas: schemaTyping("triggers", `["map","string"]`),
 			want:    `example_thing.app.triggers.plain == "steady"`, refused: nil,
