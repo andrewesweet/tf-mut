@@ -327,7 +327,8 @@ func TestSARIFLevelsSplitActionableFromIndeterminateSurvivors(t *testing.T) {
 		}
 
 		want := "error"
-		if !mutant.Verdict.Diagnosis.Actionable() {
+		if mutant.Verdict.Diagnosis == report.IndeterminateUnknownValues ||
+			mutant.Verdict.Diagnosis == report.IndeterminateVolatility {
 			want = "note"
 		}
 

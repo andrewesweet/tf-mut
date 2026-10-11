@@ -26,8 +26,12 @@ type executionPlan struct {
 	prepared      warm
 	generated     []mutation.Mutant
 	described     []report.Mutant
-	workRoot      string
-	closure       discovery.Closure
+	// classified is the outcome classified for each described row, in row
+	// order: the static shortcuts and suppressions classified theirs before
+	// selection, and execution and the cache replay classify the rest.
+	classified []oracle.Classified
+	workRoot   string
+	closure    discovery.Closure
 	// graph is the attribute-level reference graph, built once per run from
 	// the already-parsed ASTs (M3a.1).
 	graph *discovery.Graph
@@ -38,9 +42,12 @@ type executionPlan struct {
 // Verdicts do not depend on the parallelism level: each mutant gets its own
 // sandbox, results are written back to their own slot, and a failure in one
 // worker cannot reach another.
-func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []report.ExecutionError) {
+func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []oracle.Classified, []report.ExecutionError) {
 	results := make([]report.Mutant, len(plan.described))
 	copy(results, plan.described)
+
+	classified := make([]oracle.Classified, len(plan.classified))
+	copy(classified, plan.classified)
 
 	failures := make([]report.ExecutionError, 0)
 	budget := timeoutBudget(plan.settings, plan.prepared.baselineDuration)
@@ -54,10 +61,14 @@ func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []report
 	for range workers {
 		group.Go(func() {
 			for index := range queue {
-				verdict, failure := evaluateSafely(ctx, plan, index, budget)
+				verdict, outcome, failure := evaluateSafely(ctx, plan, index, budget)
 
 				mutex.Lock()
 				results[index] = verdict
+				classified[index] = oracle.Classified{
+					Operator: plan.generated[index].Operator,
+					Outcome:  outcome,
+				}
 
 				if failure != nil {
 					failures = append(failures, *failure)
@@ -70,7 +81,8 @@ func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []report
 	for index, mutant := range plan.described {
 		if mutant.State != report.Pending {
 			// Statically classified, suppressed, or replayed from the cache:
-			// nothing left to execute.
+			// nothing left to execute, and the row's outcome is already in
+			// plan.classified.
 			continue
 		}
 
@@ -84,7 +96,7 @@ func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []report
 		return strings.Compare(left.MutantID, right.MutantID)
 	})
 
-	return results, failures
+	return results, classified, failures
 }
 
 // timeoutBudget is max(factor × baseline, floor), per the milestone spec.
@@ -105,10 +117,11 @@ func evaluateSafely(
 	plan executionPlan,
 	index int,
 	budget time.Duration,
-) (verdict report.Mutant, failure *report.ExecutionError) {
+) (verdict report.Mutant, outcome oracle.Outcome, failure *report.ExecutionError) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			verdict = plan.described[index]
+			outcome = plan.classified[index].Outcome
 			failure = &report.ExecutionError{
 				MutantID: verdict.ID,
 				Site:     verdict.Site,
@@ -125,7 +138,7 @@ func evaluate(
 	plan executionPlan,
 	index int,
 	budget time.Duration,
-) (report.Mutant, *report.ExecutionError) {
+) (report.Mutant, oracle.Outcome, *report.ExecutionError) {
 	verdict := plan.described[index]
 	mutant := plan.generated[index]
 
@@ -143,7 +156,7 @@ func evaluate(
 		Hardlink: true,
 	})
 	if err != nil {
-		return verdict, &report.ExecutionError{
+		return verdict, plan.classified[index].Outcome, &report.ExecutionError{
 			MutantID: verdict.ID,
 			Site:     verdict.Site,
 			Message:  "sandbox could not be materialised: " + err.Error(),
@@ -158,7 +171,7 @@ func evaluate(
 		Timeout:       budget,
 	})
 	if err != nil {
-		return verdict, &report.ExecutionError{
+		return verdict, plan.classified[index].Outcome, &report.ExecutionError{
 			MutantID: verdict.ID,
 			Site:     verdict.Site,
 			Message:  "terraform could not be executed: " + err.Error(),
@@ -176,7 +189,7 @@ func evaluate(
 		var failure *report.ExecutionError
 		verdict, observation, failure = judge.validate(ctx, built, verdict, observation)
 		if failure != nil {
-			return verdict, failure
+			return verdict, plan.classified[index].Outcome, failure
 		}
 	}
 
@@ -185,7 +198,7 @@ func evaluate(
 	// A phase-one survivor over zero executed runs is the operational refusal:
 	// no verdict is possible, and the mutant is never projected as a survival.
 	if observation.NoVerdictPossible() && observation.NeedsPhaseTwo(outcome) {
-		return verdict, &report.ExecutionError{
+		return verdict, plan.classified[index].Outcome, &report.ExecutionError{
 			MutantID: verdict.ID,
 			Site:     verdict.Site,
 			Message: "no run block executed, so no verdict is possible; " +
@@ -198,10 +211,10 @@ func evaluate(
 	// Phase two: only a phase-one survivor is fingerprinted, which is the whole
 	// point of the split.
 	if !observation.NeedsPhaseTwo(outcome) {
-		return verdict, nil
+		return verdict, outcome, nil
 	}
 
-	return judge.observe(ctx, built, verdict, observation)
+	return judge.observe(ctx, built, verdict, observation, outcome)
 }
 
 // validate records the terraform validate verdict into the observation where

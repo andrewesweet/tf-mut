@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
@@ -86,26 +87,36 @@ func baselinePath(settings settings, moduleDir string) string {
 // applyBaselineGate reads the acceptance list, classifies every current
 // finding as new or accepted, reports stale or unobserved entries per the
 // truth table, writes the baseline where requested, and records the
-// fail-on-new outcome.
-func applyBaselineGate(settings settings, moduleDir string, result *report.Report) error {
+// fail-on-new outcome. It judges the population fact and the published rows
+// together — the fact decides, the rows carry identities — and returns the
+// per-row labels for finish to project; the gate outcomes it writes onto the
+// gates value the run computed.
+func applyBaselineGate(
+	settings settings,
+	moduleDir string,
+	shell report.Report,
+	executed []report.Mutant,
+	population oracle.Population,
+	gates *report.Gates,
+) (map[int]string, error) {
 	if !settings.FailOnNew && !settings.WriteBaseline {
-		return nil
+		return map[int]string{}, nil
 	}
 
 	path := baselinePath(settings, moduleDir)
 
 	accepted, err := readBaseline(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// The truth table's run shapes: a population that is scoped, sampled or
 	// served even partly from the cache is not the Full row. Staleness and a
 	// baseline write both require a full, unsampled, freshly executed
 	// population.
-	full := result.Population.Omitted == 0 && result.Sampling == nil &&
-		result.Population.Cached == 0
-	gate := judgeFindings(accepted, result, full)
+	full := shell.Population.Omitted == 0 && shell.Sampling == nil &&
+		shell.Population.Cached == 0
+	gate, labels := judgeFindings(accepted, executed, population, full)
 	gate.Path = filepath.Base(path)
 
 	if settings.WriteBaseline {
@@ -114,31 +125,27 @@ func applyBaselineGate(settings settings, moduleDir string, result *report.Repor
 		// list is the record of what a full, unsampled, freshly executed run
 		// observed, and this is where that claim is earned rather than
 		// assumed from the configuration.
-		authoritative, authErr := newAuthoritativePopulation(*result, ErrBaselineUnobserved,
+		authoritative, authErr := population.Authoritative(ErrBaselineUnobserved,
 			"  The accepted list records what a run observed, and a mutant that never ran\n"+
 				"  was not observed")
 		if authErr != nil {
-			return authErr
+			return nil, authErr
 		}
 
-		fresh, freshErr := newFreshPopulation(authoritative)
+		fresh, freshErr := authoritative.Fresh(ErrBaselineWrite)
 		if freshErr != nil {
-			return freshErr
+			return nil, freshErr
 		}
 
-		if writeErr := writeBaseline(path, fresh); writeErr != nil {
-			return writeErr
+		if writeErr := writeBaseline(path, fresh, executed); writeErr != nil {
+			return nil, writeErr
 		}
 
 		gate.Write = report.BaselineWritten
 	}
 
-	if result.Gates == nil {
-		result.Gates = &report.Gates{} //nolint:exhaustruct // filled below.
-	}
-
-	result.Gates.Baseline = &gate
-	result.Gates.FailOnNew = report.GateOutcome{
+	gates.Baseline = &gate
+	gates.FailOnNew = report.GateOutcome{
 		Evaluated: settings.FailOnNew,
 		Scope:     scopeLabel(full),
 		Partial:   !full,
@@ -146,11 +153,18 @@ func applyBaselineGate(settings settings, moduleDir string, result *report.Repor
 		Refused:   "",
 	}
 
-	return nil
+	return labels, nil
 }
 
-// judgeFindings applies the acceptance list to the current findings.
-func judgeFindings(accepted []acceptanceEntry, result *report.Report, full bool) report.BaselineGate {
+// judgeFindings applies the acceptance list to the current findings: the
+// classified rows decide, the aligned published rows carry the identities the
+// acceptance list is keyed by.
+func judgeFindings(
+	accepted []acceptanceEntry,
+	executed []report.Mutant,
+	population oracle.Population,
+	full bool,
+) (report.BaselineGate, map[int]string) {
 	acceptedByID := map[string]acceptanceEntry{}
 	for _, entry := range accepted {
 		acceptedByID[entry.ID] = entry
@@ -158,6 +172,7 @@ func judgeFindings(accepted []acceptanceEntry, result *report.Report, full bool)
 
 	selected := map[string]bool{}
 	matched := map[string]bool{}
+	labels := map[int]string{}
 
 	gate := report.BaselineGate{
 		Path: "", Accepted: len(accepted), Matched: 0,
@@ -165,26 +180,28 @@ func judgeFindings(accepted []acceptanceEntry, result *report.Report, full bool)
 		StalenessReported: full, Write: "",
 	}
 
-	for index := range result.Mutants {
-		mutant := &result.Mutants[index]
+	rows := population.Classified()
+
+	for index := range executed {
+		mutant := &executed[index]
 		selected[mutant.ID] = true
 
-		if !isFinding(*mutant) {
+		if !isFinding(rows[index]) {
 			continue
 		}
 
 		entry, found := acceptedByID[mutant.ID]
-		if found && entry.Actionable == findingActionable(*mutant) {
+		if found && entry.Actionable == findingActionable(rows[index]) {
 			matched[mutant.ID] = true
 			gate.Matched++
 
-			labelFinding(mutant, "accepted")
+			labels[index] = "accepted"
 
 			continue
 		}
 
 		gate.New = append(gate.New, mutant.ID)
-		labelFinding(mutant, "new")
+		labels[index] = "new"
 	}
 
 	slices.Sort(gate.New)
@@ -211,26 +228,25 @@ func judgeFindings(accepted []acceptanceEntry, result *report.Report, full bool)
 	slices.Sort(gate.Stale)
 	slices.Sort(gate.Unobserved)
 
-	return gate
+	return gate, labels
 }
 
 // isFinding reports the finding classes the baseline governs: survivors with
 // any diagnosis, and the structurally unassertable.
-func isFinding(mutant report.Mutant) bool {
-	return mutant.State == report.Survived || mutant.State == report.StructurallyUnassertable
+func isFinding(row oracle.Classified) bool {
+	state := row.Outcome.State()
+
+	return state == oracle.StateSurvived || state == oracle.StateStructurallyUnassertable
 }
 
-// findingActionable is the finding's actionability class.
-func findingActionable(mutant report.Mutant) bool {
-	if mutant.State == report.StructurallyUnassertable {
+// findingActionable is the finding's actionability class, as the Oracle
+// context's own rule states it over the classified row.
+func findingActionable(row oracle.Classified) bool {
+	if row.Outcome.State() == oracle.StateStructurallyUnassertable {
 		return true
 	}
 
-	if mutant.Verdict == nil {
-		return true
-	}
-
-	return mutant.Verdict.Diagnosis.Actionable()
+	return row.Outcome.Diagnosis().Actionable()
 }
 
 func labelFinding(mutant *report.Mutant, status string) {
@@ -270,20 +286,21 @@ func readBaseline(path string) ([]acceptanceEntry, error) {
 }
 
 // writeBaseline persists the fresh population's findings as the accepted
-// list. It accepts a freshPopulation and is reachable no other way: a list
-// shaped by anything less than a full, unsampled, freshly executed run
+// list. It accepts a fresh population fact and is reachable no other way: a
+// list shaped by anything less than a full, unsampled, freshly executed run
 // silently shrinks every gate that reads it.
-func writeBaseline(path string, fresh freshPopulation) error {
+func writeBaseline(path string, fresh oracle.Fresh, executed []report.Mutant) error {
 	entries := []acceptanceEntry{}
+	rows := fresh.Classified()
 
-	for _, mutant := range fresh.graded().Mutants {
-		if !isFinding(mutant) {
+	for index, mutant := range executed {
+		if !isFinding(rows[index]) {
 			continue
 		}
 
 		entries = append(entries, acceptanceEntry{
 			ID:         mutant.ID,
-			Actionable: findingActionable(mutant),
+			Actionable: findingActionable(rows[index]),
 			State:      string(mutant.State),
 			Site:       mutant.Site,
 			Operator:   mutant.Operator,

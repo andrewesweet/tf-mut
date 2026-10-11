@@ -137,7 +137,7 @@ type RuleDescription struct {
 func sarifLevel(mutant Mutant) (string, bool) {
 	switch mutant.State {
 	case Survived:
-		if mutant.Verdict != nil && !mutant.Verdict.Diagnosis.Actionable() {
+		if mutant.Verdict != nil && indeterminate(mutant.Verdict.Diagnosis) {
 			return levelNote, true
 		}
 
@@ -149,6 +149,16 @@ func sarifLevel(mutant Mutant) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// indeterminate reports the published diagnoses that name something the
+// oracle could not decide. The rule is the Oracle / Verdict context's
+// (oracle.Diagnosis.Actionable); this leaf cannot import the core, so the
+// publication spells the two published spellings its level table renders as
+// a note. A diagnosis added on the core side is a compile-time demand on that
+// side's own method, and the projection, not this table, carries it here.
+func indeterminate(diagnosis Diagnosis) bool {
+	return diagnosis == IndeterminateUnknownValues || diagnosis == IndeterminateVolatility
 }
 
 // WriteSARIF renders the code-scanning document.

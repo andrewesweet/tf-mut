@@ -43,9 +43,9 @@ var suggestibleDiagnoses = []report.Diagnosis{
 func suggestAssertions(
 	ctx context.Context,
 	plan executionPlan,
-	result report.Report,
+	mutants []report.Mutant,
 ) ([]report.Suggestion, string, error) {
-	selected, err := selectSurvivors(plan.settings, result)
+	selected, err := selectSurvivors(plan.settings, mutants)
 	if err != nil {
 		return nil, "", err
 	}
@@ -73,6 +73,20 @@ func suggestAssertions(
 // diagnosis — the engine grades, the context turns grading into improvement.
 // A survivor whose diagnosis names no proven delta — the indeterminate
 // comparisons — is not projected: there is nothing to assert about it.
+// survivorsOf is the published survivors projection over the run's mutant
+// rows.
+func survivorsOf(mutants []report.Mutant) []report.Mutant {
+	survivors := []report.Mutant{}
+
+	for _, mutant := range mutants {
+		if mutant.State == report.Survived {
+			survivors = append(survivors, mutant)
+		}
+	}
+
+	return survivors
+}
+
 func suggestable(selected []report.Mutant) []suggest.Survivor {
 	survivors := make([]suggest.Survivor, 0, len(selected))
 
@@ -122,12 +136,13 @@ func (c verificationCosts) Statement() string {
 
 // selectSurvivors narrows the population to the survivors the caller asked
 // about, and refuses an identifier the population does not carry.
-func selectSurvivors(settings settings, result report.Report) ([]report.Mutant, error) {
+func selectSurvivors(settings settings, mutants []report.Mutant) ([]report.Mutant, error) {
+	survivors := survivorsOf(mutants)
+
 	if len(settings.SurvivorIDs) == 0 {
-		return result.Survivors(), nil
+		return survivors, nil
 	}
 
-	survivors := result.Survivors()
 	present := map[string]bool{}
 
 	for _, survivor := range survivors {

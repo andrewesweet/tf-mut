@@ -16,6 +16,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
+	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
@@ -494,9 +495,13 @@ func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 func (s selection) apply(
 	described []report.Mutant,
 	generated []mutation.Mutant,
-) ([]report.Mutant, []mutation.Mutant, report.Population) {
-	selected := make([]report.Mutant, 0, len(described))
-	kept := make([]mutation.Mutant, 0, len(generated))
+	classified []oracle.Classified,
+) (selectedPopulation, report.Population) {
+	selected := selectedPopulation{
+		mutants:    make([]report.Mutant, 0, len(described)),
+		generated:  make([]mutation.Mutant, 0, len(generated)),
+		classified: make([]oracle.Classified, 0, len(classified)),
+	}
 	omitted := 0
 
 	for index, mutant := range described {
@@ -508,15 +513,16 @@ func (s selection) apply(
 
 		provenance := s.provenance[index]
 		mutant.Provenance = &provenance
-		selected = append(selected, mutant)
-		kept = append(kept, generated[index])
+		selected.mutants = append(selected.mutants, mutant)
+		selected.generated = append(selected.generated, generated[index])
+		selected.classified = append(selected.classified, classified[index])
 	}
 
-	return selected, kept, report.Population{
-		Selected: len(selected),
+	return selected, report.Population{
+		Selected: len(selected.mutants),
 		Omitted:  omitted,
 		Cached:   0,
-		Fresh:    len(selected),
+		Fresh:    len(selected.mutants),
 	}
 }
 

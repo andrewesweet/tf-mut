@@ -17,8 +17,7 @@ var ErrIllegalRecord = errors.New("oracle: not a record this context stored")
 // The stored-record side of the closed construction set.
 //
 // A verdict can reach a reader along two paths: freshly classified, through
-// the constructors above, or replayed — from the verdict cache's on-disk
-// entry, or from the population arithmetic reading the published record back.
+// the constructors above, or replayed from the verdict cache's on-disk entry.
 // This file closes both paths behind the same invariants: the stored document
 // is projected onto a Record, and ParseRecord — the parsing constructor — is
 // the only way a Record becomes an Outcome. A stored document the

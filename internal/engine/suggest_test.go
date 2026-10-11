@@ -152,7 +152,8 @@ func TestIndeterminateSurvivorsAndUnassertableMutantsReceiveNoSuggestion(t *test
 					t.Fatalf("mutant %s is %s and still received a suggestion", mutant.ID, mutant.State)
 				}
 
-				if !mutant.Verdict.Diagnosis.Actionable() {
+				if mutant.Verdict.Diagnosis == report.IndeterminateUnknownValues ||
+					mutant.Verdict.Diagnosis == report.IndeterminateVolatility {
 					t.Fatalf("mutant %s is %s and still received a suggestion",
 						mutant.ID, mutant.Verdict.Diagnosis)
 				}

@@ -58,16 +58,16 @@ var scoredStates = []State{
 }
 
 // ComputeMetrics derives the state counts and the three headline metrics from
-// the outcomes the oracle assigned.
-func ComputeMetrics(outcomes []Outcome) Metrics {
+// the classified population the oracle assigned.
+func ComputeMetrics(population Population) Metrics {
 	counts := map[State]int{}
 	diagnoses := map[Diagnosis]int{}
 
-	for _, outcome := range outcomes {
-		counts[outcome.State()]++
+	for _, row := range population.Classified() {
+		counts[row.Outcome.State()]++
 
-		if outcome.State() == StateSurvived && outcome.Diagnosis() != "" {
-			diagnoses[outcome.Diagnosis()]++
+		if row.Outcome.State() == StateSurvived && row.Outcome.Diagnosis() != "" {
+			diagnoses[row.Outcome.Diagnosis()]++
 		}
 	}
 
@@ -95,10 +95,10 @@ func ComputeMetrics(outcomes []Outcome) Metrics {
 
 // ComputeOperatorErrors summarises generation quality per operator over the
 // classified population.
-func ComputeOperatorErrors(population []Classified) []OperatorErrors {
+func ComputeOperatorErrors(population Population) []OperatorErrors {
 	byOperator := map[mutation.Operator]*OperatorErrors{}
 
-	for _, row := range population {
+	for _, row := range population.Classified() {
 		entry, found := byOperator[row.Operator]
 		if !found {
 			entry = &OperatorErrors{

@@ -271,7 +271,11 @@ func Run(ctx context.Context, request Request) (report.Report, error) {
 	default:
 		// run, preview and suggest share the grading pipeline: the mode each
 		// request carries decides preview's shortcuts and the suggest leg.
-		return mutate(ctx, runner, configuration, s, version, moduleDir)
+		// The population fact the pipeline returns is published report DTO
+		// material; the seam's consumers read the report.
+		result, _, err := mutate(ctx, runner, configuration, s, version, moduleDir)
+
+		return result, err
 	}
 }
 
@@ -283,7 +287,7 @@ func mutate(
 	configuration discovery.Configuration,
 	settings settings, version tfexec.Version,
 	moduleDir string,
-) (report.Report, error) {
+) (report.Report, oracle.Population, error) {
 	// The gates guard execution, and a preview executes nothing. Refusing a
 	// preview would only hide the population from the person deciding whether
 	// to accept the risk.
@@ -292,7 +296,7 @@ func mutate(
 	if settings.mode != previewMode {
 		checked, err := checkSafety(configuration, settings)
 		if err != nil {
-			return report.Report{}, err
+			return report.Report{}, oracle.Population{}, err
 		}
 
 		warnings = checked
@@ -302,14 +306,14 @@ func mutate(
 
 	workRoot, err := prepareWorkRoot(configuration, settings)
 	if err != nil {
-		return report.Report{}, err
+		return report.Report{}, oracle.Population{}, err
 	}
 
 	defer func() { _ = os.RemoveAll(workRoot) }()
 
 	prepared, generated, err := build(ctx, runner, configuration, settings, workRoot)
 	if err != nil {
-		return report.Report{}, err
+		return report.Report{}, oracle.Population{}, err
 	}
 
 	warnings = append(append(warnings, prepared.warnings...), generated.Warnings...)
@@ -324,29 +328,32 @@ func mutate(
 	graph := floorGraph(configuration)
 	result := shell(configuration, settings, version.Terraform, moduleDir, prepared, warnings)
 
-	mutants := describe(configuration, graph, settings, generated.Mutants)
+	mutants, classified := describe(configuration, graph, settings, generated.Mutants)
 
 	// Suppression runs after the safety gates by construction: the gates are
 	// decided from the parsed configuration before generation, so no exclusion
-	// can reach them.
+	// can reach them. The suppression is classified onto the fact in place:
+	// the rows travel with the described mutants they align with.
 	mutants, suppressions, rejected := suppress(configuration,
-		settings.Exclude(), mutants)
+		settings.Exclude(), mutants, classified)
 	result.Suppressions = suppressions
 	result.Warnings = append(result.Warnings, rejected...)
 
 	// The count levers: --since and --sample scope the population, and the
 	// report says distinctly what was selected and what was left out.
-	selected, selectedGenerated, err := applyCountLevers(ctx, configuration, settings, &result,
-		mutants, generated.Mutants)
+	selected, err := applyCountLevers(ctx, configuration, settings, &result, mutants,
+		generated.Mutants, classified)
 	if err != nil {
-		return report.Report{}, err
+		return report.Report{}, oracle.Population{}, err
 	}
 
 	if settings.mode == previewMode {
-		result.Mutants = selected
-		result.Metrics = projectMetrics(oracle.ComputeMetrics(nil))
+		result.Mutants = selected.mutants
+		result.Metrics = projectMetrics(
+			oracle.ComputeMetrics(oracle.NewPopulation(nil, oracle.Provenance{})),
+		)
 
-		return result, nil
+		return result, oracle.Population{}, nil
 	}
 
 	plan := executionPlan{
@@ -354,16 +361,17 @@ func mutate(
 		configuration: configuration,
 		settings:      settings,
 		prepared:      prepared,
-		generated:     selectedGenerated,
-		described:     selected,
+		generated:     selected.generated,
+		described:     selected.mutants,
+		classified:    selected.classified,
 		workRoot:      workRoot,
 		closure:       configuration.BuildClosure(),
 		graph:         graph,
 	}
 
-	executed, failures := executeWithCache(ctx, &result, version, plan)
+	executed, classified, failures := executeWithCache(ctx, &result, version, plan)
 
-	return finish(ctx, plan, moduleDir, result, executed, failures)
+	return finish(ctx, plan, moduleDir, result, executed, classified, failures)
 }
 
 // prepareWorkRoot refuses a suite with no run blocks and creates the run's
@@ -415,29 +423,49 @@ func finish(
 	ctx context.Context,
 	plan executionPlan,
 	moduleDir string,
-	result report.Report,
+	shell report.Report,
 	executed []report.Mutant,
+	classified []oracle.Classified,
 	failures []report.ExecutionError,
-) (report.Report, error) {
-	completed, err := complete(plan.configuration, plan.settings, result, executed, failures,
-		timeoutBudget(plan.settings, plan.prepared.baselineDuration))
-	if err != nil {
-		return report.Report{}, err
-	}
+) (report.Report, oracle.Population, error) {
+	completed := complete(plan.configuration, plan.settings, shell, executed, classified, failures)
 
-	result = completed
+	suggestions := []report.Suggestion(nil)
+	cost := ""
 
 	if plan.settings.mode == suggestMode {
-		suggestions, cost, err := suggestAssertions(ctx, plan, result)
-		if err != nil {
-			return report.Report{}, err
+		var suggestErr error
+		suggestions, cost, suggestErr = suggestAssertions(ctx, plan, executed)
+		if suggestErr != nil {
+			return report.Report{}, oracle.Population{}, suggestErr
 		}
+	}
 
-		result.Suggestions = suggestions
-		if cost != "" {
-			result.Warnings = append(result.Warnings, cost)
-		}
+	labels, err := applyBaselineGate(plan.settings, moduleDir, shell, executed,
+		completed.population, completed.gates)
+	if err != nil {
+		return report.Report{}, oracle.Population{}, err
+	}
 
+	// The one projection, last: everything the run concluded is spelled onto
+	// the published report here and nowhere else. The shell's bookkeeping —
+	// selection, sampling, the population split, suppressions — passes
+	// through; the values computed over the population fact are attached.
+	result := shell
+	result.Mutants = executed
+	result.Errors = failures
+	result.Metrics = completed.metrics
+	result.OperatorErrors = completed.operatorErrors
+	result.Findings = completed.findings
+	result.Warnings = append(result.Warnings, completed.warnings...)
+	if cost != "" {
+		result.Warnings = append(result.Warnings, cost)
+	}
+
+	result.Gates = completed.gates
+	result.Suggestions = suggestions
+
+	if plan.settings.mode == suggestMode {
 		applySuggestions(plan.settings, &result, applyContext{
 			moduleDir:   plan.configuration.ModuleDir,
 			closureRoot: plan.configuration.ClosureRoot,
@@ -445,11 +473,13 @@ func finish(
 		})
 	}
 
-	if err := applyBaselineGate(plan.settings, moduleDir, &result); err != nil {
-		return report.Report{}, err
+	for index, label := range labels {
+		if label != "" {
+			labelFinding(&result.Mutants[index], label)
+		}
 	}
 
-	return result, nil
+	return result, completed.population, nil
 }
 
 // executeWithCache replays cached verdicts under the coarse correct key
@@ -461,20 +491,20 @@ func executeWithCache(
 	result *report.Report,
 	terraform tfexec.Version,
 	plan executionPlan,
-) ([]report.Mutant, []report.ExecutionError) {
+) ([]report.Mutant, []oracle.Classified, []report.ExecutionError) {
 	cache := openCache(plan.configuration, plan.settings, plan.prepared, terraform)
 	if cache != nil {
-		result.Population.Cached = cache.load(plan.described)
+		result.Population.Cached = cache.load(plan.described, plan.classified)
 		result.Population.Fresh = result.Population.Selected - result.Population.Cached
 	}
 
-	executed, failures := execute(ctx, plan)
+	executed, classified, failures := execute(ctx, plan)
 
 	if cache != nil {
 		cache.store(executed)
 	}
 
-	return executed, failures
+	return executed, classified, failures
 }
 
 // finalise applies the configured exclusions and defaults, and refuses the
@@ -509,26 +539,37 @@ func finalise(s settings, configured tfconfig.File) (settings, error) {
 	return s, nil
 }
 
+// selectedPopulation is what the count levers kept: the described rows, the
+// generated mutants behind them, and the classified rows aligned with both,
+// all in row order.
+type selectedPopulation struct {
+	mutants    []report.Mutant
+	generated  []mutation.Mutant
+	classified []oracle.Classified
+}
+
 // applyCountLevers scopes the described population and records the selection,
 // sampling and population facts on the report.
 func applyCountLevers(
 	ctx context.Context,
 	configuration discovery.Configuration,
-	settings settings, result *report.Report,
-	mutants []report.Mutant,
+	settings settings,
+	result *report.Report,
+	described []report.Mutant,
 	generated []mutation.Mutant,
-) ([]report.Mutant, []mutation.Mutant, error) {
-	chosen, err := selectPopulation(ctx, configuration, settings, mutants)
+	classified []oracle.Classified,
+) (selectedPopulation, error) {
+	chosen, err := selectPopulation(ctx, configuration, settings, described)
 	if err != nil {
-		return nil, nil, err
+		return selectedPopulation{}, err
 	}
 
-	selected, selectedGenerated, population := chosen.apply(mutants, generated)
+	selected, population := chosen.apply(described, generated, classified)
 	result.Selection = chosen.metadata
 	result.Sampling = chosen.sampling
 	result.Population = population
 
-	return selected, selectedGenerated, nil
+	return selected, nil
 }
 
 // build warms one workspace and generates the population from it.
@@ -555,30 +596,83 @@ func build(
 	return prepared, generated, err
 }
 
-// complete fills in everything the report can only say once every mutant has
-// a verdict.
+// complete computes everything the report can only say once every mutant has
+// a verdict, over the population fact the classification sites assembled. It
+// returns values; finish projects them onto the published report once, last.
 func complete(
 	configuration discovery.Configuration,
-	settings settings, result report.Report,
+	settings settings,
+	shell report.Report,
 	executed []report.Mutant,
+	classified []oracle.Classified,
 	failures []report.ExecutionError,
-	budget time.Duration,
-) (report.Report, error) {
-	result.Mutants = executed
-	result.Errors = failures
+) completedRun {
+	population := classifyRun(shell, classified, failures)
+	metrics := projectMetrics(oracle.ComputeMetrics(population))
 
-	metrics, operatorErrors, err := populationMetrics(executed, budget)
-	if err != nil {
-		return report.Report{}, err
+	return completedRun{
+		population:     population,
+		metrics:        metrics,
+		operatorErrors: projectOperatorErrors(oracle.ComputeOperatorErrors(population)),
+		findings:       findingsOf(configuration, executed, population),
+		warnings:       unanswerableResources(configuration, executed),
+		gates:          gateOutcomes(settings, shell, metrics),
+	}
+}
+
+// completedRun is what a finished execution concluded, computed as values over
+// the population fact and projected onto the published report once, in
+// finish.
+type completedRun struct {
+	population     oracle.Population
+	metrics        report.Metrics
+	operatorErrors []report.OperatorErrors
+	findings       []report.Finding
+	warnings       []string
+	gates          *report.Gates
+}
+
+// classifyRun mints the run's population fact: the classified rows the
+// classification sites produced, with the provenance the gates judge them by.
+//
+// The counts are the run's own published provenance split, plus the two
+// observation counts the observation proof refuses on. Timed-out rows are
+// counted from the fact's own members, so the proof can never disagree with
+// the population it judges; the errored are the mutants that never reached a
+// verdict and therefore carry no classified outcome at all. The executed
+// count follows the published split — selected, minus what the cache
+// replayed, minus the rows classified before anything dispatched them.
+func classifyRun(
+	shell report.Report,
+	classified []oracle.Classified,
+	failures []report.ExecutionError,
+) oracle.Population {
+	timedOut := 0
+	unexecuted := 0
+
+	for _, row := range classified {
+		state := row.Outcome.State()
+		if state == oracle.StateTimeout {
+			timedOut++
+		}
+
+		// Classified before anything dispatched them: the static shortcuts
+		// and the suppressions. A cached verdict cannot carry these states —
+		// they are decided before a mutant can ever be stored — so none of
+		// them is also a cache hit.
+		if state == oracle.StateNoCoverage || state == oracle.StateUnobservable ||
+			state == oracle.StateIgnored {
+			unexecuted++
+		}
 	}
 
-	result.Metrics = metrics
-	result.OperatorErrors = operatorErrors
-	result.Findings = findings(configuration, executed)
-	result.Warnings = append(result.Warnings, unanswerableResources(configuration, executed)...)
-	result.Gates = gateOutcomes(settings, result)
-
-	return result, nil
+	return oracle.NewPopulation(classified, oracle.Provenance{
+		Executed: shell.Population.Selected - shell.Population.Cached - unexecuted,
+		Cached:   shell.Population.Cached,
+		Sampled:  shell.Population.Omitted,
+		TimedOut: timedOut,
+		Errored:  len(failures),
+	})
 }
 
 // scopeLabel names the population a gate was evaluated over.
@@ -594,13 +688,13 @@ func scopeLabel(full bool) string {
 // fail-on-new and baseline rows arrive with the baseline file (M3b.3); the
 // min-score row is recorded here, labelled partial over any scoped or sampled
 // population.
-func gateOutcomes(settings settings, result report.Report) *report.Gates {
+func gateOutcomes(settings settings, shell report.Report, metrics report.Metrics) *report.Gates {
 	// The gate table's non-Full rows: scoped, sampled, or served even partly
 	// from the cache — each evaluated over what actually ran, labelled
 	// partial.
-	partial := result.Sampling != nil ||
-		result.Population.Cached > 0 ||
-		(result.Selection.Mode == report.SelectionSince && result.Selection.ForcedFull == "")
+	partial := shell.Sampling != nil ||
+		shell.Population.Cached > 0 ||
+		(shell.Selection.Mode == report.SelectionSince && shell.Selection.ForcedFull == "")
 	scope := scopeLabel(!partial)
 
 	minScore := report.GateOutcome{
@@ -611,8 +705,8 @@ func gateOutcomes(settings settings, result report.Report) *report.Gates {
 	if settings.HasMinScore {
 		minScore.Scope = scope
 		minScore.Partial = partial
-		minScore.Passed = (!result.Metrics.Incomplete || settings.AllowIncompleteScore) &&
-			result.Metrics.MutationScore*100 >= settings.MinScore
+		minScore.Passed = (!metrics.Incomplete || settings.AllowIncompleteScore) &&
+			metrics.MutationScore*100 >= settings.MinScore
 	}
 
 	return &report.Gates{
@@ -709,13 +803,19 @@ const conditionallyNoCoverageClaim = "the mutated block's multiplicity expressio
 // statically decidable states before anything executes: module-level
 // NoCoverage first — the structural precedence and the M2 behaviour — then
 // the guarded static Unobservable shortcut (M3a.2).
+//
+// Every described row leaves with the outcome classified for it, so the
+// population fact the run reports is built at the classification sites
+// themselves and never re-parsed from the published values.
 func describe(
 	configuration discovery.Configuration,
 	graph *discovery.Graph,
-	settings settings, generated []mutation.Mutant,
-) []report.Mutant {
+	settings settings,
+	generated []mutation.Mutant,
+) ([]report.Mutant, []oracle.Classified) {
 	exercised := configuration.ExercisedModules()
 	described := make([]report.Mutant, 0, len(generated))
+	classified := make([]oracle.Classified, 0, len(generated))
 	shortcutsDisabled := settings.staticShortcutsDisabled || disableStaticShortcuts(settings)
 
 	for _, mutant := range generated {
@@ -736,12 +836,14 @@ func describe(
 			Origins: projectOrigins(mutant.Origins),
 		}
 
+		var outcome oracle.Outcome
+
 		switch {
 		case !exercised[mutant.ModuleRel]:
 			// Module-level NoCoverage: the report states the absence as a
 			// count and no finding, so the outcome carries the state and
 			// nothing else.
-			entry = project(entry, oracle.NoCoverage(""))
+			outcome = oracle.NoCoverage("")
 		case settings.mode != previewMode && !shortcutsDisabled &&
 			configuration.ConditionalMultiplicity(graph, settings.Env, discovery.Site{
 				ModuleRel: mutant.ModuleRel,
@@ -753,23 +855,24 @@ func describe(
 			// The finer conditional-instantiation claim (M3a.3): the mutated
 			// multiplicity expression is statically zero under every relevant
 			// run. Module-level NoCoverage above remains the strict subset.
-			entry = project(entry, oracle.NoCoverage(conditionallyNoCoverageClaim))
+			outcome = oracle.NoCoverage(conditionallyNoCoverageClaim)
 		case settings.mode != previewMode && !shortcutsDisabled &&
 			staticallyUnobservable(graph, mutant):
 			// A preview keeps Pending — the documented preview contract — so
 			// the shortcut fires only where execution would otherwise run.
-			entry = project(entry, oracle.StaticallyUnobservable())
+			outcome = oracle.StaticallyUnobservable()
 		default:
 			// Pending stands: the state every executable mutant carries until
 			// something decides otherwise, and the only state a preview
 			// reports.
-			entry = project(entry, oracle.Pending())
+			outcome = oracle.Pending()
 		}
 
-		described = append(described, entry)
+		described = append(described, project(entry, outcome))
+		classified = append(classified, oracle.Classified{Operator: mutant.Operator, Outcome: outcome})
 	}
 
-	return described
+	return described, classified
 }
 
 // projectOrigins projects the generator's origins onto the published DTO:

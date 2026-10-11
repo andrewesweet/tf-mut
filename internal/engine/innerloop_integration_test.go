@@ -218,7 +218,8 @@ func TestTheMockMaskedRefutationHolds(t *testing.T) {
 			t.Fatalf("the refutation mutant classified %s, want %s", mutant.State, report.Survived)
 		}
 
-		if mutant.Verdict == nil || !mutant.Verdict.Diagnosis.Actionable() {
+		if mutant.Verdict == nil || mutant.Verdict.Diagnosis == report.IndeterminateUnknownValues ||
+			mutant.Verdict.Diagnosis == report.IndeterminateVolatility {
 			t.Fatalf("the stable computed-flagged delta was not attributed to the module: %+v",
 				mutant.Verdict)
 		}

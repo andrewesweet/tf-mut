@@ -9,6 +9,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
+	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
@@ -39,11 +40,17 @@ type evidence struct {
 //
 // A KilledByError never counts as evidence of testing — Terraform's own
 // "Invalid index" on an emptied instance set is not a test — and a timeout
-// leaves the question open rather than answering it.
-func findings(configuration discovery.Configuration, mutants []report.Mutant) []report.Finding {
+// leaves the question open rather than answering it. The classified rows
+// decide; the aligned published rows carry the identities the finding names.
+func findingsOf(
+	configuration discovery.Configuration,
+	mutants []report.Mutant,
+	population oracle.Population,
+) []report.Finding {
 	byResource := map[string]*evidence{}
+	rows := population.Classified()
 
-	for _, mutant := range mutants {
+	for index, mutant := range mutants {
 		if mutant.Resource == "" || !extremeOperators[mutant.Operator] {
 			continue
 		}
@@ -62,7 +69,7 @@ func findings(configuration discovery.Configuration, mutants []report.Mutant) []
 		}
 
 		entry.mutants = append(entry.mutants, mutant.ID)
-		countEvidence(entry, mutant.State)
+		countEvidence(entry, rows[index].Outcome.State())
 	}
 
 	results := []report.Finding{}
@@ -94,25 +101,25 @@ func findings(configuration discovery.Configuration, mutants []report.Mutant) []
 	return results
 }
 
-func countEvidence(entry *evidence, state report.State) {
+func countEvidence(entry *evidence, state oracle.State) {
 	// Invalid, NoCoverage and Pending mutants never executed, so they are no
 	// evidence either way.
-	if state != report.Killed && state != report.KilledByError &&
-		state != report.Survived && state != report.Timeout {
+	if state != oracle.StateKilled && state != oracle.StateKilledByError &&
+		state != oracle.StateSurvived && state != oracle.StateTimeout {
 		return
 	}
 
 	entry.executed++
 
-	if state == report.Killed {
+	if state == oracle.StateKilled {
 		entry.killed++
 	}
 
-	if state == report.KilledByError {
+	if state == oracle.StateKilledByError {
 		entry.killedByError++
 	}
 
-	if state == report.Timeout {
+	if state == oracle.StateTimeout {
 		entry.timeouts++
 	}
 }
