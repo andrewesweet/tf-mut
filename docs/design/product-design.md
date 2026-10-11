@@ -673,9 +673,10 @@ That hash is position-free, so the same rewrite fired at several positions of on
 the same literal twice in one conditional — collides; every member of such a group re-derives
 its identifier with the group's occurrence ordinal in source order, assigned before any
 selection lever, so identifiers do not depend on `--since`, sampling or operator selection.
-A cache entry, a baseline entry and a suppression directive therefore each resolve to one
-mutant; a pre-2.6.0 acceptance list over a colliding population is stale by design and is
-rewritten. The ordinal, not a byte offset, is what the identifier mixes in: an offset inside
+A cache entry, a baseline entry and each mutant reference in a suppression report therefore
+resolve to one mutant. An operator-scoped suppression directive can match several mutants.
+A pre-2.6.0 acceptance list over a colliding population is stale by design and is rewritten.
+The ordinal, not a byte offset, is what the identifier mixes in: an offset inside
 one attribute shifts under any earlier edit in it, while the ordinal changes only when the
 group's own membership or order changes.
 
