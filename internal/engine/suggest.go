@@ -38,10 +38,10 @@ var suggestibleDiagnoses = []report.Diagnosis{
 
 // suggestAssertions is the suggestion leg's reaction to the classified
 // population. It generates — and, unless this is a dry run, verifies — the
-// assertion that would have killed each selected survivor, publishes each
-// survivor's outcome, and then the verification cost statement, reporting the
-// executions actually spent on the candidates and on attributing any batch
-// failures.
+// assertion that would have killed each selected survivor and publishes the
+// outcome of each survivor generation said anything about. A verifying run
+// then publishes the verification cost, the executions actually spent on the
+// candidates and on attributing any batch failures; a dry run spends none.
 func suggestAssertions(
 	ctx context.Context,
 	plan executionPlan,

@@ -188,7 +188,8 @@ func characteriseModule(
 }
 
 // projectSuite subscribes the report projection to the concluded suite:
-// whatever the suite's outcome, the report carries it and no mutation metrics.
+// whatever the suite's outcome, the report carries it, with the metrics of an
+// empty mutation population.
 func projectSuite(events *dispatcher, result *report.Report) {
 	events.suiteCharacterised.subscribe(func(event SuiteCharacterised) error {
 		result.Characterisation = &event.suite

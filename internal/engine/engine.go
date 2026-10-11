@@ -575,9 +575,9 @@ func floorGraph(configuration discovery.Configuration) *discovery.Graph {
 // what its subscribers concluded.
 //
 // The subscription order is the contract (ADR-0005): the report projection
-// completes the aggregates first, the suggestion leg reacts next, and the
-// acceptance gate last, so a suggestion leg that fails stops delivery before
-// the baseline writer runs.
+// completes the aggregates first, the suggestion leg reacts next in suggest
+// mode, and the acceptance gate last, so a suggestion leg that fails stops
+// delivery before the baseline writer runs.
 func finish(
 	ctx context.Context,
 	plan executionPlan,
