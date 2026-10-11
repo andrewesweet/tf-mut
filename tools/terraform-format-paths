@@ -134,6 +134,8 @@ internal/engine/testdata/redundant-in-resource/main.tf
 internal/engine/testdata/redundant-in-resource/tests/main.tftest.hcl
 internal/engine/testdata/removed-scoped/main.tf
 internal/engine/testdata/removed-scoped/tests/unit.tftest.hcl
+internal/engine/testdata/sampled-unanswered/main.tf
+internal/engine/testdata/sampled-unanswered/tests/unit.tftest.hcl
 internal/engine/testdata/repair-diagnostic/main.tf
 internal/engine/testdata/sensitive-shift/main.tf
 internal/engine/testdata/sensitive-shift/tests/unit.tftest.hcl

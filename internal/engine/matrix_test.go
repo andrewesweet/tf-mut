@@ -370,6 +370,97 @@ func TestAResourceNoOperatorCanMutateIsWarnedAbout(t *testing.T) {
 	}
 }
 
+func TestASampledRunDoesNotNameResourcesTheSampleMerelyDropped(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "sampled-unanswered")
+
+	// The full population decides which resources the operators reached. The
+	// sampled run's warning must be judged against that population: a resource
+	// with mutants the sample did not keep is covered, not unanswerable.
+	full, err := engine.Run(t.Context(), previewRequest(t, module))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+
+	covered := map[string]bool{}
+
+	for _, mutant := range full.Mutants {
+		if mutant.Resource != "" {
+			covered[mutant.Resource] = true
+		}
+	}
+
+	if len(covered) < 2 {
+		t.Fatalf("fixture drift: the covered resources are %v, want at least two", covered)
+	}
+
+	// Five percent of a population under twenty keeps exactly one mutant, so
+	// at least one covered resource runs nothing while the population still
+	// has its mutants.
+	config := baseConfig(t, module)
+	config.SamplePercent = 5
+	config.HasSample = true
+
+	sampled, err := engine.Run(t.Context(), &config)
+	if err != nil {
+		t.Fatalf("sampled run: %v", err)
+	}
+
+	if sampled.Sampling == nil {
+		t.Fatal("the run did not record sampling")
+	}
+
+	if len(sampled.Mutants) == 0 {
+		t.Fatalf("the sample kept nothing: %v", sampled.Metrics.Counts)
+	}
+
+	run := map[string]bool{}
+
+	for _, mutant := range sampled.Mutants {
+		if mutant.Resource != "" {
+			run[mutant.Resource] = true
+		}
+	}
+
+	dropped := []string{}
+
+	for resource := range covered {
+		if !run[resource] {
+			dropped = append(dropped, resource)
+		}
+	}
+
+	if len(dropped) == 0 {
+		t.Fatal("the test is vacuous: every covered resource kept a sampled mutant")
+	}
+
+	warning := ""
+
+	for _, candidate := range sampled.Warnings {
+		if strings.Contains(candidate, "says nothing about them") {
+			warning = candidate
+
+			break
+		}
+	}
+
+	if warning == "" {
+		t.Fatalf("the sampled run raised no unanswerable warning at all: %v", sampled.Warnings)
+	}
+
+	for _, resource := range dropped {
+		if strings.Contains(warning, resource) {
+			t.Fatalf("the warning names %s, whose mutants the sample merely dropped: %s",
+				resource, warning)
+		}
+	}
+
+	if !strings.Contains(warning, "terraform_data.bare") {
+		t.Fatalf("the warning does not name the resource no operator reached: %s", warning)
+	}
+}
+
 // preview generates the population of a module without executing anything.
 func preview(t *testing.T, module string, only []string) report.Report {
 	t.Helper()
