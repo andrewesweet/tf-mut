@@ -416,11 +416,9 @@ type Options struct {
 	// knows one; empty disables the boundary. A run block whose local module
 	// source resolves outside the root is refused with the test file, the run
 	// and the source string named — not with the raw read error of the
-	// directory that is not there. Inside the root, a source resolving to a
-	// missing directory is refused with the same precision whether or not a
-	// root is known. The boundary is the work tree on purpose: the closure
-	// legitimately spans monorepo siblings through `..`, so only leaving the
-	// checkout is the defect.
+	// directory that is not there. The boundary is the work tree on purpose:
+	// the closure legitimately spans monorepo siblings through `..`, so only
+	// leaving the checkout is the defect.
 	CheckoutRoot string
 }
 
@@ -456,7 +454,7 @@ func DiscoverWith(moduleDir, testDir string, options Options) (Configuration, er
 
 	// Run blocks may retarget another local module, which makes that module
 	// part of the closure even when no module call references it. A retarget
-	// that resolves outside the checkout — or nowhere at all — is refused
+	// that resolves outside the checkout is refused
 	// here, before anything reads the directory it names.
 	queue, queueErr := queueRunBlockRetargets(queue, suite, absoluteModuleDir, options)
 	if queueErr != nil {
@@ -535,8 +533,7 @@ func joinKey(parent, name string) string {
 }
 
 // queueRunBlockRetargets appends every run block's local module retarget to
-// the discovery queue, refusing one that resolves outside the checkout or to
-// a directory that is not there.
+// the discovery queue, refusing one that resolves outside the checkout.
 func queueRunBlockRetargets(
 	queue []queued,
 	suite TestSuite,
@@ -562,11 +559,9 @@ func queueRunBlockRetargets(
 	return queue, nil
 }
 
-// refuseRunSource turns the two ways a run-block retarget can point somewhere
-// useless into refusals that name the declaring test file, the run and the
-// source string. A known checkout root refuses a resolution that leaves it;
-// whatever the root, a resolution that is not a directory is refused in the
-// same words. nil means the retarget proceeds. The comparison resolves
+// refuseRunSource refuses a run-block retarget outside a known checkout root,
+// naming the declaring test file, the run and the source string.
+// nil means the retarget proceeds. The comparison resolves
 // symlinks best-effort on both sides first, so a platform-level temporary
 // directory's alias cannot read as an escape.
 func refuseRunSource(options Options, resolved string, run RunBlock) error {
@@ -587,13 +582,6 @@ func refuseRunSource(options Options, resolved string, run RunBlock) error {
 				ErrParse, run.Rel, run.Name, run.ModuleSource, resolved,
 			)
 		}
-	}
-
-	if info, err := os.Stat(resolved); err != nil || !info.IsDir() {
-		return fmt.Errorf(
-			"%w: %s declares run %q with module source %q, which resolves to %s: no such directory in the checkout",
-			ErrParse, run.Rel, run.Name, run.ModuleSource, resolved,
-		)
 	}
 
 	return nil
