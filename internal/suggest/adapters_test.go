@@ -122,6 +122,18 @@ func TestTheAddressAdapterMatrix(t *testing.T) {
 			schemas: untyped(), want: `output.from_child == "steady"`, refused: nil,
 		},
 		{
+			name: "a list-valued output's element",
+			run:  runIn("applied", ""),
+			path: "outputs.from_child.value[0].short_name", baseline: steadyBaseline,
+			schemas: untyped(), want: `output.from_child[0].short_name == "steady"`, refused: nil,
+		},
+		{
+			name: "a list-valued output's element in a plan payload",
+			run:  runIn("applied", ""),
+			path: "output_changes.from_child.after[1].short_name", baseline: steadyBaseline,
+			schemas: untyped(), want: `output.from_child[1].short_name == "steady"`, refused: nil,
+		},
+		{
 			name: "direct child-module run",
 			run:  runIn("child", "./child"),
 			path: statePrefix + "example_thing.inner].values.input", baseline: steadyBaseline,

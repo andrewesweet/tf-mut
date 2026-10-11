@@ -65,7 +65,20 @@ func traversal(path string) (traversalParts, error) {
 
 	expression := resource
 	if attribute != "" {
-		expression += "." + attribute
+		if attribute[0] == '[' {
+			// An element path the output body carries: `outputs.X.value[0].attr`
+			// continues from the resource with the index, not a dot.
+			expression += attribute
+		} else {
+			expression += "." + attribute
+		}
+	}
+
+	// A path that continues past its first segment is rendered by the walk,
+	// which owns the parse floor for the expression it builds; the dotted
+	// spelling above is only provisional there.
+	if strings.HasPrefix(attribute, "[") || len(fingerprint.AttributeSegments(attribute)) > 1 {
+		return traversalParts{expression: expression, resource: resource, attribute: attribute}, nil
 	}
 
 	if err := parseTraversal(expression); err != nil {

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 
@@ -63,12 +64,92 @@ func (r render) equality(parts traversalParts, baseline string) (string, error) 
 		// A whole output value. No provider schema types an output, so the
 		// scalar in front of us is the only type evidence there is.
 		return scalarEquality(expression, baseline)
-	case len(segments) > 1:
-		return "", fmt.Errorf("%w: %s is a nested value, and the payload path alone "+
-			"cannot tell a map key from an object attribute", ErrUnrenderable, attribute)
+	case strings.HasPrefix(attribute, "[") || len(segments) > 1:
+		// The path continues past the value it names: an element of a list-
+		// valued output, a nested block, or a keyed collection. The walk
+		// renders it from the resource address out, so it starts there —
+		// `expression` already carries the provisional dotted spelling and is
+		// not reused.
+		return r.walkEquality(resource, attribute, baseline)
 	default:
 		return r.leafEquality(expression, resource, segments[0], baseline)
 	}
+}
+
+// walkEquality renders a path that continues past a first segment: a list-
+// valued output's element, a nested block's attribute, or a keyed collection's
+// entry. The walk starts from the resource address and consumes one path
+// segment at a time, so every spelling it emits is one the segment in front of
+// it justifies.
+func (r render) walkEquality(resource, attribute, baseline string) (string, error) {
+	if _, _, ok := schemaCoordinates(resource); !ok {
+		// No provider schema types an output. The walk trusts exactly what the
+		// payload path proves: indices arrived as Terraform wrote them, and a
+		// further segment is a traversal only if it is an identifier.
+		suffix, err := walkIndicesAndNames(attribute)
+		if err != nil {
+			return "", err
+		}
+
+		expression := resource + suffix
+		if err := parseTraversal(expression); err != nil {
+			return "", fmt.Errorf("%w: %s is not expressible as a dotted traversal "+
+				"(a non-identifier key needs an index form this generator does not emit)",
+				ErrUnrenderable, expression)
+		}
+
+		return scalarEquality(expression, baseline)
+	}
+
+	return "", fmt.Errorf("%w: %s is a nested value, and the payload path alone "+
+		"cannot tell a map key from an object attribute", ErrUnrenderable, attribute)
+}
+
+// walkIndicesAndNames renders an output's element path — indices as written,
+// further names as dotted attributes — and refuses anything else. A map key
+// reaches it only inside an index, never as a bare segment, because no schema
+// exists to tell the key from a nested attribute.
+func walkIndicesAndNames(attribute string) (string, error) {
+	builder := strings.Builder{}
+
+	for _, segment := range fingerprint.AttributeSegments(attribute) {
+		if strings.HasPrefix(segment, "[") {
+			name, key, indexed := cutIndex(segment)
+			if name != "" || !indexed || !digitsOnly(key) {
+				return "", fmt.Errorf("%w: %s is a nested value, and the payload path alone "+
+					"cannot tell a map key from an object attribute", ErrUnrenderable, attribute)
+			}
+
+			builder.WriteString(segment)
+
+			continue
+		}
+
+		if !hclsyntax.ValidIdentifier(segment) {
+			return "", fmt.Errorf("%w: %s is a nested value, and the payload path alone "+
+				"cannot tell a map key from an object attribute", ErrUnrenderable, attribute)
+		}
+
+		builder.WriteString(".")
+		builder.WriteString(segment)
+	}
+
+	return builder.String(), nil
+}
+
+// digitsOnly reports whether a bracketed key is a numeric index.
+func digitsOnly(key string) bool {
+	if key == "" {
+		return false
+	}
+
+	for _, letter := range key {
+		if letter < '0' || letter > '9' {
+			return false
+		}
+	}
+
+	return true
 }
 
 // leafEquality renders a single-segment attribute, which is either a scalar

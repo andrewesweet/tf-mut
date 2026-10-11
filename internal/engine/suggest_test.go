@@ -26,6 +26,7 @@ const (
 	suggestMultiFixture     = "suggest-multifile"
 	suggestBatchFixture     = "suggest-batch"
 	suggestCountFixture     = "suggest-count"
+	suggestOutputList       = "suggest-output-list"
 	secretValue             = "s3cret-value"
 	unitTestFile            = "tests/unit.tftest.hcl"
 )
@@ -49,6 +50,47 @@ func runSuggest(t *testing.T, request engine.SuggestRequest) report.Report {
 	}
 
 	return result
+}
+
+// The list-valued output fixture: mutations of the output's element and a
+// mutant that nulls the whole output survive with deltas the payload carries
+// as `outputs.region_list.value[0].short_name` and friends. Before the address
+// adapter carried the element index, every one of these was skipped as
+// unaddressable or unrenderable; now the element assertion is generated, and
+// the metadata paths in the same delta — the type descriptor — are never what
+// the suggestion comes from.
+func TestAListValuedOutputElementIsAddressedThroughItsIndex(t *testing.T) {
+	t.Parallel()
+
+	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestOutputList)))
+
+	const want = `output.region_list[0].short_name == "eu"`
+	for _, skipped := range result.Suggestions {
+		switch skipped.Status {
+		case report.SuggestionSkippedUnaddressable, report.SuggestionSkippedUnrenderable:
+			t.Fatalf("a survivor of the list-valued output was skipped as %s: %s",
+				skipped.Status, skipped.StatusReason)
+		case report.SuggestionSkippedSensitive:
+			t.Fatalf("a survivor of the list-valued output was skipped as sensitive: %s",
+				skipped.StatusReason)
+		}
+	}
+
+	for _, suggestion := range result.Suggestions {
+		if suggestion.Expression != want {
+			continue
+		}
+
+		if suggestion.TargetFile != unitTestFile || suggestion.TargetRun != "applied" {
+			t.Fatalf("placement = %s:%s, want the run that carried the delta",
+				suggestion.TargetFile, suggestion.TargetRun)
+		}
+
+		return
+	}
+
+	t.Fatalf("no suggestion carries %q; statuses were %s",
+		want, statusSummary(result.Suggestions))
 }
 
 func TestSuggestGeneratesTheAssertionThatWouldHaveKilledASurvivor(t *testing.T) {

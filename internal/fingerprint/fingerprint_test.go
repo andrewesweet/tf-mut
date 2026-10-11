@@ -241,3 +241,66 @@ func TestAShapeChangeBetweenBaselineRunsMakesTheComparisonIndeterminate(t *testi
 		t.Fatal("an indeterminate comparison is never fingerprint-identical")
 	}
 }
+
+// Split's contract is about payload paths, so the shapes are stated directly
+// here: state paths carry the output body under `value`, plan paths under
+// `after`, and both may continue past the body into an element of the output's
+// collection — `outputs.X.value[0].attr` and `output_changes.X.after[0].attr`
+// are what Terraform v1.15.8 emits for list-valued outputs.
+func TestSplitCarriesAnOutputElementPathPastItsBody(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		path      string
+		resource  string
+		attribute string
+	}{
+		{
+			"outputs.region_list.value[0].short_name",
+			"output.region_list", "[0].short_name",
+		},
+		{
+			"output_changes.region_list.after[1].short_name",
+			"output.region_list", "[1].short_name",
+		},
+		{
+			"outputs.identity.value",
+			"output.identity", "",
+		},
+		{
+			"outputs.identity.value.tenant",
+			"output.identity", "tenant",
+		},
+		{
+			"outputs.identity.type[0]",
+			"", "",
+		},
+		{
+			"outputs.identity.sensitive",
+			"", "",
+		},
+		{
+			"output_changes.identity.after_unknown",
+			"", "",
+		},
+	} {
+		t.Run(testCase.path, func(t *testing.T) {
+			t.Parallel()
+
+			resource, attribute, ok := fingerprint.Split(testCase.path)
+			if testCase.resource == "" {
+				if ok {
+					t.Fatalf("Split(%q) = (%q, %q, true), want not ok",
+						testCase.path, resource, attribute)
+				}
+				return
+			}
+
+			if !ok || resource != testCase.resource || attribute != testCase.attribute {
+				t.Fatalf("Split(%q) = (%q, %q, %v), want (%q, %q, true)",
+					testCase.path, resource, attribute, ok,
+					testCase.resource, testCase.attribute)
+			}
+		})
+	}
+}

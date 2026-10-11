@@ -762,5 +762,32 @@ func splitOutput(rest, body string) (address, attribute string, ok bool) {
 		return outputRoot + "." + name, attribute, true
 	}
 
+	// A list-valued output's element path continues from the body with an
+	// index, not a dot: `outputs.X.value[0].attr`, `output_changes.X.after[0].attr`.
+	// The index travels in the attribute so the rendered address reads
+	// `output.X[0].attr`. Metadata bodies (`type`, `sensitive`, `after_unknown`)
+	// are only ever dotted or bare, so they stay refused.
+	if attribute, cut := strings.CutPrefix(remainder, body+"["); cut {
+		key, _, found := strings.Cut(attribute, "]")
+		if found && digitsOnly(key) {
+			return outputRoot + "." + name, "[" + attribute, true
+		}
+	}
+
 	return "", "", false
+}
+
+// digitsOnly reports whether a bracketed key is a numeric index.
+func digitsOnly(key string) bool {
+	if key == "" {
+		return false
+	}
+
+	for _, letter := range key {
+		if letter < '0' || letter > '9' {
+			return false
+		}
+	}
+
+	return true
 }
