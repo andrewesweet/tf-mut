@@ -54,7 +54,7 @@ tf-mut version                   # print the build version
 | `--jobs N` | Mutants executing concurrently (default: CPU count) |
 | `--timeout-factor F` | Multiple of the baseline run time; the budget is `max(F × baseline, 30 s)` |
 | `--min-score N` | Fail below this mutation score percentage |
-| `--allow-incomplete-score` | Let a timeout-affected score satisfy `--min-score` |
+| `--allow-incomplete-score` | Let an incomplete score satisfy `--min-score` |
 | `--allow-real-infrastructure` | Required when any provider is unmocked |
 | `--allow-unsandboxed-effects` | Required for apply-mode provisioners and unsevered data sources |
 | `--reporter terminal\|json\|sarif\|mte\|html\|junit\|markdown` | Output format (`mte` is Mutation Testing Elements) |

@@ -208,13 +208,6 @@ func unanswerableResources(configuration discovery.Configuration, mutants []repo
 	)}
 }
 
-// invalidShareWarningThreshold is the judged share of Invalid mutants at or
-// above which a run is warned about instead of being published as a verdict.
-// A healthy module classifies a fraction of a percent as Invalid; a share
-// this high means the operators and the module disagree systematically —
-// every mutant was refused before any test could judge it.
-const invalidShareWarningThreshold = 0.25
-
 // unscoredWarnings turns the population arithmetic the metrics already
 // decided into warnings a reader sees without opening the counts: a run
 // whose non-empty population produced no score at all, and a run whose
@@ -234,7 +227,7 @@ func unscoredWarnings(population oracle.Population, metrics report.Metrics) []st
 		))
 	}
 
-	if judged > 0 && float64(invalid)/float64(judged) >= invalidShareWarningThreshold {
+	if judged > 0 && float64(invalid)/float64(judged) >= oracle.InvalidShareWarningThreshold {
 		dominant := dominantInvalidDiagnostic(population)
 		diagnostic := ""
 

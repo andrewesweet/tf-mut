@@ -42,7 +42,8 @@ package report
 // 2.8.0 changes the semantics of one existing field: Metrics.Incomplete
 // widens from "a timeout made the score untrustworthy" to "the score is
 // untrustworthy" — a timeout left part of the population unobserved, or a
-// non-empty population produced no score at all. No field was added, removed
+// non-empty population produced no score at all, or a high share of the judged
+// population was rejected by terraform validate. No field was added, removed
 // or renamed, and the exit-code semantics are unchanged; the wire contract is
 // documented in docs/schema/report-2.8.0.json.
 const SchemaVersion = "2.8.0"
@@ -454,7 +455,8 @@ type Metrics struct {
 	MutationScore  float64 `json:"mutation_score"`
 	AssertionScore float64 `json:"assertion_score"`
 	Reachability   float64 `json:"reachability"`
-	// Incomplete marks a score that a timeout made untrustworthy.
+	// Incomplete marks an untrustworthy score: a timeout, a non-empty unscored
+	// population, or a high share of judged mutants rejected by terraform validate.
 	Incomplete bool `json:"incomplete"`
 	// Counts holds the number of mutants in each state.
 	Counts map[State]int `json:"counts"`

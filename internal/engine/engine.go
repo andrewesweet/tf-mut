@@ -81,7 +81,7 @@ type settings struct {
 	MinScore float64
 	// HasMinScore reports whether MinScore was requested.
 	HasMinScore bool
-	// AllowIncompleteScore lets a timeout-affected score satisfy MinScore.
+	// AllowIncompleteScore lets an incomplete score satisfy MinScore.
 	AllowIncompleteScore bool
 	// AllowRealInfrastructure permits execution against unmocked providers.
 	AllowRealInfrastructure bool

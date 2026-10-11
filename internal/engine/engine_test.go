@@ -3,6 +3,7 @@ package engine_test
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -145,6 +146,111 @@ func TestAnAllInvalidRunIsMarkedIncompleteAndWarns(t *testing.T) {
 
 	if !strings.Contains(shareWarning, `"Missing required argument"`) {
 		t.Fatalf("the Invalid share warning does not name the dominant diagnostic: %s", shareWarning)
+	}
+}
+
+func TestAnInvalidHeavyRunIsMarkedIncompleteAndWarns(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "invalid-heavy")
+	before := treeDigest(t, module)
+	config := baseConfig(t, module)
+	config.IncludeOperators = []string{string(mutation.ModuleInputDelete)}
+	config.MinScore = 100
+	config.HasMinScore = true
+
+	result, err := engine.Run(t.Context(), &config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if len(result.Mutants) != 4 || result.Count(report.Invalid) != 3 || result.Count(report.Killed) != 1 {
+		t.Fatalf("fixture drift: want 3 Invalid and 1 Killed, got %v", result.Metrics.Counts)
+	}
+
+	if result.Metrics.Scored != 1 || result.Metrics.MutationScore != 1 {
+		t.Fatalf("want one scored mutant and a 100%% score, got %+v", result.Metrics)
+	}
+
+	if !result.Metrics.Incomplete {
+		t.Fatal("an Invalid-heavy population must mark the report incomplete even when a mutant was scored")
+	}
+
+	if result.Gates == nil || !result.Gates.MinScore.Evaluated || result.Gates.MinScore.Passed {
+		t.Fatalf("an incomplete score must fail the requested minimum-score gate: %+v", result.Gates)
+	}
+
+	gate := report.Gate{MinScore: 100, HasMinScore: true}
+	if code := result.ExitCode(gate); code != report.ExitFindings {
+		t.Fatalf("an incomplete score exits %d with a gate, want %d", code, report.ExitFindings)
+	}
+
+	gate.AllowIncompleteScore = true
+	if code := result.ExitCode(gate); code != report.ExitClean {
+		t.Fatalf("the incomplete-score opt-in exits %d, want %d", code, report.ExitClean)
+	}
+
+	if code := result.ExitCode(report.Gate{}); code != report.ExitClean {
+		t.Fatalf("an Invalid-heavy run without a gate exits %d, want %d", code, report.ExitClean)
+	}
+
+	var shareWarning string
+
+	for _, warning := range result.Warnings {
+		if strings.Contains(warning, "were rejected by terraform validate") {
+			shareWarning = warning
+		}
+
+		if strings.Contains(warning, "the mutation score is not trustworthy") {
+			t.Fatalf("a scored population raised an unscored warning: %s", warning)
+		}
+	}
+
+	if !strings.Contains(shareWarning, "3 of 4 mutants judged (75%)") ||
+		!strings.Contains(shareWarning, `"Missing required argument"`) {
+		t.Fatalf("the Invalid share warning must state the share and dominant diagnostic: %v", result.Warnings)
+	}
+
+	for name, write := range map[string]func(io.Writer, report.Report) error{
+		"terminal": report.WriteTerminal,
+		"html":     report.WriteHTML,
+		"markdown": report.WriteMarkdown,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var rendered strings.Builder
+			if err := write(&rendered, result); err != nil {
+				t.Fatalf("rendering: %v", err)
+			}
+
+			if !strings.Contains(rendered.String(), "high share of judged mutants were rejected by terraform validate") {
+				t.Fatal("the incomplete score explanation omits the Invalid-share cause")
+			}
+		})
+	}
+
+	assertTreeUnchanged(t, module, before)
+}
+
+func TestAnEmptyRunStaysCompleteWithoutUnscoredWarnings(t *testing.T) {
+	t.Parallel()
+
+	config := baseConfig(t, copyFixture(t, "no-optional-arguments"))
+	config.IncludeOperators = []string{string(mutation.ModuleInputDelete)}
+
+	result, err := engine.Run(t.Context(), &config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if len(result.Mutants) != 0 || result.Metrics.Scored != 0 || result.Metrics.Incomplete {
+		t.Fatalf("an empty population must stay complete with no score: %+v", result.Metrics)
+	}
+
+	for _, warning := range result.Warnings {
+		if strings.Contains(warning, "the mutation score is not trustworthy") ||
+			strings.Contains(warning, "were rejected by terraform validate") {
+			t.Fatalf("an empty population raised an unscored warning: %s", warning)
+		}
 	}
 }
 

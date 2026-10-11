@@ -57,6 +57,9 @@ internal/engine/testdata/foreach/main.tf
 internal/engine/testdata/foreach/tests/unit.tftest.hcl
 internal/engine/testdata/identical-edits/main.tf
 internal/engine/testdata/identical-edits/tests/unit.tftest.hcl
+internal/engine/testdata/invalid-heavy/child/main.tf
+internal/engine/testdata/invalid-heavy/main.tf
+internal/engine/testdata/invalid-heavy/tests/unit.tftest.hcl
 internal/engine/testdata/gated-preview/main.tf
 internal/engine/testdata/gated-preview/tests/unit.tftest.hcl
 internal/engine/testdata/json-autovar/main.tf
