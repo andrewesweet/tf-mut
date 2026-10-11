@@ -12,7 +12,8 @@ func TestNeutraliseBackendsPreservesFilesWithoutABackend(t *testing.T) {
 
 	dir := t.TempDir()
 	files := map[string]string{
-		"main.tf": "resource   \"terraform_data\" \"r\" {\n  input = \"kept\"\n}\n",
+		"array.tf.json": `[{"terraform":{"required_version":">= 1.6"}}]`,
+		"main.tf":       "resource   \"terraform_data\" \"r\" {\n  input = \"kept\"\n}\n",
 		"providers.tf.json": "{\n  \"terraform\": {\n    \"required_providers\": {\n" +
 			"      \"null\": {\n        \"source\": \"hashicorp/null\"\n      }\n" +
 			"    }\n  }\n}\n",

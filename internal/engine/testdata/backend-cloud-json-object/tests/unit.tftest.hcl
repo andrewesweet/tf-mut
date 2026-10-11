@@ -1,0 +1,3 @@
+run "plans" {
+  command = plan
+}

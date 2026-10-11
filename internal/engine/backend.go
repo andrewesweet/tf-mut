@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclparse"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 )
 
@@ -27,8 +29,8 @@ type backendRewrite struct {
 // backend initialisation. Providers schema is that next command, so a
 // backend-declaring root never gets its schema and the run dies before the
 // baseline. The staged copy is tf-mut's own sandbox: the source tree is read
-// only and is never touched. A file is rewritten only when it declares a
-// backend, so every other staged file stays byte-identical.
+// only and is never touched. Files unaffected by backend neutralisation
+// stay byte-identical.
 //
 // Mutant sandboxes keep the declaration: they materialise from the original
 // sources, share only the warm data directory, and run terraform test, which
@@ -40,23 +42,40 @@ func neutraliseBackends(rootDir, sourceDir string) ([]backendRewrite, error) {
 		return nil, fmt.Errorf("reading staged module: %w", err)
 	}
 
+	backendOverride := ""
+	for _, entry := range entries {
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") || !isOverrideFile(entry.Name()) {
+			continue
+		}
+
+		declared, declarationErr := declaresBackend(filepath.Join(rootDir, entry.Name()))
+		if declarationErr != nil {
+			return nil, declarationErr
+		}
+
+		if declared {
+			backendOverride = entry.Name()
+		}
+	}
+
 	rewrites := []backendRewrite{}
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
 
 		name := entry.Name()
 		path := filepath.Join(rootDir, name)
 		source := filepath.Join(sourceDir, name)
+		removeCloud := backendOverride != "" && (!isOverrideFile(name) || name < backendOverride)
 
 		var original []byte
 		var stripErr error
 		switch {
 		case strings.HasSuffix(name, ".tf"):
-			original, stripErr = stripHCLBackend(path, source)
+			original, stripErr = stripHCLBackend(path, source, removeCloud)
 		case strings.HasSuffix(name, ".tf.json"):
-			original, stripErr = stripJSONBackend(path, source)
+			original, stripErr = stripJSONBackend(path, source, removeCloud)
 		default:
 			continue
 		}
@@ -73,13 +92,55 @@ func neutraliseBackends(rootDir, sourceDir string) ([]backendRewrite, error) {
 	return rewrites, nil
 }
 
+func isOverrideFile(name string) bool {
+	return name == "override.tf" || name == "override.tf.json" ||
+		strings.HasSuffix(name, "_override.tf") || strings.HasSuffix(name, "_override.tf.json")
+}
+
+func declaresBackend(path string) (bool, error) {
+	parser := hclparse.NewParser()
+	var file *hcl.File
+	var diagnostics hcl.Diagnostics
+	if strings.HasSuffix(path, ".tf.json") {
+		file, diagnostics = parser.ParseJSONFile(path)
+	} else {
+		file, diagnostics = parser.ParseHCLFile(path)
+	}
+
+	if diagnostics.HasErrors() {
+		return false, fmt.Errorf("parsing %s: %w", filepath.Base(path), diagnostics)
+	}
+
+	terraform, _, diagnostics := file.Body.PartialContent(&hcl.BodySchema{
+		Blocks: []hcl.BlockHeaderSchema{{Type: "terraform"}},
+	})
+	if diagnostics.HasErrors() {
+		return false, fmt.Errorf("reading terraform blocks in %s: %w", filepath.Base(path), diagnostics)
+	}
+
+	for _, block := range terraform.Blocks {
+		content, _, blockDiagnostics := block.Body.PartialContent(&hcl.BodySchema{
+			Blocks: []hcl.BlockHeaderSchema{{Type: backendBlock, LabelNames: []string{"type"}}},
+		})
+		if blockDiagnostics.HasErrors() {
+			return false, fmt.Errorf("reading backend blocks in %s: %w", filepath.Base(path), blockDiagnostics)
+		}
+
+		if len(content.Blocks) > 0 {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 // backendBlock names the terraform sub-block that declares a backend, in
 // both syntaxes.
 const backendBlock = "backend"
 
-// stripHCLBackend removes every backend block from every terraform block in
-// one staged .tf file, returning the original bytes when it rewrites the file.
-func stripHCLBackend(path, sourcePath string) ([]byte, error) {
+// stripHCLBackend removes backend blocks and, when requested, cloud blocks
+// from a staged .tf file, returning the original bytes when it rewrites the file.
+func stripHCLBackend(path, sourcePath string, removeCloud bool) ([]byte, error) {
 	name := filepath.Base(path)
 
 	source, err := os.ReadFile(path) //nolint:gosec // the staged module's own path.
@@ -99,7 +160,7 @@ func stripHCLBackend(path, sourcePath string) ([]byte, error) {
 		}
 
 		for _, declared := range block.Body().Blocks() {
-			if declared.Type() == backendBlock {
+			if declared.Type() == backendBlock || removeCloud && declared.Type() == "cloud" {
 				block.Body().RemoveBlock(declared)
 				stripped = true
 			}
@@ -117,11 +178,10 @@ func stripHCLBackend(path, sourcePath string) ([]byte, error) {
 	return source, nil
 }
 
-// stripJSONBackend removes the backend key from every terraform block of one
-// staged .tf.json file, returning the original bytes when rewritten. Terraform's
-// JSON configuration syntax lets a block type map to one object or to an
-// array of them; both spellings appear in the wild.
-func stripJSONBackend(path, sourcePath string) ([]byte, error) {
+// stripJSONBackend removes backend keys and, when requested, cloud keys from
+// every terraform body of one staged .tf.json file, returning the original
+// bytes when rewritten. Terraform's JSON bodies may be objects or arrays.
+func stripJSONBackend(path, sourcePath string, removeCloud bool) ([]byte, error) {
 	name := filepath.Base(path)
 
 	source, readErr := os.ReadFile(path) //nolint:gosec // the staged module's own path.
@@ -129,17 +189,11 @@ func stripJSONBackend(path, sourcePath string) ([]byte, error) {
 		return nil, fmt.Errorf("reading %s: %w", name, readErr)
 	}
 
-	document := map[string]json.RawMessage{}
-	if err := json.Unmarshal(source, &document); err != nil {
-		return nil, fmt.Errorf("decoding %s: %w", name, err)
+	if !json.Valid(source) {
+		return nil, fmt.Errorf("decoding %s: invalid JSON", name)
 	}
 
-	blocks, declared := document["terraform"]
-	if !declared {
-		return nil, nil
-	}
-
-	rewritten, stripped, err := stripJSONBackendBlocks(blocks)
+	rewritten, stripped, err := stripJSONBackendBody(source, false, removeCloud)
 	if err != nil {
 		return nil, fmt.Errorf("decoding %s: %w", name, err)
 	}
@@ -148,55 +202,97 @@ func stripJSONBackend(path, sourcePath string) ([]byte, error) {
 		return nil, nil
 	}
 
-	document["terraform"] = rewritten
-
-	encoded, err := json.Marshal(document)
-	if err != nil {
-		return nil, fmt.Errorf("encoding %s: %w", name, err)
-	}
-
-	if err := sandbox.WriteFresh(path, sourcePath, encoded); err != nil {
+	if err := sandbox.WriteFresh(path, sourcePath, rewritten); err != nil {
 		return nil, fmt.Errorf("writing %s: %w", name, err)
 	}
 
 	return source, nil
 }
 
-// stripJSONBackendBlocks removes the backend key from the terraform payload
-// of a .tf.json document, in either legal spelling, and returns the rewritten
-// payload and whether anything changed.
-func stripJSONBackendBlocks(blocks json.RawMessage) (json.RawMessage, bool, error) {
-	object := map[string]json.RawMessage{}
-	if err := json.Unmarshal(blocks, &object); err == nil {
-		if _, found := object[backendBlock]; !found {
-			return nil, false, nil
-		}
-
-		delete(object, backendBlock)
-
-		rewritten, marshalErr := json.Marshal(object)
-
-		return rewritten, marshalErr == nil, marshalErr
-	}
-
-	array := []map[string]json.RawMessage{}
-	if err := json.Unmarshal(blocks, &array); err != nil {
+func stripJSONBackendBody(source []byte, terraformBody, removeCloud bool) ([]byte, bool, error) {
+	decoder := json.NewDecoder(bytes.NewReader(source))
+	opening, err := decoder.Token()
+	if err != nil {
 		return nil, false, err
 	}
 
+	delimiter, ok := opening.(json.Delim)
+	if !ok || delimiter != '{' && delimiter != '[' {
+		return nil, false, fmt.Errorf("expected a JSON body, got %v", opening)
+	}
+
+	object := delimiter == '{'
+	rewritten := []byte{byte(delimiter)}
 	stripped := false
-	for _, block := range array {
-		if _, found := block[backendBlock]; found {
-			delete(block, backendBlock)
-			stripped = true
+	kept := false
+	for decoder.More() {
+		key := ""
+		if object {
+			token, tokenErr := decoder.Token()
+			if tokenErr != nil {
+				return nil, false, tokenErr
+			}
+
+			key, ok = token.(string)
+			if !ok {
+				return nil, false, fmt.Errorf("expected a JSON property name, got %v", token)
+			}
 		}
+
+		var value json.RawMessage
+		if decodeErr := decoder.Decode(&value); decodeErr != nil {
+			return nil, false, decodeErr
+		}
+
+		if object && terraformBody && (key == backendBlock || removeCloud && key == "cloud") {
+			stripped = true
+
+			continue
+		}
+
+		if !object || !terraformBody && key == "terraform" {
+			if !object && bytes.TrimSpace(value)[0] != '{' {
+				return nil, false, fmt.Errorf("expected a JSON body object, got %s", value)
+			}
+
+			var changed bool
+			value, changed, err = stripJSONBackendBody(value, terraformBody || object, removeCloud)
+			if err != nil {
+				return nil, false, err
+			}
+
+			stripped = stripped || changed
+		}
+
+		if kept {
+			rewritten = append(rewritten, ',')
+		}
+
+		if object {
+			encodedKey, encodeErr := json.Marshal(key)
+			if encodeErr != nil {
+				return nil, false, encodeErr
+			}
+
+			rewritten = append(rewritten, encodedKey...)
+			rewritten = append(rewritten, ':')
+		}
+
+		rewritten = append(rewritten, value...)
+		kept = true
 	}
 
-	if !stripped {
-		return nil, false, nil
+	closing, err := decoder.Token()
+	if err != nil {
+		return nil, false, err
 	}
 
-	rewritten, marshalErr := json.Marshal(array)
+	delimiter, ok = closing.(json.Delim)
+	if !ok {
+		return nil, false, fmt.Errorf("expected a closing JSON delimiter, got %v", closing)
+	}
 
-	return rewritten, marshalErr == nil, marshalErr
+	rewritten = append(rewritten, byte(delimiter))
+
+	return rewritten, stripped, nil
 }

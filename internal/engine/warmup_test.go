@@ -180,3 +180,227 @@ func TestProvidersSchemaFailureCarriesNoColourCodes(t *testing.T) {
 		t.Fatalf("error text carries ANSI colour codes: %q", err.Error())
 	}
 }
+
+func TestJSONBackendNeutralisationKeepsRepeatedDeclarations(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		document   string
+		refuseInit bool
+		preview    bool
+	}{
+		{
+			name: "backend-first",
+			document: `{"terraform":{"backend":{"azurerm":{}}},
+"terraform":{"required_version":">= 1.6"}}`,
+		},
+		{
+			name: "backend-last-retains-the-version-refusal",
+			document: `{"terraform":{"required_version":"< 1.6"},
+"terraform":{"backend":{"azurerm":{}}}}`,
+			refuseInit: true,
+		},
+		{
+			name: "repeated-terraform-array",
+			document: `{"terraform":[{"backend":{"azurerm":{}}}],
+"terraform":[{"required_version":">= 1.6"}]}`,
+		},
+		{
+			name:    "root-array",
+			preview: true,
+			document: `[{"terraform":{"backend":{"azurerm":{}}}},
+{"terraform":[{"required_version":">= 1.6"}]}]`,
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, "backend-json-object")
+			backend := filepath.Join(module, "backend.tf.json")
+			writeFile(t, backend, testCase.document)
+			if err := os.Chmod(backend, 0o444); err != nil {
+				t.Fatalf("making backend read-only: %v", err)
+			}
+
+			digest := treeDigest(t, module)["backend.tf.json"]
+			writeFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), fmt.Sprintf(`run "plans" {
+  command = plan
+
+  assert {
+    condition     = terraform_data.checksum.input == %q
+    error_message = "backend file changed"
+  }
+}
+`, digest))
+			before := treeDigest(t, module)
+			request := baseConfig(t, module)
+			request.IncludeOperators = []string{"EXT-OUTPUT-NULL"}
+			request.NoCache = true
+			var command engine.Request = request
+			if testCase.preview {
+				preview := previewRequest(t, module)
+				preview.IncludeOperators = request.IncludeOperators
+				command = preview
+			}
+
+			result, err := engine.Run(t.Context(), command)
+			assertTreeUnchanged(t, module, before)
+
+			if testCase.refuseInit {
+				if !errors.Is(err, tfexec.ErrCommandFailed) || !strings.Contains(err.Error(), "init:") ||
+					!strings.Contains(err.Error(), "Unsupported Terraform Core version") {
+					t.Fatalf("error = %v, want the declared version's init refusal", err)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			if testCase.preview {
+				if len(result.Mutants) != 1 || executedAny(t, result) {
+					t.Fatalf("preview did not describe an unexecuted output mutation: %+v", result.Mutants)
+				}
+
+				return
+			}
+
+			if len(result.Mutants) != 1 || result.Mutants[0].State != report.Survived || !executedAny(t, result) {
+				t.Fatalf("output mutation did not survive execution: %+v", result.Mutants)
+			}
+		})
+	}
+}
+
+func TestABackendlessJSONRootArrayIsAdmittedByPreview(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "backendless-json-root-array")
+	before := treeDigest(t, module)
+	preview, err := engine.Run(t.Context(), previewRequest(t, module))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+
+	if len(preview.Mutants) == 0 || executedAny(t, preview) {
+		t.Fatalf("preview did not describe an unexecuted population: %+v", preview.Mutants)
+	}
+
+	assertTreeUnchanged(t, module, before)
+}
+
+func TestBackendOverridesKeepClearedCloudDeclarationsOutOfWarmUp(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		fixture  string
+		primary  string
+		override string
+	}{
+		{fixture: "backend-cloud-override", primary: mainFile, override: "override.tf"},
+		{fixture: "backend-cloud-json-object", primary: "cloud.tf.json", override: "state_override.tf.json"},
+		{fixture: "backend-cloud-json-array", primary: "cloud.tf.json", override: "state_override.tf"},
+		{fixture: "backend-cloud-hcl-json-override", primary: mainFile, override: "override.tf.json"},
+		{fixture: "backend-cloud-earlier-override", primary: "cloud_override.tf", override: "state_override.tf"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.fixture, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, testCase.fixture)
+			for _, file := range []string{testCase.primary, testCase.override} {
+				if err := os.Chmod(filepath.Join(module, file), 0o444); err != nil {
+					t.Fatalf("making %s read-only: %v", file, err)
+				}
+			}
+
+			digests := treeDigest(t, module)
+			writeFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), fmt.Sprintf(`run "plans" {
+  command = plan
+
+  assert {
+    condition     = terraform_data.cloud_checksum.input == %q
+    error_message = "primary cloud file changed"
+  }
+
+  assert {
+    condition     = terraform_data.backend_checksum.input == %q
+    error_message = "override backend file changed"
+  }
+}
+`, digests[testCase.primary], digests[testCase.override]))
+			before := treeDigest(t, module)
+			request := baseConfig(t, module)
+			request.IncludeOperators = []string{"EXT-OUTPUT-NULL"}
+			request.NoCache = true
+			result, err := engine.Run(t.Context(), request)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			if len(result.Mutants) != 1 || result.Mutants[0].State != report.Survived || !executedAny(t, result) {
+				t.Fatalf("output mutation did not survive execution: %+v", result.Mutants)
+			}
+
+			assertTreeUnchanged(t, module, before)
+		})
+	}
+}
+
+func TestOnlyEffectiveBackendOverridesSuppressCloud(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		files map[string]string
+	}{
+		{
+			name: "empty-backend-block-array",
+			files: map[string]string{
+				"override.tf.json": `{"terraform":[{"backend":[{"local":[]}]}]}`,
+			},
+		},
+		{
+			name: "ignored-backend-override",
+			files: map[string]string{
+				".state_override.tf": "terraform {\n  backend \"local\" {}\n}\n",
+			},
+		},
+		{
+			name: "later-cloud-override",
+			files: map[string]string{
+				"a_override.tf":      "terraform {\n  backend \"local\" {}\n}\n",
+				"z_override.tf.json": `{"terraform":[{"cloud":{}}]}`,
+			},
+		},
+		{
+			name: "same-file-cloud-override",
+			files: map[string]string{
+				"override.tf": "terraform {\n  backend \"local\" {}\n  cloud {}\n}\n",
+			},
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, "schema-uninitialised-cloud")
+			for name, content := range testCase.files {
+				writeFile(t, filepath.Join(module, name), content)
+			}
+
+			before := treeDigest(t, module)
+			_, err := engine.Run(t.Context(), baseConfig(t, module))
+			if !errors.Is(err, tfexec.ErrCommandFailed) || !strings.Contains(err.Error(), "providers schema") ||
+				!strings.Contains(err.Error(), "initialization required") {
+				t.Fatalf("error = %v, want the effective cloud's schema initialization demand", err)
+			}
+
+			assertTreeUnchanged(t, module, before)
+		})
+	}
+}
