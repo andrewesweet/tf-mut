@@ -14,6 +14,11 @@ import (
 // constructor's parameters ARE its diagnosis's required evidence subset; the
 // terminal constructors take no diagnosis, because a diagnosis names why a
 // mutant that every run passed survived and a terminal outcome is not one.
+//
+// Judge's terminal constructors and the provisional phase-one constructor are
+// unexported. Static decisions use exported constructors, including
+// StaticallyUnobservable for an empty reference-graph cone. ParseRecord is the
+// constructor for recorded outcomes.
 
 // SurvivedIndeterminateUnknowns records a fingerprint-identical survivor whose
 // payload carries unknown values, so equality cannot be proven.
@@ -132,13 +137,13 @@ func SurvivedUnasserted(
 	}
 }
 
-// StructurallyUnassertable records a fingerprint-identical mutant of a
+// newStructurallyUnassertable records a fingerprint-identical mutant of a
 // construct with no plan or state projection.
 //
 // No diagnosis: diagnoses exist only for survivors, and this mutant is
 // StructurallyUnassertable. The finding is still actionable, so it keeps its
 // message and its fix.
-func StructurallyUnassertable(operator mutation.Operator) Outcome {
+func newStructurallyUnassertable(operator mutation.Operator) Outcome {
 	entry, _ := mutation.Describe(operator)
 
 	return Outcome{
@@ -150,10 +155,10 @@ func StructurallyUnassertable(operator mutation.Operator) Outcome {
 	}
 }
 
-// Unobservable records a fingerprint-identical mutant of a construct that
+// newUnobservable records a fingerprint-identical mutant of a construct that
 // projects, proven over a fully-known payload: no assertion could distinguish
 // it under the current inputs.
-func Unobservable(mask fingerprint.Mask) Outcome {
+func newUnobservable(mask fingerprint.Mask) Outcome {
 	return Outcome{
 		state: StateUnobservable,
 		message: "every selected run produced an identical plan or state over a fully-known " +
@@ -166,7 +171,7 @@ func Unobservable(mask fingerprint.Mask) Outcome {
 
 // StaticallyUnobservable records the empty-cone claim reached without
 // execution: the mutated node's forward cone reaches nothing observable, so no
-// plan or state could reflect the change. It is the same claim Unobservable
+// plan or state could reflect the change. It is the same claim newUnobservable
 // makes, decided from the reference graph rather than from a comparison, and
 // so carries no mask.
 func StaticallyUnobservable() Outcome {
@@ -187,27 +192,27 @@ func StaticallyUnobservable() Outcome {
 // suppression an ignored mutant was decided by, the budget a timeout was
 // measured against — and nothing where the state is its own whole claim.
 
-// Killed records a mutant an assertion caught.
-func Killed() Outcome {
+// newKilled records a mutant an assertion caught.
+func newKilled() Outcome {
 	return Outcome{state: StateKilled}
 }
 
-// KilledByError records a mutant Terraform's own evaluation caught. The
+// newKilledByError records a mutant Terraform's own evaluation caught. The
 // diagnostics are the evaluation failures the claim is made from.
-func KilledByError(diagnostics []Diagnostic) Outcome {
+func newKilledByError(diagnostics []Diagnostic) Outcome {
 	return Outcome{state: StateKilledByError, diagnostics: diagnostics}
 }
 
-// TimedOut records a mutant that exceeded its execution budget. The budget is
+// newTimedOut records a mutant that exceeded its execution budget. The budget is
 // what the claim is measured against; a timeout is never a fact about the
 // module, and the outcome carries no finding.
-func TimedOut(budget time.Duration) Outcome {
+func newTimedOut(budget time.Duration) Outcome {
 	return Outcome{state: StateTimeout, evidence: Evidence{budget: budget}}
 }
 
-// Invalid records a mutant terraform validate rejected. The diagnostics are
+// newInvalid records a mutant terraform validate rejected. The diagnostics are
 // the validation failures the claim is made from.
-func Invalid(diagnostics []Diagnostic) Outcome {
+func newInvalid(diagnostics []Diagnostic) Outcome {
 	return Outcome{state: StateInvalid, diagnostics: diagnostics}
 }
 
@@ -243,11 +248,11 @@ func Pending() Outcome {
 	return Outcome{state: StatePending}
 }
 
-// SurvivedPhaseOne records that phase one found no failing run and no error:
+// newSurvivedPhaseOne records that phase one found no failing run and no error:
 // the mutant survived everything phase one can see, and the oracle's phase two
 // now decides. It is provisional — phase two always replaces it — and is
 // published only in the operational case where phase two could not run at all.
 // It carries no diagnosis, because no diagnosis exists until phase two decides.
-func SurvivedPhaseOne() Outcome {
+func newSurvivedPhaseOne() Outcome {
 	return Outcome{state: StateSurvived}
 }

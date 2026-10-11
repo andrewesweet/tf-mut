@@ -230,8 +230,9 @@ constructors #86 named, none accepting a diagnosis (`Killed`, `KilledByError`, `
 and two the tree needed that the specification did not name — `StaticallyUnobservable`, the
 empty-cone claim decided from the reference graph rather than a comparison and therefore
 carrying no mask, and `SurvivedPhaseOne`, the provisional phase-one state published only when
-phase two could not run (#102, pull request #135). The precedence table stays in
-`internal/engine/oracle.go` and is, with cache rehydration, the constructors' only caller.
+phase two could not run (#102, pull request #135). At programme close, the precedence
+table remained in `internal/engine/oracle.go`. See the
+[context map](../../CONTEXT.md#oracle--verdict) for its current ownership.
 `ComputeMetrics` and `ComputeOperatorErrors` moved with the type they compute over.
 
 The second construction path — the verdict cache — closed under #103 (pull request #138):

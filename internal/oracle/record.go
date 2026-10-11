@@ -86,15 +86,15 @@ func ParseRecord(record Record) (Outcome, error) {
 	case StateSurvived:
 		return parseSurvivedRecord(record)
 	case StateKilled:
-		return Killed(), nil
+		return newKilled(), nil
 	case StatePending:
 		return Pending(), nil
 	case StateKilledByError:
-		return KilledByError(record.Diagnostics), nil
+		return newKilledByError(record.Diagnostics), nil
 	case StateInvalid:
-		return Invalid(record.Diagnostics), nil
+		return newInvalid(record.Diagnostics), nil
 	case StateTimeout:
-		return TimedOut(record.Budget), nil
+		return newTimedOut(record.Budget), nil
 	case StateNoCoverage:
 		return NoCoverage(record.Message), nil
 	case StateIgnored:
@@ -120,7 +120,7 @@ func parseSurvivedRecord(record Record) (Outcome, error) {
 			return Outcome{}, err
 		}
 
-		return SurvivedPhaseOne(), nil
+		return newSurvivedPhaseOne(), nil
 	}
 
 	if err := refuseEmptyFinding(record); err != nil {

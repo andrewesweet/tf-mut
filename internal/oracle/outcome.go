@@ -44,7 +44,7 @@ const (
 )
 
 // Diagnosis names why a survivor survived. Exactly one is assigned to every
-// survivor outcome, by the precedence table in the engine's oracle.
+// survivor outcome, by the precedence table (`Judge`).
 type Diagnosis string
 
 // The diagnoses, in precedence order — first match wins.
