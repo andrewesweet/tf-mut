@@ -28,9 +28,8 @@ Four strategies were tried against `fixture-b`:
 | C. Copy sources only, set `TF_DATA_DIR` to a shared `.terraform` | pass | 0.156 s |
 | D. `terraform -chdir=<mutant dir> test` from anywhere | pass | 0.144 s |
 
-All four work. **Strategy B is the design choice**: the mutant directory contains only the
-module's own files, so the copy is small, and `.terraform` — which holds the provider binaries
-and is by far the largest artefact — is shared rather than duplicated.
+All four worked on `fixture-b`. The current sandbox materialisation and sharing rules are
+specified in the [execution contract](../design/product-design.md#execute).
 
 For context on why this matters:
 
@@ -39,9 +38,9 @@ terraform init  (cold, network)   5.179 s
 terraform test  (warm)            0.167 s
 ```
 
-Initialisation is ~31× the cost of a test run. A harness that re-inits per mutant is
-approximately 31× slower than one that does not. Sharing `.terraform` is not an optimisation,
-it is the whole design.
+Initialisation is ~31× the cost of a test run on this fixture. These timings explain why
+the [execution design](../design/product-design.md#execute) initialises once rather than
+per mutant.
 
 Notably, none of these strategies require git. The source tree is never written to, so there
 is no restore step that can fail and no drift risk on crash — a structural improvement over
@@ -228,8 +227,8 @@ and must refuse to run against real infrastructure without an explicit opt-in.
 
 | Finding | Design consequence |
 | --- | --- |
-| `init` is 31× a test run | Init once; share `.terraform` read-only across sandboxes |
-| Local module dirs in `modules.json` are relative | Symlinked `.terraform` is safe; child-module mutants propagate |
+| `init` is 31× a test run | Follow the [sandbox execution contract](../design/product-design.md#execute) |
+| Local module dirs in `modules.json` are relative | Child-module mutants propagate in the downward fixture; sandbox rules are in the [execution contract](../design/product-design.md#execute) |
 | Registry modules live inside `.terraform` | Must be explicitly excluded from mutation |
 | `-filter` is file-scoped and exits 0 on no match | Test selection is per-file; always assert executed-test count > 0 |
 | A run error skips later runs in the file | Kill attribution unreliable after an error |

@@ -30,9 +30,11 @@ import (
 // across repositories — or through a CI restore key — is a documented risk,
 // and --no-cache is the mitigation.
 
-// cacheFormatVersion invalidates every entry when the verdict shape or the
-// key derivation changes.
-const cacheFormatVersion = "tf-mut-cache-1"
+// cacheFormatVersion invalidates every entry when verdict semantics, the
+// stored shape, or key derivation changes. Sandbox changes that affect
+// verdicts also require a bump. TestPreSandboxFixInvalidVerdictsAreNotReplayed
+// protects this upgrade boundary.
+const cacheFormatVersion = "tf-mut-cache-2"
 
 // The cache is private by construction: evidence may embed plan values and
 // source text.
