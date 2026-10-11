@@ -407,3 +407,23 @@ func ReadTarget(moduleDir, relative string) ([]byte, error) {
 func VerifiedMessage(suggestionID, mutantID string) string {
 	return "tf-mut suggestion " + suggestionID + " catches mutant " + mutantID
 }
+
+// SuggestionIDFromMessage recovers the suggestion identifier a failed
+// assertion names: the inverse of VerifiedMessage. Terraform copies a failed
+// assertion's error_message verbatim into the failing run's diagnostic, so a
+// batch run's diagnostics name the suggestions that failed in it, and
+// verification can attribute a failing batch to those suggestions alone. The
+// second result is false for any other text.
+func SuggestionIDFromMessage(message string) (string, bool) {
+	rest, found := strings.CutPrefix(message, "tf-mut suggestion ")
+	if !found {
+		return "", false
+	}
+
+	id, rest, found := strings.Cut(rest, " catches mutant ")
+	if !found || id == "" || rest == "" {
+		return "", false
+	}
+
+	return id, true
+}

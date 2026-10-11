@@ -341,6 +341,24 @@ func TestABatchFailureIsRefutedOnlyWhereTheRunNamesIt(t *testing.T) {
 			t.Fatalf("verified suggestion %s does not carry a passed baseline leg", suggestion.ID)
 		}
 	}
+
+	// The re-run the attribution spent is a run the report states: one initial
+	// batch, one re-run without the refuted suggestion, and one isolated run
+	// per claimed mutant. The seeded assertion replaces the first candidate,
+	// whose remaining mutants collapse into a four-mutant suggestion beside
+	// the five-mutant one; the refuted seed claims a mutant but never reaches
+	// its isolated leg.
+	wantCost := "verification executed 2 full-suite run(s) plus 9 isolated mutant run(s)"
+	found := false
+	for _, warning := range result.Warnings {
+		if warning == wantCost {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Fatalf("the report does not state the attribution's actual cost %q: %v", wantCost, result.Warnings)
+	}
 }
 
 // TestABatchFailureNamingNothingIsBisected is the attribution fallback: the
@@ -369,6 +387,21 @@ func TestABatchFailureNamingNothingIsBisected(t *testing.T) {
 	if len(withStatus(result, report.SuggestionVerified)) != 2 {
 		t.Fatalf("want both valid suggestions verified beside the refuted one, got %s",
 			statusSummary(result.Suggestions))
+	}
+
+	// Bisection's cost is the runs it actually spent: the initial batch, the
+	// failing singleton, and the green remainder — plus one isolated run per
+	// claimed mutant, nine under the same collapse as the named path.
+	wantCost := "verification executed 3 full-suite run(s) plus 9 isolated mutant run(s)"
+	found := false
+	for _, warning := range result.Warnings {
+		if warning == wantCost {
+			found = true
+		}
+	}
+
+	if !found {
+		t.Fatalf("the report does not state the bisection's actual cost %q: %v", wantCost, result.Warnings)
 	}
 }
 
