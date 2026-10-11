@@ -36,8 +36,8 @@ proving the unread half of the contract now that the M4c slice reads the content
 
 Both legs, both seeds, and attribution, in `verify_test.go`:
 
-- The seeded wrong-value assertion is refuted through the **baseline leg** (full suite, once
-  per target-file batch, green required).
+- The seeded wrong-value assertion is refuted through the **baseline leg**, under the
+  [verification contract](../design/product-design.md#7-the-differentiator--suggested-assertions).
 - The seeded vacuous assertion is refuted through the **isolated mutant leg** — beside real
   suggestions that kill its mutant, so only per-suggestion isolation can catch it. One
   measured correction to the seed itself: Terraform v1.15.8 refuses a constant `condition`

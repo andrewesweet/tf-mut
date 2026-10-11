@@ -504,7 +504,7 @@ func runVerification(
 		Timeout:       0,
 	})
 	if result.Started {
-		*executions += 1
+		*executions++
 	}
 
 	if err != nil {

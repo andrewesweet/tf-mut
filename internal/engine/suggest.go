@@ -38,9 +38,8 @@ var suggestibleDiagnoses = []report.Diagnosis{
 
 // suggestAssertions generates — and, unless this is a dry run, verifies — the
 // assertion that would have killed each selected survivor. The second result
-// is the verification cost statement: verification is bounded and chosen, so
-// what it will execute is stated in the report rather than discovered on the
-// bill.
+// is the verification cost statement, reporting the executions actually spent
+// on the candidates and on attributing any batch failures.
 func suggestAssertions(
 	ctx context.Context,
 	plan executionPlan,
@@ -109,7 +108,7 @@ func projectSurvivorDelta(changes []report.Change) []fingerprint.Change {
 	return delta
 }
 
-// verificationCost states what verification actually executed: every
+// Statement states what verification actually executed: every
 // full-suite run the baseline leg and its attribution executed, and every
 // isolated mutant run.
 func (c verificationCosts) Statement() string {

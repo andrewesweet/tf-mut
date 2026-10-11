@@ -61,8 +61,8 @@ type VerificationLeg struct {
 
 // Verification is the evidence a verified or refuted suggestion carries.
 type Verification struct {
-	// Baseline is the full-suite run over the target file's candidate batch,
-	// which must be green.
+	// Baseline records the full-suite evidence for this suggestion's attributed
+	// candidate pool, which must be green. See docs/design/product-design.md §7.
 	Baseline VerificationLeg `json:"baseline"`
 	// Mutant is the isolated check of this suggestion alone against its
 	// re-materialised mutant, which must fail.

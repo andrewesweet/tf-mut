@@ -504,8 +504,32 @@ SURVIVED  main.tf:22  COND-SWAP
     }
 ```
 
-`tf-mut suggest --apply` writes accepted suggestions into the test files with `hclwrite`,
-preserving formatting and comments. A `--dry-run` prints the patch.
+`tf-mut suggest --apply ID` writes a verified suggestion into its test file with `hclwrite`,
+preserving formatting and comments. `--all-verified` selects all verified suggestions.
+`--dry-run` prints candidate patches without verifying them.
+
+Verification has two required legs. First, the tool applies the candidates for one target
+test file to a sandbox and runs the full suite. The suite must pass, execute at least one
+run block, and report no failed or errored runs.
+
+When this batch fails, assertion diagnostics identify the suggestions to refute through
+their identifiers in `error_message`. The tool removes only those suggestions and runs the
+remaining batch again. If no diagnostic identifies a suggestion, the tool splits the batch
+in half and checks each half, down to individual suggestions when needed. Baseline evidence
+is recorded per suggestion, because split pools can pass on different suite runs.
+
+Only candidates whose baseline leg passes reach the second leg. The tool applies each
+suggestion alone against each mutant it claims to kill, including those in `also_kills`.
+A run with status `fail` proves a kill. An `error` without a `fail` refutes the suggestion:
+the reason states that the run errored, rather than claiming that the mutant survived.
+Verification stops checking a suggestion when any claimed mutant is not killed.
+
+For a target file with `n` candidates, attribution has a defensive cap of `2n + 1`
+full-suite runs. Exhausting it refutes every candidate still awaiting attribution.
+The report's cost statement counts actual full-suite and isolated mutant executions,
+including attribution retries and isolated executions whose output cannot be decoded.
+Failures before execution do not count, and baseline-refuted suggestions spend no isolated
+mutant executions. Verification never uses the verdict cache.
 
 No other mutation testing tool in any ecosystem can do this reliably, because in a general
 programming language the observable difference is an arbitrary program state. In Terraform it

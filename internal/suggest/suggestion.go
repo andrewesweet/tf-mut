@@ -89,10 +89,8 @@ func (l Leg) Runs() []RunRecord { return l.runs }
 func (l Leg) Detail() string { return l.detail }
 
 // Verification is the two-leg evidence a verified or refuted suggestion
-// carries. The baseline leg is the full-suite run over the target file's
-// candidate batch, which must be green; the mutant leg is the isolated check
-// of this suggestion alone against its re-materialised mutant, which must
-// fail. Neither alone is enough, and there is no spelling for a conclusion
+// carries. See docs/design/product-design.md §7 for the verification contract.
+// Neither leg alone is enough, and there is no spelling for a conclusion
 // without both.
 type Verification struct {
 	baseline Leg
@@ -104,7 +102,7 @@ func NewVerification(baseline, mutant Leg) Verification {
 	return Verification{baseline: baseline, mutant: mutant}
 }
 
-// Baseline is the full-suite leg over the candidate batch.
+// Baseline is the full-suite leg for this suggestion's attributed candidate pool.
 func (v Verification) Baseline() Leg { return v.baseline }
 
 // Mutant is the isolated leg against the re-materialised mutant.

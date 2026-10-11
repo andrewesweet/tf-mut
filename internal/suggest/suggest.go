@@ -35,7 +35,7 @@ import (
 // nobody has tested. Each defect is aimed at exactly one leg.
 type Defect string
 
-// The two seeded defects the soundness gate requires.
+// Seeded defects exercise both verification legs and batch attribution.
 const (
 	// DefectNone is the ordinary generator.
 	DefectNone Defect = ""
