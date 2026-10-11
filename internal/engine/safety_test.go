@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -331,8 +332,12 @@ func TestPreviewSafetyVerdictReachesTheDiscardingReporters(t *testing.T) {
 			// rewrite newlines (&#xA;, \n), so the assertion is per line.
 			for line := range strings.SplitSeq(verdict, "\n") {
 				line = strings.TrimSpace(line)
+				page := rendered.String()
+				if name == reporterMarkdown {
+					page = markdownTextContent(page)
+				}
 
-				if line != "" && !strings.Contains(rendered.String(), line) {
+				if line != "" && !strings.Contains(page, line) {
 					t.Fatalf("the %s reporter dropped the preview's safety-gate verdict line %q:\n%s",
 						name, line, rendered.String())
 				}
@@ -341,38 +346,54 @@ func TestPreviewSafetyVerdictReachesTheDiscardingReporters(t *testing.T) {
 	}
 }
 
+func markdownTextContent(value string) string {
+	return html.UnescapeString(regexp.MustCompile(`\\([[:punct:]])`).ReplaceAllString(value, "$1"))
+}
+
 func TestPreviewMarkdownEscapesSafetyWarningLocations(t *testing.T) {
 	t.Parallel()
 
-	module := copyFixture(t, "provisioner")
-	if err := os.Rename(filepath.Join(module, "main.tf"), filepath.Join(module, "main<env>.tf")); err != nil {
-		t.Fatalf("renaming fixture source: %v", err)
-	}
+	for _, entry := range []struct {
+		file    string
+		escaped string
+	}{
+		{"main<env>.tf", "main&lt;env&gt;\\.tf"},
+		{"main*env*.tf", "main\\*env\\*\\.tf"},
+	} {
+		t.Run(entry.file, func(t *testing.T) {
+			t.Parallel()
 
-	result, err := engine.Run(t.Context(), previewRequest(t, module))
-	if err != nil {
-		t.Fatalf("preview: %v", err)
-	}
+			module := copyFixture(t, "provisioner")
+			if err := os.Rename(filepath.Join(module, "main.tf"), filepath.Join(module, entry.file)); err != nil {
+				t.Fatalf("renaming fixture source: %v", err)
+			}
 
-	if !slices.ContainsFunc(result.Warnings, func(warning string) bool {
-		return strings.Contains(warning, "main<env>.tf")
-	}) {
-		t.Fatalf("the safety warning lost the source filename: %v", result.Warnings)
-	}
+			result, err := engine.Run(t.Context(), previewRequest(t, module))
+			if err != nil {
+				t.Fatalf("preview: %v", err)
+			}
 
-	rendered := strings.Builder{}
-	if err := report.WriteMarkdown(&rendered, result); err != nil {
-		t.Fatalf("rendering: %v", err)
-	}
+			if !slices.ContainsFunc(result.Warnings, func(warning string) bool {
+				return strings.Contains(warning, entry.file)
+			}) {
+				t.Fatalf("the safety warning lost the source filename: %v", result.Warnings)
+			}
 
-	for _, warning := range result.Warnings {
-		if !strings.Contains(rendered.String(), html.EscapeString(warning)) {
-			t.Fatalf("the markdown preview lost the literal safety warning %q:\n%s", warning, rendered.String())
-		}
-	}
+			rendered := strings.Builder{}
+			if err := report.WriteMarkdown(&rendered, result); err != nil {
+				t.Fatalf("rendering: %v", err)
+			}
 
-	if strings.Contains(rendered.String(), "main<env>.tf") {
-		t.Fatalf("the preview renders a filename as raw markup:\n%s", rendered.String())
+			for _, warning := range result.Warnings {
+				if !strings.Contains(markdownTextContent(rendered.String()), warning) {
+					t.Fatalf("the markdown preview lost the literal safety warning %q:\n%s", warning, rendered.String())
+				}
+			}
+
+			if !strings.Contains(rendered.String(), entry.escaped) || strings.Contains(rendered.String(), entry.file) {
+				t.Fatalf("the preview renders a filename as markup:\n%s", rendered.String())
+			}
+		})
 	}
 }
 

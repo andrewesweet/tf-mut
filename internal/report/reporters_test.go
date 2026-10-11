@@ -789,6 +789,10 @@ func renderMarkdown(t *testing.T, value report.Report) string {
 	return rendered.String()
 }
 
+func markdownTextContent(value string) string {
+	return html.UnescapeString(regexp.MustCompile(`\\([[:punct:]])`).ReplaceAllString(value, "$1"))
+}
+
 // TestMarkdownFindingsCarryFileLineGroupedBySite: the PR summary is a to-do
 // list a reader can act on without opening the JSON report — every finding
 // names the file and line it sits at, and the findings are grouped under
@@ -799,9 +803,9 @@ func TestMarkdownFindingsCarryFileLineGroupedBySite(t *testing.T) {
 	page := renderMarkdown(t, sitesReport())
 
 	for _, heading := range []string{
-		"#### `local.locations` — main.tf:21",
-		"#### `output.value` — outputs.tf:5",
-		"#### `var.type` — variables.tf:9",
+		"#### `local.locations` — main\\.tf:21",
+		"#### `output.value` — outputs\\.tf:5",
+		"#### `var.type` — variables\\.tf:9",
 	} {
 		if !strings.Contains(page, heading) {
 			t.Fatalf("the markdown summary is missing the site heading %q:\n%s", heading, page)
@@ -809,10 +813,10 @@ func TestMarkdownFindingsCarryFileLineGroupedBySite(t *testing.T) {
 	}
 
 	for _, line := range []string{
-		"- `NUM-OFF-BY-ONE` Survived at main.tf:21 — weak-assertion (new)",
-		"- `BOOL-FLIP` Survived at main.tf:23 — weak-assertion",
-		"- `STR-CASE` Survived at variables.tf:9 — weak-assertion",
-		"- `EXT-BODY-BLANK` StructurallyUnassertable at outputs.tf:5",
+		"- `NUM-OFF-BY-ONE` Survived at main\\.tf:21 — weak\\-assertion (new)",
+		"- `BOOL-FLIP` Survived at main\\.tf:23 — weak\\-assertion",
+		"- `STR-CASE` Survived at variables\\.tf:9 — weak\\-assertion",
+		"- `EXT-BODY-BLANK` StructurallyUnassertable at outputs\\.tf:5",
 	} {
 		if !strings.Contains(page, line) {
 			t.Fatalf("the markdown summary is missing the finding line %q:\n%s", line, page)
@@ -827,6 +831,37 @@ func TestMarkdownFindingsCarryFileLineGroupedBySite(t *testing.T) {
 	}
 }
 
+func TestMarkdownEscapesAllTextPunctuation(t *testing.T) {
+	t.Parallel()
+
+	literal := "\\`*_[]()#+-.!~|&<>"
+	escaped := "\\\\" + "\\`\\*\\_\\[\\]\\(\\)\\#\\+\\-\\.\\!\\~\\|&amp;&lt;&gt;"
+	value := indeterminateReport()
+	value.Warnings = []string{literal}
+	value.Selection.Mode = report.SelectionSince
+	value.Selection.Ref = "feature`"
+	value.Selection.ForcedFull = literal
+	value.Mutants[0].Verdict.Fix = literal
+	value.Suggestions[0].TargetFile = "tests/main*env*|`unit`.tftest.hcl"
+	value.Suggestions[0].TargetRun = "test"
+	value.Suggestions[0].Expression = "output.value == \"a|`b\""
+
+	page := renderMarkdown(t, value)
+
+	for _, want := range []string{
+		"Fix: " + escaped + "\n",
+		"full population forced: " + escaped,
+		"### Warnings\n\n- " + escaped + "\n",
+		" (`` --since feature` ``",
+		"| ``tests/main*env*\\|`unit`.tftest.hcl:test`` | ``output.value == \"a\\|`b\"`` |",
+		"| skipped\\-sensitive |",
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("the markdown summary lost literal text %q:\n%s", want, page)
+		}
+	}
+}
+
 func TestMarkdownEscapesFindingLocations(t *testing.T) {
 	t.Parallel()
 
@@ -834,10 +869,15 @@ func TestMarkdownEscapesFindingLocations(t *testing.T) {
 		name      string
 		state     report.State
 		diagnosis report.Diagnosis
+		file      string
+		escaped   string
 	}{
-		{"ordinary", report.Survived, report.WeakAssertion},
-		{"unassertable", report.StructurallyUnassertable, ""},
-		{"indeterminate", report.Survived, report.IndeterminateUnknownValues},
+		{"ordinary-html", report.Survived, report.WeakAssertion, "main<env>.tf", "main&lt;env&gt;\\.tf"},
+		{"ordinary-markdown", report.Survived, report.WeakAssertion, "main*env*.tf", "main\\*env\\*\\.tf"},
+		{"unassertable-html", report.StructurallyUnassertable, "", "main<env>.tf", "main&lt;env&gt;\\.tf"},
+		{"unassertable-markdown", report.StructurallyUnassertable, "", "main*env*.tf", "main\\*env\\*\\.tf"},
+		{"indeterminate-html", report.Survived, report.IndeterminateUnknownValues, "main<env>.tf", "main&lt;env&gt;\\.tf"},
+		{"indeterminate-markdown", report.Survived, report.IndeterminateUnknownValues, "main*env*.tf", "main\\*env\\*\\.tf"},
 	} {
 		t.Run(entry.name, func(t *testing.T) {
 			t.Parallel()
@@ -847,7 +887,7 @@ func TestMarkdownEscapesFindingLocations(t *testing.T) {
 
 			for index := range value.Mutants {
 				mutant := &value.Mutants[index]
-				mutant.Range.File = "main<env>.tf"
+				mutant.Range.File = entry.file
 				mutant.State = entry.state
 				mutant.Verdict.Diagnosis = entry.diagnosis
 				if entry.diagnosis == report.IndeterminateUnknownValues {
@@ -857,11 +897,11 @@ func TestMarkdownEscapesFindingLocations(t *testing.T) {
 
 			page := renderMarkdown(t, value)
 
-			if locations := strings.Count(page, "main&lt;env&gt;.tf:21"); locations != 2 {
+			if locations := strings.Count(page, entry.escaped+":21"); locations != 2 {
 				t.Fatalf("escaped first finding location appears %d times, want heading and member:\n%s", locations, page)
 			}
 
-			if !strings.Contains(page, "at main&lt;env&gt;.tf:23") || strings.Contains(page, "main<env>.tf") {
+			if !strings.Contains(page, "at "+entry.escaped+":23") || strings.Contains(page, entry.file) {
 				t.Fatalf("a finding's location is missing or treated as markup:\n%s", page)
 			}
 		})
@@ -896,7 +936,7 @@ func TestMarkdownCodeSpansPreserveBacktickPathsAndSites(t *testing.T) {
 
 			for _, want := range []string{
 				"- " + entry.delimiter + path + entry.delimiter + "\n",
-				"##### " + entry.delimiter + site + entry.delimiter + " — main.tf:21",
+				"##### " + entry.delimiter + site + entry.delimiter + " — main\\.tf:21",
 			} {
 				if strings.Count(page, want) != 1 {
 					t.Fatalf("the literal path or site lost its code span %q:\n%s", want, page)
@@ -998,7 +1038,7 @@ func TestMarkdownTruncationNamesEveryHiddenSite(t *testing.T) {
 
 	// The cap bounds the rendered findings, not the named sites: a hidden
 	// site's finding lines are not rendered.
-	if strings.Contains(page, "- `NUM-OFF-BY-ONE` Survived at main.tf:26") {
+	if strings.Contains(page, "- `NUM-OFF-BY-ONE` Survived at main\\.tf:26") {
 		t.Fatal("a hidden site's findings rendered despite the cap")
 	}
 }
@@ -1053,9 +1093,9 @@ func TestMarkdownGroupsIndeterminateSurvivorsBySharedUnknownPaths(t *testing.T) 
 		"- `kubernetes_deployment_v1.workspace[0].metadata[0].uid`",
 		"- `aws_iam_role.this[0].unique_id`",
 		// The grouped survivors are still named, with their own file:line.
-		"##### `local.locations` — main.tf:21\n\n- `NUM-OFF-BY-ONE` Survived at main.tf:21 (new)",
-		"##### `local.regions` — main.tf:23\n\n- `BOOL-FLIP` Survived at main.tf:23 (accepted)",
-		"##### `var.type` — variables.tf:9\n\n- `STR-CASE` Survived at variables.tf:9 (accepted)",
+		"##### `local.locations` — main\\.tf:21\n\n- `NUM-OFF-BY-ONE` Survived at main\\.tf:21 (new)",
+		"##### `local.regions` — main\\.tf:23\n\n- `BOOL-FLIP` Survived at main\\.tf:23 (accepted)",
+		"##### `var.type` — variables\\.tf:9\n\n- `STR-CASE` Survived at variables\\.tf:9 (accepted)",
 	} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("the markdown summary is missing %q:\n%s", want, page)
@@ -1111,10 +1151,10 @@ func TestMarkdownSiteGroupsKeepModulesDistinct(t *testing.T) {
 				level = "#####"
 			}
 
-			for _, mutant := range value.Mutants {
-				want := fmt.Sprintf("%s `%s` — %s:%d\n\n- `%s` %s at %s:%d",
-					level, mutant.Site, mutant.Range.File, mutant.Range.Start.Line,
-					mutant.Operator, mutant.State, mutant.Range.File, mutant.Range.Start.Line)
+			locations := []string{"main\\.tf:21", "child/main\\.tf:23"}
+			for index, mutant := range value.Mutants {
+				want := fmt.Sprintf("%s `%s` — %s\n\n- `%s` %s at %s",
+					level, mutant.Site, locations[index], mutant.Operator, mutant.State, locations[index])
 				if !strings.Contains(page, want) {
 					t.Fatalf("the module's finding is missing its own site group %q:\n%s", want, page)
 				}
@@ -1300,6 +1340,7 @@ func TestWarningsReachEveryReporter(t *testing.T) {
 		"the safety gates would refuse a mutation run: unsandboxed effects at main.tf:9",
 		"1 file(s) are not canonically formatted",
 		"unsandboxed effects at main<env>.tf:9",
+		"unsandboxed effects at main*env*.tf:9",
 	}
 
 	t.Run("markdown", func(t *testing.T) {
@@ -1345,7 +1386,7 @@ func assertMarkdownCarriesWarnings(t *testing.T, value report.Report) {
 	}
 
 	for _, warning := range value.Warnings {
-		if !strings.Contains(page, html.EscapeString(warning)) {
+		if !strings.Contains(markdownTextContent(page), warning) {
 			t.Fatalf("the markdown summary dropped the warning %q:\n%s", warning, page)
 		}
 	}
