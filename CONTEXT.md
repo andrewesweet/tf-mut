@@ -30,9 +30,11 @@ longer imports `internal/report`.
 
 Core and supporting contexts may read boundary value types — a canonical
 `tfexec.RunPayload`, a `discovery.Reach` — and supporting value types such as a
-`mutation.Operator`; the boundary never imports core or supporting; and nothing
-imports Publication (`internal/report`, `internal/skill`), the engine, or the
-CLI. Enforcement landed in [#89](https://github.com/andrewesweet/tf-mut/issues/89)
+`mutation.Operator`; the boundary never imports core or supporting; and no
+context or boundary package imports Publication (`internal/report`,
+`internal/skill`), the engine, or the CLI. The application layer imports every
+context and Publication; only the CLI imports the application layer.
+Enforcement landed in [#89](https://github.com/andrewesweet/tf-mut/issues/89)
 as the depguard rules in `.golangci.yml`, which hold each of these directions
 over the context package globs, test files included. `internal/report` is the
 stdlib-only publication leaf and has no domain-context imports. `internal/skill`
