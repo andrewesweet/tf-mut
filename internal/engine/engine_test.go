@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
+	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
@@ -86,6 +87,64 @@ func TestSurvivorsExitNonZeroAndCleanRunsExitZero(t *testing.T) {
 
 	if code := cleanResult.ExitCode(report.Gate{}); code != report.ExitClean { //nolint:exhaustruct // no gate requested.
 		t.Fatalf("exit code without survivors = %d, want %d", code, report.ExitClean)
+	}
+}
+
+func TestAnAllInvalidRunIsMarkedIncompleteAndWarns(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-invalid")
+
+	config := baseConfig(t, module)
+	config.IncludeOperators = []string{string(mutation.ModuleInputDelete)}
+
+	result, err := engine.Run(t.Context(), &config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if result.Count(report.Invalid) == 0 || result.Metrics.Scored != 0 {
+		t.Fatalf("fixture drift: want an all-Invalid population with nothing scored, got %v (scored %d)",
+			result.Metrics.Counts, result.Metrics.Scored)
+	}
+
+	// The exit code is unchanged: an all-Invalid run has no findings and the
+	// gates were not asked for a verdict. What changes is that the run says
+	// so.
+	if code := result.ExitCode(report.Gate{}); code != report.ExitClean { //nolint:exhaustruct // no gate requested.
+		t.Fatalf("an all-Invalid run without a gate exits %d, want %d", code, report.ExitClean)
+	}
+
+	if !result.Metrics.Incomplete {
+		t.Fatal("a run whose population produced no score must mark the report incomplete")
+	}
+
+	var scoreWarning, shareWarning string
+
+	for _, warning := range result.Warnings {
+		if strings.Contains(warning, "the mutation score is not trustworthy") {
+			scoreWarning = warning
+		}
+
+		if strings.Contains(warning, "were rejected by terraform validate") {
+			shareWarning = warning
+		}
+	}
+
+	if scoreWarning == "" {
+		t.Fatalf("an unscoreable population raised no warning: %v", result.Warnings)
+	}
+
+	if shareWarning == "" {
+		t.Fatalf("an all-Invalid population raised no dominant-diagnostic warning: %v", result.Warnings)
+	}
+
+	if !strings.Contains(shareWarning, "3 of 3") {
+		t.Fatalf("the Invalid share warning does not state the share: %s", shareWarning)
+	}
+
+	if !strings.Contains(shareWarning, `"Missing required argument"`) {
+		t.Fatalf("the Invalid share warning does not name the dominant diagnostic: %s", shareWarning)
 	}
 }
 

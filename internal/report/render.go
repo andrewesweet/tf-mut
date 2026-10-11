@@ -424,7 +424,8 @@ func writeMetrics(builder *strings.Builder, value Report) {
 	writeDiagnoses(builder, value)
 
 	if metrics.Incomplete {
-		builder.WriteString("\n  Score is INCOMPLETE: at least one mutant timed out.\n")
+		builder.WriteString("\n  Score is INCOMPLETE: the population does not support this score.\n" +
+			"  A mutant timed out, or nothing in the population could be scored.\n")
 	}
 }
 

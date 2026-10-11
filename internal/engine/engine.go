@@ -853,7 +853,7 @@ func complete(
 		metrics:        metrics,
 		operatorErrors: projectOperatorErrors(oracle.ComputeOperatorErrors(population)),
 		findings:       findingsOf(configuration, executed, population),
-		warnings:       unanswerableResources(configuration, populationDescribed),
+		warnings:       append(unanswerableResources(configuration, populationDescribed), unscoredWarnings(population, metrics)...),
 		gates:          gateOutcomes(settings, shell, metrics),
 	}
 }

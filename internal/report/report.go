@@ -39,7 +39,13 @@ package report
 // 2.7.0 adds command and per-mutant performance telemetry. See Telemetry and
 // MutantTelemetry for availability and accounting; the wire contract is
 // documented in docs/schema/report-2.7.0.json.
-const SchemaVersion = "2.7.0"
+// 2.8.0 changes the semantics of one existing field: Metrics.Incomplete
+// widens from "a timeout made the score untrustworthy" to "the score is
+// untrustworthy" — a timeout left part of the population unobserved, or a
+// non-empty population produced no score at all. No field was added, removed
+// or renamed, and the exit-code semantics are unchanged; the wire contract is
+// documented in docs/schema/report-2.8.0.json.
+const SchemaVersion = "2.8.0"
 
 // Command names what produced a report.
 type Command string

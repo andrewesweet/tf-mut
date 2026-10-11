@@ -21,7 +21,8 @@ const wholeMilestoneBase = "d57f2cd"
 // cache-off legs with `baseline.duration_ms` excluded — and the only
 // differences the whole milestone is allowed beyond that exclusion are the
 // schema-addition stamp `schema_version`, moved 2.3.0 to 2.7.0 by the pack
-// work, the identity-collision identifier repair and the performance
+// work and 2.8.0 by the incomplete-semantics widening since, the
+// identity-collision identifier repair and the performance
 // telemetry, and the identifier of an identity-collision member, whose
 // movement the D5 repair re-derives by design and which
 // `blankCollisionIdentifiers` removes from both legs symmetrically. The
@@ -91,8 +92,8 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone(t
 		t.Fatalf("the M5 base tree publishes schema %q, want 2.3.0", before["schema_version"])
 	}
 
-	if after["schema_version"] != "2.7.0" {
-		t.Fatalf("this tree publishes schema %q, want 2.7.0", after["schema_version"])
+	if after["schema_version"] != "2.8.0" {
+		t.Fatalf("this tree publishes schema %q, want 2.8.0", after["schema_version"])
 	}
 
 	delete(before, "schema_version")

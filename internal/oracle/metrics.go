@@ -14,7 +14,10 @@ type Metrics struct {
 	MutationScore  float64
 	AssertionScore float64
 	Reachability   float64
-	// Incomplete marks a score that a timeout made untrustworthy.
+	// Incomplete marks a score that is not trustworthy: a timeout left part
+	// of the population unobserved, or a non-empty population produced no
+	// score at all — nothing in it was graded, so a published number would
+	// describe the tool, not the tests.
 	Incomplete bool
 	// Counts holds the number of mutants in each state.
 	Counts map[State]int
@@ -86,7 +89,7 @@ func ComputeMetrics(population Population) Metrics {
 		MutationScore:  ratio(killed+killedByError, scored),
 		AssertionScore: ratio(killed, killed+survived+unassertable+timeout),
 		Reachability:   ratio(killed+killedByError+survived+timeout, scored),
-		Incomplete:     timeout > 0,
+		Incomplete:     timeout > 0 || (scored == 0 && len(population.Classified()) > 0),
 		Counts:         counts,
 		Diagnoses:      diagnoses,
 		Scored:         scored,

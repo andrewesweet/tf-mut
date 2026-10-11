@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -205,6 +206,82 @@ func unanswerableResources(configuration discovery.Configuration, mutants []repo
 			"so this run says nothing about them: %s",
 		len(missing), strings.Join(missing, ", "),
 	)}
+}
+
+// invalidShareWarningThreshold is the judged share of Invalid mutants at or
+// above which a run is warned about instead of being published as a verdict.
+// A healthy module classifies a fraction of a percent as Invalid; a share
+// this high means the operators and the module disagree systematically —
+// every mutant was refused before any test could judge it.
+const invalidShareWarningThreshold = 0.25
+
+// unscoredWarnings turns the population arithmetic the metrics already
+// decided into warnings a reader sees without opening the counts: a run
+// whose non-empty population produced no score at all, and a run whose
+// Invalid share dominates. Both mean the run is saying something about the
+// module or the tool, not about the tests.
+func unscoredWarnings(population oracle.Population, metrics report.Metrics) []string {
+	judged := len(population.Classified()) - metrics.Counts[report.Ignored]
+	invalid := metrics.Counts[report.Invalid]
+
+	warnings := []string{}
+
+	if metrics.Scored == 0 && len(population.Classified()) > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"none of the %d mutants in the population could be scored, so the "+
+				"mutation score is not trustworthy and the report is marked incomplete",
+			len(population.Classified())))
+	}
+
+	if judged > 0 && float64(invalid)/float64(judged) >= invalidShareWarningThreshold {
+		dominant := dominantInvalidDiagnostic(population)
+		diagnostic := ""
+
+		if dominant != "" {
+			diagnostic = fmt.Sprintf("; the most common diagnostic was %q", dominant)
+		}
+
+		warnings = append(warnings, fmt.Sprintf(
+			"%d of %d mutants judged (%.0f%%) were rejected by terraform validate%s. "+
+				"This points at a systematic mismatch between the enabled operators and "+
+				"the module, not at the tests.",
+			invalid, judged, 100*float64(invalid)/float64(judged), diagnostic))
+	}
+
+	return warnings
+}
+
+// dominantInvalidDiagnostic returns the most common first-diagnostic summary
+// across the population's Invalid outcomes, ties broken lexicographically so
+// the warning is deterministic. An Invalid outcome with no diagnostics at all
+// contributes nothing; a population with none returns the empty string.
+func dominantInvalidDiagnostic(population oracle.Population) string {
+	tally := map[string]int{}
+
+	for _, row := range population.Classified() {
+		if row.Outcome.State() != oracle.StateInvalid {
+			continue
+		}
+
+		diagnostics := row.Outcome.Diagnostics()
+		if len(diagnostics) == 0 {
+			continue
+		}
+
+		tally[diagnostics[0].Summary]++
+	}
+
+	summaries := slices.Sorted(maps.Keys(tally))
+
+	best, bestCount := "", 0
+
+	for _, summary := range summaries {
+		if tally[summary] > bestCount {
+			best, bestCount = summary, tally[summary]
+		}
+	}
+
+	return best
 }
 
 func fileExists(path string) bool {

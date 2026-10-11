@@ -30,7 +30,7 @@ func WriteMarkdown(writer io.Writer, value Report) error {
 		value.Metrics.Reachability*percent)
 
 	if value.Metrics.Incomplete {
-		page.WriteString("> **Incomplete:** a timeout made this score untrustworthy.\n\n")
+		page.WriteString("> **Incomplete:** this score is untrustworthy — a mutant timed out, or nothing in the population could be scored.\n\n")
 	}
 
 	writePopulation(&page, value)
