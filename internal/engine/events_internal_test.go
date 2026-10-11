@@ -49,21 +49,14 @@ func TestBaselineLabellingPreservesPublishedEvent(t *testing.T) {
 
 					return nil
 				})
-				if err := events.mutantEvaluated.publish(MutantEvaluated{index: 0, row: row}); err != nil {
-					t.Fatalf("publishing the evaluated mutant: %v", err)
+				if publishErr := events.mutantEvaluated.publish(MutantEvaluated{index: 0, row: row}); publishErr != nil {
+					t.Fatalf("publishing the evaluated mutant: %v", publishErr)
 				}
 
 				projection := gradingProjection{evaluated: population, labels: map[int]string{0: label}}
 				result := projection.project()
 
-				after, err := json.Marshal(published.row)
-				if err != nil {
-					t.Fatalf("encoding the published event row: %v", err)
-				}
-
-				if !bytes.Equal(before, after) {
-					t.Fatalf("baseline labelling changed the published event:\nbefore: %s\nafter: %s", before, after)
-				}
+				assertPublishedEventUnchanged(t, before, published)
 
 				wantProvenance.BaselineStatus = label
 				row.Provenance = &wantProvenance
@@ -72,5 +65,18 @@ func TestBaselineLabellingPreservesPublishedEvent(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func assertPublishedEventUnchanged(t *testing.T, before []byte, published MutantEvaluated) {
+	t.Helper()
+
+	after, err := json.Marshal(published.row)
+	if err != nil {
+		t.Fatalf("encoding the published event row: %v", err)
+	}
+
+	if !bytes.Equal(before, after) {
+		t.Fatalf("baseline labelling changed the published event:\nbefore: %s\nafter: %s", before, after)
 	}
 }
