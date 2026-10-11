@@ -49,6 +49,36 @@ func TestTheTestDirectorysHelperModulesAreNotMutated(t *testing.T) {
 	assertTreeUnchanged(t, module, before)
 }
 
+func TestACustomTestDirectoryInstallsItsHelperModules(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, testdirHelperFixture)
+	if err := os.Rename(filepath.Join(module, "tests"), filepath.Join(module, "suite")); err != nil {
+		t.Fatalf("moving the test directory: %v", err)
+	}
+
+	path := filepath.Join(module, "suite", "unit.tftest.hcl")
+	writeFile(t, path, strings.ReplaceAll(readFile(t, path), "./tests/setup", "./suite/setup"))
+	before := treeDigest(t, module)
+
+	request := baseConfig(t, module)
+	request.TestDirectory = "suite"
+	request.NoCache = true
+
+	result, err := engine.Run(t.Context(), request)
+	if err != nil {
+		t.Fatalf("run with a custom test directory: %v", err)
+	}
+
+	if result.Baseline.Runs != 2 {
+		t.Fatalf("baseline executed %d run blocks, want the helper and root runs", result.Baseline.Runs)
+	}
+
+	assertNoMutantsUnder(t, "suite/", result)
+	assertMutationTiersIn(t, "child/main.tf", result)
+	assertTreeUnchanged(t, module, before)
+}
+
 func TestTheModuleRootStaysMutableUnderARootColocatedTestDirectory(t *testing.T) {
 	t.Parallel()
 
