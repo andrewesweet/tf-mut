@@ -9,6 +9,8 @@ internal/engine/testdata/aws-mocked/observability.tf
 internal/engine/testdata/aws-mocked/state.tf
 internal/engine/testdata/aws-mocked/storage.tf
 internal/engine/testdata/aws-mocked/tests/unit.tftest.hcl
+internal/engine/testdata/backend-declared/main.tf
+internal/engine/testdata/backend-declared/tests/unit.tftest.hcl
 internal/engine/testdata/cache-measure/a.tf
 internal/engine/testdata/cache-measure/b.tf
 internal/engine/testdata/cache-measure/tests/unit.tftest.hcl
@@ -141,6 +143,9 @@ internal/engine/testdata/suggest-multifile/tests/unit.tftest.hcl
 internal/engine/testdata/suggest-sensitive/main.tf
 internal/engine/testdata/suggest-sensitive/tests/unit.tftest.hcl
 internal/engine/testdata/unformatted/tests/unit.tftest.hcl
+internal/engine/testdata/unit-directory-modulecall/child/main.tf
+internal/engine/testdata/unit-directory-modulecall/main.tf
+internal/engine/testdata/unit-directory-modulecall/tests/unit/unit.tftest.hcl
 internal/engine/testdata/unknown-refinement/main.tf
 internal/engine/testdata/unknown-refinement/tests/unit.tftest.hcl
 internal/engine/testdata/unmocked/main.tf
