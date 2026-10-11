@@ -459,8 +459,8 @@ func TestTheRenderingContractAdmissions(t *testing.T) {
 			want: "example_thing.app.input != null", refused: nil,
 		},
 		{
-			name:     "a nulled container the delta proves non-null asserts non-null",
-			path:     statePrefix + "example_thing.app].values.triggers", baseline: "", mutant: "null",
+			name: "a nulled container the delta proves non-null asserts non-null",
+			path: statePrefix + "example_thing.app].values.triggers", baseline: "", mutant: "null",
 			schemas:  schemaTyping("triggers", `["map","string"]`),
 			evidence: suggest.NewEvidence([]fingerprint.Change{nulledAt(statePrefix + "example_thing.app].values.triggers"), changeAt(statePrefix+"example_thing.app].values.triggers.plain", steadyBaseline)}),
 			want:     "example_thing.app.triggers != null", refused: nil,
@@ -471,8 +471,8 @@ func TestTheRenderingContractAdmissions(t *testing.T) {
 			schemas: schemaTyping("triggers", `["map","string"]`), want: "", refused: suggest.ErrUnrenderable,
 		},
 		{
-			name:     "a length is never rendered from unknown elements",
-			path:     "output_changes.identity.after", baseline: "{}", mutant: `"2"`,
+			name: "a length is never rendered from unknown elements",
+			path: "output_changes.identity.after", baseline: "{}", mutant: `"2"`,
 			schemas:  untyped(),
 			evidence: suggest.Evidence{UnknownMarkers: []string{"output_changes.identity.after_unknown.principal_id"}},
 			want:     "", refused: suggest.ErrUnrenderable,
