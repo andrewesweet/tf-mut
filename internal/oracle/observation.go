@@ -10,11 +10,11 @@ import (
 
 // Observation is everything the engine measured about one mutant, assembled
 // for the precedence table to judge. Its fields are unexported: the engine
-// builds it through the With constructors from what it measured — whether the
-// mutant's operator projects, the unknown paths, the masked delta and mask,
+// builds it through the With constructors from its measurements: the mutant's
+// operator, the unknown paths, the masked delta and mask,
 // the unstable components, the closure's Reach, the phase-one status, the
 // diagnostics and the validate verdict — and every decision over those facts
-// is Judge's. The engine keeps every I/O duty: running Terraform,
+// belongs to the oracle. The engine keeps every I/O duty: running Terraform,
 // canonicalising payloads, building the graph cone. The four func fields are
 // the fail-closed adapters over the engine's measured sources: the graph
 // cone, the output and local closure, the provider schemas' computed flags
@@ -148,11 +148,8 @@ func (o Observation) WithSecondRun(delta fingerprint.Delta, mask fingerprint.Mas
 }
 
 // NeedsValidate reports whether the precedence table needs the validate
-// verdict to judge: only a run-level error or a zero-run result can reach the
-// branch that discriminates on it. Killed is checked before Invalid even
-// though the precedence table ranks Invalid first — the two cannot both
-// apply — so a mutant an assertion caught never pays for validate. The engine
-// runs validate when this returns true and records the verdict with
+// verdict: after a run-level error or a zero-run result, unless an assertion
+// already caught the mutant. The engine records the verdict with
 // WithValidateVerdict before calling Judge.
 func (o Observation) NeedsValidate() bool {
 	if o.failedRuns {

@@ -8,15 +8,14 @@ import (
 )
 
 // Judge assigns a mutant's final state and, for a survivor, its single
-// diagnosis by the normative precedence. The precedence table is the
-// constructors' only caller: each branch names the evidence its diagnosis
-// requires through the constructor's parameters, and the outcome is projected
-// onto the published report at the boundary.
+// diagnosis by the normative precedence. Each branch supplies the evidence
+// required by its constructor. The engine projects the outcome onto the
+// published report at the boundary.
 //
 // The table judges in two phases, in order. Phase one decides from what the
 // executed runs reported; a phase-one survivor is the one state it cannot
 // decide, and phase two — the fingerprint comparison the engine was told to
-// run by NeedsPhaseTwo — decides what survival means.
+// run by Observation.NeedsPhaseTwo — decides what survival means.
 func Judge(o Observation) Outcome {
 	// Killed is checked before Invalid even though the precedence table ranks
 	// Invalid first. The two cannot both apply: a statically invalid
@@ -44,9 +43,8 @@ func Judge(o Observation) Outcome {
 		return newTimedOut(o.budget)
 	}
 
-	// A zero-run result is the engine's operational refusal (NoVerdictPossible),
-	// never a survival; the fallthrough below is reached only where runs
-	// executed.
+	// A zero-run result that reaches the fallthrough below is provisional.
+	// The engine refuses it through NoVerdictPossible before projecting a survival.
 
 	// Phase one is out of decisions: the mutant survived everything phase one
 	// can see, and phase two decides what that means.

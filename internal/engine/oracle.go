@@ -16,15 +16,14 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
-// executionOracle answers the only question phase one cannot: whether a mutant
-// that every run passed produced any observable difference at all, and if so
-// what the suite would have had to do to notice.
+// executionOracle gathers observations and performs the Terraform calls that
+// the core oracle requests. Verdict selection belongs to oracle.Judge.
 type executionOracle struct {
 	plan executionPlan
 }
 
-// observe runs phase two for one phase-one survivor and assigns its final state
-// and diagnosis.
+// observe gathers phase-two evidence for one phase-one survivor and projects
+// the outcome returned by oracle.Judge.
 //
 // Phase two exists because `-verbose` embeds the whole provider schema in every
 // per-run message — 20,288 times the output volume, measured — so only the
