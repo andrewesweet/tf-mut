@@ -3,7 +3,6 @@ package report
 import (
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 )
 
@@ -115,30 +114,6 @@ func groupBySite(findings []Mutant) []siteGroup {
 
 		groups[at].members = append(groups[at].members, finding)
 	}
-
-	// Location order makes the summary a to-do list through the tree rather
-	// than a walk of the generation order.
-	slices.SortFunc(groups, func(left, right siteGroup) int {
-		leftRange, rightRange := left.members[0].Range, right.members[0].Range
-
-		if order := strings.Compare(leftRange.File, rightRange.File); order != 0 {
-			return order
-		}
-
-		if order := leftRange.Start.Line - rightRange.Start.Line; order != 0 {
-			return order
-		}
-
-		if order := leftRange.Start.Column - rightRange.Start.Column; order != 0 {
-			return order
-		}
-
-		if order := strings.Compare(left.site, right.site); order != 0 {
-			return order
-		}
-
-		return strings.Compare(left.members[0].Module, right.members[0].Module)
-	})
 
 	return groups
 }

@@ -792,7 +792,7 @@ func renderMarkdown(t *testing.T, value report.Report) string {
 // TestMarkdownFindingsCarryFileLineGroupedBySite: the PR summary is a to-do
 // list a reader can act on without opening the JSON report — every finding
 // names the file and line it sits at, and the findings are grouped under
-// their mutation site in location order rather than generation order.
+// their mutation site.
 func TestMarkdownFindingsCarryFileLineGroupedBySite(t *testing.T) {
 	t.Parallel()
 
@@ -822,8 +822,8 @@ func TestMarkdownFindingsCarryFileLineGroupedBySite(t *testing.T) {
 	main, outputs, variables := strings.Index(page, "local.locations"),
 		strings.Index(page, "output.value"), strings.Index(page, "var.type")
 
-	if main < 0 || outputs <= main || variables <= outputs {
-		t.Fatalf("the site groups are not in location order (main < outputs < variables):\n%s", page)
+	if main < 0 || variables <= main || outputs <= variables {
+		t.Fatalf("the site groups are not in report order (main < variables < outputs):\n%s", page)
 	}
 }
 
@@ -1089,6 +1089,61 @@ func TestTerminalGroupsIndeterminateSurvivorsBySharedUnknownPaths(t *testing.T) 
 
 	if said := strings.Count(page, "because these paths are unknown at plan"); said != 2 {
 		t.Fatalf("the indeterminate sentence appears %d times, want once per group (2)", said)
+	}
+}
+
+func TestIndeterminateGroupsFollowReportOrder(t *testing.T) {
+	t.Parallel()
+
+	for name, write := range map[string]func(io.Writer, report.Report) error{
+		"markdown": report.WriteMarkdown,
+		"terminal": report.WriteTerminal,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			value := indeterminateReport()
+			value.Mutants[0].Verdict.Evidence.UnknownPaths = slices.Clone(value.Mutants[0].Verdict.Evidence.UnknownPaths)
+			slices.Reverse(value.Mutants[0].Verdict.Evidence.UnknownPaths)
+			value.Mutants[1].Site = "local.regions"
+			value.Mutants[3].State = report.Survived
+			value.Mutants[3].Verdict.Diagnosis = report.IndeterminateUnknownValues
+			value.Mutants[3].Verdict.Evidence.UnknownPaths = []string{"a_last.computed"}
+			value.Mutants = []report.Mutant{value.Mutants[2], value.Mutants[1], value.Mutants[0], value.Mutants[3]}
+			value.Metrics.Counts = map[report.State]int{report.Survived: 4}
+			value.Metrics.Diagnoses = map[report.Diagnosis]int{report.IndeterminateUnknownValues: 4}
+
+			rendered := strings.Builder{}
+			if err := write(&rendered, value); err != nil {
+				t.Fatalf("rendering: %v", err)
+			}
+
+			page := rendered.String()
+			previous := -1
+
+			for _, path := range []string{
+				"aws_iam_role.this[0].unique_id",
+				"kubernetes_deployment_v1.workspace[0].id",
+				"kubernetes_deployment_v1.workspace[0].metadata[0].uid",
+				"a_last.computed",
+			} {
+				at := strings.Index(page, path)
+				if at <= previous || strings.Count(page, path) != 1 {
+					t.Fatalf("path %q lost its canonical order or its group's report order:\n%s", path, page)
+				}
+
+				previous = at
+			}
+
+			if groups := strings.Count(page, "because these paths are unknown at plan"); groups != 3 {
+				t.Fatalf("rendered %d unknown-path groups, want 3:\n%s", groups, page)
+			}
+
+			first, second := strings.Index(page, "BOOL-FLIP"), strings.Index(page, "NUM-OFF-BY-ONE")
+			if first < 0 || second <= first {
+				t.Fatalf("the shared group's members or site subgroups lost report order:\n%s", page)
+			}
+		})
 	}
 }
 

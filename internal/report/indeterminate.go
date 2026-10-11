@@ -15,10 +15,7 @@ type indeterminateGroup struct {
 
 // partitionIndeterminate splits the survivors carrying the
 // indeterminate-unknown-values diagnosis away from the other findings,
-// grouping the indeterminate ones by their shared unknown-path set. The
-// largest group sorts first: one resource's unknown computed metadata can
-// leave a large share of a plan-only population indeterminate, and that
-// group is the headline a reader needs first.
+// grouping the indeterminate ones by their shared unknown-path set.
 func partitionIndeterminate(findings []Mutant) (groups []indeterminateGroup, rest []Mutant) {
 	index := map[string]int{}
 
@@ -44,14 +41,6 @@ func partitionIndeterminate(findings []Mutant) (groups []indeterminateGroup, res
 
 		groups[at].members = append(groups[at].members, finding)
 	}
-
-	slices.SortFunc(groups, func(left, right indeterminateGroup) int {
-		if order := len(right.members) - len(left.members); order != 0 {
-			return order
-		}
-
-		return strings.Compare(strings.Join(left.paths, "\x00"), strings.Join(right.paths, "\x00"))
-	})
 
 	return groups, rest
 }
