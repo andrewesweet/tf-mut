@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
@@ -443,7 +443,7 @@ func keyedSteps(
 	}
 
 	key := strings.Join(steps[:winner], ".")
-	if hclsyntax.ValidIdentifier(key) {
+	if discovery.ValidIdentifier(key) {
 		builder.WriteString("." + key)
 	} else {
 		builder.WriteString("[" + quoteKey(key) + "]")
@@ -621,7 +621,7 @@ func walkIndicesAndNames(attribute string, declared cty.Type) (string, error) {
 		}
 
 		name, key, indexed := cutIndex(segment)
-		if !hclsyntax.ValidIdentifier(name) || (indexed && !digitsOnly(key)) {
+		if !discovery.ValidIdentifier(name) || (indexed && !digitsOnly(key)) {
 			return "", nestedValue(attribute)
 		}
 

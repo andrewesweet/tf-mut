@@ -109,17 +109,15 @@ Two costs the number carried with it, both flagged for the next review:
 
 ## 5. Measurements this slice produced about its own behaviour
 
-- **The until-dry loop converges in one round on every fixture tried, with zero new pins, and
-  the reason is structural rather than incidental.** One rendering contract bounds both ends
-  of the loop: the harvest pins through `suggest.Express`, and the survivor-suggestion path
-  generates through `suggest.Express`. A value the harvest could not express is a value the
-  suggestion engine cannot express either, so at a fixed rung there is nothing for a second
-  pass to add. Measured on a `null_resource` whose `triggers.env` survives every mutant: the
-  mutation loop diagnoses it `no-assertion` and names the fix, and both ends of the
-  characterisation loop refuse it for the same reason — a nested map value has no dotted
-  spelling the payload path can tell apart from an object attribute. The loop's remaining
-  value is in modules whose scenarios leave a branch unpinned, and in deltas whose
-  *comparison* is expressible where the harvested *value* was not, such as the
+- **The M4.5 until-dry measurement converged in one round on every fixture tried, with zero
+  new pins.** Harvest and survivor suggestions shared `suggest.Express` and its rendering
+  limits. On the measured `null_resource`, whose `triggers.env` survived every mutant, the
+  mutation loop diagnosed `no-assertion` and both characterisation paths refused the nested
+  map value. That refusal describes the implementation at measurement time; current paths
+  and refusals belong to the
+  [suggestion rendering contract](../design/product-design.md#7-the-differentiator--suggested-assertions).
+  The loop's remaining value was in modules whose scenarios left a branch unpinned, and in
+  deltas whose *comparison* was expressible where the harvested *value* was not, such as the
   `length(x) == 0` form. `TestUntilDryConvergesWithoutWritingAByte` proves the loop runs against the
   staged overlay — over a module with *no test directory at all*, so a baseline would refuse
   for want of run blocks if discovery had not consumed the overlay — and that the source tree

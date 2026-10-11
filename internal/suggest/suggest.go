@@ -23,7 +23,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
@@ -439,7 +438,7 @@ func (e *Evidence) absorb(change fingerprint.Change, changes []fingerprint.Chang
 // is provable rather than an absence the baseline shared.
 func (e *Evidence) proveNonNull(change fingerprint.Change, changes []fingerprint.Change) {
 	address, attribute, split := fingerprint.Split(change.Path)
-	container := split && !strings.HasPrefix(address, "output.") && hclsyntax.ValidIdentifier(attribute)
+	container := split && !strings.HasPrefix(address, "output.") && discovery.ValidIdentifier(attribute)
 
 	for _, other := range changes {
 		if other.Run != change.Run || other.Baseline == "" || other.Baseline == nullMarker {

@@ -413,7 +413,7 @@ func RungOf(expression string) Rung {
 	}
 }
 
-// lengthCall is the one collection-safe form the M4 rendering contract admits.
+// lengthCall identifies a generated length equality for subject extraction.
 const lengthCall = "length("
 
 // AssertedAddress reads the address a generated assertion is about: the left

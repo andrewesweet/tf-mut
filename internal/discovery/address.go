@@ -2,6 +2,8 @@ package discovery
 
 import (
 	"strings"
+
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
 // The canonical address model (M3a, spec review C3).
@@ -25,6 +27,12 @@ import (
 
 // Wildcard is the match-all segment a splat or an instance key collapses to.
 const Wildcard = "*"
+
+// ValidIdentifier exposes HCL's identifier check without requiring consumers
+// to import native syntax outside the discovery boundary.
+func ValidIdentifier(name string) bool {
+	return hclsyntax.ValidIdentifier(name)
+}
 
 // Addr is one parsed canonical address.
 type Addr struct {
