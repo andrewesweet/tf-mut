@@ -446,7 +446,17 @@ func mutate(
 		settings, warnings = applyFloor(configuration, settings, checked)
 		gatePhase()
 	} else {
-		settings, warnings = applyFloor(configuration, settings, warnings)
+		// A preview executes nothing, so the gates never refuse it. It still
+		// reports what they would decide: the person reading the population is
+		// the person deciding whether to accept the risk, and the gates'
+		// verdict belongs in that decision. A refusal becomes a warning that
+		// quotes it; a pass becomes the same advisories a run would carry.
+		checked, gateErr := checkSafety(configuration, settings)
+		if gateErr != nil {
+			checked = append(checked, "the safety gates would refuse a mutation run: "+gateErr.Error())
+		}
+
+		settings, warnings = applyFloor(configuration, settings, checked)
 	}
 
 	workRoot, err := prepareWorkRoot(configuration, settings)
