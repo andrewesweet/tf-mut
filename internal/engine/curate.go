@@ -132,11 +132,14 @@ func curateSuite(
 	configuration discovery.Configuration,
 	settings settings, version tfexec.Version,
 	moduleDir string,
+	collector *runCollector,
 ) (report.Report, error) {
 	graded := settings
 	graded.mode = gradeMode
 
-	result, population, err := mutate(ctx, runner, configuration, graded, version, moduleDir)
+	// Curate grades through the same pipeline as run, so its report carries the
+	// same run-level telemetry block.
+	result, population, err := mutate(ctx, runner, configuration, graded, version, moduleDir, collector)
 	if err != nil {
 		return report.Report{}, err
 	}

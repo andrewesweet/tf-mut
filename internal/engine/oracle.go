@@ -34,8 +34,11 @@ func (o executionOracle) observe(
 	verdict report.Mutant,
 	observation oracle.Observation,
 	phaseOne oracle.Outcome,
+	telemetry *mutantCollector,
 ) (report.Mutant, oracle.Outcome, *report.ExecutionError) {
-	payloads, outcomes, err := o.fingerprintRun(ctx, built)
+	fingerprintPhase := telemetry.phase(phaseFingerprint)
+	run, err := o.fingerprintRun(ctx, built)
+	fingerprintPhase(telemetry.child("test", run.result.Usage, run.result.Started)...)
 	if err != nil {
 		return verdict, phaseOne, &report.ExecutionError{
 			MutantID: verdict.ID,
@@ -44,28 +47,31 @@ func (o executionOracle) observe(
 		}
 	}
 
-	verdict.Runs = append(verdict.Runs, outcomes...)
+	verdict.Runs = append(verdict.Runs, run.outcomes...)
 
 	mask := o.plan.prepared.mask
-	delta := fingerprint.Compare(mask, o.plan.prepared.payloads, payloads)
+	delta := fingerprint.Compare(mask, o.plan.prepared.payloads, run.payloads)
 
 	if refusal := missingRuns(verdict, delta); refusal != nil {
 		return verdict, phaseOne, refusal
 	}
 
 	observation = observation.WithPhaseTwo(
-		mutation.Operator(verdict.Operator), delta, mask, fingerprint.Unknowns(payloads),
+		mutation.Operator(verdict.Operator), delta, mask, fingerprint.Unknowns(run.payloads),
 	)
 
 	if observation.NeedsVolatilityRerun() {
 		var rerunErr *report.ExecutionError
-		observation, rerunErr = o.rerunForVolatility(ctx, built, verdict, payloads, observation)
+		observation, rerunErr = o.rerunForVolatility(ctx, built, verdict, run.payloads, observation,
+			telemetry)
 		if rerunErr != nil {
 			return verdict, phaseOne, rerunErr
 		}
 	}
 
+	oraclePhase := telemetry.phase(phaseOracle)
 	outcome := oracle.Judge(observation)
+	oraclePhase()
 
 	return project(verdict, outcome), outcome, nil
 }
@@ -95,8 +101,11 @@ func (o executionOracle) rerunForVolatility(
 	verdict report.Mutant,
 	payloads []fingerprint.Payload,
 	observation oracle.Observation,
+	telemetry *mutantCollector,
 ) (oracle.Observation, *report.ExecutionError) {
-	second, _, err := o.fingerprintRun(ctx, built)
+	rerunPhase := telemetry.phase(phaseVolatilityRerun)
+	second, err := o.fingerprintRun(ctx, built)
+	defer rerunPhase(telemetry.child("test", second.result.Usage, second.result.Started)...)
 	if err != nil {
 		return observation, &report.ExecutionError{
 			MutantID: verdict.ID,
@@ -105,7 +114,7 @@ func (o executionOracle) rerunForVolatility(
 		}
 	}
 
-	mutantMask := fingerprint.Derive(payloads, second)
+	mutantMask := fingerprint.Derive(payloads, second.payloads)
 	mask := o.plan.prepared.mask.MergeMutantVolatility(mutantMask)
 
 	return observation.WithSecondRun(
@@ -167,11 +176,22 @@ func (o executionOracle) suspicion(index int) func(string) bool {
 	}
 }
 
-// fingerprintRun executes the verbose phase and projects its payloads.
+// fingerprintSnapshot is one verbose invocation's projected content: the
+// canonical payloads the oracle compares, the per-run-block outcomes the
+// verdict records, and the raw result whose usage the telemetry records.
+type fingerprintSnapshot struct {
+	payloads []fingerprint.Payload
+	outcomes []report.RunOutcome
+	result   tfexec.TestResult
+}
+
+// fingerprintRun executes the verbose phase and projects its payloads. The
+// snapshot's result is the raw invocation, carried so the caller can record
+// the child process's usage against the phase that invoked it.
 func (o executionOracle) fingerprintRun(
 	ctx context.Context,
 	built sandbox.Sandbox,
-) ([]fingerprint.Payload, []report.RunOutcome, error) {
+) (fingerprintSnapshot, error) {
 	result, err := o.plan.runner.Test(ctx, built.ModuleDir, tfexec.TestOptions{
 		TestDirectory: o.plan.configuration.TestDirRelative(),
 		Filters:       o.plan.settings.TestSelection,
@@ -179,12 +199,12 @@ func (o executionOracle) fingerprintRun(
 		Timeout:       0,
 	})
 	if err != nil {
-		return nil, nil, err
+		return fingerprintSnapshot{result: result}, err
 	}
 
 	payloads, err := fingerprint.Canonicalise(result.Payloads)
 	if err != nil {
-		return nil, nil, err
+		return fingerprintSnapshot{result: result}, err
 	}
 
 	outcomes := make([]report.RunOutcome, 0, len(result.Runs))
@@ -194,7 +214,7 @@ func (o executionOracle) fingerprintRun(
 		})
 	}
 
-	return payloads, outcomes, nil
+	return fingerprintSnapshot{payloads: payloads, outcomes: outcomes, result: result}, nil
 }
 
 // The two execution phases, recorded per run so that a reader can confirm the

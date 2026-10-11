@@ -181,9 +181,9 @@ this repository contract.
 | `internal/tfexec` | The Terraform CLI: `version`, `init`, `validate`, `providers schema`, `fmt`, and the `test -json` stream |
 | `internal/report` | The report value, its state, diagnosis and metric definitions, and the terminal, JSON and SARIF renderings |
 
-The JSON reporter's contract is published at `docs/schema/report-2.6.0.json` and validated in
-the suite; `report-2.5.0.json`, `report-2.4.0.json`, `report-2.3.0.json`, `report-2.2.0.json`,
-`report-2.1.0.json`,
+The JSON reporter's contract is published at `docs/schema/report-2.7.0.json` and validated in
+the suite; `report-2.6.0.json`, `report-2.5.0.json`, `report-2.4.0.json`, `report-2.3.0.json`,
+`report-2.2.0.json`, `report-2.1.0.json`,
 `report-2.0.0.json` and
 `report-1.0.0.json` remain published for earlier consumers. The characterisation block's
 status vocabularies are closed: extending one is a minor schema version with the consumer

@@ -46,6 +46,8 @@ type TestResult struct {
 	ExitCode int
 	TimedOut bool
 	Duration time.Duration
+	// Usage is the invocation's child-process accounting.
+	Usage Usage
 }
 
 // ExecutedRuns counts the run blocks that actually executed.
@@ -131,14 +133,15 @@ func (r Runner) Test(ctx context.Context, dir string, options TestOptions) (Test
 		var decodeErr error
 
 		decoded, decodeErr = decodeTestStream(stdout)
-		decoded.Started = true
 
 		return decodeErr
 	}, args...)
 
 	decoded.ExitCode = result.ExitCode
+	decoded.Started = result.Started
 	decoded.TimedOut = result.TimedOut
 	decoded.Duration = result.Duration
+	decoded.Usage = result.Usage
 
 	// A timeout kills Terraform mid-message, so the truncation it leaves behind
 	// is the timeout, not a malformed stream. Every other decoding failure is an

@@ -497,12 +497,14 @@ func runVerification(
 
 	defer func() { _ = os.RemoveAll(built.Root) }()
 
+	verificationPhase := plan.collector.phase(phaseSuggestVerification)
 	result, err := plan.runner.Test(ctx, built.ModuleDir, tfexec.TestOptions{
 		TestDirectory: plan.configuration.TestDirRelative(),
 		Filters:       nil,
 		Verbose:       false,
 		Timeout:       0,
 	})
+	verificationPhase(plan.collector.child("test", result.Usage, result.Started)...)
 	if result.Started {
 		*executions++
 	}

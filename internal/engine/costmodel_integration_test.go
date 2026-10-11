@@ -297,9 +297,9 @@ func measureVerboseCost(t *testing.T, runner tfexec.Runner, warm string, measure
 	writeSuite(t, warm, costModelBlockCountFour, false)
 
 	measured.Plain = []timing{timeArgs(t, runner, warm, costModelBlockCountFour,
-		[]string{"test", "-json", "-no-color", "-test-directory=tests"}, &measured.PlainBytes)}
+		[]string{testSubcommand, "-json", "-no-color", "-test-directory=tests"}, &measured.PlainBytes)}
 	measured.Verbose = []timing{timeArgs(t, runner, warm, costModelBlockCountFour,
-		[]string{"test", "-json", "-no-color", "-verbose", "-test-directory=tests"}, &measured.VerboseBytes)}
+		[]string{testSubcommand, "-json", "-no-color", "-verbose", "-test-directory=tests"}, &measured.VerboseBytes)}
 
 	t.Logf("plain %.2fs / %d bytes, verbose %.2fs / %d bytes",
 		measured.Plain[0].FastestSeconds, measured.PlainBytes,
@@ -356,7 +356,7 @@ func timeArgs(t *testing.T, runner tfexec.Runner, warm string, blocks int, args 
 func measureSelectionYield(t *testing.T) []yield {
 	t.Helper()
 
-	fixtures := []string{awsMockedFixture, "nocoverage", "upward", "discriminate"}
+	fixtures := []string{awsMockedFixture, "nocoverage", "upward", discriminateFixture}
 	results := make([]yield, 0, len(fixtures))
 
 	for _, fixture := range fixtures {
@@ -465,7 +465,7 @@ func prepareCostModelWorkspace(t *testing.T, runner tfexec.Runner, module, workD
 		t.Fatalf("copying fixture: %v", err)
 	}
 
-	if err := runner.Init(context.Background(), warm, tfexec.InitOptions{}); err != nil {
+	if _, err := runner.Init(context.Background(), warm, tfexec.InitOptions{}); err != nil {
 		t.Fatalf("terraform init: %v", err)
 	}
 

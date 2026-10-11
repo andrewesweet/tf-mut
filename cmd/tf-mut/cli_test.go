@@ -3,11 +3,17 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/skill"
@@ -352,10 +358,7 @@ func assertDocumentRepairs(t *testing.T, documents vocabularyDocuments) {
 func assertReadmeVocabulary(t *testing.T, readme string, reporters []string) {
 	t.Helper()
 
-	schemaPath := "docs/schema/report-" + report.SchemaVersion + ".json"
-	schemaRow := "| [`" + schemaPath + "`](" + schemaPath +
-		") | The versioned JSON report schema the `json` reporter emits, including the pack tier and origins provenance |"
-	containsToken(t, readme, schemaRow, "README emitted schema row")
+	assertReadmeSchemaLink(t, readme)
 
 	reporterPattern := "(?m)^\\| `--reporter ([^`]+)` \\| " +
 		"Output format \\(`mte` is ([^)]+)\\) \\|$"
@@ -369,18 +372,57 @@ func assertReadmeVocabulary(t *testing.T, readme string, reporters []string) {
 	}
 
 	usageCommands := captureVocabulary(t, usage, "binary command list", `(?m)^  ([a-z]+) +[^\n]+$`)
-	readmeCommands := captureVocabulary(t, readme, "README command examples", `(?m)^tf-mut ([a-z]+)(?: +[^\n]*)?$`)
+	readmeSynopsis := documentSlice(t, readme, "## Using it\n\n```bash\n", "\n```", "README command synopsis")
+	readmeCommands := captureVocabulary(t, readmeSynopsis, "README command examples",
+		`(?m)^tf-mut ([a-z]+)(?: +[^\n]*)?$`)
 	assertVocabularyEquals(t, "README command examples", readmeCommands, usageCommands)
 
 	usageFlags := captureVocabulary(t, usage, "binary flag list", `(?m)^  (--[a-z][a-z-]*)`)
 	readmeFlags := captureVocabulary(t, readme, "README flag table", "(?m)^\\| `(--[a-z][a-z-]*)(?: [^`]*)?` \\|")
 	assertVocabularyKnown(t, "README flag table", readmeFlags, usageFlags)
+}
 
-	staleSchemaRow := "| [`docs/schema/report-2.1.0.json`](docs/schema/report-2.1.0.json) | " +
-		"The versioned JSON report schema the `json` reporter emits |"
-	if strings.Contains(readme, staleSchemaRow) {
-		t.Fatal("README still claims the json reporter emits schema 2.1.0")
+type schemaConstant struct {
+	Const string `json:"const"`
+}
+
+type schemaProperties struct {
+	SchemaVersion schemaConstant `json:"schema_version"`
+}
+
+type linkedReportSchema struct {
+	Properties schemaProperties `json:"properties"`
+}
+
+func assertReadmeSchemaLink(t *testing.T, readme string) {
+	t.Helper()
+
+	want := "docs/schema/report-" + report.SchemaVersion + ".json"
+	links := regexp.MustCompile(`(?m)^\|\s*\[[^\]]+\]\(([^)]+)\)\s*\|`).FindAllStringSubmatch(readme, -1)
+	for _, link := range links {
+		target, err := url.Parse(link[1])
+		if err != nil || target.Scheme != "" || target.Host != "" || filepath.Clean(target.Path) != want {
+			continue
+		}
+
+		content, err := os.ReadFile(filepath.Join("../..", target.Path))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var schema linkedReportSchema
+		if err := json.Unmarshal(content, &schema); err != nil {
+			t.Fatal(err)
+		}
+
+		if schema.Properties.SchemaVersion.Const != report.SchemaVersion {
+			t.Fatalf("linked schema version = %q, want %q", schema.Properties.SchemaVersion.Const, report.SchemaVersion)
+		}
+
+		return
 	}
+
+	t.Fatalf("README document map has no link to emitted schema %s", want)
 }
 
 func assertAgentIntegrationVocabulary(t *testing.T, agentIntegration string, reporters []string) {
@@ -1682,5 +1724,64 @@ func TestPacksAreWiredThroughTheCommandLine(t *testing.T) {
 	code = run([]string{previewCommand, packFlagArgument, "nobody", module}, "test", &bytes.Buffer{}, &stderr)
 	if code != exitUsage || !strings.Contains(stderr.String(), `pack "nobody" is not registered`) {
 		t.Fatalf("an unknown pack exited %d with %q, want exit 2 naming it", code, stderr.String())
+	}
+}
+
+// TestTheProfilingAndTracingFlagsAreUniversal wires the two telemetry flags
+// end to end: --cpu-profile names a file the command writes its own CPU
+// profile into, --otlp-endpoint names a collector the command ships its spans
+// to, and neither flag is scoped to one command — preview runs them as
+// willingly as run.
+func TestTheProfilingAndTracingFlagsAreUniversal(t *testing.T) {
+	t.Parallel()
+
+	module := fixture(t)
+
+	// A real OTLP/HTTP sink: the endpoint the flag names must be contacted,
+	// not parsed and dropped.
+	spanCount := atomic.Int64{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/traces", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		spanCount.Add(1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{}"))
+	})
+	sink := httptest.NewServer(mux)
+	defer sink.Close()
+
+	profilePath := filepath.Join(t.TempDir(), "tf-mut.pprof")
+
+	stdout := bytes.Buffer{}
+	stderr := bytes.Buffer{}
+
+	exitCode := run([]string{
+		previewCommand,
+		"--cpu-profile", profilePath,
+		"--otlp-endpoint", sink.URL + "/v1/traces",
+		module,
+	}, "dev", &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", exitCode, stderr.String())
+	}
+
+	//nolint:gosec // the path is this test's own temporary file.
+	profile, err := os.ReadFile(profilePath)
+	if err != nil {
+		t.Fatalf("reading the CPU profile: %v", err)
+	}
+
+	if len(profile) < 2 || profile[0] != 0x1f || profile[1] != 0x8b {
+		t.Fatalf("--cpu-profile wrote %d bytes with no gzip magic", len(profile))
+	}
+
+	// The batcher exports on its own schedule; the deferred shutdown flushes.
+	deadline := time.Now().Add(10 * time.Second)
+	for spanCount.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if spanCount.Load() == 0 {
+		t.Fatal("--otlp-endpoint received no export from the command")
 	}
 }

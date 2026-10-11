@@ -58,6 +58,8 @@ tf-mut version                   # print the build version
 | `--allow-real-infrastructure` | Required when any provider is unmocked |
 | `--allow-unsandboxed-effects` | Required for apply-mode provisioners and unsevered data sources |
 | `--reporter terminal\|json\|sarif\|mte\|html\|junit\|markdown` | Output format (`mte` is Mutation Testing Elements) |
+| `--cpu-profile PATH` | Write a CPU profile of tf-mut itself |
+| `--otlp-endpoint URL` | Export run, mutant and phase spans over OTLP/HTTP |
 
 For suites under `tests/unit`, pass `--test-directory tests/unit` so Terraform installs
 the modules called by those tests. Mocked suites can run in roots with a `backend` block,
@@ -66,6 +68,33 @@ declaration still causes provider schema retrieval to fail.
 
 For supported suggestion forms and skip rules, see the
 [suggestion contract](docs/design/product-design.md#7-the-differentiator--suggested-assertions).
+
+With `--reporter json`, `run`, `preview`, `suggest` and `curate` include performance telemetry.
+The emitted contract is linked in the [document map](#documents). Mutants evaluated in this
+invocation carry phase timings and child-process CPU and peak memory measurements. Cached,
+static and unexecuted verdicts carry no per-mutant telemetry. These measurements do not affect
+verdicts, scores or gates.
+
+Every ten seconds during mutant execution, the CLI writes completed/total mutants, elapsed
+time and an estimated time remaining (ETA) to stderr. Counts exclude cached and static
+verdicts. A final line follows if periodic output began. Shorter runs stay quiet, and progress
+works with every reporter.
+
+When `--otlp-endpoint` is unset, tf-mut uses `OTEL_EXPORTER_OTLP_ENDPOINT`. With neither
+configured, it sends no traces. Phase spans carry the recorded child CPU and peak memory
+measurements. Endpoints use HTTP or HTTPS. tf-mut appends `/v1/traces` to
+the supplied base path unless it already ends with that suffix. An unusable endpoint disables
+tracing with a stderr warning. Export failures produce a fixed stderr warning without endpoint
+paths or credentials.
+
+Use a new file outside the module directory for `--cpu-profile`. Its parent directory must
+exist. tf-mut refuses existing files and symlinks, and warns on stderr if profile output fails
+after profiling starts. For example, from the directory containing `module`:
+
+```bash
+tf-mut run --no-cache --reporter json --cpu-profile cpu.pprof \
+  --otlp-endpoint http://localhost:4318 ./module > report.json
+```
 
 Exit codes: `0` ran clean, `1` findings (survivors, or a score below `--min-score`), `2`
 operational failure. The source tree of the module under test is never written to, except for
@@ -126,8 +155,9 @@ work. An independent adversarial review drove these corrections — see
 | [`docs/schema/report-2.1.0.json`](docs/schema/report-2.1.0.json) | The M3 JSON report schema, still published for earlier consumers |
 | [`docs/schema/report-2.3.0.json`](docs/schema/report-2.3.0.json) | The M4.5 JSON report schema, still published for earlier consumers |
 | [`docs/schema/report-2.4.0.json`](docs/schema/report-2.4.0.json) | The M5c.1 JSON report schema, still published for earlier consumers |
-| [`docs/schema/report-2.5.0.json`](docs/schema/report-2.5.0.json) | The M5 JSON report schema, still published for earlier consumers |
-| [`docs/schema/report-2.6.0.json`](docs/schema/report-2.6.0.json) | The versioned JSON report schema the `json` reporter emits, including the pack tier and origins provenance |
+| [`docs/schema/report-2.5.0.json`](docs/schema/report-2.5.0.json) | The M5c.1 `PACK-WIDEN-CIDR` JSON report schema, still published for earlier consumers |
+| [`docs/schema/report-2.6.0.json`](docs/schema/report-2.6.0.json) | The mutant-id derivation revision, still published for earlier consumers |
+| [`docs/schema/report-2.7.0.json`](docs/schema/report-2.7.0.json) | The versioned JSON report schema the `json` reporter emits, including the pack tier, the origins provenance and the performance telemetry |
 | [`docs/research/09-m3-real-provider-gate.md`](docs/research/09-m3-real-provider-gate.md) | The M3 inner-loop measurement, both real-provider debts settled, the M3e admission evidence |
 | [`docs/research/10-m3-exit-gate.md`](docs/research/10-m3-exit-gate.md) | The M3 exit-gate map: every normative behaviour to its test |
 | [`docs/schema/sarif-2.1.0.json`](docs/schema/sarif-2.1.0.json) | The published SARIF schema the `sarif` reporter's output is validated against |

@@ -660,7 +660,7 @@ depends_on = [aws_iam_role_policy.attach]
 
 | Reporter | Purpose |
 | --- | --- |
-| `terminal` | Default. Live progress, survivors with diffs and suggested assertions |
+| `terminal` | Default. Survivors with diffs and suggested assertions |
 | `json` | Full machine-readable results; the integration substrate |
 | `sarif` | GitHub/GitLab code scanning — annotates the exact mutated line in the PR diff |
 | `junit` | CI test-report panes; mirrors `terraform test -junit-xml` |

@@ -3,11 +3,29 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
 	"pgregory.net/rapid"
+
+	"github.com/andrewesweet/tf-mut/internal/tracing"
 )
+
+// TestMain makes the command-line suite hermetic against the ambient
+// OpenTelemetry environment, for the reason the engine suite's TestMain
+// states: the engine honours OTEL_EXPORTER_OTLP_ENDPOINT by contract, and the
+// tests here assert tracing through their own collector, not the laptop's.
+func TestMain(m *testing.M) {
+	if err := os.Setenv(tracing.EndpointEnv, ""); err != nil {
+		fmt.Fprintln(os.Stderr, "clearing", tracing.EndpointEnv, "in TestMain:", err)
+		// A failed scrub must fail the suite, not run against a polluted environment.
+		//revive:disable-next-line:redundant-test-main-exit
+		os.Exit(1)
+	}
+
+	_ = m.Run()
+}
 
 type testReporter interface {
 	Helper()

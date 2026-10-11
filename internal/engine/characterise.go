@@ -34,6 +34,7 @@ type staging struct {
 	// terraform is the version gate's result, carried so that a staged round
 	// can drive the mutation pipeline without checking the binary again.
 	terraform tfexec.Version
+	collector *runCollector
 }
 
 // ErrScaffoldRed reports a generated suite that did not pass in the sandbox.
@@ -71,6 +72,7 @@ func characteriseModule(
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
 	settings settings, version tfexec.Version,
+	collector *runCollector,
 ) (report.Report, error) {
 	rung, answers, err := characteriseInputs(configuration, settings)
 	if err != nil {
@@ -104,7 +106,9 @@ func characteriseModule(
 
 	defer func() { _ = os.RemoveAll(workRoot) }()
 
-	prepared, err := warmUp(ctx, runner, configuration, workRoot)
+	// Characterisation drops the collector's report record, but shares its tracer
+	// with warm-up and any staged grading rounds.
+	prepared, err := warmUp(ctx, runner, configuration, workRoot, collector)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -126,7 +130,7 @@ func characteriseModule(
 
 	stage := staging{
 		configuration: configuration, settings: settings,
-		prepared: prepared, workRoot: workRoot, terraform: version,
+		prepared: prepared, workRoot: workRoot, terraform: version, collector: collector,
 	}
 
 	var block report.Characterisation

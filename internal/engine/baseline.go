@@ -46,8 +46,9 @@ func prepare(
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
 	settings settings, workRoot string,
+	collector *runCollector,
 ) (warm, error) {
-	prepared, err := warmUp(ctx, runner, configuration, workRoot)
+	prepared, err := warmUp(ctx, runner, configuration, workRoot, collector)
 	if err != nil {
 		return warm{}, err
 	}
@@ -59,7 +60,7 @@ func prepare(
 		return prepared, nil
 	}
 
-	if err := runBaseline(ctx, runner, configuration, &prepared); err != nil {
+	if err := runBaseline(ctx, runner, configuration, &prepared, collector); err != nil {
 		return warm{}, err
 	}
 
@@ -74,7 +75,9 @@ func warmUp(
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
 	workRoot string,
+	collector *runCollector,
 ) (warm, error) {
+	materialisePhase := collector.phase(phaseWarmMaterialise)
 	built, err := sandbox.Materialise(sandbox.Spec{
 		SourceRoot: configuration.ClosureRoot,
 		ModuleRel:  configuration.RootRelative(),
@@ -83,6 +86,7 @@ func warmUp(
 		Share:      nil,
 		Hardlink:   false,
 	})
+	materialisePhase()
 	if err != nil {
 		return warm{}, err
 	}
@@ -94,17 +98,22 @@ func warmUp(
 	}
 
 	// neutraliseBackends owns the temporary staged rewrite contract.
+	backendPhase := collector.phase(phaseWarmBackend)
 	rewrites, stripErr := neutraliseBackends(prepared.moduleDir,
 		filepath.Join(configuration.ClosureRoot, filepath.FromSlash(configuration.RootRelative())))
+	backendPhase()
 	if stripErr != nil {
 		return warm{}, stripErr
 	}
 
 	_, hasLock := configuration.LockFilePath()
-	if initErr := runner.Init(ctx, prepared.moduleDir, tfexec.InitOptions{
+	initPhase := collector.phase(phaseWarmInit)
+	initResult, initErr := runner.Init(ctx, prepared.moduleDir, tfexec.InitOptions{
 		TestDirectory: configuration.TestDirRelative(),
 		ReadonlyLock:  hasLock,
-	}); initErr != nil {
+	})
+	initPhase(collector.child("init", initResult.Usage, initResult.Started)...)
+	if initErr != nil {
 		return warm{}, initErr
 	}
 
@@ -112,7 +121,9 @@ func warmUp(
 		prepared.lockFile = path
 	}
 
+	schemaPhase := collector.phase(phaseWarmSchema)
 	prepared.schemas, err = runner.ProvidersSchema(ctx, prepared.moduleDir)
+	schemaPhase(collector.child("providers", prepared.schemas.Usage, prepared.schemas.Started)...)
 	if err != nil {
 		return warm{}, err
 	}
@@ -123,7 +134,9 @@ func warmUp(
 		}
 	}
 
-	unformatted, fmtErr := runner.FmtCheck(ctx, prepared.moduleDir)
+	fmtPhase := collector.phase(phaseWarmFmt)
+	unformatted, fmtResult, fmtErr := runner.FmtCheck(ctx, prepared.moduleDir)
+	fmtPhase(collector.child("fmt", fmtResult.Usage, fmtResult.Started)...)
 	if fmtErr == nil && len(unformatted) > 0 {
 		prepared.warnings = append(prepared.warnings, fmt.Sprintf(
 			"%d file(s) are not canonically formatted; mutant diffs may span more than one line: %s",
@@ -154,13 +167,16 @@ func runBaseline(
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
 	prepared *warm,
+	collector *runCollector,
 ) error {
+	testPhase := collector.phase(phaseBaselineTest)
 	result, err := runner.Test(ctx, prepared.moduleDir, tfexec.TestOptions{
 		TestDirectory: configuration.TestDirRelative(),
 		Filters:       nil,
 		Verbose:       true,
 		Timeout:       0,
 	})
+	testPhase(collector.child("test", result.Usage, result.Started)...)
 	if err != nil {
 		return err
 	}
@@ -183,7 +199,7 @@ func runBaseline(
 			ErrBaselineNoRuns, configuration.TestDirRelative())
 	}
 
-	return calibrateOracle(ctx, runner, configuration, prepared, result)
+	return calibrateOracle(ctx, runner, configuration, prepared, result, collector)
 }
 
 // calibrateOracle projects the baseline payloads and derives the volatile mask.
@@ -193,18 +209,21 @@ func calibrateOracle(
 	configuration discovery.Configuration,
 	prepared *warm,
 	first tfexec.TestResult,
+	collector *runCollector,
 ) error {
 	firstPayloads, err := fingerprint.Canonicalise(first.Payloads)
 	if err != nil {
 		return err
 	}
 
+	fingerprintPhase := collector.phase(phaseBaselineFingerprint)
 	second, err := runner.Test(ctx, prepared.moduleDir, tfexec.TestOptions{
 		TestDirectory: configuration.TestDirRelative(),
 		Filters:       nil,
 		Verbose:       true,
 		Timeout:       0,
 	})
+	fingerprintPhase(collector.child("test", second.Usage, second.Started)...)
 	if err != nil {
 		return err
 	}

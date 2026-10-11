@@ -8,10 +8,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/pprof"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/buildinfo"
@@ -22,6 +25,8 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
+
+	"github.com/andrewesweet/tf-mut/internal/tracing"
 )
 
 // Minimum Terraform versions. The test framework arrived in 1.6 and provider
@@ -175,6 +180,20 @@ type settings struct {
 	// well as from Answers, re-synthesises, verifies and promotes.
 	Resume bool
 
+	// CPUProfile names the file the command's own CPU profile is written to.
+	// Empty — the default — profiles nothing.
+	CPUProfile string
+	// OTLPEndpoint is the OTLP/HTTP endpoint the run's spans are exported to.
+	// Empty means unconfigured; the OTel environment variable is honoured
+	// then, resolved by the tracing package.
+	OTLPEndpoint string
+	// Progress receives the periodic long-run progress lines. Nil prints
+	// nothing; the CLI passes os.Stderr, which is never a report sink.
+	Progress io.Writer
+	// ProgressIntervalForTesting overrides the cadence for engine-seam tests.
+	// Zero selects the ten-second default; honoured only when Progress is set.
+	ProgressIntervalForTesting time.Duration
+
 	// mode is the command these settings serve: the projection of the request
 	// type that produced them, written by that type's settings method and by
 	// nothing else.
@@ -197,6 +216,8 @@ var seedGenerationDefect = func(settings) mutation.Defect { return mutation.Defe
 // Operational failures. Every one of them aborts the run: none of them can be
 // reported as a mutant verdict without misleading the reader.
 var (
+	errCPUProfileInModule = errors.New("CPU profile destination is inside the module directory")
+
 	// ErrTerraformVersion reports a Terraform release the tool cannot drive.
 	ErrTerraformVersion = errors.New("unsupported Terraform version")
 	// ErrRealInfrastructure reports an unmocked provider.
@@ -209,12 +230,55 @@ var (
 	ErrBaselineNoRuns = errors.New("baseline executed no run blocks")
 )
 
+// traceFlushTimeout caps the deferred OTLP flush, so a run whose collector
+// died never hangs on the way out.
+const traceFlushTimeout = 5 * time.Second
+
+const cpuProfileFileMode = 0o600
+
 // Run performs a complete mutation run and returns the report.
-func Run(ctx context.Context, request Request) (report.Report, error) {
+func Run(ctx context.Context, request Request) (result report.Report, err error) {
+	started := time.Now()
+	var collector *runCollector
+	defer func() {
+		if err != nil || collector == nil ||
+			result.Command == report.CommandCharacterise || result.Command == report.CommandTodos {
+			return
+		}
+
+		result.Telemetry = collector.finish()
+		result.Telemetry.WallMS = time.Since(started).Milliseconds()
+	}()
+
 	s, err := settingsFor(request)
 	if err != nil {
 		return report.Report{}, err
 	}
+
+	// The CPU profile writes only to the file the user explicitly requested.
+	if s.CPUProfile != "" {
+		stopProfile, profileErr := startCPUProfile(s.ModuleDir, s.CPUProfile)
+		if profileErr != nil {
+			return report.Report{}, profileErr
+		}
+
+		defer stopProfile()
+	}
+
+	// The flush outlives request cancellation so recorded spans can still reach the collector.
+	tracer := tracing.New(ctx, s.OTLPEndpoint)
+	defer func() {
+		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), traceFlushTimeout)
+		defer cancel()
+		_ = tracer.Shutdown(flushCtx)
+	}()
+
+	// Telemetry records its own overhead without affecting verdicts.
+	collector = newRunCollector(ctx, tracer)
+	//nolint:contextcheck // beginRun returns the run-span context on purpose: the
+	// pipeline below runs under it, so every span it starts parents correctly.
+	ctx = collector.beginRun(string(commandName(s.mode)))
+	defer collector.endRun()
 
 	moduleDir, err := filepath.Abs(s.ModuleDir)
 	if err != nil {
@@ -248,35 +312,113 @@ func Run(ctx context.Context, request Request) (report.Report, error) {
 
 	runner := tfexec.Runner{Binary: s.TerraformBinary, Env: s.Env}
 
+	versionPhase := collector.phase(phaseVersion)
 	version, err := checkVersion(ctx, runner, moduleDir)
+	versionPhase(collector.child("version", version.Usage, version.Started)...)
 	if err != nil {
 		return report.Report{}, err
 	}
 
+	discoveryPhase := collector.phase(phaseDiscovery)
 	configuration, err := discovery.DiscoverWith(moduleDir, s.TestDirectory,
 		discovery.Options{SkipJSON: disableJSONReading(s)})
+	discoveryPhase()
 	if err != nil {
 		return report.Report{}, err
 	}
 
-	// Characterisation is the same machinery pointed the other way: it has no
-	// suite to baseline, no population to grade, and its safety gates are
-	// judged against the suite it plans rather than the one on disk. The
-	// dispatch is on the request's type: the type is the mode.
+	// Characterisation judges safety gates against its planned suite rather than the one on disk.
+	// Request types choose dispatch; characterise and todos publish no telemetry.
 	switch request.(type) {
 	case CurateRequest, *CurateRequest:
-		return curateSuite(ctx, runner, configuration, s, version, moduleDir)
+		return curateSuite(ctx, runner, configuration, s, version, moduleDir, collector)
 	case CharacteriseRequest, *CharacteriseRequest:
-		return characteriseModule(ctx, runner, configuration, s, version)
+		return characteriseModule(ctx, runner, configuration, s, version, collector)
 	default:
 		// run, preview and suggest share the grading pipeline: the mode each
 		// request carries decides preview's shortcuts and the suggest leg.
 		// The population fact stays inside the application layer; the seam's
 		// consumers receive its published report projection.
-		result, _, err := mutate(ctx, runner, configuration, s, version, moduleDir)
+		result, _, err := mutate(ctx, runner, configuration, s, version, moduleDir, collector)
 
 		return result, err
 	}
+}
+
+func startCPUProfile(moduleDir, destination string) (func(), error) {
+	profilePath, profileErr := cpuProfilePath(moduleDir, destination)
+	if profileErr != nil {
+		return nil, profileErr
+	}
+
+	//nolint:gosec // caller-selected diagnostic file; O_EXCL refuses existing files and final symlinks.
+	profileFile, profileErr := os.OpenFile(profilePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, cpuProfileFileMode)
+	if profileErr != nil {
+		return nil, fmt.Errorf("opening the CPU profile file: %w", profileErr)
+	}
+
+	writer := &cpuProfileWriter{Writer: profileFile}
+	if startErr := pprof.StartCPUProfile(writer); startErr != nil {
+		_ = profileFile.Close()
+		return nil, fmt.Errorf("starting the CPU profile: %w", startErr)
+	}
+
+	return func() {
+		pprof.StopCPUProfile()
+		if profileErr := errors.Join(writer.err, profileFile.Close()); profileErr != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "tf-mut: CPU profile may be incomplete: %s\n",
+				strings.ReplaceAll(profileErr.Error(), "\n", "; "))
+		}
+	}, nil
+}
+
+func cpuProfilePath(moduleDir, destination string) (string, error) {
+	module, err := filepath.Abs(moduleDir)
+	if err != nil {
+		return "", fmt.Errorf("resolving module directory for the CPU profile: %w", err)
+	}
+
+	module, err = filepath.EvalSymlinks(module)
+	if err != nil {
+		return "", fmt.Errorf("resolving module directory for the CPU profile: %w", err)
+	}
+
+	path, err := filepath.Abs(destination)
+	if err != nil {
+		return "", fmt.Errorf("resolving the CPU profile destination: %w", err)
+	}
+
+	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
+	if err != nil {
+		return "", fmt.Errorf("resolving the CPU profile parent directory: %w", err)
+	}
+
+	path = filepath.Join(parent, filepath.Base(path))
+
+	if within(module, path) {
+		return "", fmt.Errorf("%w: %q", errCPUProfileInModule, destination)
+	}
+
+	return path, nil
+}
+
+type cpuProfileWriter struct {
+	io.Writer
+
+	err error
+}
+
+func (w *cpuProfileWriter) Write(data []byte) (int, error) {
+	n, err := w.Writer.Write(data)
+	if err == nil && n != len(data) {
+		err = io.ErrShortWrite
+	}
+
+	if w.err == nil {
+		w.err = err
+	}
+
+	return n, err
 }
 
 // mutate is the grading pipeline: gates, generation, selection, execution and
@@ -287,6 +429,7 @@ func mutate(
 	configuration discovery.Configuration,
 	settings settings, version tfexec.Version,
 	moduleDir string,
+	collector *runCollector,
 ) (report.Report, oracle.Population, error) {
 	// The gates guard execution, and a preview executes nothing. Refusing a
 	// preview would only hide the population from the person deciding whether
@@ -294,15 +437,17 @@ func mutate(
 	warnings := make([]string, 0, 1)
 
 	if settings.mode != previewMode {
+		gatePhase := collector.phase(phaseGates)
 		checked, err := checkSafety(configuration, settings)
 		if err != nil {
 			return report.Report{}, oracle.Population{}, err
 		}
 
-		warnings = checked
+		settings, warnings = applyFloor(configuration, settings, checked)
+		gatePhase()
+	} else {
+		settings, warnings = applyFloor(configuration, settings, warnings)
 	}
-
-	settings, warnings = applyFloor(configuration, settings, warnings)
 
 	workRoot, err := prepareWorkRoot(configuration, settings)
 	if err != nil {
@@ -311,7 +456,7 @@ func mutate(
 
 	defer func() { _ = os.RemoveAll(workRoot) }()
 
-	prepared, generated, err := build(ctx, runner, configuration, settings, workRoot)
+	prepared, generated, err := build(ctx, runner, configuration, settings, workRoot, collector)
 	if err != nil {
 		return report.Report{}, oracle.Population{}, err
 	}
@@ -341,8 +486,10 @@ func mutate(
 
 	// The count levers: --since and --sample scope the population, and the
 	// report says distinctly what was selected and what was left out.
+	selectionPhase := collector.phase(phaseSelection)
 	selected, err := applyCountLevers(ctx, configuration, settings, &result, mutants,
 		generated.Mutants, classified)
+	selectionPhase()
 	if err != nil {
 		return report.Report{}, oracle.Population{}, err
 	}
@@ -367,9 +514,12 @@ func mutate(
 		workRoot:      workRoot,
 		closure:       configuration.BuildClosure(),
 		graph:         graph,
+		collector:     collector,
 	}
 
+	executionPhase := collector.phase(phaseExecution)
 	executed, classified, failures := executeWithCache(ctx, &result, version, plan)
+	executionPhase()
 
 	return finish(ctx, plan, moduleDir, result, executed, classified, failures)
 }
@@ -428,14 +578,18 @@ func finish(
 	classified []oracle.Classified,
 	failures []report.ExecutionError,
 ) (report.Report, oracle.Population, error) {
+	finalisePhase := plan.collector.phase(phaseFinalise)
 	completed := complete(plan.configuration, plan.settings, shell, executed, classified, failures)
+	finalisePhase()
 
 	suggestions := []report.Suggestion(nil)
 	cost := ""
 
 	if plan.settings.mode == suggestMode {
 		var suggestErr error
+		suggestPhase := plan.collector.phase(phaseSuggest)
 		suggestions, cost, suggestErr = suggestAssertions(ctx, plan, executed)
+		suggestPhase()
 		if suggestErr != nil {
 			return report.Report{}, oracle.Population{}, suggestErr
 		}
@@ -492,17 +646,23 @@ func executeWithCache(
 	terraform tfexec.Version,
 	plan executionPlan,
 ) ([]report.Mutant, []oracle.Classified, []report.ExecutionError) {
+	loadPhase := plan.collector.phase(phaseCacheLoad)
 	cache := openCache(plan.configuration, plan.settings, plan.prepared, terraform)
 	if cache != nil {
 		result.Population.Cached = cache.load(plan.described, plan.classified)
 		result.Population.Fresh = result.Population.Selected - result.Population.Cached
 	}
 
+	loadPhase()
+
 	executed, classified, failures := execute(ctx, plan)
 
+	storePhase := plan.collector.phase(phaseCacheStore)
 	if cache != nil {
 		cache.store(executed)
 	}
+
+	storePhase()
 
 	return executed, classified, failures
 }
@@ -578,12 +738,14 @@ func build(
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
 	settings settings, workRoot string,
+	collector *runCollector,
 ) (warm, mutation.Result, error) {
-	prepared, err := prepare(ctx, runner, configuration, settings, workRoot)
+	prepared, err := prepare(ctx, runner, configuration, settings, workRoot, collector)
 	if err != nil {
 		return warm{}, mutation.Result{}, err //nolint:exhaustruct // nothing was built.
 	}
 
+	generationPhase := collector.phase(phaseGeneration)
 	generated, err := mutation.Generator{
 		Configuration: configuration,
 		Schemas:       prepared.schemas,
@@ -592,6 +754,7 @@ func build(
 		TestDirectory: configuration.Tests.Dir,
 		Defect:        seedGenerationDefect(settings),
 	}.Generate()
+	generationPhase()
 
 	return prepared, generated, err
 }
@@ -751,14 +914,18 @@ func commandName(m mode) report.Command {
 	}
 }
 
-func checkVersion(ctx context.Context, runner tfexec.Runner, dir string) (tfexec.Version, error) {
+func checkVersion(
+	ctx context.Context,
+	runner tfexec.Runner,
+	dir string,
+) (tfexec.Version, error) {
 	version, err := runner.Version(ctx, dir)
 	if err != nil {
-		return tfexec.Version{}, err
+		return version, err
 	}
 
 	if !version.AtLeast(minimumMajor, minimumMinor) {
-		return tfexec.Version{}, fmt.Errorf(
+		return version, fmt.Errorf(
 			"%w: found %s, but the terraform test framework requires %d.%d or later "+
 				"(provider mocking requires %d.%d)",
 			ErrTerraformVersion, version.Terraform, minimumMajor, minimumMinor, minimumMajor, mockingMinor,

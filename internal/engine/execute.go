@@ -35,6 +35,9 @@ type executionPlan struct {
 	// graph is the attribute-level reference graph, built once per run from
 	// the already-parsed ASTs (M3a.1).
 	graph *discovery.Graph
+	// collector is the run's performance telemetry; every mutant's record is
+	// a child of it.
+	collector *runCollector
 }
 
 // execute runs every executable mutant, bounded by the configured job count.
@@ -56,6 +59,18 @@ func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []oracle
 	mutex := sync.Mutex{}
 	group := sync.WaitGroup{}
 
+	pending := 0
+	for _, mutant := range plan.described {
+		if mutant.State == report.Pending {
+			pending++
+		}
+	}
+
+	// The long-run line goes only where the caller pointed a writer; nowhere
+	// is the default.
+	progress := startProgress(ctx, plan, pending)
+	defer progress.stopLine()
+
 	workers := min(plan.settings.Jobs, len(plan.described))
 
 	for range workers {
@@ -74,6 +89,8 @@ func execute(ctx context.Context, plan executionPlan) ([]report.Mutant, []oracle
 					failures = append(failures, *failure)
 				}
 				mutex.Unlock()
+
+				progress.tick()
 			}
 		})
 	}
@@ -138,12 +155,18 @@ func evaluate(
 	plan executionPlan,
 	index int,
 	budget time.Duration,
-) (report.Mutant, oracle.Outcome, *report.ExecutionError) {
-	verdict := plan.described[index]
+) (verdict report.Mutant, outcome oracle.Outcome, failure *report.ExecutionError) {
+	verdict = plan.described[index]
 	mutant := plan.generated[index]
+
+	// The mutant's own record: always on, published beside the numbers, and
+	// carried onto the published mutant even when the evaluation fails partway.
+	telemetry := plan.collector.mutant(ctx, verdict.ID, verdict.Operator)
+	defer func() { verdict.Telemetry = telemetry.finish() }()
 
 	target := filepath.Join(plan.workRoot, fmt.Sprintf("m%04d-%s", index, mutant.ID))
 
+	sandboxPhase := telemetry.phase(phaseSandbox)
 	built, err := sandbox.Materialise(sandbox.Spec{
 		SourceRoot: plan.configuration.ClosureRoot,
 		ModuleRel:  plan.configuration.RootRelative(),
@@ -155,6 +178,7 @@ func evaluate(
 		},
 		Hardlink: true,
 	})
+	sandboxPhase()
 	if err != nil {
 		return verdict, plan.classified[index].Outcome, &report.ExecutionError{
 			MutantID: verdict.ID,
@@ -165,11 +189,13 @@ func evaluate(
 
 	defer func() { _ = os.RemoveAll(built.Root) }()
 
+	testPhase := telemetry.phase(phaseTest)
 	result, err := plan.runner.Test(ctx, built.ModuleDir, tfexec.TestOptions{
 		TestDirectory: plan.configuration.TestDirRelative(),
 		Filters:       plan.settings.TestSelection,
 		Timeout:       budget,
 	})
+	testPhase(telemetry.child("test", result.Usage, result.Started)...)
 	if err != nil {
 		return verdict, plan.classified[index].Outcome, &report.ExecutionError{
 			MutantID: verdict.ID,
@@ -187,13 +213,13 @@ func evaluate(
 
 	if observation.NeedsValidate() {
 		var failure *report.ExecutionError
-		verdict, observation, failure = judge.validate(ctx, built, verdict, observation)
+		verdict, observation, failure = judge.validate(ctx, built, verdict, observation, telemetry)
 		if failure != nil {
 			return verdict, plan.classified[index].Outcome, failure
 		}
 	}
 
-	outcome := oracle.Judge(observation)
+	outcome = oracle.Judge(observation)
 
 	// A phase-one survivor over zero executed runs is the operational refusal:
 	// no verdict is possible, and the mutant is never projected as a survival.
@@ -214,7 +240,7 @@ func evaluate(
 		return verdict, outcome, nil
 	}
 
-	return judge.observe(ctx, built, verdict, observation, outcome)
+	return judge.observe(ctx, built, verdict, observation, outcome, telemetry)
 }
 
 // validate records the terraform validate verdict into the observation where
@@ -226,8 +252,11 @@ func (o executionOracle) validate(
 	built sandbox.Sandbox,
 	verdict report.Mutant,
 	observation oracle.Observation,
+	telemetry *mutantCollector,
 ) (report.Mutant, oracle.Observation, *report.ExecutionError) {
+	validatePhase := telemetry.phase(phaseValidate)
 	validation, err := o.plan.runner.Validate(ctx, built.ModuleDir)
+	defer validatePhase(telemetry.child("validate", validation.Usage, validation.Started)...)
 	if err != nil {
 		return verdict, observation, &report.ExecutionError{
 			MutantID: verdict.ID,

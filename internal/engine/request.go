@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/mutation"
@@ -55,6 +56,21 @@ type Common struct {
 	WorkDir                 string
 	ToolVersion             string
 	SetFlags                []string
+	// CPUProfile names the file the command's own CPU profile is written to.
+	// Empty — the default — profiles nothing. It is a diagnostic for the
+	// person tuning tf-mut itself, not part of any report.
+	CPUProfile string
+	// OTLPEndpoint is the OTLP/HTTP endpoint the run's spans are exported to.
+	// Empty — the default — falls back to OTEL_EXPORTER_OTLP_ENDPOINT.
+	// Tracing is disabled when neither supplies an endpoint.
+	OTLPEndpoint string
+	// Progress receives the periodic long-run progress lines. Nil — the
+	// default — prints nothing; the CLI passes os.Stderr, which is never a
+	// report sink.
+	Progress io.Writer
+	// ProgressIntervalForTesting overrides the cadence for engine-seam tests.
+	// Zero selects the default ten seconds; it is honoured only when Progress is set.
+	ProgressIntervalForTesting time.Duration
 }
 
 // Population selects the mutants a command acts on.
@@ -288,6 +304,10 @@ func commonConfig(c Common) settings {
 	s.WorkDir = c.WorkDir
 	s.ToolVersion = c.ToolVersion
 	s.SetFlags = c.SetFlags
+	s.CPUProfile = c.CPUProfile
+	s.OTLPEndpoint = c.OTLPEndpoint
+	s.Progress = c.Progress
+	s.ProgressIntervalForTesting = c.ProgressIntervalForTesting
 
 	return s
 }

@@ -36,7 +36,10 @@ package report
 // field added, removed or renamed. The identity and migration contract is
 // documented in docs/design/product-design.md; wire compatibility is
 // documented in docs/schema/report-2.6.0.json.
-const SchemaVersion = "2.6.0"
+// 2.7.0 adds command and per-mutant performance telemetry. See Telemetry and
+// MutantTelemetry for availability and accounting; the wire contract is
+// documented in docs/schema/report-2.7.0.json.
+const SchemaVersion = "2.7.0"
 
 // Command names what produced a report.
 type Command string
@@ -274,6 +277,9 @@ type Mutant struct {
 	// (pack, entry). Present exactly when at least one pack entry produced
 	// the bytes — never empty, and always present on a pack-tier mutant.
 	Origins []Origin `json:"origins,omitempty"`
+	// Telemetry records this invocation's evaluation of the mutant. See
+	// MutantTelemetry for availability and fields.
+	Telemetry *MutantTelemetry `json:"telemetry,omitempty"`
 }
 
 // Origin is one pack entry whose rewrite produced a mutant's bytes: the form
@@ -516,6 +522,9 @@ type Report struct {
 	// Characterisation is the scaffold, pin, TODO and curate block (2.3.0).
 	// Present only for the characterise, todos and curate commands.
 	Characterisation *Characterisation `json:"characterisation,omitempty"`
+	// Telemetry is the command's performance record. See Telemetry for
+	// availability and fields.
+	Telemetry *Telemetry `json:"telemetry,omitempty"`
 }
 
 // Count returns the number of mutants in the given state.

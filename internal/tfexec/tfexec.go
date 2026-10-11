@@ -17,6 +17,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -56,13 +57,55 @@ type Runner struct {
 	Env []string
 }
 
+// Usage is the operating system's accounting for one child Terraform
+// process, read from the rusage the kernel reports when the process is
+// reaped.
+//
+// The numbers cover the terraform process and the descendants it waited for
+// before exiting: on Linux, a child's rusage includes its own reaped
+// children. Terraform starts each provider plugin and reaps it before
+// exiting, so provider CPU and memory are counted here. What the numbers do
+// not cover is a descendant the child never waited on — there is none in a
+// terraform invocation — and anything still running at timeout kill time.
+type Usage struct {
+	// UserCPU and SystemCPU are the child's user and system processor time.
+	UserCPU   time.Duration
+	SystemCPU time.Duration
+	// PeakRSSKB is the maximum resident set size in kibibytes, the kernel's
+	// ru_maxrss unit on Linux.
+	PeakRSSKB int64
+}
+
+// childUsage reads the usage out of a reaped process's state. A process that
+// never started has no state and no usage.
+func childUsage(state *os.ProcessState) Usage {
+	if state == nil {
+		return Usage{}
+	}
+
+	usage := Usage{
+		UserCPU:   state.UserTime(),
+		SystemCPU: state.SystemTime(),
+	}
+
+	if rusage, ok := state.SysUsage().(*syscall.Rusage); ok {
+		usage.PeakRSSKB = rusage.Maxrss
+	}
+
+	return usage
+}
+
 // Result holds the raw outcome of one Terraform invocation.
 type Result struct {
+	Started  bool
 	Stdout   []byte
 	Stderr   []byte
 	ExitCode int
 	TimedOut bool
 	Duration time.Duration
+	// Usage is the child process's resource accounting, read when it was
+	// reaped.
+	Usage Usage
 }
 
 const (
@@ -101,22 +144,26 @@ func (r Runner) Run(ctx context.Context, dir string, args ...string) (Result, er
 type Version struct {
 	Terraform string `json:"terraform_version"`
 	Platform  string `json:"platform"`
+	// Usage is the invocation's child-process accounting, not part of the
+	// decoded document.
+	Usage   Usage `json:"-"`
+	Started bool  `json:"-"`
 }
 
 // Version reports the Terraform version of the configured binary.
 func (r Runner) Version(ctx context.Context, dir string) (Version, error) {
 	result, err := r.Run(ctx, dir, "version", "-json")
+	version := Version{Usage: result.Usage, Started: result.Started}
 	if err != nil {
-		return Version{}, err
+		return version, err
 	}
 
 	if result.ExitCode != 0 {
-		return Version{}, fmt.Errorf("%w: version: %s", ErrCommandFailed, strings.TrimSpace(string(result.Stderr)))
+		return version, fmt.Errorf("%w: version: %s", ErrCommandFailed, strings.TrimSpace(string(result.Stderr)))
 	}
 
-	version := Version{}
 	if err := json.Unmarshal(result.Stdout, &version); err != nil {
-		return Version{}, fmt.Errorf("decoding terraform version: %w", err)
+		return version, fmt.Errorf("decoding terraform version: %w", err)
 	}
 
 	return version, nil
@@ -162,8 +209,10 @@ type InitOptions struct {
 	ReadonlyLock bool
 }
 
-// Init installs providers and modules for the module in dir.
-func (r Runner) Init(ctx context.Context, dir string, options InitOptions) error {
+// Init installs providers and modules for the module in dir. The returned
+// Result carries the invocation's child-process usage for the run's
+// telemetry; callers that want nothing from it discard it.
+func (r Runner) Init(ctx context.Context, dir string, options InitOptions) (Result, error) {
 	args := []string{"init", "-backend=false", "-input=false", "-no-color"}
 	if options.TestDirectory != "" {
 		args = append(args, "-test-directory="+options.TestDirectory)
@@ -175,14 +224,14 @@ func (r Runner) Init(ctx context.Context, dir string, options InitOptions) error
 
 	result, err := r.Run(ctx, dir, args...)
 	if err != nil {
-		return err
+		return result, err
 	}
 
 	if result.ExitCode != 0 {
-		return fmt.Errorf("%w: init: %s", ErrCommandFailed, combinedTail(result))
+		return result, fmt.Errorf("%w: init: %s", ErrCommandFailed, combinedTail(result))
 	}
 
-	return nil
+	return result, nil
 }
 
 // Diagnostic is one Terraform diagnostic with its source range.
@@ -228,28 +277,34 @@ type ValidateResult struct {
 	Valid       bool         `json:"valid"`
 	ErrorCount  int          `json:"error_count"`
 	Diagnostics []Diagnostic `json:"diagnostics"`
+	// Usage is the invocation's child-process accounting, not part of the
+	// decoded document.
+	Usage   Usage `json:"-"`
+	Started bool  `json:"-"`
 }
 
 // Validate statically checks the configuration in dir.
 func (r Runner) Validate(ctx context.Context, dir string) (ValidateResult, error) {
 	result, err := r.Run(ctx, dir, "validate", "-json", "-no-color")
+	validation := ValidateResult{Usage: result.Usage, Started: result.Started}
 	if err != nil {
-		return ValidateResult{}, err
+		return validation, err
 	}
 
-	validation := ValidateResult{}
 	if err := json.Unmarshal(result.Stdout, &validation); err != nil {
-		return ValidateResult{}, fmt.Errorf("decoding terraform validate output: %w", err)
+		return validation, fmt.Errorf("decoding terraform validate output: %w", err)
 	}
 
 	return validation, nil
 }
 
 // FmtCheck reports the files under dir that are not canonically formatted.
-func (r Runner) FmtCheck(ctx context.Context, dir string) ([]string, error) {
+// The returned Result carries the invocation's child-process usage for the
+// run's telemetry.
+func (r Runner) FmtCheck(ctx context.Context, dir string) ([]string, Result, error) {
 	result, err := r.Run(ctx, dir, "fmt", "-check", "-recursive", "-list=true", "-no-color")
 	if err != nil {
-		return nil, err
+		return nil, result, err
 	}
 
 	unformatted := []string{}
@@ -261,7 +316,7 @@ func (r Runner) FmtCheck(ctx context.Context, dir string) ([]string, error) {
 		}
 	}
 
-	return unformatted, nil
+	return unformatted, result, nil
 }
 
 // inheritedEnvironment is the process environment minus the variables that

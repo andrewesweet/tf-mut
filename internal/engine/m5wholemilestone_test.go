@@ -20,11 +20,14 @@ const wholeMilestoneBase = "d57f2cd"
 // base tree and one built from this tree are identical under matched
 // cache-off legs with `baseline.duration_ms` excluded — and the only
 // differences the whole milestone is allowed beyond that exclusion are the
-// schema-addition stamp `schema_version`, moved 2.3.0 to 2.6.0 by the pack
-// work and the identity-collision identifier repair, and the identifier of
-// an identity-collision member, whose movement the D5 repair re-derives by
-// design and which `blankCollisionIdentifiers` removes from both legs
-// symmetrically. Both ends are literals: the admitted stamp tracks
+// schema-addition stamp `schema_version`, moved 2.3.0 to 2.7.0 by the pack
+// work, the identity-collision identifier repair and the performance
+// telemetry, and the identifier of an identity-collision member, whose
+// movement the D5 repair re-derives by design and which
+// `blankCollisionIdentifiers` removes from both legs symmetrically. The
+// telemetry blocks record this run's own wall-clock cost and are excluded on
+// the same terms as `duration_ms`. Both ends are literals: the admitted
+// stamp tracks
 // `report.SchemaVersion` and is edited here deliberately with any schema bump,
 // because a bump is a minor-version consumer-contract event this proof has to
 // see. With no pack selected, `origins` is absent from every mutant on either
@@ -81,17 +84,20 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone(t
 	// blank them symmetrically and compare everything else by content.
 	blankCollisionIdentifiers(before, after)
 
-	// The authorised difference: the schema-addition stamp, exactly one step.
+	// The authorised differences: the schema-addition stamp, three additive
+	// steps; and the telemetry blocks, which carry this run's wall-clock cost
+	// and are excluded on the same terms as `duration_ms`.
 	if before["schema_version"] != "2.3.0" {
 		t.Fatalf("the M5 base tree publishes schema %q, want 2.3.0", before["schema_version"])
 	}
 
-	if after["schema_version"] != "2.6.0" {
-		t.Fatalf("this tree publishes schema %q, want 2.6.0", after["schema_version"])
+	if after["schema_version"] != "2.7.0" {
+		t.Fatalf("this tree publishes schema %q, want 2.7.0", after["schema_version"])
 	}
 
 	delete(before, "schema_version")
 	delete(after, "schema_version")
+	delete(after, "telemetry")
 
 	// Origins is present exactly when a pack produced the bytes; no pack is
 	// selected here, so no mutant on either side carries the field.
@@ -110,6 +116,10 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone(t
 			if _, present := mutant["origins"]; present {
 				t.Fatalf("%s mutant %d carries origins with no pack selected", name, index)
 			}
+
+			// Telemetry is this run's own cost, never a verdict input: excluded
+			// from the comparison, and asserted on by the telemetry tests.
+			delete(mutant, "telemetry")
 
 			if mutant["tier"] == "pack" {
 				t.Fatalf("%s mutant %d is pack-tier with no pack selected", name, index)
