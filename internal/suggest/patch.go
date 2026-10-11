@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 
@@ -91,7 +90,7 @@ func findRun(file *hclwrite.File, name string) *hclwrite.Block {
 // of real tokens: a condition that does not lex cleanly must never reach a test
 // file, and the address adapter has already proven this one parses.
 func expressionTokens(expression string) (hclwrite.Tokens, error) {
-	if _, diagnostics := hclsyntax.ParseExpression(
+	if _, diagnostics := discovery.ParseExpression(
 		[]byte(expression), "suggestion", hcl.InitialPos,
 	); diagnostics.HasErrors() {
 		return nil, fmt.Errorf("%w: %s: %s", ErrPatch, expression, diagnostics.Error())

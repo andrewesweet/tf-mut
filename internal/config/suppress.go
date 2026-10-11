@@ -60,6 +60,9 @@ const (
 )
 
 // Directives extracts every suppression comment from a source file.
+//
+// It is config's own comment ACL: it reads lines and looks for the marker —
+// no HCL is parsed, and the boundary discovery owns is not involved.
 func Directives(file string, source []byte) []Directive {
 	directives := []Directive{}
 

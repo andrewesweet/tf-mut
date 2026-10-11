@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
@@ -94,7 +93,7 @@ func traversal(path string) (traversalParts, error) {
 // either the text is handed to the same parser Terraform's own test files go
 // through. Anything that is not a pure traversal fails closed.
 func parseTraversal(expression string) error {
-	parsed, diagnostics := hclsyntax.ParseExpression(
+	parsed, diagnostics := discovery.ParseExpression(
 		[]byte(expression), "suggestion", hcl.InitialPos,
 	)
 	if diagnostics.HasErrors() {
@@ -102,28 +101,10 @@ func parseTraversal(expression string) error {
 			ErrUnaddressable, expression, diagnostics.Error())
 	}
 
-	if !isTraversal(parsed) {
+	if !discovery.IsTraversal(parsed) {
 		return fmt.Errorf("%w: %s is not a plain traversal, so it cannot be trusted "+
 			"to name the value the delta is about", ErrUnaddressable, expression)
 	}
 
 	return nil
-}
-
-// isTraversal reports whether an expression is nothing but a name lookup.
-func isTraversal(expr hclsyntax.Expression) bool {
-	switch typed := expr.(type) {
-	case *hclsyntax.ScopeTraversalExpr:
-		return true
-	case *hclsyntax.RelativeTraversalExpr:
-		return isTraversal(typed.Source)
-	case *hclsyntax.IndexExpr:
-		if _, literal := typed.Key.(*hclsyntax.LiteralValueExpr); !literal {
-			return false
-		}
-
-		return isTraversal(typed.Collection)
-	default:
-		return false
-	}
 }

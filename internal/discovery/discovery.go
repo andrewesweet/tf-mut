@@ -35,7 +35,7 @@ const (
 //
 // Expr publishes the representation-neutral expression contract: whatever
 // syntax discovered the value, consumers read it through the `hcl.Expression`
-// interface, and native syntax is reached only through `NativeExpression`.
+// interface. The named accessors below govern access to native syntax.
 type Attribute struct {
 	Name  string
 	Range hcl.Range
@@ -154,6 +154,35 @@ func ReparsedNative(expr hcl.Expression) (hclsyntax.Expression, bool) {
 	}
 
 	return parsed, true
+}
+
+// ParseExpression parses expression text generated or extracted by a consumer.
+// A caller with a discovered declaration uses its existing hcl.Expression.
+// CONTEXT.md's dependency direction defines which packages retain native parsing.
+func ParseExpression(src []byte, filename string, pos hcl.Pos) (hcl.Expression, hcl.Diagnostics) {
+	return hclsyntax.ParseExpression(src, filename, pos)
+}
+
+// IsTraversal reports whether an expression is nothing but a name lookup —
+// a root, attributes and literal index steps, with no operators, calls or
+// splats. It is the fact the address adapters need: a generated assertion
+// may trust expression text only once it names a value without computing
+// one. A non-native expression is not a traversal.
+func IsTraversal(expr hcl.Expression) bool {
+	switch typed := expr.(type) {
+	case *hclsyntax.ScopeTraversalExpr:
+		return true
+	case *hclsyntax.RelativeTraversalExpr:
+		return IsTraversal(typed.Source)
+	case *hclsyntax.IndexExpr:
+		if _, literal := typed.Key.(*hclsyntax.LiteralValueExpr); !literal {
+			return false
+		}
+
+		return IsTraversal(typed.Collection)
+	default:
+		return false
+	}
 }
 
 // NativeVariables lists the variables declared in native syntax — the view

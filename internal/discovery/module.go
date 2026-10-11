@@ -41,10 +41,11 @@ const (
 	resourceLabelCount = 2
 	addressParts       = 2
 
-	// terraformBlock and countKeyword name HCL constructs several inventories
-	// switch over.
+	// terraformBlock, countKeyword and forEachKeyword name HCL constructs
+	// several inventories switch over.
 	terraformBlock = "terraform"
 	countKeyword   = "count"
+	forEachKeyword = "for_each"
 
 	// validationBlock is the variable-level constraint block.
 	validationBlock = "validation"
@@ -675,4 +676,50 @@ func walkExpression(expr hclsyntax.Expression, visit func(hclsyntax.Expression))
 
 		return nil
 	})
+}
+
+// FunctionCalls returns the name of every function call appearing anywhere
+// in the expression — calls nested in other calls' arguments included — in
+// first-appearance order. It is the fact a caller reads a constraint
+// expression for when it needs to know which functions the module invokes,
+// without walking the syntax itself.
+func FunctionCalls(expr hcl.Expression) []string {
+	native, ok := NativeExpression(expr)
+	if !ok {
+		return nil
+	}
+
+	names := []string{}
+
+	walkExpression(native, func(nested hclsyntax.Expression) {
+		if call, ok := nested.(*hclsyntax.FunctionCallExpr); ok {
+			names = append(names, call.Name)
+		}
+	})
+
+	return names
+}
+
+// ConstantStrings returns every sub-expression of the expression that
+// evaluates to a known, non-null string with no variables or functions in
+// reach, in walk order. A sub-expression anything in it cannot resolve
+// context-free is skipped rather than guessed at.
+func ConstantStrings(expr hcl.Expression) []string {
+	native, ok := NativeExpression(expr)
+	if !ok {
+		return nil
+	}
+
+	constants := []string{}
+
+	walkExpression(native, func(nested hclsyntax.Expression) {
+		value, diagnostics := nested.Value(nil)
+		if diagnostics.HasErrors() || !value.IsKnown() || value.IsNull() || value.Type() != cty.String {
+			return
+		}
+
+		constants = append(constants, value.AsString())
+	})
+
+	return constants
 }

@@ -4,6 +4,13 @@
 // Configuration is policy, and policy that quietly disagrees with itself is
 // worse than none: duplicate blocks, contradictory include and exclude lists
 // and unknown keys are errors rather than last-one-wins.
+//
+// The package parses `hclsyntax` directly: `.tf-mut.hcl` is config's own
+// format — the one configuration this context owns, not a discovered module
+// — so its parse is config's own ACL, not a bypass of the discovery
+// boundary. The inline suppression scanner is the same kind of ACL and a
+// smaller one: it tokenises comment lines only and never parses the module's
+// HCL.
 package config
 
 import (

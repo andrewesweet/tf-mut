@@ -7,18 +7,15 @@ application layer that coordinates them; `cmd/tf-mut` is an adapter. `internal/c
 
 ## Bounded contexts
 
-The six-context table and dependency direction below are the target architecture
-specified by #86, not a claim that the current packages already satisfy every
-boundary. `internal/oracle` owns the mutant outcome and every diagnosis:
-survivors and terminal outcomes alike are constructed only through its
-constructors, and the population arithmetic computes over outcomes; cache
-rehydration rebuilds a stored verdict through its parsing constructor. The
-judgement points, the input provenance, the pins, the scaffolds and the scenarios
-are owned by `internal/characterise`, which no longer imports `internal/report`.
-Which tickets of #86 have landed and which are pending is tracked in
-[issue #86](https://github.com/andrewesweet/tf-mut/issues/86), the programme's
-authoritative status; until it completes, current imports and ownership remain
-as implemented while this document states the normative direction.
+The six-context table below names every package grouping and the dependency
+policy between them. The depguard rules in `.golangci.yml` enforce the specific
+boundaries listed below. `internal/oracle` owns the mutant outcome and every
+diagnosis: survivors and terminal outcomes alike are
+constructed only through its constructors, and the population arithmetic
+computes over outcomes; cache rehydration rebuilds a stored verdict through
+its parsing constructor. The judgement points, the input provenance, the pins,
+the scaffolds and the scenarios are owned by `internal/characterise`, which no
+longer imports `internal/report`.
 
 | Context | Kind | Packages | Owns |
 | --- | --- | --- | --- |
@@ -29,22 +26,43 @@ as implemented while this document states the normative direction.
 | Terraform Boundary | Generic / ACL | `internal/discovery`, `internal/tfexec`, `internal/sandbox` | HCL and JSON discovery, canonical configuration snapshot, Terraform process and result translation, sandbox materialisation |
 | Publication | Generic / ACL | `internal/report`, `internal/skill` | versioned report DTOs, schema mapping, the seven renderings, shipped agent documents |
 
-## Dependency direction (target)
+## Dependency direction
 
-Core and supporting contexts, and every Terraform Boundary package, do not import
-Publication (`internal/report`), the CLI, or a renderer. `internal/report` is the
-stdlib-only publication leaf and has no domain-context imports. `internal/skill` is
-grouped under Publication because it owns shipped documents, but since #91 it writes
-through Terraform Boundary's shared checked filesystem primitive
+Core and supporting contexts may read boundary value types — a canonical
+`tfexec.RunPayload`, a `discovery.Reach` — and supporting value types such as a
+`mutation.Operator`. The policy forbids the boundary from importing core or
+supporting contexts, and forbids core, supporting and boundary packages from
+importing Publication (`internal/report`, `internal/skill`), the engine or the
+CLI. The application layer may import every context and Publication; only the
+CLI imports the application layer. `internal/report` is the stdlib-only
+publication leaf and has no domain-context imports. `internal/skill`
+is grouped under Publication because it owns shipped documents, but since #91 it
+writes through Terraform Boundary's shared checked filesystem primitive
 (`internal/sandbox.WriteFreshCheckedMode`, as `suggest --apply` and the
 characterisation commit do); that narrow infrastructure dependency is an explicit
 exception, not a dependency from the report DTO leaf. Publication otherwise
-does not import a domain context. The application layer may import every context and
-performs the projections between context values and report DTOs.
+does not import a domain context. The application layer performs the projections
+between context values and report DTOs.
+
+Lint enforces three boundaries, including test files:
+
+- The pre-existing [#89](https://github.com/andrewesweet/tf-mut/issues/89)
+  `context-boundary` rule denies `internal/report` imports from all core,
+  supporting and Terraform Boundary packages.
+- `hclsyntax-boundary` permits `hclsyntax` imports only in `internal/discovery`,
+  `internal/mutation`, `internal/characterise` and `internal/config`. Those
+  packages retain native parsing and walking, including characterisation's own
+  artefacts; other consumers read expression facts through discovery.
+- `application-boundary` denies `internal/engine` and `cmd/` imports from all
+  core, supporting and Terraform Boundary packages.
+
+Boundary imports of core or supporting contexts, imports of `internal/skill`,
+Publication's own dependency direction and report's stdlib-only constraint remain
+policy; these lint rules do not enforce them.
 
 ## Architecture decisions
 
-The rationale for the target boundaries and future migrations is recorded in
+The rationale for these boundaries is recorded in
 [ADR-0001](docs/adr/0001-package-group-contexts-and-lint-enforced-dependencies.md),
 [ADR-0002](docs/adr/0002-closed-constructors-and-report-projection.md),
 [ADR-0003](docs/adr/0003-synchronous-immutable-result-facts.md), and
