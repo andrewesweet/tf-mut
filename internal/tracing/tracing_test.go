@@ -28,7 +28,7 @@ type collector struct {
 	bodies int
 }
 
-func newCollector(t *testing.T) *collector {
+func newCollector(t *testing.T, status int) *collector {
 	t.Helper()
 
 	sink := &collector{}
@@ -60,7 +60,7 @@ func newCollector(t *testing.T) *collector {
 			}
 		}
 
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(status)
 		_, _ = w.Write([]byte("{}"))
 	})
 
@@ -98,10 +98,10 @@ func TestDisabledWithoutEndpoint(t *testing.T) {
 }
 
 func TestExplicitEndpointWinsOverEnvironment(t *testing.T) {
-	ambient := newCollector(t)
+	ambient := newCollector(t, http.StatusOK)
 	t.Setenv(tracing.EndpointEnv, ambient.server.URL+"/v1/traces")
 
-	target := newCollector(t)
+	target := newCollector(t, http.StatusOK)
 
 	ctx := context.Background()
 	tracer := tracing.New(ctx, target.server.URL+"/v1/traces")
@@ -129,7 +129,7 @@ func TestExplicitEndpointWinsOverEnvironment(t *testing.T) {
 }
 
 func TestEnvironmentConfiguresExport(t *testing.T) {
-	sink := newCollector(t)
+	sink := newCollector(t, http.StatusOK)
 	t.Setenv(tracing.EndpointEnv, sink.server.URL+"/v1/traces")
 
 	ctx := context.Background()
@@ -171,7 +171,7 @@ func TestEndpointPathsUseTheTraceSuffix(t *testing.T) {
 	for _, endpointPath := range []string{"", "/", "/otlp", "/otlp/", "/v1/traces", "/otlp/v1/traces"} {
 		for _, ambient := range []bool{false, true} {
 			t.Run(fmt.Sprintf("path=%q/environment=%t", endpointPath, ambient), func(t *testing.T) {
-				sink := newCollector(t)
+				sink := newCollector(t, http.StatusOK)
 				t.Setenv(tracing.EndpointEnv, "")
 				endpoint := sink.server.URL + endpointPath
 				if ambient {
@@ -260,5 +260,50 @@ func TestUnusableEndpointWarningsRedactSecrets(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestExportFailureWarningsOmitConfigurationSecrets(t *testing.T) {
+	sink := newCollector(t, http.StatusUnauthorized)
+	t.Setenv(tracing.EndpointEnv, "https://private-user:private-password@ambient.example/%zz")
+	t.Setenv("OTEL_EXPORTER_OTLP_HEADERS", "private-header-token")
+	log, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	original := os.Stderr
+	os.Stderr = log
+	t.Cleanup(func() {
+		os.Stderr = original
+		_ = log.Close()
+	})
+
+	tracer := tracing.New(t.Context(), sink.server.URL+"/private-path-token")
+	_, span := tracer.Start(t.Context(), "tf-mut.run")
+	span.End()
+	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := tracer.Shutdown(shutdown); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := log.Seek(0, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+
+	warning, err := io.ReadAll(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if string(warning) != "tf-mut: trace export failed\n" {
+		t.Fatalf("warning exposes configuration or omits the fixed message: %q", warning)
+	}
+
+	sink.mutex.Lock()
+	defer sink.mutex.Unlock()
+	if len(sink.paths) != 1 || sink.paths[0] != "/private-path-token/v1/traces" {
+		t.Fatalf("the failing endpoint was not exercised: %v", sink.paths)
 	}
 }

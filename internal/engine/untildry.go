@@ -135,8 +135,6 @@ func oneRound(
 		return pins, 0, err
 	}
 
-	// The staged round's report is evidence only: its telemetry block is
-	// recorded and dropped with it, since the published artefact is the pins.
 	result, population, err := mutate(ctx, runner, stagedConfiguration, graded,
 		stage.terraform, staged.ModuleDir, newRunCollector(ctx, stage.collector.tracer))
 	if err != nil {

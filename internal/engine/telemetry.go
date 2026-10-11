@@ -76,10 +76,9 @@ const childScopeStatement = "each entry covers the terraform process and the des
 // same brackets drive spans over the tracer; without one the tracer is
 // disabled and every span call is a no-op.
 type runCollector struct {
-	started time.Time
-	tracer  *tracing.Tracer
-	mutex   sync.Mutex
-	phases  []report.PhaseTiming
+	tracer *tracing.Tracer
+	mutex  sync.Mutex
+	phases []report.PhaseTiming
 	// children aggregates by subcommand; order remembers first-use order so
 	// the published list is deterministic.
 	children map[string]*report.ProcessUsage
@@ -106,7 +105,6 @@ type mutantCollector struct {
 
 func newRunCollector(ctx context.Context, tracer *tracing.Tracer) *runCollector {
 	return &runCollector{
-		started:  time.Now(),
 		tracer:   tracer,
 		children: map[string]*report.ProcessUsage{},
 		phases:   []report.PhaseTiming{},
@@ -116,7 +114,9 @@ func newRunCollector(ctx context.Context, tracer *tracing.Tracer) *runCollector 
 
 // beginRun starts the run span and returns the context its phases nest under.
 func (c *runCollector) beginRun(command string) context.Context {
+	marked := time.Now()
 	c.base, c.runSpan = c.tracer.Start(c.base, spanRun, attribute.String(attrCommand, command))
+	c.overhead.Add(int64(time.Since(marked)))
 
 	return c.base
 }
@@ -124,7 +124,9 @@ func (c *runCollector) beginRun(command string) context.Context {
 // endRun closes the run span. It is safe to call once, at the very end of the
 // run, after every phase has ended.
 func (c *runCollector) endRun() {
+	marked := time.Now()
 	c.runSpan.End()
+	c.overhead.Add(int64(time.Since(marked)))
 }
 
 // phase times one named step of the run. The returned function ends the step
@@ -132,12 +134,13 @@ func (c *runCollector) endRun() {
 func (c *runCollector) phase(name string) func(...attribute.KeyValue) {
 	start := time.Now()
 	_, span := c.tracer.Start(c.base, spanPhase, attribute.String(attrPhase, name))
+	c.overhead.Add(int64(time.Since(start)))
 
 	return func(attributes ...attribute.KeyValue) {
 		elapsed := time.Since(start)
-		span.End(attributes...)
 
 		marked := time.Now()
+		span.End(attributes...)
 		c.mutex.Lock()
 		c.phases = append(c.phases, report.PhaseTiming{Phase: name, DurationMS: elapsed.Milliseconds()})
 		c.mutex.Unlock()
@@ -188,7 +191,6 @@ func (c *runCollector) finish() *report.Telemetry {
 	}
 
 	return &report.Telemetry{
-		WallMS:     time.Since(c.started).Milliseconds(),
 		Phases:     c.phases,
 		Children:   children,
 		OverheadMS: c.overhead.Load() / int64(time.Millisecond),
@@ -199,17 +201,21 @@ func (c *runCollector) finish() *report.Telemetry {
 // mutant begins one mutant's evaluation record. The id and operator name the
 // mutant's span; the phases and children it records nest under it.
 func (c *runCollector) mutant(ctx context.Context, id, operator string) *mutantCollector {
+	marked := time.Now()
 	base, span := c.tracer.Start(ctx, spanMutant,
 		attribute.String(attrMutantID, id), attribute.String(attrOperator, operator))
 
-	return &mutantCollector{
+	collector := &mutantCollector{
 		run:        c,
-		started:    time.Now(),
+		started:    marked,
 		base:       base,
 		phases:     []report.PhaseTiming{},
 		children:   []report.ProcessUsage{},
 		mutantSpan: span,
 	}
+	c.overhead.Add(int64(time.Since(marked)))
+
+	return collector
 }
 
 // phase times one named step of the mutant's evaluation. It runs on the
@@ -218,12 +224,13 @@ func (c *runCollector) mutant(ctx context.Context, id, operator string) *mutantC
 func (m *mutantCollector) phase(name string) func(...attribute.KeyValue) {
 	start := time.Now()
 	_, span := m.run.tracer.Start(m.base, spanPhase, attribute.String(attrPhase, name))
+	m.run.overhead.Add(int64(time.Since(start)))
 
 	return func(attributes ...attribute.KeyValue) {
 		elapsed := time.Since(start)
-		span.End(attributes...)
 
 		marked := time.Now()
+		span.End(attributes...)
 		m.phases = append(m.phases, report.PhaseTiming{Phase: name, DurationMS: elapsed.Milliseconds()})
 		m.run.overhead.Add(int64(time.Since(marked)))
 	}
@@ -252,11 +259,15 @@ func (m *mutantCollector) child(command string, usage tfexec.Usage, started bool
 
 // finish completes the mutant's record and closes its span.
 func (m *mutantCollector) finish() *report.MutantTelemetry {
+	marked := time.Now()
 	m.mutantSpan.End()
 
-	return &report.MutantTelemetry{
+	telemetry := &report.MutantTelemetry{
 		WallMS:   time.Since(m.started).Milliseconds(),
 		Phases:   m.phases,
 		Children: m.children,
 	}
+	m.run.overhead.Add(int64(time.Since(marked)))
+
+	return telemetry
 }

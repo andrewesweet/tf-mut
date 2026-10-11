@@ -16,6 +16,8 @@ import (
 	"path"
 	"strings"
 
+	"github.com/go-logr/logr"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -68,6 +70,11 @@ func New(ctx context.Context, endpoint string) *Tracer {
 		parsed.Path = path.Join(parsed.Path, "v1/traces")
 		parsed.RawPath = ""
 	}
+
+	otel.SetLogger(logr.Discard())
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(error) {
+		_, _ = fmt.Fprintln(os.Stderr, "tf-mut: trace export failed")
+	}))
 
 	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(parsed.String()))
 	if err != nil {

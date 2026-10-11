@@ -235,7 +235,18 @@ var (
 const traceFlushTimeout = 5 * time.Second
 
 // Run performs a complete mutation run and returns the report.
-func Run(ctx context.Context, request Request) (report.Report, error) {
+func Run(ctx context.Context, request Request) (result report.Report, err error) {
+	started := time.Now()
+	var collector *runCollector
+	defer func() {
+		if err != nil || collector == nil || result.Command == report.CommandCharacterise || result.Command == report.CommandTodos {
+			return
+		}
+
+		result.Telemetry = collector.finish()
+		result.Telemetry.WallMS = time.Since(started).Milliseconds()
+	}()
+
 	s, err := settingsFor(request)
 	if err != nil {
 		return report.Report{}, err
@@ -282,7 +293,7 @@ func Run(ctx context.Context, request Request) (report.Report, error) {
 
 	// The telemetry collector is always on: its own cost is measured and
 	// published beside the numbers it gathers.
-	collector := newRunCollector(ctx, tracer)
+	collector = newRunCollector(ctx, tracer)
 	//nolint:contextcheck // beginRun returns the run-span context on purpose: the
 	// pipeline below runs under it, so every span it starts parents correctly.
 	ctx = collector.beginRun(string(commandName(s.mode)))
@@ -482,7 +493,6 @@ func mutate(
 		result.Metrics = projectMetrics(
 			oracle.ComputeMetrics(oracle.NewPopulation(nil, oracle.Provenance{})),
 		)
-		result.Telemetry = collector.finish()
 
 		return result, oracle.Population{}, nil
 	}
@@ -616,8 +626,6 @@ func finish(
 			labelFinding(&result.Mutants[index], label)
 		}
 	}
-
-	result.Telemetry = plan.collector.finish()
 
 	return result, completed.population, nil
 }

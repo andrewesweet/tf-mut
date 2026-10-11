@@ -463,7 +463,7 @@ func TestExpiredMutantBudgetCountsNoTestChild(t *testing.T) {
 func TestOTLPExportCarriesRunAndPhaseSpans(t *testing.T) {
 	t.Parallel()
 
-	sink := newSpanCollector(t)
+	sink := newSpanCollector(t, 0)
 
 	module := copyFixture(t, "discriminate")
 	config := baseConfig(t, module)
@@ -491,7 +491,7 @@ type spanCollector struct {
 	spans  []*tracepb.Span
 }
 
-func newSpanCollector(t *testing.T) *spanCollector {
+func newSpanCollector(t *testing.T, delay time.Duration) *spanCollector {
 	t.Helper()
 
 	sink := &spanCollector{}
@@ -521,6 +521,7 @@ func newSpanCollector(t *testing.T) *spanCollector {
 			}
 		}
 
+		time.Sleep(delay)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("{}"))
 	})
@@ -556,7 +557,7 @@ func TestTraceMeasurementsMatchTheReport(t *testing.T) {
 		t.Run(fixture, func(t *testing.T) {
 			t.Parallel()
 
-			sink := newSpanCollector(t)
+			sink := newSpanCollector(t, 0)
 			config := suggestRequest(t, copyFixture(t, fixture))
 			config.NoCache = true
 			config.OTLPEndpoint = sink.server.URL
@@ -704,9 +705,9 @@ func aggregateChildUsage(children []report.ProcessUsage) map[string]report.Proce
 func TestNestedCommandsFlushToTheExplicitEndpoint(t *testing.T) {
 	for _, command := range []string{"curate", "characterise", "until-dry"} {
 		t.Run(command, func(t *testing.T) {
-			ambient := newSpanCollector(t)
+			ambient := newSpanCollector(t, 0)
 			t.Setenv(tracing.EndpointEnv, ambient.server.URL)
-			target := newSpanCollector(t)
+			target := newSpanCollector(t, 0)
 			var request engine.Request
 			if command == "curate" {
 				config := curateRequest(t, copyFixture(t, curateFixture))
@@ -776,6 +777,43 @@ func TestCPUProfileWritesTheNamedFile(t *testing.T) {
 	// gzip.NewWriter wrote it; the first two bytes are the gzip magic.
 	if content[0] != 0x1f || content[1] != 0x8b {
 		t.Fatalf("the profile does not begin with the gzip magic: % x", content[:2])
+	}
+}
+
+func TestCommandWallTimeIncludesTraceAndProfileCleanup(t *testing.T) {
+	for _, command := range []report.Command{report.CommandRun, report.CommandPreview, report.CommandSuggest, report.CommandCurate} {
+		t.Run(string(command), func(t *testing.T) {
+			sink := newSpanCollector(t, 300*time.Millisecond)
+			fixture := "discriminate"
+			if command == report.CommandCurate {
+				fixture = curateFixture
+			}
+
+			common := commonRequest(t, copyFixture(t, fixture))
+			common.OTLPEndpoint = sink.server.URL
+			common.CPUProfile = filepath.Join(t.TempDir(), "cpu.pprof")
+			requests := map[report.Command]engine.Request{
+				report.CommandRun:     engine.RunRequest{Common: common, NoCache: true},
+				report.CommandPreview: engine.PreviewRequest{Common: common},
+				report.CommandSuggest: engine.SuggestRequest{Common: common, NoCache: true},
+				report.CommandCurate:  engine.CurateRequest{Common: common, NoCache: true},
+			}
+
+			started := time.Now()
+			result, err := engine.Run(t.Context(), requests[command])
+			elapsed := time.Since(started).Milliseconds()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if result.Telemetry == nil || len(sink.exportedSpans()) == 0 {
+				t.Fatal("the command returned no telemetry or exported spans")
+			}
+
+			if delta := elapsed - result.Telemetry.WallMS; delta < 0 || delta > 100 {
+				t.Fatalf("wall_ms = %d, complete Run took %d ms", result.Telemetry.WallMS, elapsed)
+			}
+		})
 	}
 }
 
