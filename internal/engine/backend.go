@@ -20,17 +20,24 @@ type backendRewrite struct {
 	original []byte
 }
 
-// neutraliseBackends drops every root-module backend declaration from the
-// staged copy the warm workspace initialises, before init runs.
+// neutraliseBackends temporarily drops root-module backend declarations from
+// the staged copy before init and schema retrieval.
 //
 // tf-mut always initialises with -backend=false, and a root that declares a
 // backend — even a vacuous `backend "azurerm" {}` with no configured
 // credentials anywhere — makes the next command in that workspace demand
-// backend initialisation. Providers schema is that next command, so a
-// backend-declaring root never gets its schema and the run dies before the
-// baseline. The staged copy is tf-mut's own sandbox: the source tree is read
-// only and is never touched. Files unaffected by backend neutralisation
-// stay byte-identical.
+// backend initialisation. Providers schema is that next command, so it must
+// see a staged root without backend declarations. When an override backend
+// clears a cloud declaration in a primary file or an earlier override, that
+// cloud declaration is removed too, preserving Terraform's merge precedence.
+// An effective cloud declaration remains outside this protocol.
+//
+// Rewrites use fresh inodes with the closure counterpart as the source guard.
+// The source tree is never touched, and unaffected files stay byte-identical.
+// JSON rewrites preserve property order, repeated properties, object and array
+// bodies, and null terraform bodies that declare nothing. warmUp restores each
+// rewritten file's original bytes after schema retrieval, before the format
+// check and baseline, so file-reading expressions observe the original content.
 //
 // Mutant sandboxes keep the declaration: they materialise from the original
 // sources, share only the warm data directory, and run terraform test, which
@@ -112,7 +119,7 @@ func declaresBackend(path string) (bool, error) {
 	}
 
 	terraform, _, diagnostics := file.Body.PartialContent(&hcl.BodySchema{
-		Blocks: []hcl.BlockHeaderSchema{{Type: "terraform"}},
+		Blocks: []hcl.BlockHeaderSchema{{Type: terraformBlock}},
 	})
 	if diagnostics.HasErrors() {
 		return false, fmt.Errorf("reading terraform blocks in %s: %w", filepath.Base(path), diagnostics)
@@ -138,6 +145,8 @@ func declaresBackend(path string) (bool, error) {
 // both syntaxes.
 const backendBlock = "backend"
 
+const terraformBlock = "terraform"
+
 // stripHCLBackend removes backend blocks and, when requested, cloud blocks
 // from a staged .tf file, returning the original bytes when it rewrites the file.
 func stripHCLBackend(path, sourcePath string, removeCloud bool) ([]byte, error) {
@@ -155,7 +164,7 @@ func stripHCLBackend(path, sourcePath string, removeCloud bool) ([]byte, error) 
 
 	stripped := false
 	for _, block := range file.Body().Blocks() {
-		if block.Type() != "terraform" {
+		if block.Type() != terraformBlock {
 			continue
 		}
 
@@ -254,9 +263,9 @@ func stripJSONBackendBody(source []byte, terraformBody, removeCloud bool) ([]byt
 			continue
 		}
 
-		if !object || !terraformBody && key == "terraform" {
+		if !object || !terraformBody && key == terraformBlock {
 			if !object && bytes.TrimSpace(value)[0] != '{' &&
-				!(terraformBody && bytes.Equal(bytes.TrimSpace(value), []byte("null"))) {
+				(!terraformBody || !bytes.Equal(bytes.TrimSpace(value), []byte("null"))) {
 				return nil, false, fmt.Errorf("expected a JSON body object, got %s", value)
 			}
 
@@ -297,7 +306,7 @@ func stripJSONBackendBody(source []byte, terraformBody, removeCloud bool) ([]byt
 		return nil, false, fmt.Errorf("expected a closing JSON delimiter, got %v", closing)
 	}
 
-	rewritten = append(rewritten, byte(delimiter))
+	rewritten = append(rewritten, byte(delimiter)) //nolint:gosec // json.Decoder returns only ASCII delimiters.
 
 	return rewritten, stripped, nil
 }

@@ -109,7 +109,9 @@ paths and vendored modules.
 1. `terraform init` **once**, in one shared directory. Measured at 5.2 s cold versus 0.167 s
    for a test run — initialisation is ~31× the cost of a run, so doing it once is the single
    most important performance decision in the design.
-2. `terraform validate` — a module that does not validate cannot be mutation tested.
+2. Retrieve provider schemas from the warm workspace. The
+   [warm-up implementation](../../internal/engine/baseline.go) owns the temporary backend
+   rewrite and restoration protocol. For validation, see [Execute](#execute).
 3. `terraform test -verbose -json` — **twice**. Establish that the suite is green, record
    per-run plan fingerprints and `resource_changes` (which resources each run block plans —
    the resource-coverage source), and time each run block for timeout calibration.

@@ -163,9 +163,6 @@ type InitOptions struct {
 }
 
 // Init installs providers and modules for the module in dir.
-//
-// The lock file is treated as read-only when options.ReadonlyLock is set,
-// which keeps runs against a pre-locked fixture hermetic.
 func (r Runner) Init(ctx context.Context, dir string, options InitOptions) error {
 	args := []string{"init", "-backend=false", "-input=false", "-no-color"}
 	if options.TestDirectory != "" {

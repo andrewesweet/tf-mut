@@ -119,8 +119,8 @@ Every operational row's reason is published with the row, and they say "this run
   the installed set. This is an artifact of one measurement environment, not a property
   of the modules; a per-module cache could produce different operational rows.
 - **A remote backend** (`aws-terraform-infrastructure`'s `environments/dev` declares an
-  s3 backend): schema fetch demands backend initialization, which the census will not
-  fake.
+  s3 backend): schema fetch required backend initialization in this measurement.
+  See [current usage](../../README.md#using-it) for admission behavior after the warm-up fix.
 - **A broken local reference at the pin** (`conf-data-processing-architecture-reference`):
   the pinned commit's module references `../../modules/alert_on_quota`, which the archive
   does not contain. The archive is the pin; the census publishes the break rather than

@@ -94,10 +94,7 @@ func warmUp(
 		warnings:  []string{},
 	}
 
-	// The staged copy is the only place a backend declaration may be
-	// neutralised: init skips backend initialisation, and the schema call that
-	// follows it is the first command to demand it. Mutant sandboxes never
-	// run such a command, and materialise from the original sources anyway.
+	// neutraliseBackends owns the temporary staged rewrite contract.
 	rewrites, stripErr := neutraliseBackends(prepared.moduleDir,
 		filepath.Join(configuration.ClosureRoot, filepath.FromSlash(configuration.RootRelative())))
 	if stripErr != nil {
