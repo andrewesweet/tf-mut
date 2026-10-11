@@ -82,6 +82,10 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperator
 
 		delete(baseline, "duration_ms")
 		delete(document, "schema_version")
+		// The telemetry blocks carry this run's own wall-clock cost, on the
+		// same terms as `duration_ms`; the telemetry tests assert their
+		// content, this proof holds the verdicts invariant without them.
+		delete(document, "telemetry")
 		canonicaliseDiagnosticOrder(document)
 	}
 
@@ -89,9 +93,28 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperator
 	// blank them symmetrically and compare everything else by content.
 	blankCollisionIdentifiers(before, after)
 
+	stripMutantTelemetry(before)
+	stripMutantTelemetry(after)
+
 	if !reflect.DeepEqual(before, after) {
 		t.Fatalf("the standard report of the matrix fixture moved under M5a:\n  %s",
 			firstDifference(before, after, "$"))
+	}
+}
+
+// stripMutantTelemetry removes the per-mutant telemetry blocks a 2.6.0 report
+// carries: they are this run's own cost, not the verdict, and the before leg
+// predates the field.
+func stripMutantTelemetry(document map[string]any) {
+	mutants, ok := document["mutants"].([]any)
+	if !ok {
+		return
+	}
+
+	for _, entry := range mutants {
+		if mutant, ok := entry.(map[string]any); ok {
+			delete(mutant, "telemetry")
+		}
 	}
 }
 

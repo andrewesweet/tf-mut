@@ -3,11 +3,16 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/skill"
@@ -354,7 +359,8 @@ func assertReadmeVocabulary(t *testing.T, readme string, reporters []string) {
 
 	schemaPath := "docs/schema/report-" + report.SchemaVersion + ".json"
 	schemaRow := "| [`" + schemaPath + "`](" + schemaPath +
-		") | The versioned JSON report schema the `json` reporter emits, including the pack tier and origins provenance |"
+		") | The versioned JSON report schema the `json` reporter emits, including the pack tier, " +
+		"the origins provenance and the performance telemetry |"
 	containsToken(t, readme, schemaRow, "README emitted schema row")
 
 	reporterPattern := "(?m)^\\| `--reporter ([^`]+)` \\| " +
@@ -1682,5 +1688,64 @@ func TestPacksAreWiredThroughTheCommandLine(t *testing.T) {
 	code = run([]string{previewCommand, packFlagArgument, "nobody", module}, "test", &bytes.Buffer{}, &stderr)
 	if code != exitUsage || !strings.Contains(stderr.String(), `pack "nobody" is not registered`) {
 		t.Fatalf("an unknown pack exited %d with %q, want exit 2 naming it", code, stderr.String())
+	}
+}
+
+// TestTheProfilingAndTracingFlagsAreUniversal wires the two telemetry flags
+// end to end: --cpu-profile names a file the command writes its own CPU
+// profile into, --otlp-endpoint names a collector the command ships its spans
+// to, and neither flag is scoped to one command — preview runs them as
+// willingly as run.
+func TestTheProfilingAndTracingFlagsAreUniversal(t *testing.T) {
+	t.Parallel()
+
+	module := fixture(t)
+
+	// A real OTLP/HTTP sink: the endpoint the flag names must be contacted,
+	// not parsed and dropped.
+	spanCount := atomic.Int64{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/traces", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		spanCount.Add(1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("{}"))
+	})
+	sink := httptest.NewServer(mux)
+	defer sink.Close()
+
+	profilePath := filepath.Join(t.TempDir(), "tf-mut.pprof")
+
+	stdout := bytes.Buffer{}
+	stderr := bytes.Buffer{}
+
+	exitCode := run([]string{
+		previewCommand,
+		"--cpu-profile", profilePath,
+		"--otlp-endpoint", sink.URL + "/v1/traces",
+		module,
+	}, "dev", &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0\n%s", exitCode, stderr.String())
+	}
+
+	//nolint:gosec // the path is this test's own temporary file.
+	profile, err := os.ReadFile(profilePath)
+	if err != nil {
+		t.Fatalf("reading the CPU profile: %v", err)
+	}
+
+	if len(profile) < 2 || profile[0] != 0x1f || profile[1] != 0x8b {
+		t.Fatalf("--cpu-profile wrote %d bytes with no gzip magic", len(profile))
+	}
+
+	// The batcher exports on its own schedule; the deferred shutdown flushes.
+	deadline := time.Now().Add(10 * time.Second)
+	for spanCount.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if spanCount.Load() == 0 {
+		t.Fatal("--otlp-endpoint received no export from the command")
 	}
 }

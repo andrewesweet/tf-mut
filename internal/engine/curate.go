@@ -16,6 +16,8 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
+
+	"github.com/andrewesweet/tf-mut/internal/tracing"
 )
 
 // `tf-mut curate` reports redundancy, from authoritative populations only.
@@ -136,7 +138,10 @@ func curateSuite(
 	graded := settings
 	graded.mode = gradeMode
 
-	result, population, err := mutate(ctx, runner, configuration, graded, version, moduleDir)
+	// Curate grades through the same pipeline as run, so its report carries the
+	// same run-level telemetry block.
+	collector := newRunCollector(ctx, tracing.New(ctx, settings.OTLPEndpoint))
+	result, population, err := mutate(ctx, runner, configuration, graded, version, moduleDir, collector)
 	if err != nil {
 		return report.Report{}, err
 	}

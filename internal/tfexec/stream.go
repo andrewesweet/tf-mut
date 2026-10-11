@@ -58,7 +58,7 @@ func (r Runner) StreamOutput(
 	consumeErr := consume(bufio.NewReaderSize(pipe, streamBufferSize))
 	_, _ = io.Copy(io.Discard, pipe)
 
-	result := completed(ctx, command.Wait(), started, stderr.Bytes())
+	result := completed(ctx, command, started, &stderr)
 
 	if result.Err != nil {
 		return result.Result, result.Err
@@ -74,13 +74,20 @@ type outcome struct {
 	Err    error
 }
 
-func completed(ctx context.Context, waitErr error, started time.Time, stderr []byte) outcome {
+// completed reaps the child and reads its outcome. It takes the stderr buffer
+// itself, not its bytes: Wait must run before the buffer is read, because only
+// Wait guarantees the copy out of the stderr pipe has finished — a snapshot
+// taken first loses a failing child's diagnostics under load.
+func completed(ctx context.Context, command *exec.Cmd, started time.Time, stderr *bytes.Buffer) outcome {
+	waitErr := command.Wait()
+
 	result := Result{
 		Stdout:   nil,
-		Stderr:   stderr,
+		Stderr:   stderr.Bytes(),
 		ExitCode: exitCodeUnavailable,
 		TimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded),
 		Duration: time.Since(started),
+		Usage:    childUsage(command.ProcessState),
 	}
 
 	if waitErr == nil {

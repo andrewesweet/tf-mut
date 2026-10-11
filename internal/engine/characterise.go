@@ -17,6 +17,8 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
+
+	"github.com/andrewesweet/tf-mut/internal/tracing"
 )
 
 // staging is what every staged run needs: the closure to materialise, the
@@ -104,7 +106,10 @@ func characteriseModule(
 
 	defer func() { _ = os.RemoveAll(workRoot) }()
 
-	prepared, err := warmUp(ctx, runner, configuration, workRoot)
+	// Characterisation publishes no telemetry: its warm-up is recorded into a
+	// collector whose record is dropped, because the command has no grading
+	// pipeline to attach it to.
+	prepared, err := warmUp(ctx, runner, configuration, workRoot, newRunCollector(ctx, tracing.New(ctx, "")))
 	if err != nil {
 		return report.Report{}, err
 	}

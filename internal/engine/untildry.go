@@ -12,6 +12,8 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
+
+	"github.com/andrewesweet/tf-mut/internal/tracing"
 )
 
 // The until-dry loop: scaffold, mutate, pin the survivors, repeat.
@@ -135,8 +137,10 @@ func oneRound(
 		return pins, 0, err
 	}
 
+	// The staged round's report is evidence only: its telemetry block is
+	// recorded and dropped with it, since the published artefact is the pins.
 	result, population, err := mutate(ctx, runner, stagedConfiguration, graded,
-		stage.terraform, staged.ModuleDir)
+		stage.terraform, staged.ModuleDir, newRunCollector(ctx, tracing.New(ctx, "")))
 	if err != nil {
 		return pins, 0, err
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/skill"
+	"github.com/andrewesweet/tf-mut/internal/tracing"
 )
 
 var version = "dev"
@@ -211,6 +212,7 @@ type flagValues struct {
 	pin                                      *string
 	write, force, resume, untilDry           *bool
 	answers                                  *answerFlag
+	cpuProfile, otlpEndpoint                 *string
 }
 
 // answerFlag collects repeatable todo-<id>=<value> answers.
@@ -274,6 +276,11 @@ func declareFlags(set *flag.FlagSet) flagValues {
 		untilDry: set.Bool("until-dry", false,
 			"iterate until the survivors stop yielding new assertions"),
 		answers: declareAnswerFlag(set),
+		cpuProfile: set.String("cpu-profile", "",
+			"write a CPU profile of tf-mut itself to this file"),
+		otlpEndpoint: set.String("otlp-endpoint", "",
+			"export run, mutant and phase spans to this OTLP/HTTP endpoint ("+
+				tracing.EndpointEnv+" is honoured when unset)"),
 	}
 }
 
@@ -341,7 +348,7 @@ func parse(command, buildVersion string, args []string, stderr io.Writer) (optio
 	}
 
 	return options{
-		config: engineConfig(command, buildVersion, values, moduleDir, given, requested, sampled),
+		config: engineConfig(command, buildVersion, values, moduleDir, given, requested, sampled, stderr),
 		gate: report.Gate{
 			MinScore:             *values.minScore,
 			HasMinScore:          requested,
@@ -497,11 +504,12 @@ func engineConfig(
 	moduleDir string,
 	given []string,
 	requested, sampled bool,
+	progress io.Writer,
 ) engine.Request {
 	switch command {
 	case characteriseCommand:
 		return engine.CharacteriseRequest{
-			Common:   commonFlags(buildVersion, values, moduleDir, given),
+			Common:   commonFlags(buildVersion, values, moduleDir, given, progress),
 			PinRung:  *values.pin,
 			Write:    *values.write,
 			Force:    *values.force,
@@ -512,7 +520,7 @@ func engineConfig(
 
 	case todosCommand:
 		return engine.TodosRequest{
-			Common:  commonFlags(buildVersion, values, moduleDir, given),
+			Common:  commonFlags(buildVersion, values, moduleDir, given, progress),
 			PinRung: *values.pin,
 			Answers: *values.answers,
 			Resume:  *values.resume,
@@ -520,20 +528,20 @@ func engineConfig(
 
 	case curateCommand:
 		return engine.CurateRequest{
-			Common:  commonFlags(buildVersion, values, moduleDir, given),
+			Common:  commonFlags(buildVersion, values, moduleDir, given, progress),
 			Gate:    gateControls(values, requested),
 			NoCache: *values.noCache,
 		}
 
 	case previewCommand:
 		return engine.PreviewRequest{
-			Common:     commonFlags(buildVersion, values, moduleDir, given),
+			Common:     commonFlags(buildVersion, values, moduleDir, given, progress),
 			Population: populationControls(values, sampled),
 		}
 
 	case suggestCommand:
 		return engine.SuggestRequest{
-			Common:      commonFlags(buildVersion, values, moduleDir, given),
+			Common:      commonFlags(buildVersion, values, moduleDir, given, progress),
 			Population:  populationControls(values, sampled),
 			Gate:        gateControls(values, requested),
 			NoCache:     *values.noCache,
@@ -545,7 +553,7 @@ func engineConfig(
 
 	default:
 		return engine.RunRequest{
-			Common:     commonFlags(buildVersion, values, moduleDir, given),
+			Common:     commonFlags(buildVersion, values, moduleDir, given, progress),
 			Population: populationControls(values, sampled),
 			Gate:       gateControls(values, requested),
 			NoCache:    *values.noCache,
@@ -592,6 +600,7 @@ func commonFlags(
 	values flagValues,
 	moduleDir string,
 	given []string,
+	progress io.Writer,
 ) engine.Common {
 	return engine.Common{
 		ModuleDir:               moduleDir,
@@ -606,6 +615,9 @@ func commonFlags(
 		WorkDir:                 "",
 		ToolVersion:             buildinfo.Resolve(buildVersion),
 		SetFlags:                given,
+		CPUProfile:              *values.cpuProfile,
+		OTLPEndpoint:            *values.otlpEndpoint,
+		Progress:                progress,
 	}
 }
 

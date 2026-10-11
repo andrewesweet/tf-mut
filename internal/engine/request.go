@@ -3,6 +3,7 @@ package engine
 import (
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/mutation"
@@ -41,6 +42,28 @@ const (
 	curateMode
 )
 
+// label is the mode's name, for spans and logs that have to say which command
+// is running without exporting the internal type.
+func (m mode) label() string {
+	switch m {
+	case gradeMode:
+		return "run"
+	case previewMode:
+		return "preview"
+	case suggestMode:
+		return "suggest"
+	case characteriseMode:
+		return "characterise"
+	case todosMode:
+		return "todos"
+	case curateMode:
+		return "curate"
+	}
+
+	return "run"
+}
+
+// Common carries the options shared by every engine command.
 // Common carries the options shared by every engine command.
 type Common struct {
 	ModuleDir               string
@@ -55,6 +78,21 @@ type Common struct {
 	WorkDir                 string
 	ToolVersion             string
 	SetFlags                []string
+	// CPUProfile names the file the command's own CPU profile is written to.
+	// Empty — the default — profiles nothing. It is a diagnostic for the
+	// person tuning tf-mut itself, not part of any report.
+	CPUProfile string
+	// OTLPEndpoint is the OTLP/HTTP endpoint the run's spans are exported to.
+	// Empty — the default — disables tracing entirely; the OTel environment
+	// variable OTEL_EXPORTER_OTLP_ENDPOINT is honoured when the flag is unset.
+	OTLPEndpoint string
+	// Progress receives the periodic long-run progress lines. Nil — the
+	// default — prints nothing; the CLI passes os.Stderr, which is never a
+	// report sink.
+	Progress io.Writer
+	// ProgressInterval is how often a progress line is written. Zero selects
+	// the default ten seconds; it is honoured only when Progress is set.
+	ProgressInterval time.Duration
 }
 
 // Population selects the mutants a command acts on.
@@ -288,6 +326,10 @@ func commonConfig(c Common) settings {
 	s.WorkDir = c.WorkDir
 	s.ToolVersion = c.ToolVersion
 	s.SetFlags = c.SetFlags
+	s.CPUProfile = c.CPUProfile
+	s.OTLPEndpoint = c.OTLPEndpoint
+	s.Progress = c.Progress
+	s.ProgressInterval = c.ProgressInterval
 
 	return s
 }

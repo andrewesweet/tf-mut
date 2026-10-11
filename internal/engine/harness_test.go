@@ -14,7 +14,23 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
+	"github.com/andrewesweet/tf-mut/internal/tracing"
 )
+
+// TestMain makes the suite hermetic against the ambient OpenTelemetry
+// environment: a machine that exports its own spans sets
+// OTEL_EXPORTER_OTLP_ENDPOINT, and the engine honours that variable by
+// contract. Tests assert tracing through the flag and their own collector,
+// never through whatever the laptop is exporting to, so the variable is
+// cleared once before any test starts.
+func TestMain(m *testing.M) {
+	if err := os.Setenv(tracing.EndpointEnv, ""); err != nil {
+		fmt.Fprintln(os.Stderr, "clearing", tracing.EndpointEnv, "in TestMain:", err)
+		os.Exit(1) //nolint:revive // a failed scrub must fail the suite, not run against a polluted environment
+	}
+
+	_ = m.Run()
+}
 
 // The fixtures are Terraform modules, so every test here drives the real
 // Terraform binary through the engine seam. Nothing stubs Terraform: the

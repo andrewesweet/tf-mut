@@ -16,6 +16,9 @@ const dataSourceKind = "data"
 type Schemas struct {
 	FormatVersion   string                    `json:"format_version"`
 	ProviderSchemas map[string]ProviderSchema `json:"provider_schemas"`
+	// Usage is the invocation's child-process accounting, not part of the
+	// decoded document.
+	Usage Usage `json:"-"`
 }
 
 // ProviderSchema holds one provider's resource and data source schemas.
@@ -128,6 +131,8 @@ func (r Runner) ProvidersSchema(ctx context.Context, dir string) (Schemas, error
 	if err := json.Unmarshal(result.Stdout, &schemas); err != nil {
 		return Schemas{}, fmt.Errorf("decoding provider schemas: %w", err)
 	}
+
+	schemas.Usage = result.Usage
 
 	return schemas, nil
 }
