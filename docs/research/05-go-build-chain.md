@@ -92,7 +92,7 @@ installed. The initial locks should resolve to the following snapshot:
 
 | Tool | Snapshot | Authority | Role |
 | --- | --- | --- | --- |
-| Go | `1.26.6` | `mise.lock` | compiler, tests, race and native fuzz driver |
+| Go | `1.26.9` | `mise.lock` | compiler, tests, race and native fuzz driver |
 | mise | `2026.8.6` | bootstrap pin | provisioning layer; cannot manage itself |
 | Just | `1.58.0` | `mise.lock` | sole public task interface after bootstrap |
 | Terraform | `1.15.8` | `mise.lock` | executable required by the fixed test seam |
@@ -205,7 +205,7 @@ Dependabot owns action-SHA update pull requests. A release-age delay remains def
 the initial requirement is latest stable; adopting one later requires an explicit policy change.
 
 The application module should start with a language floor and a patch-level preference, for
-example `go 1.26.0` and `toolchain go1.26.6`. With `GOTOOLCHAIN=local`, a mismatch fails instead
+example `go 1.26.0` and `toolchain go1.26.9`. With `GOTOOLCHAIN=local`, a mismatch fails instead
 of downloading an unreviewed toolchain. Go documents both behaviours in
 [toolchain selection](https://go.dev/doc/toolchain).
 
@@ -452,7 +452,7 @@ artifacts in a second invocation rather than treating SARIF generation as the ga
 The first live scan found that gopls v0.23.0's graph contains three advisory-affected modules.
 The fixed `x/mod` release requires `x/tools` v0.49.0, which does not compile gopls v0.23.0.
 Because there is no fixed stable gopls release, OSV excludes only `tools/gopls`; the blocking
-gate instead runs current govulncheck symbol analysis on the exact Go 1.26.6-built gopls binary.
+gate instead runs current govulncheck symbol analysis on the exact Go 1.26.9-built gopls binary.
 That analysis found the affected modules but no reachable vulnerable symbols. Root, goimports,
 and govulncheck manifests remain under OSV's non-reachability-filtered scan; the latter two pin
 the fixed `x/mod` v0.40.0. Remove this narrow build-tool exception as soon as a compatible stable
