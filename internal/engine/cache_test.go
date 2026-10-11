@@ -101,7 +101,7 @@ func TestPreSandboxFixInvalidVerdictsAreNotReplayed(t *testing.T) {
 
 		path := filepath.Join(cacheDir(module), entry.Name())
 
-		content, readErr := os.ReadFile(path)
+		content, readErr := os.ReadFile(filepath.Clean(path))
 		if readErr != nil {
 			t.Fatalf("reading cache entry: %v", readErr)
 		}
