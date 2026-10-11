@@ -126,7 +126,9 @@ func listTodos(
 		warm{}, []string{}) //nolint:exhaustruct // nothing was prepared: this surface runs no Terraform.
 	result.Command = report.CommandTodos
 	result.Selection = report.Selection{Mode: scopeLabel(true), Ref: "", ForcedFull: ""}
-	result.Metrics = projectMetrics(oracle.ComputeMetrics(nil))
+	result.Metrics = projectMetrics(
+		oracle.ComputeMetrics(oracle.NewPopulation(nil, oracle.Provenance{})),
+	)
 	block := &report.Characterisation{ //nolint:exhaustruct // a listing carries no scaffold.
 		Rung: string(rung), Complete: false, Scenarios: projectScenarios(scenarios),
 		Pins: []report.Pin{}, Todos: projectTodos(todos),

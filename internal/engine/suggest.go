@@ -43,9 +43,9 @@ var suggestibleDiagnoses = []report.Diagnosis{
 func suggestAssertions(
 	ctx context.Context,
 	plan executionPlan,
-	result report.Report,
+	mutants []report.Mutant,
 ) ([]report.Suggestion, string, error) {
-	selected, err := selectSurvivors(plan.settings, result)
+	selected, err := selectSurvivors(plan.settings, mutants)
 	if err != nil {
 		return nil, "", err
 	}
@@ -122,12 +122,13 @@ func (c verificationCosts) Statement() string {
 
 // selectSurvivors narrows the population to the survivors the caller asked
 // about, and refuses an identifier the population does not carry.
-func selectSurvivors(settings settings, result report.Report) ([]report.Mutant, error) {
+func selectSurvivors(settings settings, mutants []report.Mutant) ([]report.Mutant, error) {
+	survivors := (report.Report{Mutants: mutants}).Survivors()
+
 	if len(settings.SurvivorIDs) == 0 {
-		return result.Survivors(), nil
+		return survivors, nil
 	}
 
-	survivors := result.Survivors()
 	present := map[string]bool{}
 
 	for _, survivor := range survivors {

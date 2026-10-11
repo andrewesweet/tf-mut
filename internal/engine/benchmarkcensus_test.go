@@ -76,7 +76,7 @@ func classifyAvailability(previewErr error, previewResult report.Report) populat
 // classifyRow decides the row outcome from the run invocation's own outcome
 // and nothing else, in M5d's seven-stage order. A run that completed is
 // scored only when its population is fully observed — no timeouts, no
-// unevaluable mutants, the same rule newAuthoritativePopulation applies —
+// unevaluable mutants, the same rule oracle.Population.Authoritative applies —
 // and scored-incomplete otherwise. An error no stage sentinel claims is
 // operational, which the census retries once and publishes as a fact about
 // this run rather than the module.

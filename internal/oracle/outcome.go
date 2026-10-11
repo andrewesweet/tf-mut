@@ -47,6 +47,14 @@ const (
 // survivor outcome, by the precedence table (`Judge`).
 type Diagnosis string
 
+// Actionable reports whether the diagnosis names something the reader can
+// fix, as opposed to something the oracle could not decide. The baseline
+// gate's acceptance class is decided from it, and it selects the published
+// SARIF level, so the distinction is a published contract.
+func (d Diagnosis) Actionable() bool {
+	return d != IndeterminateUnknownValues && d != IndeterminateVolatility
+}
+
 // The diagnoses, in precedence order — first match wins.
 const (
 	// IndeterminateUnknownValues marks a fingerprint-identical survivor whose

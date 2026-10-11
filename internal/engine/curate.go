@@ -13,6 +13,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
+	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
@@ -135,7 +136,7 @@ func curateSuite(
 	graded := settings
 	graded.mode = gradeMode
 
-	result, err := mutate(ctx, runner, configuration, graded, version, moduleDir)
+	result, population, err := mutate(ctx, runner, configuration, graded, version, moduleDir)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -144,7 +145,7 @@ func curateSuite(
 	// population that proved it was fully observed, never over a report that
 	// was merely in hand. An assertion looks like it senses nothing precisely
 	// when the mutants that would have proved otherwise never ran.
-	authoritative, err := newAuthoritativePopulation(result, ErrCuratePopulation,
+	authoritative, err := population.Authoritative(ErrCuratePopulation,
 		"  An unobserved mutant is not an absent one, and an empty kill set drawn over\n"+
 			"  mutants that never ran is a false finding")
 	if err != nil {
@@ -175,7 +176,7 @@ func curateSuite(
 		Rung: string(rung), Complete: true,
 		Scenarios: []report.Scenario{}, Pins: []report.Pin{},
 		Files:    []report.GeneratedFile{},
-		Findings: curateFindings(authoritative, assertions, provenance),
+		Findings: curateFindings(authoritative, result.Mutants, assertions, provenance),
 		Staged:   true,
 	}
 
@@ -229,7 +230,8 @@ func assertionID(file, run, source string, index int) string {
 // set: it died of an evaluation error, which the completeness measure
 // deliberately does not count.
 func attributeKills(
-	authoritative authoritativePopulation,
+	authoritative oracle.Authoritative,
+	mutants []report.Mutant,
 	assertions []assertion,
 ) map[string][]string {
 	byLine := map[string]string{}
@@ -238,9 +240,10 @@ func attributeKills(
 	}
 
 	killSets := map[string][]string{}
+	rows := authoritative.Classified()
 
-	for _, mutant := range authoritative.graded().Mutants {
-		if mutant.State != report.Killed {
+	for index, mutant := range mutants {
+		if rows[index].Outcome.State() != oracle.StateKilled {
 			continue
 		}
 
@@ -315,8 +318,8 @@ func assertionProvenance(
 
 // curateFindings reports where the oracle has power over a proven population.
 //
-// It accepts an authoritativePopulation and is reachable no other way: the
-// empty-kill-set finding is the tool telling an author an assertion senses
+// It accepts an authoritative population fact and is reachable no other way:
+// the empty-kill-set finding is the tool telling an author an assertion senses
 // nothing, and that verdict is false precisely when the mutants that would
 // have died never ran.
 //
@@ -326,11 +329,12 @@ func assertionProvenance(
 // therefore scoped to hand-written and edited assertions, and to redundancy
 // across scenarios — which is where a suite actually accumulates waste.
 func curateFindings(
-	authoritative authoritativePopulation,
+	authoritative oracle.Authoritative,
+	mutants []report.Mutant,
 	assertions []assertion,
 	provenance map[string]report.AssertionProvenance,
 ) []report.CurateFinding {
-	killSets := attributeKills(authoritative, assertions)
+	killSets := attributeKills(authoritative, mutants, assertions)
 	findings := []report.CurateFinding{}
 
 	for _, declared := range assertions {

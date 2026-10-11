@@ -472,8 +472,9 @@ func (c *verdictCache) entryName(mutantID string) string {
 // mutant except the verdict — site, range, diff — stays as the current tree
 // describes it; the verdict itself is rebuilt through the Oracle context, so
 // an entry whose document no constructor could have produced is a miss like
-// any other corruption.
-func (c *verdictCache) load(mutants []report.Mutant) int {
+// any other corruption. Each replayed outcome is classified onto the run's
+// population fact, row for row with the published mutants.
+func (c *verdictCache) load(mutants []report.Mutant, classified []oracle.Classified) int {
 	unlock, err := c.lock()
 	if err != nil {
 		return 0
@@ -493,7 +494,7 @@ func (c *verdictCache) load(mutants []report.Mutant) int {
 			continue
 		}
 
-		if !rehydrated(&mutants[index], entry) {
+		if !rehydrated(&mutants[index], &classified[index], entry) {
 			continue
 		}
 
@@ -518,8 +519,9 @@ func (c *verdictCache) load(mutants []report.Mutant) int {
 // case — and re-projected onto the published DTO. Only then does the
 // replayed verdict reach a reader. The runs, diagnostics and execution
 // counts are the run's own observations, rehydrated as stored; the outcome
-// carries only the classification.
-func rehydrated(mutant *report.Mutant, entry cacheEntry) bool {
+// carries only the classification, and is classified onto the population
+// fact beside the published projection.
+func rehydrated(mutant *report.Mutant, classified *oracle.Classified, entry cacheEntry) bool {
 	record, err := storedRecord(oracleState(entry.State), entry.Verdict)
 	if err != nil {
 		return false
@@ -531,6 +533,7 @@ func rehydrated(mutant *report.Mutant, entry cacheEntry) bool {
 	}
 
 	*mutant = project(*mutant, outcome)
+	*classified = oracle.Classified{Operator: classified.Operator, Outcome: outcome}
 	mutant.Runs = entry.Runs
 	mutant.Diagnostics = slices.Clone(entry.Diagnostics)
 	slices.SortFunc(mutant.Diagnostics, compareDiagnostics)

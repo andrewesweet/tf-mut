@@ -135,7 +135,7 @@ func oneRound(
 		return pins, 0, err
 	}
 
-	result, err := mutate(ctx, runner, stagedConfiguration, graded,
+	result, population, err := mutate(ctx, runner, stagedConfiguration, graded,
 		stage.terraform, staged.ModuleDir)
 	if err != nil {
 		return pins, 0, err
@@ -146,14 +146,13 @@ func oneRound(
 	// The round's survivors are evidence only where the round observed its
 	// whole population: a round that timed mutants out has not shown that the
 	// survivors stopped yielding, only that it stopped waiting.
-	authoritative, err := newAuthoritativePopulation(result, ErrUntilDryPopulation,
+	if _, err := population.Authoritative(ErrUntilDryPopulation,
 		"  A round that did not observe its whole population has not shown that the\n"+
-			"  survivors stopped yielding, only that it stopped waiting")
-	if err != nil {
+			"  survivors stopped yielding, only that it stopped waiting"); err != nil {
 		return pins, 0, err
 	}
 
-	updated, added := absorb(block, pins, authoritative)
+	updated, added := absorb(block, pins, result.Suggestions)
 
 	return updated, added, nil
 }
@@ -380,10 +379,11 @@ func stageSuite(
 // absorb takes the verified suggestions the round produced and turns the ones
 // at or below the chosen rung into pins.
 //
-// It accepts an authoritativePopulation and is reachable no other way: the
-// count it returns is the convergence claim's whole evidence, and a zero
-// drawn over mutants that never ran would declare the loop dry over
-// survivors it never observed.
+// It is reachable only after the round proved its population was fully
+// observed — oneRound refuses anything less before calling here: the count it
+// returns is the convergence claim's whole evidence, and a zero drawn over
+// mutants that never ran would declare the loop dry over survivors it never
+// observed.
 //
 // Only verified suggestions: an unverified one is a candidate the tool has not
 // proven kills anything, and pinning it would put an unproven assertion into a
@@ -393,7 +393,7 @@ func stageSuite(
 func absorb(
 	block *report.Characterisation,
 	pins []characterise.Pin,
-	authoritative authoritativePopulation,
+	suggestions []report.Suggestion,
 ) ([]characterise.Pin, int) {
 	// Keyed by scenario as well as expression: two scenarios legitimately need
 	// the same rendered condition, and a global set would silently drop the
@@ -406,7 +406,7 @@ func absorb(
 	rung := characterise.Rung(block.Rung)
 	added := 0
 
-	for _, suggestion := range authoritative.graded().Suggestions {
+	for _, suggestion := range suggestions {
 		scenario, found := scenarioForRun(block, suggestion.TargetRun)
 		if suggestion.Status != report.SuggestionVerified || !found {
 			continue

@@ -105,6 +105,7 @@ func suppress(
 	configuration discovery.Configuration,
 	exclude tfconfig.Exclude,
 	described []report.Mutant,
+	classified []oracle.Classified,
 ) ([]report.Mutant, []report.Suppression, []string) {
 	directives := collectDirectives(configuration)
 	applied := map[int]*report.Suppression{}
@@ -128,10 +129,12 @@ func suppress(
 	// The Ignored outcomes are constructed in a second pass: an inline
 	// directive's record accumulates the identifiers it covers, and the
 	// outcome must carry the finished record, not the half-finished one the
-	// first matching mutant would have seen.
+	// first matching mutant would have seen. The suppression is classified
+	// onto the population fact beside the published projection.
 	for index := range ignored {
-		described[index] = project(described[index],
-			oracle.Ignored(oracleSuppression(described[index].Suppression)))
+		outcome := oracle.Ignored(oracleSuppression(described[index].Suppression))
+		described[index] = project(described[index], outcome)
+		classified[index] = oracle.Classified{Operator: classified[index].Operator, Outcome: outcome}
 	}
 
 	suppressions := make([]report.Suppression, 0, len(directives))

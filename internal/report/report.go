@@ -129,13 +129,6 @@ const (
 	Unasserted Diagnosis = "unasserted"
 )
 
-// Actionable reports whether the diagnosis names something the reader can fix,
-// as opposed to something the oracle could not decide. It selects the SARIF
-// level, so the distinction is a published contract.
-func (d Diagnosis) Actionable() bool {
-	return d != IndeterminateUnknownValues && d != IndeterminateVolatility
-}
-
 // Position is a point in a source file.
 type Position struct {
 	Line   int `json:"line"`

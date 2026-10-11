@@ -137,7 +137,7 @@ type RuleDescription struct {
 func sarifLevel(mutant Mutant) (string, bool) {
 	switch mutant.State {
 	case Survived:
-		if mutant.Verdict != nil && !mutant.Verdict.Diagnosis.Actionable() {
+		if mutant.Verdict != nil && indeterminate(mutant.Verdict.Diagnosis) {
 			return levelNote, true
 		}
 
@@ -149,6 +149,14 @@ func sarifLevel(mutant Mutant) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// indeterminate keeps the SARIF level aligned with oracle.Diagnosis.Actionable
+// without importing the core from the stdlib-only publication leaf.
+// TestSARIFLevelsSplitActionableFromIndeterminateSurvivors checks this alignment
+// through the engine seam.
+func indeterminate(diagnosis Diagnosis) bool {
+	return diagnosis == IndeterminateUnknownValues || diagnosis == IndeterminateVolatility
 }
 
 // WriteSARIF renders the code-scanning document.

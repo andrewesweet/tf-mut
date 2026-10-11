@@ -33,10 +33,11 @@ func (o executionOracle) observe(
 	built sandbox.Sandbox,
 	verdict report.Mutant,
 	observation oracle.Observation,
-) (report.Mutant, *report.ExecutionError) {
+	phaseOne oracle.Outcome,
+) (report.Mutant, oracle.Outcome, *report.ExecutionError) {
 	payloads, outcomes, err := o.fingerprintRun(ctx, built)
 	if err != nil {
-		return verdict, &report.ExecutionError{
+		return verdict, phaseOne, &report.ExecutionError{
 			MutantID: verdict.ID,
 			Site:     verdict.Site,
 			Message:  "the fingerprint run could not be evaluated: " + err.Error(),
@@ -49,7 +50,7 @@ func (o executionOracle) observe(
 	delta := fingerprint.Compare(mask, o.plan.prepared.payloads, payloads)
 
 	if refusal := missingRuns(verdict, delta); refusal != nil {
-		return verdict, refusal
+		return verdict, phaseOne, refusal
 	}
 
 	observation = observation.WithPhaseTwo(
@@ -60,11 +61,13 @@ func (o executionOracle) observe(
 		var rerunErr *report.ExecutionError
 		observation, rerunErr = o.rerunForVolatility(ctx, built, verdict, payloads, observation)
 		if rerunErr != nil {
-			return verdict, rerunErr
+			return verdict, phaseOne, rerunErr
 		}
 	}
 
-	return project(verdict, oracle.Judge(observation)), nil
+	outcome := oracle.Judge(observation)
+
+	return project(verdict, outcome), outcome, nil
 }
 
 // missingRuns is the operational refusal when a run block the baseline

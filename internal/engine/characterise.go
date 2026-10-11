@@ -159,7 +159,9 @@ func characteriseModule(
 			// reasons, so the report that records it reaches the caller rather
 			// than being discarded with an error.
 			result.Characterisation = &block
-			result.Metrics = projectMetrics(oracle.ComputeMetrics(nil))
+			result.Metrics = projectMetrics(
+				oracle.ComputeMetrics(oracle.NewPopulation(nil, oracle.Provenance{})),
+			)
 
 			return result, nil
 		}
@@ -169,7 +171,9 @@ func characteriseModule(
 	}
 
 	result.Characterisation = &block
-	result.Metrics = projectMetrics(oracle.ComputeMetrics(nil))
+	result.Metrics = projectMetrics(
+		oracle.ComputeMetrics(oracle.NewPopulation(nil, oracle.Provenance{})),
+	)
 
 	if err := commit(stage, &block, files, &result); err != nil {
 		return report.Report{}, err

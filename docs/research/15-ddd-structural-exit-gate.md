@@ -300,8 +300,8 @@ named results would be `PopulationClassified`, `SuggestionVerified`, `Suggestion
 any of those names exists in the tree; `report.SuggestionVerified` and
 `report.SuggestionRefuted` are the pre-existing wire-status constants. The handoffs return the
 context types themselves, which are immutable and context-owned; a named fact per handoff
-was not minted. See §7 for what this means against the rubric. (The population fact is
-scheduled to land as `oracle.Population` under ticket 4 of the DDD review at `9a0ef66`.)
+was not minted. See §7 for what this means against the rubric. For the current population
+handoff, see the [context map](../../CONTEXT.md#oracle--verdict).
 
 ### 3.4 `discovery` publishes `hcl.Expression`; native syntax has named accessors — ADR-0004
 
