@@ -267,7 +267,7 @@ func blockTypeStep(
 				"and the payload path names no key for it", ErrUnrenderable, name)
 		}
 
-		return "." + name + "[" + strconv.Quote(key) + "]", blockType.Block, nil
+		return "." + name + "[" + quoteKey(key) + "]", blockType.Block, nil
 	case tfexec.NestingSet:
 		return "", tfexec.SchemaBlock{}, fmt.Errorf("%w: the block %s is set-nested, and a "+
 			"set has no index an assertion could name", ErrUnrenderable, name)
@@ -402,7 +402,7 @@ func keyedSteps(
 	if hclsyntax.ValidIdentifier(key) {
 		builder.WriteString("." + key)
 	} else {
-		builder.WriteString("[" + strconv.Quote(key) + "]")
+		builder.WriteString("[" + quoteKey(key) + "]")
 	}
 
 	if len(steps[winner:]) == 0 {
@@ -577,6 +577,17 @@ func walkIndicesAndNames(attribute string) (string, error) {
 	}
 
 	return builder.String(), nil
+}
+
+// quoteKey renders a payload key as an HCL quoted string. strconv.Quote
+// escapes the bytes, but not the template sequences: inside HCL a `${` or
+// `%{` starts an interpolation or directive even in a quoted string, and
+// only the doubled marker spells it literally.
+func quoteKey(key string) string {
+	quoted := strconv.Quote(key)
+	quoted = strings.ReplaceAll(quoted, "${", "$${")
+
+	return strings.ReplaceAll(quoted, "%{", "%%{")
 }
 
 // digitsOnly reports whether a bracketed key is a numeric index.

@@ -419,6 +419,14 @@ func scalarAdmissionRows() []renderingCase {
 			want: "example_thing.app.spec[0].replicas == 3", refused: nil,
 		},
 		{
+			name:     "a keyed entry whose key carries template syntax stays literal",
+			path:     statePrefix + "example_thing.app].values.triggers.${part}%{blk}",
+			baseline: steadyBaseline,
+			schemas:  schemaTyping("triggers", `["map","string"]`),
+			want:     `example_thing.app.triggers["$${part}%%{blk}"] == "steady"`,
+			refused:  nil,
+		},
+		{
 			name:     "a map attribute's non-identifier key",
 			path:     statePrefix + "example_thing.app].values.triggers.app.kubernetes.io/part-of",
 			baseline: steadyBaseline,
