@@ -1,6 +1,6 @@
 # ADR-0003: Synchronous immutable result facts
 
-Status: accepted  
+Status: superseded by [ADR-0005](0005-in-process-domain-event-dispatch.md)  
 Date: 2026-09-07
 
 ## Decision

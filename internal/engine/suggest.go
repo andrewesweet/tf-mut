@@ -36,18 +36,23 @@ var suggestibleDiagnoses = []report.Diagnosis{
 	report.NoAssertion, report.WeakAssertion, report.Unasserted,
 }
 
-// suggestAssertions generates — and, unless this is a dry run, verifies — the
-// assertion that would have killed each selected survivor. The second result
-// is the verification cost statement, reporting the executions actually spent
-// on the candidates and on attributing any batch failures.
+// suggestAssertions is the suggestion leg's reaction to the classified
+// population. It generates — and, unless this is a dry run, verifies — the
+// assertion that would have killed each selected survivor and publishes the
+// outcome of each survivor generation said anything about. A verifying run
+// then publishes the verification cost, the executions actually spent on the
+// candidates and on attributing any batch failures; a dry run spends none.
 func suggestAssertions(
 	ctx context.Context,
 	plan executionPlan,
 	mutants []report.Mutant,
-) ([]report.Suggestion, string, error) {
+) error {
+	suggestPhase := plan.collector.phase(phaseSuggest)
+	defer suggestPhase()
+
 	selected, err := selectSurvivors(plan.settings, mutants)
 	if err != nil {
-		return nil, "", err
+		return err
 	}
 
 	candidates, skipped := suggest.Generator{
@@ -58,15 +63,76 @@ func suggestAssertions(
 	}.Generate(suggestable(selected))
 
 	if plan.settings.SuggestDryRun {
-		return projectGeneration(selected, candidates, nil, skipped), "", nil
+		return publishGeneration(plan.events, selected, candidates, nil, skipped)
 	}
 
 	verified, costs, err := verifySuggestions(ctx, plan, candidates)
 	if err != nil {
-		return nil, "", err
+		return err
 	}
 
-	return projectGeneration(selected, nil, verified, skipped), costs.Statement(), nil
+	if err := publishGeneration(plan.events, selected, nil, verified, skipped); err != nil {
+		return err
+	}
+
+	return plan.events.verificationCosted.publish(VerificationCosted{costs: costs})
+}
+
+// publishGeneration publishes generation's and verification's outcomes in
+// survivor order — the order generation produced them in — with collapsed
+// duplicates carried by their first assertion's AlsoKills. A survivor the
+// generator said nothing about publishes nothing.
+func publishGeneration(
+	events *dispatcher,
+	selected []report.Mutant,
+	candidates []suggest.Candidate,
+	concluded []suggest.Suggestion,
+	skipped []suggest.Suggestion,
+) error {
+	carriers := map[string]suggest.Candidate{}
+	for _, candidate := range candidates {
+		carriers[candidate.MutantID()] = candidate
+	}
+
+	terminals := map[string]suggest.Suggestion{}
+	for _, suggestion := range concluded {
+		terminals[suggestion.MutantID()] = suggestion
+	}
+
+	for _, suggestion := range skipped {
+		terminals[suggestion.MutantID()] = suggestion
+	}
+
+	for _, mutant := range selected {
+		if candidate, found := carriers[mutant.ID]; found {
+			if err := events.suggestionProposed.publish(SuggestionProposed{candidate: candidate}); err != nil {
+				return err
+			}
+
+			continue
+		}
+
+		if suggestion, found := terminals[mutant.ID]; found {
+			if err := publishOutcome(events, suggestion); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// publishOutcome publishes one terminal outcome under its own event.
+func publishOutcome(events *dispatcher, suggestion suggest.Suggestion) error {
+	if _, skipped := suggestion.SkipReason(); skipped {
+		return events.suggestionSkipped.publish(SuggestionSkipped{suggestion: suggestion})
+	}
+
+	if suggestion.Verified() {
+		return events.suggestionVerified.publish(SuggestionVerified{suggestion: suggestion})
+	}
+
+	return events.suggestionRefuted.publish(SuggestionRefuted{suggestion: suggestion})
 }
 
 // suggestable projects the selected survivors onto the Suggestion context's

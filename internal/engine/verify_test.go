@@ -160,6 +160,39 @@ func TestAStaleSurvivorIdentifierIsAnOperationalFailureNamingIt(t *testing.T) {
 	}
 }
 
+// TestASuggestionLegFailureWritesNoBaseline holds the dispatch order ADR-0005
+// records: the suggestion leg reacts to the classified population before the
+// acceptance gate does, and a leg that fails stops delivery, so the baseline
+// writer never runs. The control proves the same request writes the baseline
+// when the leg succeeds, so the absence is the ordering and not a dead writer.
+func TestASuggestionLegFailureWritesNoBaseline(t *testing.T) {
+	t.Parallel()
+
+	control := suggestRequest(t, copyFixture(t, suggestBasicFixture))
+	control.WriteBaseline = true
+
+	if _, err := engine.Run(t.Context(), control); err != nil {
+		t.Fatalf("control suggest run: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(control.ModuleDir, engine.DefaultBaselineName)); err != nil {
+		t.Fatalf("the control run wrote no baseline, so the ordering claim is untested: %v", err)
+	}
+
+	stale := suggestRequest(t, copyFixture(t, suggestBasicFixture))
+	stale.WriteBaseline = true
+	stale.SurvivorIDs = []string{"000000000000"}
+
+	if _, err := engine.Run(t.Context(), stale); !errors.Is(err, engine.ErrSurvivorSelection) {
+		t.Fatalf("error = %v, want a survivor-selection failure", err)
+	}
+
+	_, err := os.Stat(filepath.Join(stale.ModuleDir, engine.DefaultBaselineName))
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a failed suggestion leg still reached the baseline writer: stat error = %v", err)
+	}
+}
+
 func TestSurvivorSelectionScopesTheSuggestions(t *testing.T) {
 	t.Parallel()
 

@@ -133,6 +133,9 @@ func characteriseModule(
 		prepared: prepared, workRoot: workRoot, terraform: version, collector: collector,
 	}
 
+	events := dispatcher{}
+	projectSuite(&events, &result)
+
 	var block report.Characterisation
 
 	pins, files, err := scaffoldSuite(ctx, runner, stage, scaffold, &block)
@@ -162,10 +165,9 @@ func characteriseModule(
 			// The loop was refused. `refused` is one of three published stop
 			// reasons, so the report that records it reaches the caller rather
 			// than being discarded with an error.
-			result.Characterisation = &block
-			result.Metrics = projectMetrics(
-				oracle.ComputeMetrics(oracle.NewPopulation(nil, oracle.Provenance{})),
-			)
+			if err := events.suiteCharacterised.publish(SuiteCharacterised{suite: block}); err != nil {
+				return report.Report{}, err
+			}
 
 			return result, nil
 		}
@@ -174,16 +176,29 @@ func characteriseModule(
 		block.Files = entriesOf(files)
 	}
 
-	result.Characterisation = &block
-	result.Metrics = projectMetrics(
-		oracle.ComputeMetrics(oracle.NewPopulation(nil, oracle.Provenance{})),
-	)
-
 	if err := commit(stage, &block, files, &result); err != nil {
 		return report.Report{}, err
 	}
 
+	if err := events.suiteCharacterised.publish(SuiteCharacterised{suite: block}); err != nil {
+		return report.Report{}, err
+	}
+
 	return result, nil
+}
+
+// projectSuite subscribes the report projection to the concluded suite:
+// whatever the suite's outcome, the report carries it, with the metrics of an
+// empty mutation population.
+func projectSuite(events *dispatcher, result *report.Report) {
+	events.suiteCharacterised.subscribe(func(event SuiteCharacterised) error {
+		result.Characterisation = &event.suite
+		result.Metrics = projectMetrics(
+			oracle.ComputeMetrics(oracle.NewPopulation(nil, oracle.Provenance{})),
+		)
+
+		return nil
+	})
 }
 
 // planScaffold plans the scaffold over the warmed-up schemas and the

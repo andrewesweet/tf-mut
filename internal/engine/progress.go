@@ -58,12 +58,14 @@ func startProgress(ctx context.Context, plan executionPlan, pending int) *progre
 	return tracker
 }
 
-// tick counts one finished mutant's evaluation. Safe on a nil tracker: the
+// observe counts one finished mutant's evaluation. Safe on a nil tracker: the
 // no-writer run pays a nil check per mutant and nothing else.
-func (t *progressTracker) tick() {
+func (t *progressTracker) observe(MutantEvaluated) error {
 	if t != nil {
 		t.done.Add(1)
 	}
+
+	return nil
 }
 
 // stopLine ends the tracker's goroutine and writes the final count, so the

@@ -515,13 +515,17 @@ func mutate(
 		closure:       configuration.BuildClosure(),
 		graph:         graph,
 		collector:     collector,
+		events:        &dispatcher{},
 	}
 
 	executionPhase := collector.phase(phaseExecution)
-	executed, classified, failures := executeWithCache(ctx, &result, version, plan)
+	evaluated, err := executeWithCache(ctx, &result, version, plan)
 	executionPhase()
+	if err != nil {
+		return report.Report{}, oracle.Population{}, err
+	}
 
-	return finish(ctx, plan, moduleDir, result, executed, classified, failures)
+	return finish(ctx, plan, moduleDir, result, evaluated)
 }
 
 // prepareWorkRoot refuses a suite with no run blocks and creates the run's
@@ -567,73 +571,140 @@ func floorGraph(configuration discovery.Configuration) *discovery.Graph {
 	return configuration.BuildGraph()
 }
 
-// finish completes the report, generates and verifies any suggestions, and
-// applies the baseline gate.
+// finish publishes the classified population and projects the report from
+// what its subscribers concluded.
+//
+// The subscription order is the contract (ADR-0005): the report projection
+// completes the aggregates first, the suggestion leg reacts next in suggest
+// mode, and the acceptance gate last, so a suggestion leg that fails stops
+// delivery before the baseline writer runs.
 func finish(
 	ctx context.Context,
 	plan executionPlan,
 	moduleDir string,
 	shell report.Report,
-	executed []report.Mutant,
-	classified []oracle.Classified,
-	failures []report.ExecutionError,
+	evaluated evaluatedPopulation,
 ) (report.Report, oracle.Population, error) {
-	finalisePhase := plan.collector.phase(phaseFinalise)
-	completed := complete(plan.configuration, plan.settings, shell, executed, classified, failures)
-	finalisePhase()
+	population := classifyRun(shell, evaluated.classified, evaluated.failures)
+	projection := &gradingProjection{plan: plan, moduleDir: moduleDir, shell: shell, evaluated: evaluated}
 
-	suggestions := []report.Suggestion(nil)
-	cost := ""
+	plan.events.populationClassified.subscribe(projection.complete)
 
 	if plan.settings.mode == suggestMode {
-		var suggestErr error
-		suggestPhase := plan.collector.phase(phaseSuggest)
-		suggestions, cost, suggestErr = suggestAssertions(ctx, plan, executed)
-		suggestPhase()
-		if suggestErr != nil {
-			return report.Report{}, oracle.Population{}, suggestErr
-		}
-	}
-
-	labels, err := applyBaselineGate(plan.settings, moduleDir, shell, executed,
-		completed.population, completed.gates)
-	if err != nil {
-		return report.Report{}, oracle.Population{}, err
-	}
-
-	// Attach the aggregate results after computing them over the population
-	// fact. Per-mutant projections already accompany their classified rows;
-	// the shell's selection, sampling, population split and suppressions pass
-	// through without becoming inputs to the outcome arithmetic.
-	result := shell
-	result.Mutants = executed
-	result.Errors = failures
-	result.Metrics = completed.metrics
-	result.OperatorErrors = completed.operatorErrors
-	result.Findings = completed.findings
-	result.Warnings = append(result.Warnings, completed.warnings...)
-	if cost != "" {
-		result.Warnings = append(result.Warnings, cost)
-	}
-
-	result.Gates = completed.gates
-	result.Suggestions = suggestions
-
-	if plan.settings.mode == suggestMode {
-		applySuggestions(plan.settings, &result, applyContext{
-			moduleDir:   plan.configuration.ModuleDir,
-			closureRoot: plan.configuration.ClosureRoot,
-			testDirs:    []string{plan.configuration.Tests.Dir, plan.configuration.ModuleDir},
+		projection.subscribeSuggestions(plan.events)
+		plan.events.populationClassified.subscribe(func(PopulationClassified) error {
+			return suggestAssertions(ctx, plan, evaluated.rows)
 		})
 	}
 
-	for index, label := range labels {
+	plan.events.populationClassified.subscribe(projection.accept)
+
+	if err := plan.events.populationClassified.publish(PopulationClassified{population: population}); err != nil {
+		return report.Report{}, oracle.Population{}, err
+	}
+
+	return projection.project(), population, nil
+}
+
+// gradingProjection is the report projection's subscriber state: what each
+// published conclusion contributes to the report, held until the report is
+// projected once, last.
+type gradingProjection struct {
+	plan        executionPlan
+	moduleDir   string
+	shell       report.Report
+	evaluated   evaluatedPopulation
+	completed   completedRun
+	suggestions []report.Suggestion
+	cost        string
+	labels      map[int]string
+}
+
+// complete computes the aggregates over the classified population.
+func (p *gradingProjection) complete(event PopulationClassified) error {
+	finalisePhase := p.plan.collector.phase(phaseFinalise)
+	p.completed = complete(p.plan.configuration, p.plan.settings, p.shell,
+		p.evaluated.rows, event.population)
+	finalisePhase()
+
+	return nil
+}
+
+// accept applies the baseline gate to the classified population.
+func (p *gradingProjection) accept(event PopulationClassified) error {
+	labels, err := applyBaselineGate(p.plan.settings, p.moduleDir, p.shell, p.evaluated.rows,
+		event.population, p.completed.gates)
+	p.labels = labels
+
+	return err
+}
+
+// subscribeSuggestions projects each suggestion outcome in publication order,
+// which is survivor order, and the verification cost statement.
+func (p *gradingProjection) subscribeSuggestions(events *dispatcher) {
+	p.suggestions = []report.Suggestion{}
+
+	events.suggestionProposed.subscribe(func(event SuggestionProposed) error {
+		p.suggestions = append(p.suggestions, projectCandidate(event.candidate))
+
+		return nil
+	})
+	events.suggestionVerified.subscribe(func(event SuggestionVerified) error {
+		p.suggestions = append(p.suggestions, projectSuggestion(event.suggestion))
+
+		return nil
+	})
+	events.suggestionRefuted.subscribe(func(event SuggestionRefuted) error {
+		p.suggestions = append(p.suggestions, projectSuggestion(event.suggestion))
+
+		return nil
+	})
+	events.suggestionSkipped.subscribe(func(event SuggestionSkipped) error {
+		p.suggestions = append(p.suggestions, projectSuggestion(event.suggestion))
+
+		return nil
+	})
+	events.verificationCosted.subscribe(func(event VerificationCosted) error {
+		p.cost = event.costs.Statement()
+
+		return nil
+	})
+}
+
+// project attaches the aggregate results computed over the population fact.
+// Per-mutant projections already accompany their classified rows; the shell's
+// selection, sampling, population split and suppressions pass through without
+// becoming inputs to the outcome arithmetic.
+func (p *gradingProjection) project() report.Report {
+	result := p.shell
+	result.Mutants = p.evaluated.rows
+	result.Errors = p.evaluated.failures
+	result.Metrics = p.completed.metrics
+	result.OperatorErrors = p.completed.operatorErrors
+	result.Findings = p.completed.findings
+	result.Warnings = append(result.Warnings, p.completed.warnings...)
+	if p.cost != "" {
+		result.Warnings = append(result.Warnings, p.cost)
+	}
+
+	result.Gates = p.completed.gates
+	result.Suggestions = p.suggestions
+
+	if p.plan.settings.mode == suggestMode {
+		applySuggestions(p.plan.settings, &result, applyContext{
+			moduleDir:   p.plan.configuration.ModuleDir,
+			closureRoot: p.plan.configuration.ClosureRoot,
+			testDirs:    []string{p.plan.configuration.Tests.Dir, p.plan.configuration.ModuleDir},
+		})
+	}
+
+	for index, label := range p.labels {
 		if label != "" {
 			labelFinding(&result.Mutants[index], label)
 		}
 	}
 
-	return result, completed.population, nil
+	return result
 }
 
 // executeWithCache replays cached verdicts under the coarse correct key
@@ -645,7 +716,7 @@ func executeWithCache(
 	result *report.Report,
 	terraform tfexec.Version,
 	plan executionPlan,
-) ([]report.Mutant, []oracle.Classified, []report.ExecutionError) {
+) (evaluatedPopulation, error) {
 	loadPhase := plan.collector.phase(phaseCacheLoad)
 	cache := openCache(plan.configuration, plan.settings, plan.prepared, terraform)
 	if cache != nil {
@@ -655,16 +726,19 @@ func executeWithCache(
 
 	loadPhase()
 
-	executed, classified, failures := execute(ctx, plan)
+	evaluated, err := execute(ctx, plan)
+	if err != nil {
+		return evaluatedPopulation{}, err
+	}
 
 	storePhase := plan.collector.phase(phaseCacheStore)
 	if cache != nil {
-		cache.store(executed)
+		cache.store(evaluated.rows)
 	}
 
 	storePhase()
 
-	return executed, classified, failures
+	return evaluated, nil
 }
 
 // finalise applies the configured exclusions and defaults, and refuses the
@@ -767,14 +841,11 @@ func complete(
 	settings settings,
 	shell report.Report,
 	executed []report.Mutant,
-	classified []oracle.Classified,
-	failures []report.ExecutionError,
+	population oracle.Population,
 ) completedRun {
-	population := classifyRun(shell, classified, failures)
 	metrics := projectMetrics(oracle.ComputeMetrics(population))
 
 	return completedRun{
-		population:     population,
 		metrics:        metrics,
 		operatorErrors: projectOperatorErrors(oracle.ComputeOperatorErrors(population)),
 		findings:       findingsOf(configuration, executed, population),
@@ -787,7 +858,6 @@ func complete(
 // the population fact and projected onto the published report once, in
 // finish.
 type completedRun struct {
-	population     oracle.Population
 	metrics        report.Metrics
 	operatorErrors []report.OperatorErrors
 	findings       []report.Finding

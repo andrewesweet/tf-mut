@@ -382,47 +382,6 @@ func storedDelta(changes []report.Change) []fingerprint.Change {
 	return converted
 }
 
-// projectGeneration maps generation's and verification's outcomes onto the
-// published DTOs in survivor order — the order generation produced them in —
-// with collapsed duplicates carried by their first assertion's AlsoKills. A
-// survivor the generator said nothing about projects to nothing.
-func projectGeneration(
-	selected []report.Mutant,
-	candidates []suggest.Candidate,
-	concluded []suggest.Suggestion,
-	skipped []suggest.Suggestion,
-) []report.Suggestion {
-	carriers := map[string]suggest.Candidate{}
-	for _, candidate := range candidates {
-		carriers[candidate.MutantID()] = candidate
-	}
-
-	terminals := map[string]suggest.Suggestion{}
-	for _, suggestion := range concluded {
-		terminals[suggestion.MutantID()] = suggestion
-	}
-
-	for _, suggestion := range skipped {
-		terminals[suggestion.MutantID()] = suggestion
-	}
-
-	projected := make([]report.Suggestion, 0, len(candidates)+len(skipped))
-
-	for _, mutant := range selected {
-		if candidate, found := carriers[mutant.ID]; found {
-			projected = append(projected, projectCandidate(candidate))
-
-			continue
-		}
-
-		if suggestion, found := terminals[mutant.ID]; found {
-			projected = append(projected, projectSuggestion(suggestion))
-		}
-	}
-
-	return projected
-}
-
 // projectCandidate maps a candidate onto the published DTO. The candidate
 // status needs no mapping: the value's type is the status.
 func projectCandidate(candidate suggest.Candidate) report.Suggestion {
