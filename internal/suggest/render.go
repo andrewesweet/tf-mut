@@ -49,13 +49,33 @@ func (r render) equality(
 ) (string, error) {
 	expression, resource, attribute := parts.expression, parts.resource, parts.attribute
 
+	// A path that continues past the value body — an element of a list-valued
+	// output, a nested block, a keyed collection — is spelled by the walk, one
+	// schema- or grammar-justified segment at a time. Every form below uses
+	// that spelling; the provisional dotted join the address adapter emitted
+	// is never asserted on its own.
+	continued := strings.HasPrefix(attribute, "[") || len(fingerprint.AttributeSegments(attribute)) > 1
+
+	normalize := func() (string, error) {
+		if !continued {
+			return expression, nil
+		}
+
+		return r.spellContinuation(resource, attribute)
+	}
+
 	// A mutant that nulls the value is answered by an inequality, whatever the
 	// baseline held: it is true on the baseline and false under the mutant.
 	// A whole value absent from the baseline payload is a non-empty container —
 	// empty ones render — and anything else needs the delta to have proven the
 	// baseline value existed.
 	if mutant == nullMarker && (attribute == "" || baseline != "" || evidence.ProvenNonNull[parts.path]) {
-		return expression + " != null", nil
+		spelled, err := normalize()
+		if err != nil {
+			return "", err
+		}
+
+		return spelled + " != null", nil
 	}
 
 	// A change whose value side is empty under a counted instance is a
@@ -81,28 +101,33 @@ func (r render) equality(
 	// could not know: the plan marks those, and a length over unknowns is a lie
 	// the baseline run exposes.
 	if baseline == emptyObject || baseline == emptyArray {
+		spelled, err := normalize()
+		if err != nil {
+			return "", err
+		}
+
 		if evidence.markersUnder(parts.path) {
 			return "", fmt.Errorf("%w: the plan marks parts of this value unknown, and a "+
 				"length over unknowns is not evidence", ErrUnrenderable)
 		}
 
-		return "length(" + expression + ") == 0", nil
+		return "length(" + spelled + ") == 0", nil
 	}
 
 	segments := fingerprint.AttributeSegments(attribute)
 
 	switch {
+	case continued:
+		spelled, err := normalize()
+		if err != nil {
+			return "", err
+		}
+
+		return scalarEquality(spelled, baseline)
 	case attribute == "":
 		// A whole output value. No provider schema types an output, so the
 		// scalar in front of us is the only type evidence there is.
 		return scalarEquality(expression, baseline)
-	case strings.HasPrefix(attribute, "[") || len(segments) > 1:
-		// The path continues past the value it names: an element of a list-
-		// valued output, a nested block, or a keyed collection. The walk
-		// renders it from the resource address out, so it starts there —
-		// `expression` already carries the provisional dotted spelling and is
-		// not reused.
-		return r.walkEquality(resource, attribute, baseline)
 	default:
 		return r.leafEquality(expression, resource, segments[0], baseline)
 	}
@@ -140,12 +165,12 @@ func countEquality(resource, mutant string, evidence Evidence) (string, bool, er
 	return "length(" + base + ") == " + strconv.Itoa(count), true, nil
 }
 
-// walkEquality renders a path that continues past a first segment: a list-
+// spellContinuation spells a path that continues past the value body: a list-
 // valued output's element, a nested block's attribute, or a keyed collection's
 // entry. The walk starts from the resource address and consumes one path
 // segment at a time, so every spelling it emits is one the segment in front of
 // it justifies.
-func (r render) walkEquality(resource, attribute, baseline string) (string, error) {
+func (r render) spellContinuation(resource, attribute string) (string, error) {
 	kind, resourceType, ok := schemaCoordinates(resource)
 	if !ok {
 		// No provider schema types an output. The walk trusts exactly what the
@@ -156,12 +181,12 @@ func (r render) walkEquality(resource, attribute, baseline string) (string, erro
 			return "", err
 		}
 
-		expression := resource + suffix
-		if err := parseTraversal(expression); err != nil {
-			return "", notDotted(expression)
+		spelled := resource + suffix
+		if err := parseTraversal(spelled); err != nil {
+			return "", notDotted(spelled)
 		}
 
-		return scalarEquality(expression, baseline)
+		return spelled, nil
 	}
 
 	root, found := r.schemas.Block(kind, resourceType)
@@ -174,12 +199,12 @@ func (r render) walkEquality(resource, attribute, baseline string) (string, erro
 		return "", err
 	}
 
-	expression := resource + builder.String()
-	if err := parseTraversal(expression); err != nil {
-		return "", notDotted(expression)
+	spelled := resource + builder.String()
+	if err := parseTraversal(spelled); err != nil {
+		return "", notDotted(spelled)
 	}
 
-	return scalarEquality(expression, baseline)
+	return spelled, nil
 }
 
 // walkBlockSteps renders a payload path's segments inside a block schema's

@@ -98,6 +98,7 @@ func untyped() tfexec.Schemas {
 const (
 	statePrefix     = "root_module.resources["
 	steadyBaseline  = `"steady"`
+	emptiedObject   = "{}"
 	countedResource = "example_thing.counted"
 	nestedMarker    = `"deep"`
 	nulledValue     = "null"
@@ -432,7 +433,35 @@ func scalarAdmissionRows() []renderingCase {
 func structuredAdmissionRows() []renderingCase {
 	return []renderingCase{
 		{
-			name: "a map attribute's identifier key stays dotted",
+			name:     "a nulled keyed entry renders in index form",
+			path:     statePrefix + "example_thing.app].values.triggers.app.io/x",
+			baseline: steadyBaseline, mutant: nulledValue,
+			schemas: schemaTyping("triggers", `["map","string"]`),
+			want:    `example_thing.app.triggers["app.io/x"] != null`, refused: nil,
+		},
+		{
+			name:     "a nulled nested block attribute renders through the walk",
+			path:     statePrefix + "example_thing.app].values.connection[0].subresource_names[0]",
+			baseline: `"second"`, mutant: nulledValue,
+			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
+				"connection": {NestingMode: tfexec.NestingList, Block: tfexec.SchemaBlock{
+					Attributes: map[string]tfexec.SchemaAttribute{
+						"subresource_names": {Optional: true, Type: json.RawMessage(`["list","string"]`)},
+					},
+				}},
+			}),
+			want:    `example_thing.app.connection[0].subresource_names[0] != null`,
+			refused: nil,
+		},
+		{
+			name:     "an emptied keyed entry is a length over the index form",
+			path:     statePrefix + "example_thing.app].values.triggers.app.io/x",
+			baseline: emptiedObject, mutant: "",
+			schemas: schemaTyping("triggers", `["map","string"]`),
+			want:    `length(example_thing.app.triggers["app.io/x"]) == 0`, refused: nil,
+		},
+		{
+			name:     "a map attribute's identifier key stays dotted",
 			path: statePrefix + "example_thing.app].values.triggers.plain", baseline: steadyBaseline,
 			schemas: schemaTyping("triggers", `["map","string"]`),
 			want:    `example_thing.app.triggers.plain == "steady"`, refused: nil,
