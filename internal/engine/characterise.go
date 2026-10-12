@@ -96,16 +96,10 @@ var seedMissingMock = func(_ discovery.Configuration,
 	return staged
 }
 
-// characterise scaffolds, harvests, pins and verifies a suite for a module.
-// It reads top-down as five named steps: gating the staged suite, preparing
-// the stage, scaffolding the suite, running until dry, committing.
+// characteriseModule scaffolds, harvests, pins and verifies a suite for a module.
 //
-// The order is the contract. The safety gates are evaluated against the
-// effective staged suite — the module sources plus the planned scaffold —
-// statically, before Terraform is asked to do anything; the scaffold is
-// harvested twice so that a value the mock invented cannot be pinned as one
-// the module computes; and the pinned suite is proven green in a sandbox
-// before a single byte reaches the source tree.
+// See gateStagedSuite for safety-gate ordering and scaffoldSuite for the
+// harvest, pin and verification contract.
 func characteriseModule(
 	ctx context.Context,
 	runner tfexec.Runner,
@@ -168,13 +162,13 @@ func characteriseModule(
 }
 
 // gateStagedSuite decides the safety gates against the effective staged suite
-// — the module sources plus the planned scaffold — before anything else but
-// the inputs. The mock half of that suite needs no provider schema: a
-// `mock_provider` block's name and alias come from discovery, and only the
-// pinned defaults inside it come from a schema. So the mocks are rendered
-// here, gated here, and enriched with defaults after the warm-up — and a
-// refusal costs no `init`, no provider download and no schema read, exactly
-// as it does for a mutation run.
+// — the module sources plus the planned scaffold — before stage preparation.
+// The version probe and discovery have already run; see probe. The mock half
+// of that suite needs no provider schema: a `mock_provider` block's name and
+// alias come from discovery, and only the pinned defaults inside it come from
+// a schema. The mocks are rendered and gated here, then enriched with defaults
+// after warm-up. A refusal costs no `init`, no provider download and no schema
+// read, exactly as it does for a mutation run.
 func gateStagedSuite(
 	configuration discovery.Configuration,
 	settings settings,
@@ -447,10 +441,6 @@ func closeTheGap(
 // report block stage by stage and returning the context pins everything
 // downstream — the renderer, the verifier, the until-dry loop — continues
 // from.
-// scaffoldSuite renders, harvests, pins and verifies the planned suite. It
-// reads top-down as four named steps: the block's shell and its escalation
-// record, the artefact a scaffold with open judgement points stops at, the
-// harvest that pins, and the verification that promotes.
 func scaffoldSuite(
 	ctx context.Context,
 	stage characteriseStage,
@@ -770,10 +760,9 @@ func pinnedFiles(
 // harvestScaffold runs the assertion-less scaffold twice and projects what it
 // observed.
 //
-// Twice, because the difference between two runs of the same configuration is
-// the only evidence that separates a value the module computes from one a mock
-// invented — and pinning the second kind would generate a suite that is flaky
-// by construction.
+// Two runs expose volatility under the same configuration, so pinning can
+// skip values that would make the generated suite flaky. For schema-backed
+// mock-value exclusions, see characterise.PinHarvest.
 func harvestScaffold(
 	ctx context.Context,
 	stage characteriseStage,

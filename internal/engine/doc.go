@@ -21,8 +21,9 @@
 //
 // # The grading pipeline, in order
 //
-// Run (engine.go) discovers the configuration and dispatches by request
-// type. Except for todos, it checks the Terraform version before discovery.
+// Run (engine.go) obtains settings, starts instrumentation and delegates to
+// dispatch. Its request type switch answers todos locally; other requests
+// reach the version check and discovery through probe.
 // The grading commands share mutate (engine.go), whose stages are owned
 // file by file; preview stops after the count levers:
 //

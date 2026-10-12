@@ -239,10 +239,7 @@ var (
 // died never hangs on the way out.
 const traceFlushTimeout = 5 * time.Second
 
-// Run performs a complete mutation run and returns the report. It reads
-// top-down as three named steps: the request's settings, the instrumentation
-// the report's telemetry records through, and the dispatch that carries every
-// gate and command.
+// Run executes the requested command and returns its report.
 func Run(ctx context.Context, request Request) (result report.Report, err error) {
 	started := time.Now()
 	var collector *runCollector
@@ -272,8 +269,8 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 
 // instrumentation is what the telemetry setup hands the pipeline: the
 // collector every phase records through, and the stop closure that ends the
-// run span, flushes the tracer and stops the CPU profile in the order they
-// were set up.
+// run span, flushes the tracer and stops the CPU profile in reverse setup
+// order.
 type instrumentation struct {
 	collector *runCollector
 	stop      func()
@@ -315,8 +312,7 @@ func instrument(ctx context.Context, s *settings) (instrumentation, context.Cont
 // because it runs no Terraform at all — the shipped skill promises a cheap
 // local inspection an agent calls every iteration, and making it unavailable
 // when Terraform is absent or broken would break the loop over a check it
-// never needed — and every gate runs before any Terraform. Request types
-// choose dispatch; characterise and todos publish no telemetry.
+// never needed. For safety-gate ordering, see applyGates and gateStagedSuite.
 func dispatch(
 	ctx context.Context, request Request, s settings, collector *runCollector,
 ) (report.Report, error) {
