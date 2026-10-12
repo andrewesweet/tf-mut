@@ -1,6 +1,8 @@
-// Package report holds the value the engine returns and the renderings of it.
+// Package report holds the value the engine returns and the renderings of it:
+// the terminal renderer and the `WriteJSON`, `WriteSARIF`, `WriteMTE`,
+// `WriteHTML`, `WriteJUnit` and `WriteMarkdown` reporters.
 //
-// The terminal, JSON and SARIF reporters are all derived from this single
+// Every reporter is derived from this single
 // value, so no two of them can disagree about a verdict.
 package report
 
@@ -53,7 +55,8 @@ const SchemaVersion = "2.9.0"
 // Command names what produced a report.
 type Command string
 
-// The two commands that produce a report.
+// The commands that produce a report: run, preview, suggest,
+// characterise, curate and todos.
 const (
 	// CommandRun executed the mutant population.
 	CommandRun Command = "run"
@@ -498,7 +501,8 @@ type ExecutionError struct {
 // Report is the engine's complete result.
 type Report struct {
 	SchemaVersion string `json:"schema_version"`
-	// Command is run or preview.
+	// Command is the command that produced the report — one of run,
+	// preview, suggest, characterise, curate or todos.
 	Command Command `json:"command"`
 	// Module is the absolute directory of the module under test.
 	Module string `json:"module"`

@@ -1,9 +1,11 @@
-// Package mutation generates the Tier 0 extreme mutant population for a
-// discovered Terraform configuration.
+// Package mutation generates the mutant population for a discovered
+// Terraform configuration: the Tier 0 extreme operators applied through
+// hclwrite, and Tiers 1 to 5 applied as byte-range rewrites, so a mutant
+// differs from the original only in the tokens its operator owns.
 //
-// Every mutant is anchored to a node in the hclsyntax AST and applied through
-// hclwrite, so the rewritten file differs from the original only in the tokens
-// the operator owns.
+// Tier 5 is the domain packs' form operators, loaded from a pack under the
+// normative contract and selected by name, never by tier. The shipped
+// security-aws pack is embedded and parsed through the same contract.
 package mutation
 
 import (

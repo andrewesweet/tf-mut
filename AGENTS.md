@@ -179,7 +179,7 @@ this repository contract.
 | `internal/config` | `.tf-mut.hcl` and the inline suppression directives |
 | `internal/sandbox` | Closure-rooted materialisation, provider and remote-module sharing, fresh-inode writes |
 | `internal/tfexec` | The Terraform CLI: `version`, `init`, `validate`, `providers schema`, `fmt`, and the `test -json` stream |
-| `internal/report` | The report value, its state, diagnosis and metric definitions, and the terminal, JSON and SARIF renderings |
+| `internal/report` | The report value, its state, diagnosis and metric definitions, and the seven reporter renderings (terminal, JSON, SARIF, mutation-testing-elements, HTML, JUnit, markdown) |
 
 The JSON reporter's contract is published at `docs/schema/report-2.9.0.json` and validated in
 the suite; `report-2.8.0.json`, `report-2.7.0.json`, `report-2.6.0.json`, `report-2.5.0.json`,

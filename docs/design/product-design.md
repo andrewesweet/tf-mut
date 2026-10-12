@@ -119,7 +119,8 @@ lookup fails, this run-block boundary check is disabled.
    rewrite and restoration protocol. For validation, see [Execute](#execute).
 3. `terraform test -verbose -json` — **twice**. Establish that the suite is green, record
    per-run plan fingerprints and `resource_changes` (which resources each run block plans —
-   the resource-coverage source), and time each run block for timeout calibration.
+   the resource-coverage source), and time the whole invocation for timeout calibration (the
+   baseline stores the invocation's `Duration`; the per-mutant timeout budget scales it).
 
 The second baseline run guards the fingerprint oracle against volatility, but the review
 (M5) established that the run-diff alone is insufficient in three ways: it is empty in plan
