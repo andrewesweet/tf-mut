@@ -30,12 +30,13 @@
 //     jsonfloor.go withdraws the static shortcuts while an unread JSON
 //     file in the closure leaves the run blind.
 //
-//   - Warm-up: baseline.go materialises the sandbox, runs the baseline
-//     suite green and the two fingerprint runs behind it — mask.go's
-//     staticMask folds the static volatility scan into the mask those
-//     runs derive — and reads the provider schemas (prepare,
-//     warmWorkspace); backend.go neutralises backend blocks in the
-//     staged copy before init.
+//   - Warm-up: baseline.go materialises and initialises the sandbox, then
+//     reads the provider schemas (prepare, warmWorkspace); backend.go
+//     neutralises backend blocks in the staged copy before init. Except
+//     in preview mode, the suite then runs twice, verbose: the first run
+//     proves it green, and both supply the fingerprints for the dynamic
+//     mask. mask.go's staticMask folds the static volatility scan into
+//     that mask.
 //
 //   - Generation: engine.go's build drives mutation.Generator; packs.go
 //     has resolved and loaded the packs the generator's selection
@@ -55,17 +56,27 @@
 //     only; engine.go's executeWithCache replays and refreshes the
 //     verdict cache around them.
 //
-//   - The report: engine.go's classifyRun and finishReport publish the
-//     population fact over the dispatcher events.go declares; findings.go
-//     derives the headline (resources planned and asserted on by
-//     nothing); metrics.go projects the population arithmetic;
-//     acceptance.go applies the baseline gate table; projection.go's
-//     project spells the oracle's vocabulary onto the wire once, last.
+//   - Population aggregates: engine.go's classifyRun and finishReport
+//     publish the population fact over the dispatcher events.go declares;
+//     projection.go's gradingProjection.completeReport computes the
+//     aggregates first. findings.go derives the headline (resources
+//     planned and asserted on by nothing); metrics.go projects the
+//     population arithmetic.
 //
-//   - The suggest leg: suggest.go generates candidates for the survivors;
-//     verify.go proves each candidate against the baseline and against
-//     its own mutant; apply.go writes the verified ones under the
-//     snapshot-bound preflight-then-atomic-rename protocol
+//   - The suggest leg (suggest mode): suggest.go generates candidates for
+//     the survivors; unless this is a dry run, verify.go proves each
+//     candidate against the baseline and against its own mutant.
+//
+//   - Acceptance: acceptance.go applies the baseline gate table after the
+//     suggestion leg succeeds, so a stale survivor selection fails before
+//     the baseline writer runs.
+//
+//   - Final report: projection.go's gradingProjection.project attaches
+//     the aggregates, suggestions and acceptance labels. The package-level
+//     project maps individual oracle outcomes earlier in the pipeline.
+//
+//   - Apply (suggest mode): apply.go writes the verified suggestions under
+//     the snapshot-bound preflight-then-atomic-rename protocol
 //     (applySuggestions).
 //
 // # The other commands
@@ -99,9 +110,10 @@
 //
 // # Seam controls
 //
-// The package's test seams are package-level variables, inert outside the
-// suite: disableStaticShortcuts, disableJSONReading and
+// Most test seams are package-level variables with production defaults:
+// disableStaticShortcuts, disableJSONReading and
 // seedGenerationDefect in engine.go; progressInterval in progress.go;
+// seedSuggestionDefect in suggest.go; gitTimeout in since.go;
 // applyCommitProbe in apply.go; seedMissingMock, seedNoEscalation and
 // seedSharedFileOrder in characterise.go; seedClosureChange,
 // seedClosureFile, seedClosureAfter, seedRenameWindowChange and
