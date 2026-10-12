@@ -289,6 +289,20 @@ Per mutant, in parallel across `min(NumCPU, --jobs)` workers:
 6. Assert the executed-run count is non-zero (a `-filter` matching nothing exits 0 — this is
    a **per-mutant invariant**, not a baseline-only check), classify, delete the sandbox.
 
+Mutation evaluation stops dispatching after consecutive operational failures reach
+the `--failure-trip` limit, capped at the pending population at the start of execution.
+Zero or negative values select the default. The streak follows worker result publication order;
+any mutant that produces a verdict resets it, including a timeout or an `Invalid` verdict.
+Cached and statically assigned verdicts do not enter the streak. Workers already holding
+a mutant finish, so concurrent runs can report more failures than the limit.
+
+The trip applies to `run`, `suggest`, `curate` and mutation rounds of
+`characterise --until-dry`. It returns the operational exit code (`2`) and marks the
+score incomplete, even when every pending mutant was dispatched. A warning names the
+trip and the failure that began the streak. On a refused invocation, the warning travels
+with the error instead of a report. The [report schema](../schema/report-2.10.0.json)
+owns the execution provenance and population-count contract for undispatched mutants.
+
 **The source tree is never written to.** This is a deliberate divergence from Oasis's
 in-place-plus-`git checkout` model: it removes the git dependency, removes any possibility of
 leaving mutated source behind on a crash, and is what makes parallelism possible at all.
@@ -356,8 +370,8 @@ Three R2 corrections are embedded there. **`MockMasked` is a diagnosis, not a st
 as a state it overlapped `Survived` by definition. **`Timeout` sits in the denominator and
 poisons score completeness** (R2-11): excluding it let machine load *raise* the score —
 K=1, S=1 scores 50%, and if load turns the survivor into a timeout the score became 100%;
-in-denominator, load can only lower it, and `--min-score` gates fail on an incomplete score
-unless `--allow-incomplete-score` is set. **`Unobservable` requires no unknowns in scope**
+in-denominator, load can only lower it. See [metrics](#5-metrics) for score completeness
+and gate overrides. **`Unobservable` requires no unknowns in scope**
 (R2-2): the reviewer proved plan-JSON equality does not imply unassertability — cty retains
 *refinements* of unknown values (the known `"stable-"` prefix of an unknown string) that the
 plan serialisation discards, and a legal `startswith` assertion killed a fingerprint-identical
@@ -447,8 +461,7 @@ partitions. The **scored set** is `K + KE + S + NC + SU + T`; `Invalid`, `Unobse
 
 `T` sits in every denominator it can reach (R2-11): machine load can then only *lower* a
 score, never raise it. The [published report schema](../schema/report-2.10.0.json) owns the
-conditions that mark a score **incomplete**, including consecutive-failure trips,
-unscored and Invalid-heavy populations. `--min-score` gates fail on incomplete scores unless
+conditions that mark a score **incomplete**. `--min-score` gates fail on incomplete scores unless
 `--allow-incomplete-score` is passed. The `K` versus `KE` share is always displayed alongside
 the mutation score: a score composed mostly of `KE` means Terraform is doing the detecting,
 not the tests.
@@ -736,9 +749,12 @@ Adoption on an existing codebase is via `--write-baseline`: accept today's findi
 project-local `.tf-mut-baseline.json` (by stable identifier and actionability class), then
 gate with `--fail-on-new` — CI fails on genuinely new findings and on nothing else. Writes
 and staleness reporting require a full, unsampled, freshly executed and fully observed
-population; scoped, sampled and cached runs evaluate the gate over what actually ran,
-labelled partial, and refuse a rewrite; a run in which any mutant timed out or failed to
-evaluate refuses the write outright, because a mutant that never ran was not observed.
+population. Scoped, sampled, cached and non-authoritative runs evaluate both
+`--fail-on-new` and `--min-score` over the selected population, labelled partial.
+They refuse a rewrite and do not report stale entries; accepted identifiers outside
+the observed population are unobserved. A timed-out, operationally failed or
+undispatched mutant prevents population authority: see the
+[authoritative population definition](../../CONTEXT.md#oracle--verdict).
 `--baseline PATH` relocates the file. No flag day.
 
 **The verdict cache and what it stores (M3b.2; M3 spec review M6).** Repeat runs replay

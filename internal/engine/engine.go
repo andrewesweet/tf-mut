@@ -249,20 +249,15 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	started := time.Now()
 	var collector *runCollector
 	defer func() {
-		if collector == nil {
-			return
-		}
-
-		if collector.trip != nil {
-			warnings := tripWarnings(collector.trip)
+		if collector != nil && collector.trip != nil {
 			if err != nil {
-				err = fmt.Errorf("%w\nwarning: %s", err, strings.Join(warnings, "\n"))
+				err = fmt.Errorf("%w\nwarning: %s", err, strings.Join(tripWarnings(collector.trip), "\n"))
 			} else {
-				result.Warnings = append(result.Warnings, warnings...)
+				result.Warnings = append(result.Warnings, tripWarnings(collector.trip)...)
 			}
 		}
 
-		if err != nil ||
+		if err != nil || collector == nil ||
 			result.Command == report.CommandCharacterise || result.Command == report.CommandTodos {
 			return
 		}
@@ -993,17 +988,16 @@ func scopeLabel(full bool) string {
 
 // gateOutcomes records the gate table's outcomes for this run (2.1.0). The
 // fail-on-new and baseline rows arrive with the baseline file (M3b.3); the
-// min-score row is recorded here, labelled partial over any scoped or sampled
-// population.
+// min-score row is recorded here, under the population authority and count-lever
+// rules documented in docs/design/product-design.md, section 10.
 func gateOutcomes(
 	settings settings,
 	shell report.Report,
 	metrics report.Metrics,
 	population oracle.Population,
 ) *report.Gates {
-	// The gate table's non-Full rows: scoped, sampled, or served even partly
-	// from the cache — each evaluated over what actually ran, labelled
-	// partial.
+	// Full selection alone does not prove full observation; the oracle must
+	// establish authority before the gate can claim the Full row.
 	_, authErr := population.Authoritative(ErrBaselineUnobserved, "")
 	partial := authErr != nil || shell.Sampling != nil ||
 		shell.Population.Cached > 0 ||

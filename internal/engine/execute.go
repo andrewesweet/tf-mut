@@ -54,9 +54,9 @@ type evaluatedPopulation struct {
 	rows       []report.Mutant
 	classified []oracle.Classified
 	failures   []report.ExecutionError
-	// trip is the consecutive-failure trip's record, present only when the
-	// run stopped dispatching. It is the fact the trip warning and the
-	// population provenance's unexecuted count are drawn from.
+	// trip is the consecutive-failure trip's record, present when its threshold
+	// was reached, even if no mutants remained to dispatch. Both the trip warning
+	// and the population provenance's unexecuted count come from this record.
 	trip *tripOutcome
 }
 
@@ -78,13 +78,12 @@ func (p *evaluatedPopulation) observe(event MutantEvaluated) error {
 	return nil
 }
 
-// execute runs every executable mutant, bounded by the configured job count,
-// and publishes each one's result.
+// execute evaluates pending mutants until exhaustion or a consecutive-failure
+// trip, bounded by the configured job count, and publishes each dispatched result.
 //
-// Verdicts do not depend on the parallelism level: each mutant gets its own
-// sandbox, results are written back to their own slot, and a failure in one
-// worker cannot reach another. Workers publish under one lock, so subscribers
-// see one result at a time, in the order workers acquire the lock.
+// Each evaluated mutant gets its own sandbox and result slot. Workers publish
+// under one lock, so subscribers see one result at a time, in the order workers
+// acquire the lock. The failure streak follows this publication order.
 func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, error) {
 	population := evaluatedPopulation{
 		rows:       make([]report.Mutant, len(plan.described)),
@@ -182,8 +181,8 @@ func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, erro
 	return population, nil
 }
 
-// tripOutcome records what the run observed when it stopped dispatching: the
-// streak that tripped it, the failure that started the streak, and the
+// tripOutcome records what the run observed when the failure threshold was
+// reached: the streak that tripped it, the failure that started the streak, and the
 // selected mutants never dispatched. It is execution's own fact — the report
 // names the trip from it and the population provenance counts it.
 type tripOutcome struct {

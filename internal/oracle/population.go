@@ -66,8 +66,8 @@ func NewPopulation(classified []Classified, provenance Provenance) Population {
 func (p Population) Classified() []Classified { return p.classified }
 
 // Authoritative is a classified population every member of which was
-// observed: no mutant timed out and none failed to evaluate. Both leave
-// mutants unobserved, and an unobserved mutant is not an absent one — an
+// observed: no mutant timed out, failed to evaluate or remained undispatched.
+// These leave mutants unobserved, and an unobserved mutant is not an absent one — an
 // empty kill set drawn over mutants that never ran is a false finding of
 // exactly the kind this value exists to make unconstructible.
 //

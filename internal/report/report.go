@@ -394,7 +394,8 @@ type GateOutcome struct {
 	Evaluated bool `json:"evaluated"`
 	// Scope is full or selected — the population the gate was evaluated over.
 	Scope string `json:"scope,omitempty"`
-	// Partial marks an evaluation over less than the full population.
+	// Partial marks an evaluation under the partial-population rules in
+	// docs/design/product-design.md, section 10.
 	Partial bool `json:"partial,omitempty"`
 	// Passed is the outcome where the gate was evaluated.
 	Passed bool `json:"passed,omitempty"`

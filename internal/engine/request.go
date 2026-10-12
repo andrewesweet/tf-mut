@@ -51,9 +51,9 @@ type Common struct {
 	TimeoutFloor            time.Duration
 	AllowRealInfrastructure bool
 	AllowUnsandboxedEffects bool
-	// FailureTripThreshold stops a run after this many consecutive
-	// operational failures. Zero — the zero value a caller leaves untouched —
-	// selects the documented default.
+	// FailureTripThreshold sets the operational-failure trip limit described
+	// in docs/design/product-design.md under Execute. Non-positive values
+	// select DefaultFailureTripThreshold.
 	FailureTripThreshold int
 	TerraformBinary      string
 	Env                  []string
