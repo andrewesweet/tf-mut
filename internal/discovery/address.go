@@ -59,6 +59,45 @@ func ParseAddr(address string) Addr {
 	return Addr{ModulePath: modulePath, Parts: segments}
 }
 
+// BlockAddr renders the canonical address of a configuration block from its
+// type and labels. It is the one spelling of the block-address scheme: the
+// graph's nodes and the mutation walker's sites both name their blocks through
+// it, so the two can no longer drift apart — a block the graph declares and a
+// site the walker generates are the same address by construction.
+//
+// It reports false for the block kinds that name no address of their own
+// (`locals` names its attributes, `terraform` is the tool's own contract) and
+// for a label count the kind cannot carry.
+func BlockAddr(kind string, labels []string) (string, bool) {
+	switch kind {
+	case resourceBlock, dataBlock:
+		if len(labels) != resourceLabelCount {
+			return "", false
+		}
+
+		address := labels[0] + "." + labels[1]
+		if kind == dataBlock {
+			address = dataBlock + "." + address
+		}
+
+		return address, true
+	case outputBlock, moduleBlock, checkBlock, providerBlock:
+		if len(labels) != 1 {
+			return "", false
+		}
+
+		return kind + "." + labels[0], true
+	case variableBlock:
+		if len(labels) != 1 {
+			return "", false
+		}
+
+		return "var." + labels[0], true
+	default:
+		return "", false
+	}
+}
+
 // splitAddress splits on dots outside instance keys, dropping the keys and
 // keeping splat steps as the wildcard.
 func splitAddress(address string) []string {
