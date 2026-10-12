@@ -20,6 +20,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
 
+	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
@@ -148,7 +149,8 @@ func publishedOutputTypes(payload tfexec.RunPayload) map[string]cty.Type {
 
 		declared, err := ctyjson.UnmarshalType(encoded)
 		if err == nil {
-			types[outputRoot+"."+name] = declared
+			address, _ := discovery.BlockAddr(outputRoot, []string{name})
+			types[address] = declared
 		}
 	}
 
@@ -555,7 +557,9 @@ func outputAddress(path string) string {
 		return ""
 	}
 
-	return "output." + name
+	address, _ := discovery.BlockAddr(outputRoot, []string{name})
+
+	return address
 }
 
 // Fingerprint composes the per-run hashes into the mutant's fingerprint.
@@ -800,12 +804,14 @@ func splitOutput(rest, body string) (address, attribute string, ok bool) {
 		return "", "", false
 	}
 
+	address, _ = discovery.BlockAddr(outputRoot, []string{name})
+
 	if remainder == body {
-		return outputRoot + "." + name, "", true
+		return address, "", true
 	}
 
 	if attribute, cut := strings.CutPrefix(remainder, body+"."); cut {
-		return outputRoot + "." + name, attribute, true
+		return address, attribute, true
 	}
 
 	// A list-valued output's element path continues from the body with an
@@ -816,7 +822,7 @@ func splitOutput(rest, body string) (address, attribute string, ok bool) {
 	if attribute, cut := strings.CutPrefix(remainder, body+"["); cut {
 		key, _, found := strings.Cut(attribute, "]")
 		if found && digitsOnly(key) {
-			return outputRoot + "." + name, "[" + attribute, true
+			return address, "[" + attribute, true
 		}
 	}
 

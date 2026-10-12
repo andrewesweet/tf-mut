@@ -44,13 +44,14 @@ type Attribute struct {
 
 // Block is a discovered configuration block.
 type Block struct {
-	// Kind is one of resource, data, output, module or local.
+	// Kind is one of resource, data, output, module, local or variable.
 	Kind string
 	// Type is the resource or data source type; empty for other kinds.
 	Type string
 	// Name is the block's second label, or the output/local name.
 	Name string
-	// Address is the Terraform address of the block within its module.
+	// Address is the block's identity within its module. Variable inventory
+	// entries retain variable.<name>; use BlockAddr for expression addresses.
 	Address string
 	// File is the absolute path of the file declaring the block.
 	File string

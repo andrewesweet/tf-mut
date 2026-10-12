@@ -1,8 +1,7 @@
 package oracle
 
 import (
-	"strings"
-
+	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 )
@@ -179,66 +178,61 @@ type lookup struct {
 	attribute string
 }
 
-// The address lengths that carry an attribute, by block kind.
-const (
-	dataAddressParts     = 4
-	resourceAddressParts = 3
-)
-
 // The address roots that are not managed resources.
 const (
 	dataRoot   = "data"
 	outputRoot = "output"
 )
 
-// schemaAttribute splits a Terraform address into the schema lookup it implies.
+// schemaAttribute maps discovery.ParseAddr's canonical address segments to a
+// provider-schema lookup. Output addresses name no provider-schema entry.
 func schemaAttribute(address string) (lookup, bool) {
-	parts := strings.Split(stripInstanceKeys(address), ".")
+	parsed := discovery.ParseAddr(address)
 
-	if len(parts) >= dataAddressParts && parts[0] == dataRoot {
+	// A module-qualified address names child-module internals, which a run
+	// rooted at this module observes only through its outputs — the same
+	// refusal suggest's address adapter makes. It implies no schema lookup
+	// here, and no resource this module's volatility scan could flag.
+	if len(parsed.ModulePath) > 0 {
+		return lookup{}, false
+	}
+
+	parts := parsed.Parts
+
+	if len(parts) >= 4 && parts[0] == dataRoot {
 		return lookup{kind: dataRoot, resource: parts[1], attribute: parts[3]}, true
 	}
 
-	if len(parts) >= resourceAddressParts && parts[0] != dataRoot && parts[0] != outputRoot {
+	if len(parts) >= 3 && parts[0] != dataRoot && parts[0] != outputRoot {
 		return lookup{kind: "resource", resource: parts[0], attribute: parts[2]}, true
 	}
 
 	return lookup{kind: "", resource: "", attribute: ""}, false
 }
 
-// resourceOf is the resource address an attribute address belongs to.
+// resourceOf uses discovery's address contract to derive the volatility-scan
+// key. A module-qualified address returns empty because this module's scan
+// cannot flag child-module resources.
 func resourceOf(address string) string {
-	parts := strings.Split(stripInstanceKeys(address), ".")
+	parsed := discovery.ParseAddr(address)
 
-	if len(parts) >= resourceAddressParts && parts[0] == dataRoot {
-		return strings.Join(parts[:resourceAddressParts], ".")
+	if len(parsed.ModulePath) > 0 {
+		return ""
 	}
 
-	if len(parts) >= addressParts {
-		return strings.Join(parts[:addressParts], ".")
+	parts := parsed.Parts
+
+	if len(parts) >= 3 && parts[0] == dataRoot {
+		resource, _ := discovery.BlockAddr(dataRoot, parts[1:3])
+
+		return resource
+	}
+
+	if len(parts) >= 2 { //nolint:mnd // the canonical grammar's bare `<type>.<name>` resource arity.
+		resource, _ := discovery.BlockAddr("resource", parts[:2])
+
+		return resource
 	}
 
 	return address
-}
-
-// addressParts is the length of a bare `<type>.<name>` address.
-const addressParts = 2
-
-func stripInstanceKeys(address string) string {
-	builder := strings.Builder{}
-	depth := 0
-
-	for _, letter := range address {
-		switch {
-		case letter == '[':
-			depth++
-		case letter == ']':
-			depth--
-		case depth == 0:
-			builder.WriteRune(letter)
-		default:
-		}
-	}
-
-	return builder.String()
 }

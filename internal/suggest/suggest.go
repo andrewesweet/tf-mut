@@ -188,7 +188,8 @@ func (g Generator) seed(survivor Survivor, candidate Candidate) generatedFile {
 	}
 
 	if g.Defect == DefectVanishing {
-		expression = "output." + SeededVanishingOutput + ` == "` + SeededWrongValue + `"`
+		address, _ := discovery.BlockAddr("output", []string{SeededVanishingOutput})
+		expression = address + ` == "` + SeededWrongValue + `"`
 	}
 
 	return build(survivor, target, expression)

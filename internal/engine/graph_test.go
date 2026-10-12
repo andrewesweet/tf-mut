@@ -1,13 +1,14 @@
 package engine_test
 
 import (
-	"os"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
+	"github.com/andrewesweet/tf-mut/internal/engine"
+	"github.com/andrewesweet/tf-mut/internal/mutation"
 )
 
 // The attribute-level reference graph (M3a.1, issue #44) is proven here in the
@@ -16,6 +17,15 @@ import (
 // with `terraform graph` at resource level over the fixture corpus — a
 // supplemental, test-suite-only check, never a user-invocation dependency and
 // never evidence of attribute-level soundness (review M1, C3).
+
+const (
+	runCommand          = "run"
+	previewCommand      = "preview"
+	suggestCommand      = "suggest"
+	characteriseCommand = "characterise"
+	todosCommand        = "todos"
+	curateCommand       = "curate"
+)
 
 // discover parses a fixture the way the engine does, without executing it.
 func discover(t *testing.T, moduleDir string) discovery.Configuration {
@@ -38,16 +48,88 @@ func discover(t *testing.T, moduleDir string) discovery.Configuration {
 func TestEveryGenerationSiteMapsIntoTheGraph(t *testing.T) {
 	t.Parallel()
 
-	for _, fixture := range []string{operatorsFixture, "dynamic"} {
+	for _, fixture := range []string{operatorsFixture, "dynamic", jsonMixedFixture, "packs"} {
 		module := copyFixture(t, fixture)
 		configuration := discover(t, module)
 		graph := configuration.BuildGraph()
 
-		for _, mutant := range preview(t, module, nil).Mutants {
-			if _, ok := graph.SiteCone(mutant.Module, mutant.Site); !ok {
-				t.Errorf("fixture %s: operator %s site %s (module %q) does not map into the graph; "+
-					"the mutant falls back to the whole-payload unknown rule, which loses the "+
-					"path-scoped oracle for it", fixture, mutant.Operator, mutant.Site, mutant.Module)
+		for _, tier := range []mutation.Tier{mutation.TierSmoke, mutation.TierStandard, mutation.TierDeep} {
+			config := previewRequest(t, module)
+			config.Tier = tier
+			if fixture == "packs" {
+				config.Packs = []string{"acme"}
+			}
+
+			result, err := engine.Run(t.Context(), config)
+			if err != nil {
+				t.Fatalf("fixture %s tier %s: preview: %v", fixture, tier, err)
+			}
+
+			for _, mutant := range result.Mutants {
+				if _, ok := graph.SiteCone(mutant.Module, mutant.Site); !ok {
+					t.Errorf("fixture %s tier %s: operator %s site %s (module %q) does not map into the graph; "+
+						"the mutant falls back to the whole-payload unknown rule, which loses the "+
+						"path-scoped oracle for it", fixture, tier, mutant.Operator, mutant.Site, mutant.Module)
+				}
+			}
+		}
+	}
+
+	t.Run("tf.json", testJSONBlockSitesMapIntoTheGraph)
+}
+
+func testJSONBlockSitesMapIntoTheGraph(t *testing.T) {
+	t.Helper()
+	t.Parallel()
+
+	module := t.TempDir()
+	source := `{
+  "variable": {"named": {"default": "value"}},
+  "resource": {"terraform_data": {"named": {"input": "${var.named}"}}},
+  "data": {"terraform_remote_state": {"named": {
+    "backend": "local", "config": {"path": "unused.tfstate"}
+  }}},
+  "output": {"named": {"value": "${terraform_data.named.output}"}},
+  "check": {"named": {"assert": [{
+    "condition": "${terraform_data.named.input == var.named}",
+    "error_message": "input must match"
+  }]}},
+  "module": {"named": {"source": "hashicorp/consul/aws"}},
+  "provider": {"null": {"alias": "named"}}
+}`
+	writeFile(t, filepath.Join(module, "main.tf.json"), source)
+
+	graph := discover(t, module).BuildGraph()
+
+	for _, site := range []string{
+		"terraform_data.named", "terraform_data.named.input",
+		"data.terraform_remote_state.named", "data.terraform_remote_state.named.backend",
+		"output.named", "output.named.value",
+		"module.named", "module.named.source",
+		"var.named", "var.named.default",
+		"check.named", "check.named.assert",
+		"provider.null", "provider.null.alias",
+	} {
+		cone, ok := graph.SiteCone(".", site)
+		if !ok {
+			t.Fatalf("JSON block site %s does not map into the graph", site)
+		}
+
+		if !cone.ContainsObservable() {
+			t.Errorf("JSON block site %s reaches no observable", site)
+		}
+
+		if site == "var.named.default" || site == "terraform_data.named.input" {
+			if !cone.ContainsResource(".", "terraform_data.named") ||
+				!cone.ContainsPayloadAddress("output.named") ||
+				cone.ContainsResource(".", "data.terraform_remote_state.named") {
+				t.Errorf("JSON block site %s has incorrect resource ownership or reference edges", site)
+			}
+		}
+
+		if strings.HasPrefix(site, "provider.") || strings.HasPrefix(site, "module.") {
+			if !cone.ContainsResource(".", "data.terraform_remote_state.named") {
+				t.Errorf("JSON block site %s must have an unbounded cone", site)
 			}
 		}
 	}
@@ -183,39 +265,61 @@ func TestASeededMissingEdgeFailsTheSupplementalCheck(t *testing.T) {
 	}
 }
 
-// TestNoUserInvocationExecutesTerraformGraph asserts the M1 disposition
-// structurally: no production source invokes `terraform graph`. The
-// supplemental check drives the binary from this test file only.
 func TestNoUserInvocationExecutesTerraformGraph(t *testing.T) {
 	t.Parallel()
 
-	invocation := regexp.MustCompile(`"graph"`)
+	for _, command := range []string{
+		runCommand, previewCommand, suggestCommand,
+		characteriseCommand, todosCommand, curateCommand,
+	} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
 
-	root := filepath.Join("..", "..")
-	for _, dir := range []string{internalTree, commandTree} {
-		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, entry os.DirEntry, err error) error {
+			log := filepath.Join(t.TempDir(), "terraform-commands")
+			common := commonRequest(t, copyFixture(t, discriminateFixture))
+			common.TerraformBinary = recordingTerraform(t, log)
+
+			var request engine.Request
+
+			switch command {
+			case runCommand:
+				request = engine.RunRequest{Common: common, NoCache: true}
+			case previewCommand:
+				request = engine.PreviewRequest{Common: common}
+			case suggestCommand:
+				request = engine.SuggestRequest{Common: common, NoCache: true}
+			case characteriseCommand:
+				request = engine.CharacteriseRequest{Common: common}
+			case todosCommand:
+				request = engine.TodosRequest{Common: common}
+			case curateCommand:
+				request = engine.CurateRequest{Common: common, NoCache: true}
+			default:
+				t.Fatalf("unsupported engine command %q", command)
+			}
+
+			result, err := engine.Run(t.Context(), request)
 			if err != nil {
-				return err
+				t.Fatalf("engine invocation: %v", err)
 			}
 
-			if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
+			if string(result.Command) != command {
+				t.Fatalf("report command = %s, want %s", result.Command, command)
 			}
 
-			source, readErr := os.ReadFile(path) //nolint:gosec // repository-relative audit walk.
-			if readErr != nil {
-				return readErr
+			invocations := terraformInvocations(t, log)
+			if command != todosCommand && len(invocations) == 0 {
+				t.Fatal("the engine invoked no recorded Terraform command")
 			}
 
-			if invocation.Match(source) {
-				t.Errorf("%s passes \"graph\" to something; terraform graph is test-suite-only", path)
+			if slices.Contains(invocations, "graph") {
+				t.Fatalf("terraform graph ran during an engine invocation: %v", invocations)
 			}
 
-			return nil
+			if command == runCommand && !slices.Contains(invocations, "test") {
+				t.Fatalf("the run did not execute terraform test: %v", invocations)
+			}
 		})
-		if err != nil {
-			t.Fatalf("walking %s: %v", dir, err)
-		}
 	}
 }
 

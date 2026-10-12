@@ -195,9 +195,11 @@ func contractEdits(source []byte, where site, attribute *hclsyntax.Attribute) []
 		return []edit{negated}
 	}
 
+	variableAddress, _ := discovery.BlockAddr(variableKind, []string{where.variable})
+
 	return []edit{
 		negated,
-		replace(VarValidationWeaken, where, condition, "can(var."+where.variable+")"),
+		replace(VarValidationWeaken, where, condition, "can("+variableAddress+")"),
 	}
 }
 

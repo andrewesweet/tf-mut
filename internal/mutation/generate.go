@@ -527,10 +527,11 @@ func (g Generator) generateCalls(module discovery.Module, sources map[string]sou
 				continue
 			}
 
+			address, _ := discovery.BlockAddr(moduleKind, []string{call.Name})
 			block := discovery.Block{
 				Kind:      "module",
 				Name:      call.Name,
-				Address:   "module." + call.Name,
+				Address:   address,
 				File:      call.File,
 				ModuleRel: filepath.Base(call.File),
 				DefRange:  call.DefRange,

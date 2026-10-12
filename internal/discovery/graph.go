@@ -173,17 +173,17 @@ func (b *graphBuilder) buildJSON() {
 func (b *graphBuilder) buildJSONBlock(block *hcl.Block) {
 	switch block.Type {
 	case resourceBlock, dataBlock:
-		address := block.Labels[0] + "." + block.Labels[1]
-		if block.Type == dataBlock {
-			address = dataBlock + "." + address
+		address, ok := BlockAddr(block.Type, block.Labels)
+		if !ok {
+			return
 		}
 
 		owner := b.declare(address)
 		b.walkJSONBody(block.Body, address, owner, owner)
 	case outputBlock, moduleBlock, variableBlock, checkBlock:
-		address := block.Type + "." + block.Labels[0]
-		if block.Type == variableBlock {
-			address = "var." + block.Labels[0]
+		address, ok := BlockAddr(block.Type, block.Labels)
+		if !ok {
+			return
 		}
 
 		owner := b.declare(address)
@@ -206,9 +206,14 @@ func (b *graphBuilder) buildJSONBlock(block *hcl.Block) {
 			}
 		}
 	case providerBlock:
-		owner := b.declare(providerBlock + "." + block.Labels[0])
+		address, ok := BlockAddr(block.Type, block.Labels)
+		if !ok {
+			return
+		}
+
+		owner := b.declare(address)
 		b.graph.unbounded[owner] = true
-		b.walkJSONBody(block.Body, providerBlock+"."+block.Labels[0], owner, nodeID{})
+		b.walkJSONBody(block.Body, address, owner, nodeID{})
 	default:
 	}
 }
@@ -251,32 +256,22 @@ func (b *graphBuilder) linkJSON(expr hcl.Expression, reader nodeID) {
 	}
 }
 
-// buildBlock mirrors the mutation walker's address scheme exactly: the site an
-// operator writes and the node the graph declares must be the same string, and
-// the adapter sweep over every generation site is what holds the two walkers
-// together.
+// buildBlock uses the block-address contract documented by BlockAddr. The
+// generation-site adapter sweep audits the graph's mapping for every site.
 func (b *graphBuilder) buildBlock(block *hclsyntax.Block) {
 	switch block.Type {
 	case resourceBlock, dataBlock:
-		if len(block.Labels) != resourceLabelCount {
+		address, ok := BlockAddr(block.Type, block.Labels)
+		if !ok {
 			return
-		}
-
-		address := block.Labels[0] + "." + block.Labels[1]
-		if block.Type == dataBlock {
-			address = dataBlock + "." + address
 		}
 
 		owner := b.declare(address)
 		b.walkBody(block.Body, address, owner, owner)
 	case outputBlock, moduleBlock, variableBlock, checkBlock:
-		if len(block.Labels) != 1 {
+		address, ok := BlockAddr(block.Type, block.Labels)
+		if !ok {
 			return
-		}
-
-		address := block.Type + "." + block.Labels[0]
-		if block.Type == variableBlock {
-			address = "var." + block.Labels[0]
 		}
 
 		owner := b.declare(address)
@@ -294,7 +289,8 @@ func (b *graphBuilder) buildBlock(block *hclsyntax.Block) {
 			}
 		}
 	case providerBlock:
-		if len(block.Labels) != 1 {
+		address, ok := BlockAddr(block.Type, block.Labels)
+		if !ok {
 			return
 		}
 
@@ -302,9 +298,9 @@ func (b *graphBuilder) buildBlock(block *hclsyntax.Block) {
 		// a reach the graph does not model edge by edge: the provider node
 		// makes any cone that touches it unbounded, so no shortcut can turn
 		// this into a proof (review of #44).
-		owner := b.declare(providerBlock + "." + block.Labels[0])
+		owner := b.declare(address)
 		b.graph.unbounded[owner] = true
-		b.walkBody(block.Body, providerBlock+"."+block.Labels[0], owner, nodeID{})
+		b.walkBody(block.Body, address, owner, nodeID{})
 	default:
 	}
 }
@@ -398,8 +394,9 @@ func (b *graphBuilder) wireCall(name string, callNode nodeID) {
 	}
 
 	for _, input := range call.Inputs {
-		inputNode := nodeID{module: b.module.Rel, address: moduleBlock + "." + name + "." + input.Name}
-		childVar := nodeID{module: childRel, address: "var." + input.Name}
+		inputNode := nodeID{module: b.module.Rel, address: callNode.address + "." + input.Name}
+		variableAddress, _ := BlockAddr(variableBlock, []string{input.Name})
+		childVar := nodeID{module: childRel, address: variableAddress}
 		b.graph.dependents[inputNode] = append(b.graph.dependents[inputNode], childVar)
 		b.graph.sources[childVar] = append(b.graph.sources[childVar], inputNode)
 	}
@@ -491,7 +488,8 @@ func (b *graphBuilder) resolveCallRef(parsed Addr) (nodeID, bool) {
 		return nodeID{}, false
 	}
 
-	callNode := nodeID{module: b.module.Rel, address: moduleBlock + "." + parsed.ModulePath[0]}
+	callAddress, _ := BlockAddr(moduleBlock, parsed.ModulePath[:1])
+	callNode := nodeID{module: b.module.Rel, address: callAddress}
 	if !b.graph.nodes[callNode] {
 		return nodeID{}, false
 	}
@@ -510,7 +508,8 @@ func (b *graphBuilder) resolveCallRef(parsed Addr) (nodeID, bool) {
 		return callNode, true
 	}
 
-	node := nodeID{module: childRel, address: outputBlock + "." + parsed.Parts[0]}
+	outputAddress, _ := BlockAddr(outputBlock, parsed.Parts[:1])
+	node := nodeID{module: childRel, address: outputAddress}
 	if b.graph.nodes[node] {
 		return node, true
 	}

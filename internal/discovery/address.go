@@ -46,7 +46,7 @@ type Addr struct {
 
 // ParseAddr parses the canonical grammar. It never fails: an address is a
 // sequence of segments whatever its shape, and deciding whether those segments
-// name anything is the graph's job, where the decision can fail closed.
+// name a supported value is each consumer's job, where the decision can fail closed.
 func ParseAddr(address string) Addr {
 	segments := splitAddress(address)
 	modulePath := []string{}
@@ -57,6 +57,42 @@ func ParseAddr(address string) Addr {
 	}
 
 	return Addr{ModulePath: modulePath, Parts: segments}
+}
+
+// BlockAddr renders the canonical address of a configuration block from its
+// type and labels. Native HCL and JSON discovery, the graph, mutation generation
+// and the oracle share this constructor.
+//
+// It reports false for unsupported block kinds and incorrect label counts.
+// In particular, locals names its attributes and terraform has no block address.
+func BlockAddr(kind string, labels []string) (string, bool) {
+	switch kind {
+	case resourceBlock, dataBlock:
+		if len(labels) != resourceLabelCount {
+			return "", false
+		}
+
+		address := labels[0] + "." + labels[1]
+		if kind == dataBlock {
+			address = dataBlock + "." + address
+		}
+
+		return address, true
+	case outputBlock, moduleBlock, checkBlock, providerBlock:
+		if len(labels) != 1 {
+			return "", false
+		}
+
+		return kind + "." + labels[0], true
+	case variableBlock:
+		if len(labels) != 1 {
+			return "", false
+		}
+
+		return "var." + labels[0], true
+	default:
+		return "", false
+	}
 }
 
 // splitAddress splits on dots outside instance keys, dropping the keys and
@@ -129,7 +165,8 @@ func (a Addr) String() string {
 	rendered := make([]string, 0, len(a.ModulePath)*addressParts+len(a.Parts))
 
 	for _, name := range a.ModulePath {
-		rendered = append(rendered, moduleBlock, name)
+		address, _ := BlockAddr(moduleBlock, []string{name})
+		rendered = append(rendered, address)
 	}
 
 	rendered = append(rendered, a.Parts...)

@@ -908,7 +908,7 @@ func aggregateChildUsage(children []report.ProcessUsage) map[string]report.Proce
 }
 
 func TestNestedCommandsFlushToTheExplicitEndpoint(t *testing.T) {
-	for _, command := range []string{"curate", "characterise", "until-dry"} {
+	for _, command := range []string{curateCommand, characteriseCommand, "until-dry"} {
 		t.Run(command, func(t *testing.T) {
 			ambient := newSpanCollector(t, 0)
 			t.Setenv(tracing.EndpointEnv, ambient.server.URL)
@@ -925,7 +925,7 @@ func TestNestedCommandsFlushToTheExplicitEndpoint(t *testing.T) {
 
 			names := target.spanNames(t)
 			if !slices.Contains(names, "tf-mut.phase") ||
-				(command != "characterise" && !slices.Contains(names, "tf-mut.mutant")) {
+				(command != characteriseCommand && !slices.Contains(names, "tf-mut.mutant")) {
 				t.Fatalf("nested command returned before exporting its spans: %v", names)
 			}
 
@@ -946,7 +946,7 @@ func TestNestedCommandsFlushToTheExplicitEndpoint(t *testing.T) {
 func nestedTraceRequest(t *testing.T, command, endpoint string) engine.Request {
 	t.Helper()
 
-	if command == "curate" {
+	if command == curateCommand {
 		config := curateRequest(t, copyFixture(t, curateFixture))
 		config.OTLPEndpoint = endpoint
 		config.NoCache = true

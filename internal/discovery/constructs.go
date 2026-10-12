@@ -64,7 +64,8 @@ func collectCheckBlock(
 	path, relative string,
 	block *hclsyntax.Block,
 ) {
-	if len(block.Labels) != 1 {
+	address, ok := BlockAddr(checkBlock, block.Labels)
+	if !ok {
 		return
 	}
 
@@ -74,7 +75,7 @@ func collectCheckBlock(
 		}
 
 		scoped := newBlock(dataBlock, path, relative, nested)
-		scoped.Address = checkBlock + "." + block.Labels[0] + "." + scoped.Address
+		scoped.Address = address + "." + scoped.Address
 
 		providers[ProviderOf(nested.Labels[0])] = true
 
@@ -149,6 +150,8 @@ func collectJSONCheck(
 		return err
 	}
 
+	checkAddress, _ := BlockAddr(checkBlock, block.Labels)
+
 	for _, inner := range nested.Blocks {
 		if inner.Type != dataBlock {
 			if err := collectJSONReferences(module, path, inner.Body); err != nil {
@@ -158,8 +161,8 @@ func collectJSONCheck(
 			continue
 		}
 
-		address := checkBlock + "." + block.Labels[0] + "." + dataBlock + "." +
-			inner.Labels[0] + "." + inner.Labels[1]
+		dataAddress, _ := BlockAddr(dataBlock, inner.Labels)
+		address := checkAddress + "." + dataAddress
 
 		providers[ProviderOf(inner.Labels[0])] = true
 

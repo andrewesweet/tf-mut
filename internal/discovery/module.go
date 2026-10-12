@@ -239,8 +239,10 @@ func collectFile(module *Module, providers map[string]bool, path string, body *h
 }
 
 func newBlock(kind, path, relative string, block *hclsyntax.Block) Block {
+	address, _ := BlockAddr(kind, block.Labels)
 	discovered := Block{
 		Kind:       kind,
+		Address:    address,
 		File:       path,
 		ModuleRel:  relative,
 		DefRange:   block.DefRange(),
@@ -251,14 +253,8 @@ func newBlock(kind, path, relative string, block *hclsyntax.Block) Block {
 	case resourceBlock, dataBlock:
 		discovered.Type = block.Labels[0]
 		discovered.Name = block.Labels[1]
-		discovered.Address = block.Labels[0] + "." + block.Labels[1]
-
-		if kind == dataBlock {
-			discovered.Address = dataBlock + "." + discovered.Address
-		}
 	default:
 		discovered.Name = block.Labels[0]
-		discovered.Address = kind + "." + block.Labels[0]
 	}
 
 	for _, attribute := range discovered.Attributes {
@@ -272,6 +268,7 @@ func newBlock(kind, path, relative string, block *hclsyntax.Block) Block {
 	}
 
 	if kind == variableBlock {
+		discovered.Address = variableBlock + "." + discovered.Name
 		discovered.Validations = validationsOf(path, block)
 	}
 
@@ -614,7 +611,7 @@ func traversalAddress(traversal hcl.Traversal) (string, bool) {
 		return "", false
 	}
 
-	return root.Name + "." + attribute.Name, true
+	return BlockAddr(resourceBlock, []string{root.Name, attribute.Name})
 }
 
 func isReservedRoot(name string) bool {
