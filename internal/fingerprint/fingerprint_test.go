@@ -21,6 +21,19 @@ const (
 	runName  = "defaults"
 )
 
+// Paths, addresses and attributes the parser tables below reuse; named so a
+// table reads as data rather than as repeated spellings.
+const (
+	regionListPath    = "outputs.region_list.value[0].short_name"
+	appTriggersPath   = "resource_changes[null_resource.app].change.after.triggers"
+	appValuesPath     = "root_module.resources[null_resource.app].values.triggers"
+	exampleValuesPath = "root_module.resources[example_thing.app].values.input"
+	regionListAddress = "output.region_list"
+	identityAddress   = "output.identity"
+	appAddress        = "null_resource.app"
+	triggersAttribute = "triggers"
+)
+
 func planPayload(t *testing.T, body string) tfexec.RunPayload {
 	t.Helper()
 
@@ -271,11 +284,11 @@ func TestOutputMetadataPathsAreRecognisedWithoutRebuildingTheGrammar(t *testing.
 	for _, path := range []string{
 		identityValue,
 		"outputs.identity.value.principal_id",
-		"outputs.region_list.value[0].short_name",
+		regionListPath,
 		identityChangeAfter,
 		"output_changes.identity.after.principal_id",
 		"outputs.after.value",
-		"root_module.resources[example_thing.app].values.input",
+		exampleValuesPath,
 		"resource_changes[example_thing.app].change.after.input",
 	} {
 		if fingerprint.ParsePath(path).IsOutputMetadata() {
@@ -298,20 +311,20 @@ func TestSplitCarriesAnOutputElementPathPastItsBody(t *testing.T) {
 		attribute string
 	}{
 		{
-			"outputs.region_list.value[0].short_name",
-			"output.region_list", "[0].short_name",
+			regionListPath,
+			regionListAddress, "[0].short_name",
 		},
 		{
 			"output_changes.region_list.after[1].short_name",
-			"output.region_list", "[1].short_name",
+			regionListAddress, "[1].short_name",
 		},
 		{
 			identityValue,
-			"output.identity", "",
+			identityAddress, "",
 		},
 		{
 			"outputs.identity.value.tenant",
-			"output.identity", "tenant",
+			identityAddress, "tenant",
 		},
 		{
 			"outputs.identity.type[0]",
@@ -379,7 +392,7 @@ func TestAnUnknownMarkerPathMapsOntoTheValueItMarks(t *testing.T) {
 		},
 		{
 			"resource_changes[null_resource.app].change.after_unknown.triggers",
-			"resource_changes[null_resource.app].change.after.triggers",
+			appTriggersPath,
 		},
 		{
 			"resource_changes[null_resource.app].change.after_unknown[1].triggers",
@@ -415,9 +428,9 @@ func TestNonMarkerPathsNameNoMarkerRecord(t *testing.T) {
 		"output_changes.identity.after_unknownish.children",
 		"output_changes.identity.after_unknown[0",
 		"resource_changes[null_resource.app].change.before",
-		"resource_changes[null_resource.app].change.after.triggers",
+		appTriggersPath,
 		"outputs.after_unknown",
-		"root_module.resources[null_resource.app].values.triggers",
+		appValuesPath,
 	} {
 		if fingerprint.ParsePath(path).IsUnknownMarker() {
 			t.Fatalf("IsUnknownMarker(%q) = true, want false", path)
@@ -439,7 +452,7 @@ func TestACountedInstancePathNamesItsResourceAndIndex(t *testing.T) {
 	}{
 		{
 			"root_module.resources[null_resource.app[1]].values.triggers",
-			"null_resource.app", 1,
+			appAddress, 1,
 		},
 		{
 			"resource_changes[terraform_data.counted[0]].change.after.output",
@@ -469,7 +482,7 @@ func TestPathsOutsideTheInstanceGrammarNameNoInstance(t *testing.T) {
 	t.Parallel()
 
 	for _, path := range []string{
-		"root_module.resources[null_resource.app].values.triggers",
+		appValuesPath,
 		`root_module.resources[null_resource.app["blue"]].values.triggers`,
 		"root_module.resources[null_resource.app[blue]].values.triggers",
 		identityChangeAfter,
@@ -493,20 +506,20 @@ func TestAParsedPathProjectsTheAddressADiagnosisNames(t *testing.T) {
 		address string
 	}{
 		{
-			"resource_changes[null_resource.app].change.after.triggers",
+			appTriggersPath,
 			"null_resource.app.triggers",
 		},
 		{
-			"root_module.resources[example_thing.app].values.input",
+			exampleValuesPath,
 			"example_thing.app.input",
 		},
 		{
-			"outputs.region_list.value[0].short_name",
-			"output.region_list",
+			regionListPath,
+			regionListAddress,
 		},
 		{
 			"output_changes.identity.after",
-			"output.identity",
+			identityAddress,
 		},
 		{
 			"resource_changes[a.b].change.after.c",
@@ -545,30 +558,30 @@ func TestTheAttributeQuestionIsAnsweredAgainstTheParsedOwner(t *testing.T) {
 		want      bool
 	}{
 		{
-			"resource_changes[null_resource.app].change.after.triggers",
-			"null_resource.app", "triggers", true,
+			appTriggersPath,
+			appAddress, triggersAttribute, true,
 		},
 		{
 			"resource_changes[null_resource.app].change.after.triggers.x",
-			"null_resource.app", "triggers", true,
+			appAddress, triggersAttribute, true,
 		},
 		{
 			// The before body is a different argument of the same resource.
 			"resource_changes[null_resource.app].change.before",
-			"null_resource.app", "triggers", false,
+			appAddress, triggersAttribute, false,
 		},
 		{
-			"root_module.resources[example_thing.app].values.input",
+			exampleValuesPath,
 			"example_thing.app", "input", true,
 		},
 		{
 			// An output record answers neither projection of the question.
 			"outputs.identity.value",
-			"null_resource.app", "triggers", false,
+			appAddress, triggersAttribute, false,
 		},
 		{
 			"resource_changes[example_thing.app].change.after.input",
-			"null_resource.app", "triggers", false,
+			appAddress, triggersAttribute, false,
 		},
 	} {
 		t.Run(testCase.path, func(t *testing.T) {
@@ -594,12 +607,12 @@ func TestSegmentsSplitTheAttributeOnTopLevelDots(t *testing.T) {
 		segments []string
 	}{
 		{
-			"outputs.region_list.value[0].short_name",
+			regionListPath,
 			[]string{"[0]", "short_name"},
 		},
 		{
-			"root_module.resources[null_resource.app].values.triggers",
-			[]string{"triggers"},
+			appValuesPath,
+			[]string{triggersAttribute},
 		},
 		{
 			"resource_changes[a.b].change.after.c",
@@ -640,7 +653,7 @@ func TestACountedInstanceRootSpellsTheInstanceRecord(t *testing.T) {
 			"resource_changes[terraform_data.counted[0]]",
 		},
 		{
-			"outputs.region_list.value[0].short_name",
+			regionListPath,
 			"outputs.region_list.value[0]",
 		},
 		{

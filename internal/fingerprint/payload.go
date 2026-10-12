@@ -602,6 +602,7 @@ func sensitivityMirror(parsed Path) (base string, segments []string, ok bool) {
 		return "", nil, false
 	}
 
+	//nolint:exhaustive // only the four records have mirrors; the default arm is the refusal for the bookkeeping.
 	switch parsed.kind {
 	case pathPlanResource:
 		mirror := afterSensitive
@@ -626,7 +627,8 @@ func sensitivityMirror(parsed Path) (base string, segments []string, ok bool) {
 // ancestorPaths lists a mirror base and every prefix of the attribute path
 // beneath it, so a sensitive container is found from any leaf under it.
 func ancestorPaths(base string, segments []string) []string {
-	paths := []string{base}
+	paths := make([]string, 0, 1+len(segments))
+	paths = append(paths, base)
 
 	builder := strings.Builder{}
 	builder.WriteString(base)
@@ -653,4 +655,3 @@ func digitsOnly(key string) bool {
 
 	return true
 }
-

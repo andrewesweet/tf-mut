@@ -66,33 +66,30 @@ func ParsePath(raw string) Path {
 	switch {
 	case strings.HasPrefix(raw, resourceChanges+"["):
 		p.kind = pathPlanResource
-		p.parseResource(strings.TrimPrefix(raw, resourceChanges+"["))
+
+		rest := strings.TrimPrefix(raw, resourceChanges+"[")
+		// head and tail cut at the FIRST closing bracket — the cut the
+		// unknown-marker grammar reads; owner and body at the matching one.
+		p.head, p.tail, _ = strings.Cut(rest, "]")
+		p.owner, p.body, _ = cutBracketed(rest)
 	case strings.HasPrefix(raw, outputChanges+"."):
 		p.kind = pathPlanOutput
-		p.parseOutput(strings.TrimPrefix(raw, outputChanges+"."))
+		p.owner, p.body, _ = strings.Cut(strings.TrimPrefix(raw, outputChanges+"."), ".")
 	case strings.HasPrefix(raw, rootModule+".resources["):
 		p.kind = pathStateResource
-		p.parseResource(strings.TrimPrefix(raw, rootModule+".resources["))
+
+		rest := strings.TrimPrefix(raw, rootModule+".resources[")
+		p.head, p.tail, _ = strings.Cut(rest, "]")
+		p.owner, p.body, _ = cutBracketed(rest)
 	case strings.HasPrefix(raw, stateOutputs+"."):
 		p.kind = pathStateOutput
-		p.parseOutput(strings.TrimPrefix(raw, stateOutputs+"."))
+		p.owner, p.body, _ = strings.Cut(strings.TrimPrefix(raw, stateOutputs+"."), ".")
+	default:
+		// The payload's own bookkeeping: kind stays pathOther, every field
+		// stays empty, and every question is answered negatively.
 	}
 
 	return p
-}
-
-// parseResource records a resource path's bracketed address, the remainder
-// after its matching close, and the first-close cut the marker grammar reads.
-func (p *Path) parseResource(rest string) {
-	p.head, p.tail, _ = strings.Cut(rest, "]")
-	p.owner, p.body, _ = cutBracketed(rest)
-}
-
-// parseOutput records an output path's name and the remainder after the dot
-// separating it from the name's first member. A path that ends at the name
-// leaves the remainder empty.
-func (p *Path) parseOutput(rest string) {
-	p.owner, p.body, _ = strings.Cut(rest, ".")
 }
 
 // Address projects the path onto the Terraform address a reader would
@@ -101,6 +98,7 @@ func (p *Path) parseOutput(rest string) {
 // A path that names no address — the payload's own bookkeeping — projects to
 // empty.
 func (p Path) Address() string {
+	//nolint:exhaustive // the default arm is the empty answer for every spelling the grammar does not name.
 	switch p.kind {
 	case pathPlanResource:
 		return p.addressUnder("change.after", "change.before")
@@ -113,36 +111,6 @@ func (p Path) Address() string {
 	}
 }
 
-// addressUnder projects a resource path onto its address, extended by the
-// attribute beneath whichever plan or state body the path continues from. A
-// path that continues under no body projects to the bare address.
-func (p Path) addressUnder(bodies ...string) string {
-	rest := strings.TrimPrefix(p.body, ".")
-
-	for _, body := range bodies {
-		if rest == body {
-			return p.owner
-		}
-
-		if attribute, ok := strings.CutPrefix(rest, body+"."); ok {
-			return p.owner + "." + attribute
-		}
-	}
-
-	return p.owner
-}
-
-// outputAddress projects an output path onto the output's Terraform address.
-func (p Path) outputAddress() string {
-	if p.owner == "" {
-		return ""
-	}
-
-	address, _ := discovery.BlockAddr(outputRoot, []string{p.owner})
-
-	return address
-}
-
 // Attribute reports whether the path is exactly the given argument of the
 // given resource — the attribute itself, or any member beneath it — in either
 // the plan or the state projection.
@@ -152,10 +120,9 @@ func (p Path) outputAddress() string {
 // address is a Terraform address, and a path answers only where its own
 // address is the one asked about.
 func (p Path) Attribute(address, attribute string) bool {
-	rest := strings.TrimPrefix(p.body, ".")
-
 	var bodies []string
 
+	//nolint:exhaustive // only the two resource records answer the question; the default is the refusal.
 	switch p.kind {
 	case pathPlanResource:
 		bodies = []string{changeAfter, changeBefore}
@@ -168,6 +135,8 @@ func (p Path) Attribute(address, attribute string) bool {
 	if p.owner != address {
 		return false
 	}
+
+	rest := strings.TrimPrefix(p.body, ".")
 
 	for _, body := range bodies {
 		if rest == body+"."+attribute || strings.HasPrefix(rest, body+"."+attribute+".") {
@@ -199,6 +168,7 @@ func (p Path) Segments() []string {
 // A path in a plan's prior state, or inside a child module's state, reports
 // false: no assertion can read either.
 func (p Path) Split() (address, attribute string, ok bool) {
+	//nolint:exhaustive // the default arm is the refusal for every spelling outside the four records.
 	switch p.kind {
 	case pathPlanResource:
 		return p.splitAddressed(changeAfter)
@@ -211,6 +181,156 @@ func (p Path) Split() (address, attribute string, ok bool) {
 	default:
 		return "", "", false
 	}
+}
+
+// IsUnknownMarker reports whether the path is — or lives under — a plan's
+// unknown marker: the record that says which parts of a value the baseline
+// could not know. The markers are evidence about a comparison, never a value
+// to assert, and a renderer that reads them as a value's shape renders a lie.
+func (p Path) IsUnknownMarker() bool {
+	_, found := p.UnknownValueBase()
+
+	return found
+}
+
+// UnknownValueBase maps an unknown-marker path onto the value path whose
+// subtree it marks: `output_changes.X.after_unknown…` marks
+// `output_changes.X.after…`, and a resource change's `change.after_unknown…`
+// marks its `change.after…`. A path that is not a marker path reports false.
+//
+// The marker grammar reads a resource path at the first closing bracket, not
+// the matching one, so a marker under an indexed instance's address is not a
+// marker path — that is the grammar's own answer, not an accident of the
+// parse.
+func (p Path) UnknownValueBase() (string, bool) {
+	//nolint:exhaustive // only the two plan records carry markers; the default arm is the refusal.
+	switch p.kind {
+	case pathPlanOutput:
+		return p.unknownOutputBase()
+	case pathPlanResource:
+		marked, isMarker := strings.CutPrefix(p.tail, "."+changeAfterUnknown)
+		if !isMarker {
+			return "", false
+		}
+
+		return resourceChanges + "[" + p.head + "]." + changeAfter + marked, true
+	default:
+		return "", false
+	}
+}
+
+// IsOutputMetadata reports whether the path names an output record's metadata
+// — its type descriptor or a sensitivity or unknown marker — rather than its
+// value.
+//
+// The metadata members change whenever the value does, and they are never
+// assertable; a candidate selector asks the question to prefer the value
+// delta, whose refusal would otherwise be outranked in the report by the
+// metadata's own.
+func (p Path) IsOutputMetadata() bool {
+	//nolint:exhaustive // only output records carry metadata; the default arm is the refusal.
+	switch p.kind {
+	case pathPlanOutput, pathStateOutput:
+	default:
+		return false
+	}
+
+	if p.body == "" {
+		return false
+	}
+
+	field, _, _ := strings.Cut(p.body, ".")
+	if bracket := strings.IndexByte(field, '['); bracket >= 0 {
+		field = field[:bracket]
+	}
+
+	// Only the metadata members are unassertable; the value and its change
+	// body are not, and neither is anything the grammar does not name.
+	switch field {
+	case outputSensitive, outputType,
+		afterSensitive, beforeSensitive, afterUnknown, beforeUnknown:
+		return true
+	default:
+		return false
+	}
+}
+
+// CountedInstance reads a state or plan resource path onto the counted
+// instance it names: `root_module.resources[null_resource.app[1]].values…`
+// onto resource `null_resource.app`, index 1, and a resource change's
+// `resource_changes[null_resource.app[0]].change…` likewise. A path whose
+// address carries no numeric instance index — a singleton resource, a
+// string-keyed `for_each` instance, a value outside any resource — reports
+// false. `count` is the only instance numbering this can read, which is the
+// point: a vanishing instance is what a count mutation does.
+func (p Path) CountedInstance() (resource string, index int, ok bool) {
+	//nolint:exhaustive // only resource records carry counted instances; the default arm is the refusal.
+	switch p.kind {
+	case pathPlanResource, pathStateResource:
+	default:
+		return "", 0, false
+	}
+
+	name, tail, hasIndex := strings.Cut(p.owner, "[")
+	if !hasIndex || !strings.HasSuffix(tail, "]") || name == "" {
+		return "", 0, false
+	}
+
+	key := strings.TrimSuffix(tail, "]")
+	if !digitsOnly(key) {
+		return "", 0, false
+	}
+
+	index, err := strconv.Atoi(key)
+	if err != nil {
+		return "", 0, false
+	}
+
+	return name, index, true
+}
+
+// CountedInstanceRoot spells the state or plan path at which Terraform records the
+// numbered instance of a resource — the root record whose vanished change is
+// the only change that can prove the instance vanished.
+//
+// The root is the path's own first bracket, matched or not: the question is
+// about the spelling a change is recorded under, not about a parsed owner, so
+// it is answered on the canonical string.
+func (p Path) CountedInstanceRoot() string {
+	start := strings.IndexByte(p.raw, '[') + 1
+	address, _, _ := cutBracketed(p.raw[start:])
+
+	return p.raw[:start] + address + "]"
+}
+
+// addressUnder projects a resource path onto its address, extended by the
+// attribute beneath whichever plan or state body the path continues from. A
+// path that continues under no body projects to the bare address.
+func (p Path) addressUnder(bodies ...string) string {
+	rest := strings.TrimPrefix(p.body, ".")
+
+	for _, body := range bodies {
+		if rest == body {
+			return p.owner
+		}
+
+		if attribute, ok := strings.CutPrefix(rest, body+"."); ok {
+			return p.owner + "." + attribute
+		}
+	}
+
+	return p.owner
+}
+
+// outputAddress projects an output path onto the output's Terraform address.
+func (p Path) outputAddress() string {
+	if p.owner == "" {
+		return ""
+	}
+
+	address, _ := discovery.BlockAddr(outputRoot, []string{p.owner})
+
+	return address
 }
 
 // splitAddressed separates a resource path whose attribute continues beneath
@@ -260,41 +380,6 @@ func (p Path) splitOutput(body string) (address, attribute string, ok bool) {
 	return "", "", false
 }
 
-// IsUnknownMarker reports whether the path is — or lives under — a plan's
-// unknown marker: the record that says which parts of a value the baseline
-// could not know. The markers are evidence about a comparison, never a value
-// to assert, and a renderer that reads them as a value's shape renders a lie.
-func (p Path) IsUnknownMarker() bool {
-	_, found := p.UnknownValueBase()
-
-	return found
-}
-
-// UnknownValueBase maps an unknown-marker path onto the value path whose
-// subtree it marks: `output_changes.X.after_unknown…` marks
-// `output_changes.X.after…`, and a resource change's `change.after_unknown…`
-// marks its `change.after…`. A path that is not a marker path reports false.
-//
-// The marker grammar reads a resource path at the first closing bracket, not
-// the matching one, so a marker under an indexed instance's address is not a
-// marker path — that is the grammar's own answer, not an accident of the
-// parse.
-func (p Path) UnknownValueBase() (string, bool) {
-	switch p.kind {
-	case pathPlanOutput:
-		return p.unknownOutputBase()
-	case pathPlanResource:
-		marked, isMarker := strings.CutPrefix(p.tail, "."+changeAfterUnknown)
-		if !isMarker {
-			return "", false
-		}
-
-		return resourceChanges + "[" + p.head + "]." + changeAfter + marked, true
-	default:
-		return "", false
-	}
-}
-
 // unknownOutputBase maps an output-side marker onto its marked value: the
 // output name and the bracketed element key, if the marker carries one,
 // transfer verbatim onto the after path.
@@ -320,88 +405,6 @@ func (p Path) unknownOutputBase() (string, bool) {
 	}
 
 	return outputChanges + "." + p.owner + "." + outputAfterField + marked, true
-}
-
-// IsOutputMetadata reports whether the path names an output record's metadata
-// — its type descriptor or a sensitivity or unknown marker — rather than its
-// value.
-//
-// The metadata members change whenever the value does, and they are never
-// assertable; a candidate selector asks the question to prefer the value
-// delta, whose refusal would otherwise be outranked in the report by the
-// metadata's own.
-func (p Path) IsOutputMetadata() bool {
-	switch p.kind {
-	case pathPlanOutput, pathStateOutput:
-	default:
-		return false
-	}
-
-	if p.body == "" {
-		return false
-	}
-
-	field, _, _ := strings.Cut(p.body, ".")
-	if bracket := strings.IndexByte(field, '['); bracket >= 0 {
-		field = field[:bracket]
-	}
-
-	// Only the metadata members are unassertable; the value and its change
-	// body are not, and neither is anything the grammar does not name.
-	switch field {
-	case outputSensitive, outputType,
-		afterSensitive, beforeSensitive, afterUnknown, beforeUnknown:
-		return true
-	default:
-		return false
-	}
-}
-
-// CountedInstance reads a state or plan resource path onto the counted
-// instance it names: `root_module.resources[null_resource.app[1]].values…`
-// onto resource `null_resource.app`, index 1, and a resource change's
-// `resource_changes[null_resource.app[0]].change…` likewise. A path whose
-// address carries no numeric instance index — a singleton resource, a
-// string-keyed `for_each` instance, a value outside any resource — reports
-// false. `count` is the only instance numbering this can read, which is the
-// point: a vanishing instance is what a count mutation does.
-func (p Path) CountedInstance() (resource string, index int, ok bool) {
-	switch p.kind {
-	case pathPlanResource, pathStateResource:
-	default:
-		return "", 0, false
-	}
-
-	name, tail, hasIndex := strings.Cut(p.owner, "[")
-	if !hasIndex || !strings.HasSuffix(tail, "]") || name == "" {
-		return "", 0, false
-	}
-
-	key := strings.TrimSuffix(tail, "]")
-	if !digitsOnly(key) {
-		return "", 0, false
-	}
-
-	index, err := strconv.Atoi(key)
-	if err != nil {
-		return "", 0, false
-	}
-
-	return name, index, true
-}
-
-// CountedInstanceRoot spells the state or plan path at which Terraform records the
-// numbered instance of a resource — the root record whose vanished change is
-// the only change that can prove the instance vanished.
-//
-// The root is the path's own first bracket, matched or not: the question is
-// about the spelling a change is recorded under, not about a parsed owner, so
-// it is answered on the canonical string.
-func (p Path) CountedInstanceRoot() string {
-	start := strings.IndexByte(p.raw, '[') + 1
-	address, _, _ := cutBracketed(p.raw[start:])
-
-	return p.raw[:start] + address + "]"
 }
 
 // attributeSegments splits an attribute path on its top-level dots, keeping
