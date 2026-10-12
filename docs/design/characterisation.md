@@ -32,7 +32,7 @@ Terraform CLI already emits as structured data.
 | **Pinning** | Generate `assert` blocks with `hclwrite` — same writer the suggested-assertion engine (product design §7) already needs | M4 machinery |
 | **"Is my characterisation complete?"** | Mutation testing. This is the question mutation testing *answers* | The core product |
 
-The keystone was verified in `research/spikes/` (see the session spike, now recorded here): a
+The keystone was verified in `research/spikes/` (see the session spike, recorded here): a
 run block with **no assertions at all** is legal, passes, and still yields the full mocked
 state through `-verbose -json`:
 

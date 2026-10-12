@@ -18,7 +18,7 @@ native coverage capability and no accepted proposal to ship one
 ([hashicorp/terraform#37605](https://github.com/hashicorp/terraform/issues/37605), open since
 September 2025), so today a team has no way to answer "are my Terraform tests any good?"
 
-A green `terraform test` run is currently compatible with a module whose every meaningful
+A green `terraform test` run is compatible with a module whose every meaningful
 attribute could be changed without any test noticing.
 
 ## 2. The thesis
@@ -185,7 +185,7 @@ Reduce mutant execution without hiding findings:
   must include every preceding state-producing (apply) run whose state identity the selected
   run shares. Honest consequence: apply→plan suites largely do not split, and the speedup
   from splitting accrues mainly to independent plan-mode suites — which is the design's
-  target shape, but the claim is now scoped to it.
+  target shape, but the claim is scoped to it.
 
   **Measured, and withdrawn (`../research/07-m2-cost-model.md`).** Splitting produces *more*
   `terraform test` invocations, and an invocation costs **1.6 s** against **0.012 s** for a
@@ -886,10 +886,10 @@ it sat in lacked the levers that make it meaningful.
 inherits and the five things M3 is expected to unblock are collected in
 `../research/08-m2-exit-gate.md`; the open questions are in
 `../reviews/2026-08-16-m2-implementation-review.md`. Three of them bear directly on the scope
-above. The graph's *provenance* role now has two named consumers beyond selection: path-scoped
-unknown handling, which would let `Unobservable` fire in plan mode where it currently almost
-never can, and a forward cone that would replace the closure's coarsest answer, where a
-whole-object read diagnoses `weak-assertion` without saying which attribute moved. And M2's
+above. The graph's *provenance* role left M2 with two named consumers beyond selection:
+path-scoped unknown handling, which would let `Unobservable` fire in plan mode where it
+almost never could, and a forward cone that would replace the closure's coarsest answer,
+where a whole-object read diagnoses `weak-assertion` without saying which attribute moved. And M2's
 own real-provider gap is concrete rather than theoretical: `mock-masked`'s positive case and
 `DYNAMIC-ZERO`'s classification are unprovable on the offline providers, so M3's real-provider
 fixture should carry both — or `mock-masked` should be withdrawn rather than shipped with a
@@ -996,5 +996,5 @@ the limitations and the Oasis side-by-side are published in
 9. **What reduces the mutant count?** The measurement above leaves the per-mutant floor at
    1.6 s of provider startup, unreachable from inside this tool. Every remaining lever is
    therefore a reduction in how many mutants run at all: `--since`, the incremental cache,
-   sampling, and tier selection. They are scheduled M3, which now carries the real-provider
+   sampling, and tier selection. They are scheduled M3, which carries the real-provider
    inner-loop exit gate that M2 cannot meet.

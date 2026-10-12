@@ -89,7 +89,7 @@ The rationale for these boundaries is recorded in
 ## Glossary
 
 Each entry names its owning context. Wire spellings below are the closed values
-currently declared by `internal/report`; they are not invitations to add aliases.
+declared by `internal/report`; they are not invitations to add aliases.
 
 ### Oracle / Verdict
 
