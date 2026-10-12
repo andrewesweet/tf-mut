@@ -194,7 +194,7 @@ func promoteScaffolds(
 			continue
 		}
 
-		scaffolds.replace(entry.Promote(characterise.Verified()))
+		scaffolds.replace(characterise.Verified().PromoteScaffold(entry))
 		promoted = append(promoted, file)
 	}
 

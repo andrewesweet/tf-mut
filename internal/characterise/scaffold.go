@@ -77,16 +77,13 @@ func (s Scaffold) Status() ScaffoldStatus { return s.status }
 // carries none.
 func (s Scaffold) Artefact() string { return s.artefact }
 
-// Promote moves the scaffold into test content. The evidence is the
-// verification that earned it, and it is not optional: this transition is the
-// only route to promoted, and a scaffold nobody verified cannot take it. The
-// evidence is deliberately not published — the report carries the promoted
-// state and nothing else — so the parameter is referenced only to keep the
-// contract spelled at the call site.
-func (s Scaffold) Promote(evidence Verification) Scaffold {
-	// The assignment keeps the contract's parameter referenced without
-	// publishing it; nothing a report carries comes from the evidence.
-	_ = evidence
+// PromoteScaffold moves the scaffold into test content. The verification is
+// the receiver: this transition is the only route to promoted, and a scaffold
+// nobody verified cannot take it. The verification is deliberately not
+// published — the report carries the promoted state and nothing else comes
+// from it. (The judgement-point promotion is Promote; Go allows one method
+// name per receiver type.)
+func (Verification) PromoteScaffold(s Scaffold) Scaffold {
 	promoted := s
 	promoted.status = StatusPromoted
 	promoted.artefact = ""

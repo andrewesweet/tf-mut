@@ -369,13 +369,10 @@ func walkChanges(
 // into producing each of the payload shapes on demand is not possible, exactly
 // as it is not for the payload shapes `internal/fingerprint` is tested on.
 func Express(
-	run discovery.RunBlock,
 	schemas tfexec.Schemas,
 	evidence Evidence,
 	change fingerprint.Change,
 ) (string, error) {
-	_ = run // the adapter reads the module path from the address itself; see traversal.
-
 	return expressChange(render{schemas: schemas}, evidence, change)
 }
 

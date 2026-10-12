@@ -58,7 +58,7 @@ func TestOutputIndicesRequireBaselineListOrTupleEvidence(t *testing.T) {
 
 				change := changeAt(prefix+testCase.attribute, testCase.baseline)
 				change.Mutant = testCase.mutant
-				expression, err := suggest.Express(runIn("applied", ""), untyped(),
+				expression, err := suggest.Express(untyped(),
 					suggest.Evidence{OutputTypes: map[string]cty.Type{"output.regions": testCase.declared}}, change)
 				var refused error
 				if testCase.want == "" {

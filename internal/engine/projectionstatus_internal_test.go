@@ -257,7 +257,7 @@ func exerciseTodoStatuses(
 		case "TodoAnswered":
 			projected = projectTodo(open.Answer().Point()).Status
 		case "TodoPromoted":
-			projected = projectTodo(open.Answer().Promote(characterise.Verified())).Status
+			projected = projectTodo(characterise.Verified().Promote(open.Answer())).Status
 		case "TodoRejected":
 			projected = projectTodo(open.Answer().Reject("the answer failed verification")).Status
 		default:
@@ -291,7 +291,7 @@ func exerciseScaffoldStatuses(
 		reachable.scaffoldStatus[string(report.Scaffolded)] = true
 	}
 
-	promoted := scaffold.Promote(characterise.Verified())
+	promoted := characterise.Verified().PromoteScaffold(scaffold)
 
 	if projected := projectScaffold(promoted); projected.Status != report.ScaffoldPromoted {
 		t.Errorf("the promoted state projected status %q, want %q",
