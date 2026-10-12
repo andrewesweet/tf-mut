@@ -315,7 +315,7 @@ type Origin struct {
 
 // The selection modes a mutant's provenance can name.
 const (
-	// SelectionFull marks a mutant selected because the whole population ran.
+	// SelectionFull marks a mutant selected as part of the whole population.
 	SelectionFull = "full"
 	// SelectionSince marks a mutant selected by `--since`.
 	SelectionSince = "since"

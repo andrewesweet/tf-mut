@@ -954,7 +954,7 @@ type completedRun struct {
 // classifyRun mints the run's population fact: the classified rows the
 // classification sites produced, with the provenance the gates judge them by.
 //
-// The counts are the run's own published provenance split, plus the two
+// The counts are the run's own published provenance split, plus the
 // observation counts the observation proof refuses on. Timed-out rows are
 // counted from the fact's own members, so the proof can never disagree with
 // the population it judges. Execution failures are counted separately:

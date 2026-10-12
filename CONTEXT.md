@@ -120,8 +120,8 @@ currently declared by `internal/report`; they are not invitations to add aliases
   report.
 - **Selection provenance:** `full` means the whole population was selected, `since`
   means `--since` selected it, and `sample` means `--sample` selected it.
-- **Execution provenance:** whether this run attempted an evaluation, replayed a verdict
-  from the incremental cache with evidence rehydrated, or never dispatched the selected mutant.
+- **Execution provenance:** how this run obtained a selected mutant's outcome or left it
+  unobserved.
   The [report schema](docs/schema/report-2.10.0.json) owns the wire vocabulary and counts.
 - **Classified population:** outcomes paired with their mutation operators, together
   with execution provenance, including undispatched mutants and whether execution tripped.

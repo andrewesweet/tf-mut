@@ -48,9 +48,11 @@ ADR-0003 named three costs of a dispatcher. This design settles each one:
   For `PopulationClassified`, `finishReport` subscribes consumers in this order:
   aggregates, then suggestions, then the baseline gate. So no reviewed verdict and
   no side effect moves.
-- **Failure modes.** The first subscriber error stops delivery and is returned to
-  the publisher, which fails the command with it unchanged. This is how the
-  replaced call sequence failed. A suggestion leg refused for a stale survivor
+- **Failure modes.** The first subscriber error stops delivery and is returned
+  unchanged to the publisher. This is how the replaced call sequence failed.
+  For command-level trip diagnostics, see the
+  [execution contract](../design/product-design.md#execute).
+  A suggestion leg refused for a stale survivor
   still exits 2 before the baseline writer runs, and
   `TestASuggestionLegFailureWritesNoBaseline` holds that ordering through the
   engine seam.
