@@ -347,6 +347,12 @@ volatile only under the mutant is *undecidable*, not maskable — masking it on 
 erase the very difference the mutation made, so the C4 rule's "residual undecidability" clause
 governs it.
 
+Since 2.9.0 the report also carries, per mutant, whether its test invocation reached the
+execution budget at all (`deadline_reached`): the verdict the runs that finished first earned
+keeps its precedence — a deadline behind failed runs is `Killed`, behind errored runs
+`KilledByError` — and the flag makes the cut-short evaluation visible beside that verdict,
+in the terminal and markdown summaries as well as the JSON document.
+
 Three R2 corrections are embedded there. **`MockMasked` is a diagnosis, not a state** (R2-8):
 as a state it overlapped `Survived` by definition. **`Timeout` sits in the denominator and
 poisons score completeness** (R2-11): excluding it let machine load *raise* the score —
@@ -441,7 +447,7 @@ partitions. The **scored set** is `K + KE + S + NC + SU + T`; `Invalid`, `Unobse
 | **Reachability** | (K + KE + S + T) ÷ scored set | Coverage |
 
 `T` sits in every denominator it can reach (R2-11): machine load can then only *lower* a
-score, never raise it. The [published report schema](../schema/report-2.8.0.json) owns the
+score, never raise it. The [published report schema](../schema/report-2.9.0.json) owns the
 conditions that mark a score **incomplete**, including unscored and Invalid-heavy
 populations. `--min-score` gates fail on incomplete scores unless
 `--allow-incomplete-score` is passed. The `K` versus `KE` share is always displayed alongside

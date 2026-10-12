@@ -1,8 +1,12 @@
 package engine_test
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"maps"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -33,7 +37,8 @@ func TestADeadlineExpiredRunLeavesNoProviderProcessBehind(t *testing.T) {
 	requireProviderMirror(t)
 
 	if runtime.GOOS != "linux" {
-		t.Skip("the leak scan reads /proc/<pid>/exe, which is Linux-only; the group kill itself is exercised by every provider-backed test")
+		t.Skip("the leak scan reads /proc/<pid>/exe, which is Linux-only; " +
+			"the group kill itself is exercised by every provider-backed test")
 	}
 
 	module := copyFixture(t, "unmocked-timeout")
@@ -90,6 +95,18 @@ func TestADeadlineExpiredRunLeavesNoProviderProcessBehind(t *testing.T) {
 // The assertion is made against the JSON document, the published surface, and
 // not against a struct field: before the fix the field does not exist, and
 // the document must be shown to carry the deadline whatever the Go type does.
+// deadlineDocument is the slice of the published document the JSON assertion
+// reads: named types, because the assertion is about the wire shape.
+type deadlineDocument struct {
+	Mutants []deadlineMutant `json:"mutants"`
+}
+
+type deadlineMutant struct {
+	ID              string `json:"id"`
+	State           string `json:"state"`
+	DeadlineReached *bool  `json:"deadline_reached"`
+}
+
 func TestAMutantWhoseTestReachedItsDeadlineIsNamedInTheReport(t *testing.T) {
 	t.Parallel()
 	requireProviderMirror(t)
@@ -115,18 +132,20 @@ func TestAMutantWhoseTestReachedItsDeadlineIsNamedInTheReport(t *testing.T) {
 		t.Fatalf("expected at least one killed and one timeout verdict, got %v", result.Metrics.Counts)
 	}
 
+	// Typed: the field is on every mutant the run executed, whatever its
+	// verdict — the whole point of the flag.
+	for _, mutant := range result.Mutants {
+		if !mutant.DeadlineReached {
+			t.Fatalf("mutant %s (state %s) reached no deadline in the typed report", mutant.ID, mutant.State)
+		}
+	}
+
 	encoded := strings.Builder{}
 	if err := report.WriteJSON(&encoded, result); err != nil {
 		t.Fatalf("encoding: %v", err)
 	}
 
-	var document struct {
-		Mutants []struct {
-			ID              string `json:"id"`
-			State           string `json:"state"`
-			DeadlineReached *bool  `json:"deadline_reached"`
-		} `json:"mutants"`
-	}
+	var document deadlineDocument
 	if err := json.Unmarshal([]byte(encoded.String()), &document); err != nil {
 		t.Fatalf("decoding the report document: %v", err)
 	}
@@ -137,6 +156,189 @@ func TestAMutantWhoseTestReachedItsDeadlineIsNamedInTheReport(t *testing.T) {
 		}
 	}
 }
+
+// TestTheTerminalReportNamesTheMutantsWhoseTestReachedItsDeadline renders the
+// same invocation as the JSON case through the terminal reporter: the summary
+// must name the deadline behind whatever verdicts the finished runs earned.
+func TestTheTerminalReportNamesTheMutantsWhoseTestReachedItsDeadline(t *testing.T) {
+	t.Parallel()
+	requireProviderMirror(t)
+
+	module := copyFixture(t, "unmocked-timeout")
+
+	config := baseConfig(t, module)
+	config.TimeoutFactor = 0.0001
+	config.TimeoutFloor = 3 * time.Second
+	config.IncludeOperators = []string{string(mutation.StrCase)}
+	config.AllowRealInfrastructure = true
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	reached := 0
+	for _, mutant := range result.Mutants {
+		if mutant.DeadlineReached {
+			reached++
+		}
+	}
+
+	terminal := bytes.Buffer{}
+	if err := report.WriteTerminal(&terminal, result); err != nil {
+		t.Fatalf("writing terminal report: %v", err)
+	}
+
+	rendered := terminal.String()
+	if !strings.Contains(rendered, fmt.Sprintf("Deadline reached %d", reached)) {
+		t.Fatalf("the terminal report does not name the %d deadline(s):\n%s", reached, rendered)
+	}
+
+	for _, mutant := range result.Mutants {
+		if !mutant.DeadlineReached {
+			continue
+		}
+
+		line := fmt.Sprintf("%s  %s:%d  %s", mutant.Operator, mutant.Range.File, mutant.Range.Start.Line, mutant.State)
+		if !strings.Contains(rendered, line) {
+			t.Fatalf("the terminal report omits the deadline row for %s (%s):\n%s", mutant.ID, line, rendered)
+		}
+	}
+}
+
+// TestAReportWithNoDeadlineNamesNone keeps the summary quiet when no test
+// reached its budget: the section exists only when there is something to say.
+func TestAReportWithNoDeadlineNamesNone(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "skeleton")
+
+	result, err := engine.Run(t.Context(), baseConfig(t, module))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	terminal := bytes.Buffer{}
+	if err := report.WriteTerminal(&terminal, result); err != nil {
+		t.Fatalf("writing terminal report: %v", err)
+	}
+
+	if strings.Contains(terminal.String(), "Deadline reached") {
+		t.Fatalf("the terminal report names a deadline no test reached:\n%s", terminal.String())
+	}
+}
+
+// TestTheDeadlineReplaysFromTheCache holds the cache half of the visibility
+// contract: a stored verdict carries its deadline flag, the replay projects it
+// onto the mutant, and an entry from before the flag — which cannot carry one
+// — is a miss rather than a silent loss. The stored shape is staged directly:
+// a killed verdict whose invocation reached its deadline is exactly the shape
+// no cacheable run can produce (real-provider runs are uncacheable under the
+// unsafe-opt-in rule, and a cacheable invocation slow enough to reach its
+// budget would be a fixture lie), so the entry is crafted on disk the way
+// TestPreSandboxFixInvalidVerdictsAreNotReplayed crafts its legacy entries.
+func TestTheDeadlineReplaysFromTheCache(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+	config := baseConfig(t, module)
+
+	cachedRun(t, config)
+
+	entries := deadlineEntries(t, module)
+	if len(entries) == 0 {
+		t.Fatal("the first run wrote no cache entries")
+	}
+
+	for _, path := range entries {
+		patchEntry(t, path, map[string]any{"deadline_reached": true})
+	}
+
+	second := cachedRun(t, config)
+	if second.Population.Cached == 0 || second.Population.Fresh != 0 {
+		t.Fatalf("the second run did not replay the patched entries: %+v", second.Population)
+	}
+
+	for _, mutant := range second.Mutants {
+		if mutant.State == report.Ignored || mutant.State == report.NoCoverage {
+			continue
+		}
+
+		if !mutant.DeadlineReached {
+			t.Fatalf("the replayed mutant %s (%s) lost its deadline", mutant.ID, mutant.State)
+		}
+	}
+
+	// An entry from before the flag cannot carry one; replaying it would
+	// manufacture a verdict whose deadline was never measured. The format
+	// version moved with the flag, so such an entry is a miss.
+	for _, path := range entries {
+		patchEntry(t, path, map[string]any{
+			"deadline_reached": true,
+			"format_version":   "tf-mut-cache-2",
+		})
+	}
+
+	third := cachedRun(t, config)
+	if third.Population.Cached != 0 || third.Population.Fresh == 0 {
+		t.Fatalf("an entry that predates the flag was replayed: %+v", third.Population)
+	}
+
+	for _, mutant := range third.Mutants {
+		if mutant.DeadlineReached {
+			t.Fatalf("the freshly executed mutant %s (%s) claims a deadline it never reached",
+				mutant.ID, mutant.State)
+		}
+	}
+}
+
+// deadlineEntries names every cache entry file the module's cache holds.
+func deadlineEntries(t *testing.T, module string) []string {
+	t.Helper()
+
+	dir := cacheDir(module)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading cache: %v", err)
+	}
+
+	var paths []string
+
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".json") {
+			paths = append(paths, filepath.Join(dir, entry.Name()))
+		}
+	}
+
+	return paths
+}
+
+// patchEntry rewrites named members of one cache entry on disk.
+func patchEntry(t *testing.T, path string, patch map[string]any) {
+	t.Helper()
+
+	content, readErr := os.ReadFile(filepath.Clean(path))
+	if readErr != nil {
+		t.Fatalf("reading cache entry: %v", readErr)
+	}
+
+	document := map[string]any{}
+	if decodeErr := json.Unmarshal(content, &document); decodeErr != nil {
+		t.Fatalf("decoding cache entry: %v", decodeErr)
+	}
+
+	maps.Copy(document, patch)
+
+	encoded, encodeErr := json.Marshal(document)
+	if encodeErr != nil {
+		t.Fatalf("encoding cache entry: %v", encodeErr)
+	}
+
+	writeFile(t, path, string(encoded))
+}
+
+// pluginCacheDir reads the plugin cache directory back out of the request the
 
 // pluginCacheDir reads the plugin cache directory back out of the request the
 // test will run, so the scan watches the directory this run's plugins are

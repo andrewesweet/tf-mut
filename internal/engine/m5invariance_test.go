@@ -114,6 +114,11 @@ func stripMutantTelemetry(document map[string]any) {
 	for _, entry := range mutants {
 		if mutant, ok := entry.(map[string]any); ok {
 			delete(mutant, "telemetry")
+			// 2.9.0 is additive by design: a report of the same verdicts
+			// differs from its pre-2.9.0 counterpart only in the new flag
+			// and the schema_version stamp, so the invariance proofs strip
+			// the flag the way they strip the telemetry.
+			delete(mutant, "deadline_reached")
 		}
 	}
 }

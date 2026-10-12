@@ -92,8 +92,8 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone(t
 		t.Fatalf("the M5 base tree publishes schema %q, want 2.3.0", before["schema_version"])
 	}
 
-	if after["schema_version"] != "2.8.0" {
-		t.Fatalf("this tree publishes schema %q, want 2.8.0", after["schema_version"])
+	if after["schema_version"] != "2.9.0" {
+		t.Fatalf("this tree publishes schema %q, want 2.9.0", after["schema_version"])
 	}
 
 	delete(before, "schema_version")
@@ -119,8 +119,11 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone(t
 			}
 
 			// Telemetry is this run's own cost, never a verdict input: excluded
-			// from the comparison, and asserted on by the telemetry tests.
+			// from the comparison, and asserted on by the telemetry tests. The
+			// 2.9.0 deadline flag is additive the same way — the before-tree
+			// does not emit it — so the comparison strips it too.
 			delete(mutant, "telemetry")
+			delete(mutant, "deadline_reached")
 
 			if mutant["tier"] == "pack" {
 				t.Fatalf("%s mutant %d is pack-tier with no pack selected", name, index)

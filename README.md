@@ -162,7 +162,8 @@ work. An independent adversarial review drove these corrections — see
 | [`docs/schema/report-2.5.0.json`](docs/schema/report-2.5.0.json) | The M5c.1 `PACK-WIDEN-CIDR` JSON report schema, still published for earlier consumers |
 | [`docs/schema/report-2.6.0.json`](docs/schema/report-2.6.0.json) | The mutant-id derivation revision, still published for earlier consumers |
 | [`docs/schema/report-2.7.0.json`](docs/schema/report-2.7.0.json) | The telemetry JSON report schema, still published for earlier consumers |
-| [`docs/schema/report-2.8.0.json`](docs/schema/report-2.8.0.json) | The versioned JSON report schema the `json` reporter emits, including the pack tier, the origins provenance and the widened incomplete semantics |
+| [`docs/schema/report-2.8.0.json`](docs/schema/report-2.8.0.json) | The widened-incomplete-semantics JSON report schema, still published for earlier consumers |
+| [`docs/schema/report-2.9.0.json`](docs/schema/report-2.9.0.json) | The versioned JSON report schema the `json` reporter emits, including the per-mutant `deadline_reached` flag |
 | [`docs/research/09-m3-real-provider-gate.md`](docs/research/09-m3-real-provider-gate.md) | The M3 inner-loop measurement, both real-provider debts settled, the M3e admission evidence |
 | [`docs/research/10-m3-exit-gate.md`](docs/research/10-m3-exit-gate.md) | The M3 exit-gate map: every normative behaviour to its test |
 | [`docs/schema/sarif-2.1.0.json`](docs/schema/sarif-2.1.0.json) | The published SARIF schema the `sarif` reporter's output is validated against |
