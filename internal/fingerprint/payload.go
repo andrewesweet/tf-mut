@@ -430,7 +430,7 @@ func unknownAddress(path string) (string, bool) {
 			continue
 		}
 
-		owner := Address(strings.Join(segments[:index], "."))
+		owner := ParsePath(strings.Join(segments[:index], ".")).Address()
 		if owner == "" {
 			return "", false
 		}
@@ -482,85 +482,6 @@ const (
 	// outputRoot is the address root of a module output.
 	outputRoot = "output"
 )
-
-// AttributePath reports whether a canonical path is exactly the given argument
-// of the given resource, in either the plan or the state projection.
-//
-// The grammar of a canonical path is this package's, so the question is asked
-// here rather than by rebuilding the prefixes at the call site.
-func AttributePath(path, address, attribute string) bool {
-	for _, body := range []string{
-		resourceChanges + "[" + address + "].change.after." + attribute,
-		resourceChanges + "[" + address + "].change.before." + attribute,
-		rootModule + ".resources[" + address + "].values." + attribute,
-	} {
-		if path == body || strings.HasPrefix(path, body+".") {
-			return true
-		}
-	}
-
-	return false
-}
-
-// Address converts a canonical payload path into the Terraform address a
-// reader would recognise, which is what every diagnosis is expressed in.
-//
-// Paths that name no address — the payload's own bookkeeping — return empty.
-func Address(path string) string {
-	switch {
-	case strings.HasPrefix(path, resourceChanges+"["):
-		return resourceAddress(path, resourceChanges+"[", []string{"change.after", "change.before"})
-	case strings.HasPrefix(path, outputChanges+"."):
-		return outputAddress(strings.TrimPrefix(path, outputChanges+"."))
-	case strings.HasPrefix(path, rootModule+"."):
-		return stateAddress(strings.TrimPrefix(path, rootModule+"."))
-	case strings.HasPrefix(path, stateOutputs+"."):
-		return outputAddress(strings.TrimPrefix(path, stateOutputs+"."))
-	default:
-		return ""
-	}
-}
-
-func resourceAddress(path, prefix string, bodies []string) string {
-	address, remainder, found := cutBracketed(strings.TrimPrefix(path, prefix))
-	if !found {
-		return ""
-	}
-
-	remainder = strings.TrimPrefix(remainder, ".")
-
-	for _, body := range bodies {
-		if remainder == body {
-			return address
-		}
-
-		if attribute, ok := strings.CutPrefix(remainder, body+"."); ok {
-			return address + "." + attribute
-		}
-	}
-
-	return address
-}
-
-func stateAddress(path string) string {
-	rest, ok := strings.CutPrefix(path, "resources[")
-	if !ok {
-		return ""
-	}
-
-	return resourceAddress("resources["+rest, "resources[", []string{"values"})
-}
-
-func outputAddress(path string) string {
-	name, _, _ := strings.Cut(path, ".")
-	if name == "" {
-		return ""
-	}
-
-	address, _ := discovery.BlockAddr(outputRoot, []string{name})
-
-	return address
-}
 
 // Fingerprint composes the per-run hashes into the mutant's fingerprint.
 //
@@ -629,12 +550,12 @@ const (
 // projection keeps these members at all. This predicate is what turns that
 // retention into a refusal to inline the value anywhere.
 func (p Payload) Sensitive(path string) bool {
-	base, attribute, ok := sensitivityMirror(path)
+	base, segments, ok := sensitivityMirror(ParsePath(path))
 	if !ok {
 		return false
 	}
 
-	for _, candidate := range ancestorPaths(base, attribute) {
+	for _, candidate := range ancestorPaths(base, segments) {
 		if p.Values[candidate] == "true" {
 			return true
 		}
@@ -674,271 +595,50 @@ func (p Payload) SensitiveRenderings() map[string]bool {
 }
 
 // sensitivityMirror maps a canonical value path onto the base of its
-// sensitivity mirror and the attribute path beneath it.
-func sensitivityMirror(path string) (base, attribute string, ok bool) {
-	address, attribute, ok := Split(path)
+// sensitivity mirror and the attribute segments beneath it.
+func sensitivityMirror(parsed Path) (base string, segments []string, ok bool) {
+	address, attribute, ok := parsed.Split()
 	if !ok {
-		return "", "", false
+		return "", nil, false
 	}
 
-	switch {
-	case strings.HasPrefix(path, resourceChanges+"["):
+	//nolint:exhaustive // only the four records have mirrors; the default arm is the refusal for the bookkeeping.
+	switch parsed.kind {
+	case pathPlanResource:
 		mirror := afterSensitive
-		if strings.Contains(path, "]."+changeBefore) {
+		if strings.Contains(parsed.raw, "]."+changeBefore) {
 			mirror = beforeSensitive
 		}
 
-		return resourceChanges + "[" + address + "].change." + mirror, attribute, true
-	case strings.HasPrefix(path, rootModule+"."):
-		return rootModule + ".resources[" + address + "]." + sensitiveValues, attribute, true
-	case strings.HasPrefix(path, outputChanges+"."):
+		return resourceChanges + "[" + address + "].change." + mirror, attributeSegments(attribute), true
+	case pathStateResource:
+		return rootModule + ".resources[" + address + "]." + sensitiveValues, attributeSegments(attribute), true
+	case pathPlanOutput:
 		return outputChanges + "." + strings.TrimPrefix(address, outputRoot+".") + "." + afterSensitive,
-			attribute, true
-	case strings.HasPrefix(path, stateOutputs+"."):
+			attributeSegments(attribute), true
+	case pathStateOutput:
 		return stateOutputs + "." + strings.TrimPrefix(address, outputRoot+".") + "." + outputSensitive,
-			attribute, true
+			attributeSegments(attribute), true
 	default:
-		return "", "", false
+		return "", nil, false
 	}
 }
 
 // ancestorPaths lists a mirror base and every prefix of the attribute path
 // beneath it, so a sensitive container is found from any leaf under it.
-func ancestorPaths(base, attribute string) []string {
-	paths := []string{base}
-	if attribute == "" {
-		return paths
-	}
+func ancestorPaths(base string, segments []string) []string {
+	paths := make([]string, 0, 1+len(segments))
+	paths = append(paths, base)
 
 	builder := strings.Builder{}
 	builder.WriteString(base)
 
-	for _, segment := range AttributeSegments(attribute) {
+	for _, segment := range segments {
 		builder.WriteString("." + segment)
 		paths = append(paths, builder.String())
 	}
 
 	return paths
-}
-
-// AttributeSegments splits an attribute path on its top-level dots, keeping
-// instance and element keys attached to the segment they index. It is exported
-// because the path grammar is this package's: the suggestion engine must not
-// rebuild it, or the two would drift.
-func AttributeSegments(attribute string) []string {
-	if attribute == "" {
-		return nil
-	}
-
-	segments := []string{}
-	builder := strings.Builder{}
-	depth := 0
-
-	for _, letter := range attribute {
-		switch {
-		case letter == '[':
-			depth++
-		case letter == ']':
-			depth--
-		case letter == '.' && depth == 0:
-			segments = append(segments, builder.String())
-			builder.Reset()
-
-			continue
-		default:
-		}
-
-		_, _ = builder.WriteRune(letter)
-	}
-
-	return append(segments, builder.String())
-}
-
-// Split separates a canonical payload path into the Terraform address a test
-// assertion could name and the attribute path beneath it.
-//
-// It is the grammar's own reader: the suggestion engine must not rebuild these
-// prefixes at its call site, or the two would drift and the address adapter
-// would be joining two address spaces without an adapter — the failure shape
-// the M3 spec review named twice.
-//
-// A path in a plan's prior state, or inside a child module's state, returns
-// false: no assertion can read either.
-func Split(path string) (address, attribute string, ok bool) {
-	switch {
-	case strings.HasPrefix(path, resourceChanges+"["):
-		return splitAddressed(strings.TrimPrefix(path, resourceChanges+"["), changeAfter)
-	case strings.HasPrefix(path, rootModule+".resources["):
-		return splitAddressed(strings.TrimPrefix(path, rootModule+".resources["), planValues)
-	case strings.HasPrefix(path, outputChanges+"."):
-		return splitOutput(strings.TrimPrefix(path, outputChanges+"."), outputAfterField)
-	case strings.HasPrefix(path, stateOutputs+"."):
-		return splitOutput(strings.TrimPrefix(path, stateOutputs+"."), outputValueField)
-	default:
-		return "", "", false
-	}
-}
-
-func splitAddressed(rest, body string) (address, attribute string, ok bool) {
-	address, remainder, found := cutBracketed(rest)
-	if !found {
-		return "", "", false
-	}
-
-	remainder = strings.TrimPrefix(remainder, ".")
-
-	if remainder == body {
-		return address, "", true
-	}
-
-	if attribute, cut := strings.CutPrefix(remainder, body+"."); cut {
-		return address, attribute, true
-	}
-
-	return "", "", false
-}
-
-func splitOutput(rest, body string) (address, attribute string, ok bool) {
-	name, remainder, _ := strings.Cut(rest, ".")
-	if name == "" {
-		return "", "", false
-	}
-
-	address, _ = discovery.BlockAddr(outputRoot, []string{name})
-
-	if remainder == body {
-		return address, "", true
-	}
-
-	if attribute, cut := strings.CutPrefix(remainder, body+"."); cut {
-		return address, attribute, true
-	}
-
-	// A list-valued output's element path continues from the body with an
-	// index, not a dot: `outputs.X.value[0].attr`, `output_changes.X.after[0].attr`.
-	// The index travels in the attribute so the rendered address reads
-	// `output.X[0].attr`. Only the value body enters this branch; metadata
-	// fields stay outside the assertion surface.
-	if attribute, cut := strings.CutPrefix(remainder, body+"["); cut {
-		key, _, found := strings.Cut(attribute, "]")
-		if found && digitsOnly(key) {
-			return address, "[" + attribute, true
-		}
-	}
-
-	return "", "", false
-}
-
-// IsUnknownMarker reports whether a canonical path is — or lives under — a
-// plan's unknown marker: the record that says which parts of a value the
-// baseline could not know. The markers are evidence about a comparison, never
-// a value to assert, and a renderer that reads them as a value's shape renders
-// a lie.
-func IsUnknownMarker(path string) bool {
-	_, found := UnknownValueBase(path)
-
-	return found
-}
-
-// UnknownValueBase maps an unknown-marker path onto the value path whose
-// subtree it marks: `output_changes.X.after_unknown…` marks
-// `output_changes.X.after…`, and a resource change's `change.after_unknown…`
-// marks its `change.after…`. A path that is not a marker path reports false.
-func UnknownValueBase(marker string) (string, bool) {
-	if rest, cut := strings.CutPrefix(marker, outputChanges+"."); cut {
-		return unknownOutputBase(rest)
-	}
-
-	if rest, cut := strings.CutPrefix(marker, resourceChanges+"["); cut {
-		address, tail, foundAddress := strings.Cut(rest, "]")
-		if !foundAddress {
-			return "", false
-		}
-
-		marked, isMarker := strings.CutPrefix(tail, "."+changeAfterUnknown)
-		if !isMarker {
-			return "", false
-		}
-
-		return resourceChanges + "[" + address + "]." + changeAfter + marked, true
-	}
-
-	return "", false
-}
-
-// unknownOutputBase maps an output-side marker onto its marked value: the
-// marker's name and the bracketed element key, if it carries one, transfer
-// verbatim onto the after path.
-func unknownOutputBase(rest string) (string, bool) {
-	name, tail, found := strings.Cut(rest, ".")
-	if !found {
-		return "", false
-	}
-
-	marked, isMarker := strings.CutPrefix(tail, afterUnknown)
-	if !isMarker {
-		return "", false
-	}
-
-	// A whole element the plan marks unknown carries its index in the marker:
-	// after_unknown[0].id marks after[0].id, the element's member, not a
-	// member of the collection itself. The bracketed key is consumed
-	// depth-matched, and what follows must be empty or dotted.
-	if rest, cut := strings.CutPrefix(marked, "["); cut {
-		index, remainder, closed := cutBracketed(rest)
-		if !closed || (remainder != "" && remainder[0] != '.') {
-			return "", false
-		}
-
-		marked = "[" + index + "]" + remainder
-	} else if marked != "" && marked[0] != '.' {
-		return "", false
-	}
-
-	return outputChanges + "." + name + "." + outputAfterField + marked, true
-}
-
-// IsOutputMetadata reports whether a canonical path names an output record's
-// metadata — its type descriptor or a sensitivity or unknown marker — rather
-// than its value.
-//
-// The grammar of a canonical path is this package's, so the question is asked
-// here rather than by rebuilding the prefixes at the call site (the M3 spec
-// review's twice-recorded drift rule). A candidate selector asks it to prefer
-// the value delta: the metadata members change whenever the value does, they
-// are never assertable, and the refusal they produce otherwise outranks the
-// value's own in the report.
-func IsOutputMetadata(path string) bool {
-	var remainder string
-
-	switch {
-	case strings.HasPrefix(path, outputChanges+"."):
-		remainder = strings.TrimPrefix(path, outputChanges+".")
-	case strings.HasPrefix(path, stateOutputs+"."):
-		remainder = strings.TrimPrefix(path, stateOutputs+".")
-	default:
-		return false
-	}
-
-	_, rest, _ := strings.Cut(remainder, ".")
-	if rest == "" {
-		return false
-	}
-
-	field, _, _ := strings.Cut(rest, ".")
-	if bracket := strings.IndexByte(field, '['); bracket >= 0 {
-		field = field[:bracket]
-	}
-
-	// Only the metadata members are unassertable; the value and its change
-	// body are not, and neither is anything the grammar does not name.
-	switch field {
-	case outputSensitive, outputType,
-		afterSensitive, beforeSensitive, afterUnknown, beforeUnknown:
-		return true
-	default:
-		return false
-	}
 }
 
 // digitsOnly reports whether a bracketed key is a numeric index.
@@ -954,55 +654,4 @@ func digitsOnly(key string) bool {
 	}
 
 	return true
-}
-
-// CountedInstanceRoot spells the state or plan path at which Terraform records the
-// numbered instance of a resource — the root record whose vanished change is
-// the only change that can prove the instance vanished.
-func CountedInstanceRoot(path string) string {
-	start := strings.IndexByte(path, '[') + 1
-	address, _, _ := cutBracketed(path[start:])
-
-	return path[:start] + address + "]"
-}
-
-// CountedInstance reads a state or plan resource path onto the counted
-// instance it names: `root_module.resources[null_resource.app[1]].values…`
-// onto resource `null_resource.app`, index 1, and a resource change's
-// `resource_changes[null_resource.app[0]].change…` likewise. A path whose
-// address carries no numeric instance index — a singleton resource, a
-// string-keyed `for_each` instance, a value outside any resource — reports
-// false. `count` is the only instance numbering this can read, which is the
-// point: a vanishing instance is what a count mutation does.
-func CountedInstance(path string) (resource string, index int, ok bool) {
-	var rest string
-	if cut, found := strings.CutPrefix(path, rootModule+".resources["); found {
-		rest = cut
-	} else if cut, found := strings.CutPrefix(path, resourceChanges+"["); found {
-		rest = cut
-	} else {
-		return "", 0, false
-	}
-
-	inner, _, found := cutBracketed(rest)
-	if !found {
-		return "", 0, false
-	}
-
-	name, tail, hasIndex := strings.Cut(inner, "[")
-	if !hasIndex || !strings.HasSuffix(tail, "]") || name == "" {
-		return "", 0, false
-	}
-
-	key := strings.TrimSuffix(tail, "]")
-	if !digitsOnly(key) {
-		return "", 0, false
-	}
-
-	index, err := strconv.Atoi(key)
-	if err != nil {
-		return "", 0, false
-	}
-
-	return name, index, true
 }

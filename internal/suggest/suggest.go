@@ -270,7 +270,7 @@ func (g Generator) suggestFor(
 
 		carried = append(carried, change)
 
-		if fingerprint.IsOutputMetadata(change.Path) {
+		if fingerprint.ParsePath(change.Path).IsOutputMetadata() {
 			metadata = append(metadata, change)
 
 			continue
@@ -420,22 +420,24 @@ func NewEvidence(changes []fingerprint.Change) Evidence {
 // travels with it: a nulled container only proves non-null where a peer change
 // shows a value that survived underneath it.
 func (e *Evidence) absorb(change fingerprint.Change, changes []fingerprint.Change) {
-	if fingerprint.IsUnknownMarker(change.Path) {
+	parsed := fingerprint.ParsePath(change.Path)
+
+	if parsed.IsUnknownMarker() {
 		e.UnknownMarkers = append(e.UnknownMarkers, change.Path)
 	}
 
 	if change.Mutant == nullMarker && !e.ProvenNonNull[change.Path] {
-		e.proveNonNull(change, changes)
+		e.proveNonNull(parsed, change, changes)
 	}
 
-	e.countInstance(change, changes)
+	e.countInstance(parsed, change, changes)
 }
 
 // proveNonNull marks a nulled container non-null where any peer change carries
 // a real baseline value on the container or inside it: the mutation's nulling
 // is provable rather than an absence the baseline shared.
-func (e *Evidence) proveNonNull(change fingerprint.Change, changes []fingerprint.Change) {
-	address, attribute, split := fingerprint.Split(change.Path)
+func (e *Evidence) proveNonNull(parsed fingerprint.Path, change fingerprint.Change, changes []fingerprint.Change) {
+	address, attribute, split := parsed.Split()
 	container := split && !strings.HasPrefix(address, "output.") && discovery.ValidIdentifier(attribute)
 
 	for _, other := range changes {
@@ -458,13 +460,13 @@ func (e *Evidence) proveNonNull(change fingerprint.Change, changes []fingerprint
 // where the delta also carries a change at the instance's root record — its
 // address or index: a value-body change alone cannot tell a vanished instance
 // from a vanished value.
-func (e *Evidence) countInstance(change fingerprint.Change, changes []fingerprint.Change) {
+func (e *Evidence) countInstance(parsed fingerprint.Path, change fingerprint.Change, changes []fingerprint.Change) {
 	if change.Mutant != "" {
 		return
 	}
 
-	resource, index, counted := fingerprint.CountedInstance(change.Path)
-	if !counted || !instanceRecorded(change.Path, changes) {
+	resource, index, counted := parsed.CountedInstance()
+	if !counted || !instanceRecorded(parsed, changes) {
 		return
 	}
 
@@ -476,8 +478,8 @@ func (e *Evidence) countInstance(change fingerprint.Change, changes []fingerprin
 // instanceRecorded reports whether the change set carries a change at an
 // instance's root record: the address or index Terraform writes for the
 // instance itself, whose mutant side vanished with it.
-func instanceRecorded(path string, changes []fingerprint.Change) bool {
-	root := fingerprint.CountedInstanceRoot(path)
+func instanceRecorded(parsed fingerprint.Path, changes []fingerprint.Change) bool {
+	root := parsed.CountedInstanceRoot()
 
 	for _, change := range changes {
 		if change.Mutant != "" {
@@ -496,7 +498,7 @@ func instanceRecorded(path string, changes []fingerprint.Change) bool {
 // path names.
 func (e *Evidence) markersUnder(valuePath string) bool {
 	for _, marker := range e.UnknownMarkers {
-		base, found := fingerprint.UnknownValueBase(marker)
+		base, found := fingerprint.ParsePath(marker).UnknownValueBase()
 		if !found {
 			continue
 		}

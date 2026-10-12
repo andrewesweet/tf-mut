@@ -21,6 +21,19 @@ const (
 	runName  = "defaults"
 )
 
+// Paths, addresses and attributes the parser tables below reuse; named so a
+// table reads as data rather than as repeated spellings.
+const (
+	regionListPath    = "outputs.region_list.value[0].short_name"
+	appTriggersPath   = "resource_changes[null_resource.app].change.after.triggers"
+	appValuesPath     = "root_module.resources[null_resource.app].values.triggers"
+	exampleValuesPath = "root_module.resources[example_thing.app].values.input"
+	regionListAddress = "output.region_list"
+	identityAddress   = "output.identity"
+	appAddress        = "null_resource.app"
+	triggersAttribute = "triggers"
+)
+
 func planPayload(t *testing.T, body string) tfexec.RunPayload {
 	t.Helper()
 
@@ -263,7 +276,7 @@ func TestOutputMetadataPathsAreRecognisedWithoutRebuildingTheGrammar(t *testing.
 		"output_changes.identity.after_sensitive",
 		"output_changes.identity.before_sensitive",
 	} {
-		if !fingerprint.IsOutputMetadata(path) {
+		if !fingerprint.ParsePath(path).IsOutputMetadata() {
 			t.Fatalf("IsOutputMetadata(%q) = false, want true", path)
 		}
 	}
@@ -271,14 +284,14 @@ func TestOutputMetadataPathsAreRecognisedWithoutRebuildingTheGrammar(t *testing.
 	for _, path := range []string{
 		identityValue,
 		"outputs.identity.value.principal_id",
-		"outputs.region_list.value[0].short_name",
+		regionListPath,
 		identityChangeAfter,
 		"output_changes.identity.after.principal_id",
 		"outputs.after.value",
-		"root_module.resources[example_thing.app].values.input",
+		exampleValuesPath,
 		"resource_changes[example_thing.app].change.after.input",
 	} {
-		if fingerprint.IsOutputMetadata(path) {
+		if fingerprint.ParsePath(path).IsOutputMetadata() {
 			t.Fatalf("IsOutputMetadata(%q) = true, want false", path)
 		}
 	}
@@ -298,20 +311,20 @@ func TestSplitCarriesAnOutputElementPathPastItsBody(t *testing.T) {
 		attribute string
 	}{
 		{
-			"outputs.region_list.value[0].short_name",
-			"output.region_list", "[0].short_name",
+			regionListPath,
+			regionListAddress, "[0].short_name",
 		},
 		{
 			"output_changes.region_list.after[1].short_name",
-			"output.region_list", "[1].short_name",
+			regionListAddress, "[1].short_name",
 		},
 		{
 			identityValue,
-			"output.identity", "",
+			identityAddress, "",
 		},
 		{
 			"outputs.identity.value.tenant",
-			"output.identity", "tenant",
+			identityAddress, "tenant",
 		},
 		{
 			"outputs.identity.type[0]",
@@ -329,7 +342,7 @@ func TestSplitCarriesAnOutputElementPathPastItsBody(t *testing.T) {
 		t.Run(testCase.path, func(t *testing.T) {
 			t.Parallel()
 
-			resource, attribute, ok := fingerprint.Split(testCase.path)
+			resource, attribute, ok := fingerprint.ParsePath(testCase.path).Split()
 			if testCase.resource == "" {
 				if ok {
 					t.Fatalf("Split(%q) = (%q, %q, true), want not ok",
@@ -379,7 +392,7 @@ func TestAnUnknownMarkerPathMapsOntoTheValueItMarks(t *testing.T) {
 		},
 		{
 			"resource_changes[null_resource.app].change.after_unknown.triggers",
-			"resource_changes[null_resource.app].change.after.triggers",
+			appTriggersPath,
 		},
 		{
 			"resource_changes[null_resource.app].change.after_unknown[1].triggers",
@@ -389,11 +402,11 @@ func TestAnUnknownMarkerPathMapsOntoTheValueItMarks(t *testing.T) {
 		t.Run(testCase.marker, func(t *testing.T) {
 			t.Parallel()
 
-			if !fingerprint.IsUnknownMarker(testCase.marker) {
+			if !fingerprint.ParsePath(testCase.marker).IsUnknownMarker() {
 				t.Fatalf("IsUnknownMarker(%q) = false, want true", testCase.marker)
 			}
 
-			value, found := fingerprint.UnknownValueBase(testCase.marker)
+			value, found := fingerprint.ParsePath(testCase.marker).UnknownValueBase()
 			if !found || value != testCase.value {
 				t.Fatalf("UnknownValueBase(%q) = (%q, %v), want (%q, true)",
 					testCase.marker, value, found, testCase.value)
@@ -415,11 +428,11 @@ func TestNonMarkerPathsNameNoMarkerRecord(t *testing.T) {
 		"output_changes.identity.after_unknownish.children",
 		"output_changes.identity.after_unknown[0",
 		"resource_changes[null_resource.app].change.before",
-		"resource_changes[null_resource.app].change.after.triggers",
+		appTriggersPath,
 		"outputs.after_unknown",
-		"root_module.resources[null_resource.app].values.triggers",
+		appValuesPath,
 	} {
-		if fingerprint.IsUnknownMarker(path) {
+		if fingerprint.ParsePath(path).IsUnknownMarker() {
 			t.Fatalf("IsUnknownMarker(%q) = true, want false", path)
 		}
 	}
@@ -439,7 +452,7 @@ func TestACountedInstancePathNamesItsResourceAndIndex(t *testing.T) {
 	}{
 		{
 			"root_module.resources[null_resource.app[1]].values.triggers",
-			"null_resource.app", 1,
+			appAddress, 1,
 		},
 		{
 			"resource_changes[terraform_data.counted[0]].change.after.output",
@@ -453,7 +466,7 @@ func TestACountedInstancePathNamesItsResourceAndIndex(t *testing.T) {
 		t.Run(testCase.path, func(t *testing.T) {
 			t.Parallel()
 
-			resource, index, ok := fingerprint.CountedInstance(testCase.path)
+			resource, index, ok := fingerprint.ParsePath(testCase.path).CountedInstance()
 			if !ok || resource != testCase.resource || index != testCase.index {
 				t.Fatalf("CountedInstance(%q) = (%q, %d, %v), want (%q, %d, true)",
 					testCase.path, resource, index, ok, testCase.resource, testCase.index)
@@ -469,15 +482,191 @@ func TestPathsOutsideTheInstanceGrammarNameNoInstance(t *testing.T) {
 	t.Parallel()
 
 	for _, path := range []string{
-		"root_module.resources[null_resource.app].values.triggers",
+		appValuesPath,
 		`root_module.resources[null_resource.app["blue"]].values.triggers`,
 		"root_module.resources[null_resource.app[blue]].values.triggers",
 		identityChangeAfter,
 		identityValue,
 		"resource_changes[null_resource.app].change.after",
 	} {
-		if _, _, ok := fingerprint.CountedInstance(path); ok {
+		if _, _, ok := fingerprint.ParsePath(path).CountedInstance(); ok {
 			t.Fatalf("CountedInstance(%q) reported an instance, want none", path)
 		}
+	}
+}
+
+// TestAParsedPathProjectsTheAddressADiagnosisNames pins the address projection
+// over the four records the grammar names and the members it does not. The
+// shapes are the recorded ones the tables above and the suggest fixtures carry.
+func TestAParsedPathProjectsTheAddressADiagnosisNames(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		path    string
+		address string
+	}{
+		{
+			appTriggersPath,
+			"null_resource.app.triggers",
+		},
+		{
+			exampleValuesPath,
+			"example_thing.app.input",
+		},
+		{
+			regionListPath,
+			regionListAddress,
+		},
+		{
+			"output_changes.identity.after",
+			identityAddress,
+		},
+		{
+			"resource_changes[a.b].change.after.c",
+			"a.b.c",
+		},
+		{
+			// A child module's state names no address an assertion could read.
+			"root_module.child_modules[0].resources[A].values.x",
+			"",
+		},
+		{
+			"format_version",
+			"",
+		},
+	} {
+		t.Run(testCase.path, func(t *testing.T) {
+			t.Parallel()
+
+			if address := fingerprint.ParsePath(testCase.path).Address(); address != testCase.address {
+				t.Fatalf("Address(%q) = %q, want %q", testCase.path, address, testCase.address)
+			}
+		})
+	}
+}
+
+// TestTheAttributeQuestionIsAnsweredAgainstTheParsedOwner pins the attribute
+// question the mask asks: true for the attribute itself and for anything
+// beneath it, false across bodies, addresses and records.
+func TestTheAttributeQuestionIsAnsweredAgainstTheParsedOwner(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		path      string
+		address   string
+		attribute string
+		want      bool
+	}{
+		{
+			appTriggersPath,
+			appAddress, triggersAttribute, true,
+		},
+		{
+			"resource_changes[null_resource.app].change.after.triggers.x",
+			appAddress, triggersAttribute, true,
+		},
+		{
+			// The before body is a different argument of the same resource.
+			"resource_changes[null_resource.app].change.before",
+			appAddress, triggersAttribute, false,
+		},
+		{
+			exampleValuesPath,
+			"example_thing.app", "input", true,
+		},
+		{
+			// An output record answers neither projection of the question.
+			"outputs.identity.value",
+			appAddress, triggersAttribute, false,
+		},
+		{
+			"resource_changes[example_thing.app].change.after.input",
+			appAddress, triggersAttribute, false,
+		},
+	} {
+		t.Run(testCase.path, func(t *testing.T) {
+			t.Parallel()
+
+			parsed := fingerprint.ParsePath(testCase.path)
+			if got := parsed.Attribute(testCase.address, testCase.attribute); got != testCase.want {
+				t.Fatalf("Attribute(%q, %q, %q) = %v, want %v",
+					testCase.path, testCase.address, testCase.attribute, got, testCase.want)
+			}
+		})
+	}
+}
+
+// TestSegmentsSplitTheAttributeOnTopLevelDots pins the segment split the
+// renderers consume, including the element key that stays attached to the
+// segment it indexes and the path that names no assertable value.
+func TestSegmentsSplitTheAttributeOnTopLevelDots(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		path     string
+		segments []string
+	}{
+		{
+			regionListPath,
+			[]string{"[0]", "short_name"},
+		},
+		{
+			appValuesPath,
+			[]string{triggersAttribute},
+		},
+		{
+			"resource_changes[a.b].change.after.c",
+			[]string{"c"},
+		},
+		{
+			"output_changes.identity.after_unknown",
+			nil,
+		},
+	} {
+		t.Run(testCase.path, func(t *testing.T) {
+			t.Parallel()
+
+			segments := fingerprint.ParsePath(testCase.path).Segments()
+			if !slices.Equal(segments, testCase.segments) {
+				t.Fatalf("Segments(%q) = %q, want %q", testCase.path, segments, testCase.segments)
+			}
+		})
+	}
+}
+
+// TestACountedInstanceRootSpellsTheInstanceRecord pins the root spelling the
+// count evidence reads, on both records and on paths that name no bracket at
+// all — the answer is the spelling's own, bracket for bracket.
+func TestACountedInstanceRootSpellsTheInstanceRecord(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		path string
+		root string
+	}{
+		{
+			"root_module.resources[null_resource.app[1]].values.triggers",
+			"root_module.resources[null_resource.app[1]]",
+		},
+		{
+			"resource_changes[terraform_data.counted[0]].change.after.output",
+			"resource_changes[terraform_data.counted[0]]",
+		},
+		{
+			regionListPath,
+			"outputs.region_list.value[0]",
+		},
+		{
+			"output_changes.identity.after",
+			"]",
+		},
+	} {
+		t.Run(testCase.path, func(t *testing.T) {
+			t.Parallel()
+
+			if root := fingerprint.ParsePath(testCase.path).CountedInstanceRoot(); root != testCase.root {
+				t.Fatalf("CountedInstanceRoot(%q) = %q, want %q", testCase.path, root, testCase.root)
+			}
+		})
 	}
 }

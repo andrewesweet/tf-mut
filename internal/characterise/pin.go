@@ -238,7 +238,7 @@ func valuePins(
 			continue
 		}
 
-		address, attribute, ok := fingerprint.Split(path)
+		address, attribute, ok := fingerprint.ParsePath(path).Split()
 		if !ok {
 			continue
 		}
