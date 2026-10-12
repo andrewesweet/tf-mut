@@ -72,10 +72,30 @@ exec ` + realTerraform + ` "$@"
 	)
 	command.Stdout = io.Discard
 	command.Stderr = io.Discard
+	command.WaitDelay = time.Second
+	done := make(chan error, 1)
 
 	if err := command.Start(); err != nil {
 		t.Fatalf("starting helper: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = command.Process.Signal(syscall.SIGINT)
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			_ = command.Process.Kill()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Error("the helper was not reaped after SIGKILL")
+			}
+		}
+	})
+
+	go func() {
+		done <- command.Wait()
+		close(done)
+	}()
 
 	waitForWorkRoot(t, workDir)
 	waitForMarker(t, marker)
@@ -83,10 +103,6 @@ exec ` + realTerraform + ` "$@"
 	if err := command.Process.Signal(syscall.SIGINT); err != nil {
 		t.Fatalf("interrupting helper: %v", err)
 	}
-
-	done := make(chan error, 1)
-
-	go func() { done <- command.Wait() }()
 
 	select {
 	case err := <-done:
