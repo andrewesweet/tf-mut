@@ -395,7 +395,7 @@ func standardReport(t *testing.T, binary, module string) map[string]any {
 
 	//nolint:gosec // test-built binary, literal arguments.
 	command := exec.CommandContext(t.Context(), binary,
-		"run", "--tier", "standard", "--no-cache", "--reporter", "json", module)
+		runCommand, "--tier", "standard", "--no-cache", "--reporter", "json", module)
 	command.Dir = module
 	command.Env = subprocessEnvironment()
 

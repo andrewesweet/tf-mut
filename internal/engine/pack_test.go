@@ -1010,9 +1010,9 @@ func TestARealPackReportValidatesAgainstThePublishedSchema(t *testing.T) {
 			suggest.NoCache = true
 
 			for command, result := range map[string]report.Report{
-				"preview": packPreview(t, module, packs...),
-				"run":     packRun(t, module, packs...),
-				"suggest": runSuggest(t, suggest),
+				previewCommand: packPreview(t, module, packs...),
+				runCommand:     packRun(t, module, packs...),
+				suggestCommand: runSuggest(t, suggest),
 			} {
 				carriesOrigins := slices.ContainsFunc(result.Mutants, func(mutant report.Mutant) bool {
 					return len(mutant.Origins) > 0

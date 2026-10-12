@@ -18,7 +18,14 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
-const preflightFixture = "skeleton"
+const (
+	preflightFixture    = "skeleton"
+	runCommand          = "run"
+	previewCommand      = "preview"
+	suggestCommand      = "suggest"
+	curateCommand       = "curate"
+	characteriseCommand = "characterise"
+)
 
 // The deadlines every outbound call carries. Each test here wraps the real
 // Terraform binary — or git — in a script that sleeps exactly where the
@@ -52,12 +59,12 @@ exec terraform "$@"
 func TestAFmtDeadlineFailsEveryWarmUpCommand(t *testing.T) {
 	t.Parallel()
 
-	for _, command := range []string{"run", "preview", "suggest", "curate", "characterise"} {
+	for _, command := range []string{runCommand, previewCommand, suggestCommand, curateCommand, characteriseCommand} {
 		t.Run(command, func(t *testing.T) {
 			t.Parallel()
 
 			fixture := preflightFixture
-			if command == "characterise" {
+			if command == characteriseCommand {
 				fixture = "untested-zero-output"
 			}
 
@@ -66,11 +73,11 @@ func TestAFmtDeadlineFailsEveryWarmUpCommand(t *testing.T) {
 			common.PreflightTimeout = 2 * time.Second
 
 			requests := map[string]engine.Request{
-				"run":          engine.RunRequest{Common: common},
-				"preview":      engine.PreviewRequest{Common: common},
-				"suggest":      engine.SuggestRequest{Common: common},
-				"curate":       engine.CurateRequest{Common: common},
-				"characterise": engine.CharacteriseRequest{Common: common},
+				runCommand:          engine.RunRequest{Common: common},
+				previewCommand:      engine.PreviewRequest{Common: common},
+				suggestCommand:      engine.SuggestRequest{Common: common},
+				curateCommand:       engine.CurateRequest{Common: common},
+				characteriseCommand: engine.CharacteriseRequest{Common: common},
 			}
 
 			started := time.Now()
