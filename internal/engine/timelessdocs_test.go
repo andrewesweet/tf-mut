@@ -15,15 +15,12 @@ import (
 // the technical-documentation review seeds the list with the four temporal
 // phrases; ticket T7's filler words join the same list when that ticket lands.
 //
-// Two narrow exceptions, each recorded here rather than taken quietly:
+// One narrow exception, recorded here rather than taken quietly:
 //
 //   - docs/research and docs/reviews are dated records — exit-gate decisions
 //     and review dispositions — whose temporal language is anchored to their
 //     date, and whose quotations record the words under review; rewriting
 //     either would falsify the record.
-//   - README.md's Licence line ("Not yet chosen.") waits on a separate
-//     licensing decision outside this sweep, and is exempt until that
-//     decision lands.
 func TestTheDocumentsAvoidTheBannedPhrases(t *testing.T) {
 	t.Parallel()
 
@@ -72,10 +69,6 @@ func assertDocumentAvoidsTheBannedPhrases(t *testing.T, document string) {
 			continue
 		}
 		if inFence {
-			continue
-		}
-		// The licence decision is a captain decision, not this sweep's.
-		if filepath.Base(document) == "README.md" && strings.TrimSpace(line) == "Not yet chosen." {
 			continue
 		}
 		if banned.MatchString(line) {

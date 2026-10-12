@@ -236,4 +236,4 @@ See [Reporters](docs/design/product-design.md#9-reporters) for the rendering con
 
 ## Licence
 
-Not yet chosen.
+No licence is specified.
