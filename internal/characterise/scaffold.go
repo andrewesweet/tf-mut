@@ -7,11 +7,8 @@ package characterise
 // the check somebody has to answer it with. It is never executable and never
 // verified on its own: it exists in exactly one of two states — scaffolded,
 // carrying the proposal, or promoted, carrying test content — and the move
-// between them runs through Promote alone. The rule "a scaffold whose
-// behaviour did not verify cannot become test content" is the transition's
-// signature: Promote is the only route to promoted, and the only value it
-// accepts is the verification evidence, which the engine builds through
-// Verified at the point its verifier succeeded.
+// between them runs through Verification.PromoteScaffold alone. See that
+// method for the verification contract.
 
 // ScaffoldStatus is the closed state vocabulary of a scaffold, in the
 // vocabulary the Characterisation context owns. The application layer projects
@@ -77,16 +74,13 @@ func (s Scaffold) Status() ScaffoldStatus { return s.status }
 // carries none.
 func (s Scaffold) Artefact() string { return s.artefact }
 
-// Promote moves the scaffold into test content. The evidence is the
-// verification that earned it, and it is not optional: this transition is the
-// only route to promoted, and a scaffold nobody verified cannot take it. The
-// evidence is deliberately not published — the report carries the promoted
-// state and nothing else — so the parameter is referenced only to keep the
-// contract spelled at the call site.
-func (s Scaffold) Promote(evidence Verification) Scaffold {
-	// The assignment keeps the contract's parameter referenced without
-	// publishing it; nothing a report carries comes from the evidence.
-	_ = evidence
+// PromoteScaffold moves the scaffold into test content. The verification is
+// the receiver: this transition is the only route to promoted, and a scaffold
+// nobody verified cannot take it. The verification is deliberately not
+// published — the report carries the promoted state and nothing else comes
+// from it. (The judgement-point promotion is Promote; Go allows one method
+// name per receiver type.)
+func (Verification) PromoteScaffold(s Scaffold) Scaffold {
 	promoted := s
 	promoted.status = StatusPromoted
 	promoted.artefact = ""

@@ -79,8 +79,9 @@ func TestAWireSchemaServesTheRenderingWalk(t *testing.T) {
 			change := changeAt(testCase.path, testCase.baseline)
 			change.Mutant = testCase.mutant
 
-			expression, err := suggest.Express(runIn("applied", ""),
-				testCase.schemas, testCase.evidence, change)
+			expression, err := suggest.Express(
+				testCase.schemas, testCase.evidence, change,
+			)
 
 			assertAdapter(t, expression, err, testCase.want, testCase.refused)
 		})

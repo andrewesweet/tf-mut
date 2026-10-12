@@ -45,7 +45,7 @@ func TestAnInstanceCountsOnlyWhereItsRootRecordVanished(t *testing.T) {
 					)
 				}
 
-				expression, err := suggest.Express(runIn("applied", ""), untyped(),
+				expression, err := suggest.Express(untyped(),
 					suggest.NewEvidence(changes), valueBodyOnly[0])
 				assertAdapter(t, expression, err, want, nil)
 			})
@@ -73,8 +73,9 @@ func TestANulledValueRequiresAnUnambiguousBaselineMember(t *testing.T) {
 					nulled,
 					changeAt(nulled.Path+suffix, steadyBaseline),
 				}
-				expression, err := suggest.Express(runIn("applied", ""),
-					schemaTyping("triggers", `["map","string"]`), suggest.NewEvidence(changes), nulled)
+				expression, err := suggest.Express(
+					schemaTyping("triggers", `["map","string"]`), suggest.NewEvidence(changes), nulled,
+				)
 				assertAdapter(t, expression, err, "", suggest.ErrUnrenderable)
 			})
 		}

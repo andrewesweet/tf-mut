@@ -6,10 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hashicorp/hcl/v2"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
@@ -23,18 +21,6 @@ import (
 // claims about documents and about published types, and driving the real binary
 // into producing each of the payload shapes on demand is not possible. Every
 // verdict the adapters lead to is still asserted through the engine seam.
-
-// runIn builds the run block a suggestion would be placed in.
-func runIn(name, moduleSource string) discovery.RunBlock {
-	const file = "tests/unit.tftest.hcl"
-
-	return discovery.RunBlock{
-		Name: name, File: "/module/" + file, Rel: file,
-		Command: discovery.CommandApply, ModuleSource: moduleSource,
-		Assertions: 1, DefRange: hclRange(), Variables: nil,
-		HasPlanTarget: false, JSONDeclared: false,
-	}
-}
 
 func changeAt(path, baseline string) fingerprint.Change {
 	return fingerprint.Change{
@@ -118,7 +104,6 @@ func TestTheAddressAdapterMatrix(t *testing.T) {
 
 	for _, testCase := range []struct {
 		name       string
-		run        discovery.RunBlock
 		path       string
 		baseline   string
 		schemas    tfexec.Schemas
@@ -127,43 +112,40 @@ func TestTheAddressAdapterMatrix(t *testing.T) {
 		refused    error
 	}{
 		{
-			name: "root resource", run: runIn("applied", ""),
+			name: "root resource",
 			path: statePrefix + "example_thing.app].values.input", baseline: steadyBaseline,
 			schemas: untyped(), want: `example_thing.app.input == "steady"`, refused: nil,
 		},
 		{
-			name: "count", run: runIn("applied", ""),
+			name: "count",
 			path: statePrefix + "example_thing.app[0]].values.input", baseline: steadyBaseline,
 			schemas: untyped(), want: `example_thing.app[0].input == "steady"`, refused: nil,
 		},
 		{
-			name: "string-keyed for_each", run: runIn("applied", ""),
+			name: "string-keyed for_each",
 			path: statePrefix + `example_thing.app["blue"]].values.input`, baseline: steadyBaseline,
 			schemas: untyped(), want: `example_thing.app["blue"].input == "steady"`, refused: nil,
 		},
 		{
-			name: "nested collection element", run: runIn("applied", ""),
+			name: "nested collection element",
 			path: statePrefix + "example_thing.app].values.items[1]", baseline: secondValue,
 			schemas: schemaTyping("items", `["list","string"]`),
 			want:    `example_thing.app.items[1] == "second"`, refused: nil,
 		},
 		{
 			name: "root run observing a child only through an output",
-			run:  runIn("applied", ""),
 			path: "outputs.from_child.value", baseline: steadyBaseline,
 			schemas: untyped(), want: `output.from_child == "steady"`, refused: nil,
 		},
 		{
 			name:       "a fused name-and-index segment renders in index form",
 			outputType: cty.List(cty.Object(map[string]cty.Type{aliasesAttribute: cty.List(cty.String)})),
-			run:        runIn("applied", ""),
 			path:       "outputs.from_child.value[0].aliases[0]",
 			baseline:   steadyBaseline,
 			schemas:    untyped(), want: `output.from_child[0].aliases[0] == "steady"`, refused: nil,
 		},
 		{
 			name:     "two names after an output element cannot be told apart from map keys",
-			run:      runIn("applied", ""),
 			path:     "outputs.from_child.value[0].inner.leaf",
 			baseline: steadyBaseline,
 			schemas:  untyped(), want: "", refused: suggest.ErrUnrenderable,
@@ -171,25 +153,22 @@ func TestTheAddressAdapterMatrix(t *testing.T) {
 		{
 			name:       "a list-valued output's element",
 			outputType: cty.List(cty.Object(map[string]cty.Type{"short_name": cty.String})),
-			run:        runIn("applied", ""),
 			path:       "outputs.from_child.value[0].short_name", baseline: steadyBaseline,
 			schemas: untyped(), want: `output.from_child[0].short_name == "steady"`, refused: nil,
 		},
 		{
 			name:       "a list-valued output's element in a plan payload",
 			outputType: cty.List(cty.Object(map[string]cty.Type{"short_name": cty.String})),
-			run:        runIn("applied", ""),
 			path:       "output_changes.from_child.after[1].short_name", baseline: steadyBaseline,
 			schemas: untyped(), want: `output.from_child[1].short_name == "steady"`, refused: nil,
 		},
 		{
 			name: "direct child-module run",
-			run:  runIn("child", "./child"),
 			path: statePrefix + "example_thing.inner].values.input", baseline: steadyBaseline,
 			schemas: untyped(), want: `example_thing.inner.input == "steady"`, refused: nil,
 		},
 		{
-			name: "wildcard/splat mapping failure", run: runIn("applied", ""),
+			name: "wildcard/splat mapping failure",
 			path: statePrefix + "example_thing.app[*]].values.input", baseline: steadyBaseline,
 			schemas: untyped(), want: "", refused: suggest.ErrUnaddressable,
 		},
@@ -197,7 +176,7 @@ func TestTheAddressAdapterMatrix(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			expression, err := suggest.Express(testCase.run, testCase.schemas,
+			expression, err := suggest.Express(testCase.schemas,
 				suggest.Evidence{OutputTypes: map[string]cty.Type{"output.from_child": testCase.outputType}},
 				changeAt(testCase.path, testCase.baseline))
 
@@ -219,8 +198,9 @@ func TestChildModuleInternalsAreNeverALegalAssertionSurface(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := suggest.Express(runIn("applied", ""),
-				untyped(), suggest.Evidence{}, changeAt(path, steadyBaseline))
+			_, err := suggest.Express(
+				untyped(), suggest.Evidence{}, changeAt(path, steadyBaseline),
+			)
 
 			if !errors.Is(err, suggest.ErrUnaddressable) {
 				t.Fatalf("error = %v, want an unaddressable refusal", err)
@@ -241,8 +221,9 @@ func TestAGeneratorLimitIsNeverARefutation(t *testing.T) {
 		"outputs.thing.type",
 		"resource_changes[example_thing.app].change.before.input",
 	} {
-		_, err := suggest.Express(runIn("applied", ""),
-			untyped(), suggest.Evidence{}, changeAt(path, steadyBaseline))
+		_, err := suggest.Express(
+			untyped(), suggest.Evidence{}, changeAt(path, steadyBaseline),
+		)
 
 		if !errors.Is(err, suggest.ErrUnaddressable) {
 			t.Fatalf("%s: error = %v, want an unaddressable refusal", path, err)
@@ -620,8 +601,9 @@ func TestTheRenderingContractMatrix(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			expression, err := suggest.Express(runIn("applied", ""),
-				testCase.schemas, suggest.Evidence{}, changeAt(testCase.path, testCase.baseline))
+			expression, err := suggest.Express(
+				testCase.schemas, suggest.Evidence{}, changeAt(testCase.path, testCase.baseline),
+			)
 
 			assertAdapter(t, expression, err, testCase.want, testCase.refused)
 		})
@@ -640,8 +622,9 @@ func TestTheRenderingContractAdmissions(t *testing.T) {
 			change := changeAt(testCase.path, testCase.baseline)
 			change.Mutant = testCase.mutant
 
-			expression, err := suggest.Express(runIn("applied", ""),
-				testCase.schemas, testCase.evidence, change)
+			expression, err := suggest.Express(
+				testCase.schemas, testCase.evidence, change,
+			)
 
 			assertAdapter(t, expression, err, testCase.want, testCase.refused)
 		})
@@ -657,9 +640,10 @@ func TestATosetAmbiguityIsAlwaysSkipped(t *testing.T) {
 	for _, ctyType := range []string{
 		`["set","string"]`, `["list","string"]`, `["map","string"]`, `["object",{"a":"string"}]`,
 	} {
-		_, err := suggest.Express(runIn("applied", ""),
+		_, err := suggest.Express(
 			schemaTyping("items", ctyType),
-			suggest.Evidence{}, changeAt(statePrefix+"example_thing.app].values.items", `"scalar-rendered"`))
+			suggest.Evidence{}, changeAt(statePrefix+"example_thing.app].values.items", `"scalar-rendered"`),
+		)
 
 		if !errors.Is(err, suggest.ErrUnrenderable) {
 			t.Fatalf("%s: error = %v, want an unrenderable refusal", ctyType, err)
@@ -688,7 +672,7 @@ func TestTheSensitivityPredicateRefusesBeforeAnythingRenders(t *testing.T) {
 			change.Sensitive = true
 
 			expression, err := suggest.Express(
-				runIn("applied", ""), untyped(), suggest.Evidence{}, change,
+				untyped(), suggest.Evidence{}, change,
 			)
 
 			if !errors.Is(err, suggest.ErrSensitive) {
@@ -728,13 +712,6 @@ func assertAdapter(t *testing.T, expression string, err error, want string, refu
 	if expression != want {
 		t.Fatalf("expression = %q, want %q", expression, want)
 	}
-}
-
-// hclRange is the zero source range the fabricated run blocks carry: these
-// tests are about payload paths and published types, not about source
-// positions.
-func hclRange() hcl.Range {
-	return hcl.Range{Filename: "tests/unit.tftest.hcl", Start: hcl.InitialPos, End: hcl.InitialPos}
 }
 
 func contains(haystack, needle string) bool {

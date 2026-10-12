@@ -136,8 +136,9 @@ func (t Todo) Answer() Answered {
 	}
 }
 
-// Answered is a judgement point whose answer was supplied, and the only value
-// Promote and Reject accept: there is no route from open to either.
+// Answered is a judgement point whose answer was supplied. Verification.Promote
+// consumes this handle, and Reject is defined on it: neither transition accepts
+// an open Todo.
 type Answered struct {
 	point Todo
 }
@@ -146,16 +147,11 @@ type Answered struct {
 // an answer supplied, and nothing yet proven.
 func (a Answered) Point() Todo { return a.point }
 
-// Promote moves the answered point into test content. The evidence is the
-// verification that earned it, and it is not optional: this transition is the
-// only route to promoted, and a point nobody verified cannot take it. The
-// evidence is deliberately not published — the report carries the promoted
-// state and nothing else — so the parameter is referenced only to keep the
-// contract spelled at the call site.
-func (a Answered) Promote(evidence Verification) Todo {
-	// The assignment keeps the contract's parameter referenced without
-	// publishing it; nothing a report carries comes from the evidence.
-	_ = evidence
+// Promote moves the answered point into test content. The verification is the
+// receiver: this transition is the only route to promoted, and a point nobody
+// verified cannot take it. The verification is deliberately not published —
+// the report carries the promoted state and nothing else comes from it.
+func (Verification) Promote(a Answered) Todo {
 	promoted := a.point
 	promoted.status = TodoPromoted
 
@@ -175,8 +171,8 @@ func (a Answered) Reject(reason string) Todo {
 // Verification is the evidence promotion demands: the proof that the suite an
 // answer produced was executed and passed. It is opaque — the engine builds it
 // through Verified at the point its verifier succeeded, and nothing it carries
-// is published — so it exists to make a promotion site spell where its
-// evidence came from.
+// is published — so it is the receiver of Promote and PromoteScaffold:
+// promotion requires a verification in hand, by type.
 type Verification struct{}
 
 // Verified records that one verification leg passed.

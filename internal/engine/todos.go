@@ -160,7 +160,7 @@ func promoted(
 			continue
 		}
 
-		todos[index] = handle.Promote(verification)
+		todos[index] = verification.Promote(handle)
 	}
 
 	return todos

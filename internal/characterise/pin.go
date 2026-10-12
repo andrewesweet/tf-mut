@@ -301,7 +301,6 @@ func onePin(context pinContext) Pin {
 	}
 
 	rendered, err := suggest.Express(
-		discovery.RunBlock{Name: RunPrefix + context.scenario.Name()}, // the adapter reads the address.
 		context.schemas,
 		// Pinning has baseline output types, but no delta neighbourhood.
 		suggest.Evidence{OutputTypes: context.payload.OutputTypes},
