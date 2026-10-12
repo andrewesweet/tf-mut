@@ -790,7 +790,13 @@ func execute(command, buildVersion string, args []string, stdout, stderr io.Writ
 	}
 
 	if err := render(stdout, parsed, result); err != nil {
-		return fail(stderr, "tf-mut: "+err.Error())
+		message := "tf-mut: " + strings.TrimRight(err.Error(), "\n")
+		if result.Telemetry != nil {
+			prefix := "[" + result.Telemetry.RunID + "] "
+			message = prefix + strings.ReplaceAll(message, "\n", "\n"+prefix)
+		}
+
+		return fail(stderr, message)
 	}
 
 	return result.ExitCode(parsed.gate)

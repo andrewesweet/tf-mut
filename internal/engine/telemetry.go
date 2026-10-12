@@ -4,8 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -149,15 +147,10 @@ func runIdentifier(span *tracing.Span) string {
 }
 
 // randomRunID mints 16 random bytes — the 128-bit OpenTelemetry trace-ID
-// shape — hex-encoded. A crypto/rand read has no realistic failure on the
-// platforms tf-mut runs on; if it ever refuses, the identifier falls back to
-// a time- and process-derived one rather than costing a run over a
-// telemetry passenger.
+// shape — hex-encoded. crypto/rand.Read always fills the buffer without error.
 func randomRunID() string {
 	var bytes [16]byte
-	if _, err := rand.Read(bytes[:]); err != nil {
-		return fmt.Sprintf("%016x%016x", time.Now().UnixNano(), os.Getpid())
-	}
+	_, _ = rand.Read(bytes[:])
 
 	return hex.EncodeToString(bytes[:])
 }

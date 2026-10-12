@@ -600,7 +600,8 @@ func TestTraceExportWarningsStopWhenRunReturns(t *testing.T) {
 	if got := requests.Load(); got != 1 {
 		t.Fatalf("export requests before return = %d, want one still pending", got)
 	}
-	warning := "[" + result.Telemetry.RunID + "] tf-mut: trace export failed\n"
+	warning := output.String()
+	expectedWarning := "[" + result.Telemetry.RunID + "] tf-mut: trace export failed\n"
 
 	output.Reset()
 	_, _ = output.WriteString("caller owns this buffer\n")
@@ -614,8 +615,8 @@ func TestTraceExportWarningsStopWhenRunReturns(t *testing.T) {
 	if got := output.String(); got != "caller owns this buffer\n" {
 		t.Fatalf("an export wrote to the caller's buffer after return: %q", got)
 	}
-	if warning != "["+result.Telemetry.RunID+"] tf-mut: trace export failed\n" {
-		t.Fatalf("shutdown warning = %q", warning)
+	if warning != expectedWarning {
+		t.Fatalf("shutdown warning = %q, want %q", warning, expectedWarning)
 	}
 }
 

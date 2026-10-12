@@ -180,6 +180,43 @@ func TestJSONReporterEmitsTheVersionedSchema(t *testing.T) {
 	}
 }
 
+func TestReportFileFailureCarriesTheRunIdentifier(t *testing.T) {
+	t.Parallel()
+
+	for _, parent := range []string{"absent", "absent\nsecond-line"} {
+		t.Run(parent, func(t *testing.T) {
+			t.Parallel()
+
+			module := fixture(t)
+			path := filepath.Join(module, parent, "report.json")
+			var stdout, stderr bytes.Buffer
+			code := run([]string{runCommand, noCacheFlag, reporterFlag, reporterJSON,
+				"--output", "json=" + path, module}, "dev", &stdout, &stderr)
+			if code != report.ExitOperational {
+				t.Fatalf("exit = %d, want operational: %s", code, stderr.String())
+			}
+
+			var result report.Report
+			if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+				t.Fatalf("stdout is not the completed JSON report: %v", err)
+			}
+			if result.Telemetry == nil || result.Telemetry.RunID == "" {
+				t.Fatal("the completed report has no run identifier")
+			}
+
+			prefix := "[" + result.Telemetry.RunID + "] "
+			if !strings.HasPrefix(stderr.String(), prefix+"tf-mut: creating ") {
+				t.Fatalf("stderr lost the identified rendering failure: %q", stderr.String())
+			}
+			for line := range strings.SplitSeq(strings.TrimSuffix(stderr.String(), "\n"), "\n") {
+				if !strings.HasPrefix(line, prefix) {
+					t.Fatalf("rendering failure line lacks prefix %q: %q", prefix, line)
+				}
+			}
+		})
+	}
+}
+
 func TestUnknownReporterIsAnOperationalFailure(t *testing.T) {
 	t.Parallel()
 
