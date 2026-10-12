@@ -93,6 +93,10 @@ const (
 	aliasesAttribute       = "aliases"
 	baselineCountAssertion = "length(example_thing.counted) == 2"
 	firstElementIndex      = "[0]"
+	connectionBlock        = "connection"
+	mountsBlock            = "mounts"
+	exampleResource        = "example_thing.app"
+	timeoutBaseline        = `"5m"`
 )
 
 // TestTheAddressAdapterMatrix is the seven mandatory address fixtures, quoted
@@ -386,7 +390,7 @@ func templateKeyRows() []renderingCase {
 			path:     statePrefix + "example_thing.app].values.connection[0].subresource_names[0]",
 			baseline: secondValue,
 			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
-				"connection": {NestingMode: tfexec.NestingList, Block: tfexec.SchemaBlock{
+				connectionBlock: {NestingMode: tfexec.NestingList, Block: tfexec.SchemaBlock{
 					Attributes: map[string]tfexec.SchemaAttribute{
 						"subresource_names": {Optional: true, Type: json.RawMessage(`["list","string"]`)},
 					},
@@ -397,7 +401,7 @@ func templateKeyRows() []renderingCase {
 		},
 		{
 			name: "a single-nested block's attribute",
-			path: statePrefix + "example_thing.app].values.timeouts.create", baseline: `"5m"`,
+			path: statePrefix + "example_thing.app].values.timeouts.create", baseline: timeoutBaseline,
 			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
 				"timeouts": {NestingMode: tfexec.NestingSingle, Block: tfexec.SchemaBlock{
 					Attributes: map[string]tfexec.SchemaAttribute{
@@ -461,7 +465,7 @@ func nullFormRows() []renderingCase {
 			path:     statePrefix + "example_thing.app].values.connection[0].subresource_names[0]",
 			baseline: secondValue, mutant: nulledValue,
 			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
-				"connection": {NestingMode: tfexec.NestingList, Block: tfexec.SchemaBlock{
+				connectionBlock: {NestingMode: tfexec.NestingList, Block: tfexec.SchemaBlock{
 					Attributes: map[string]tfexec.SchemaAttribute{
 						"subresource_names": {Optional: true, Type: json.RawMessage(`["list","string"]`)},
 					},
@@ -492,7 +496,7 @@ func mapBlockRows() []renderingCase {
 			name: "a map-nested block's entry by its dotted payload key",
 			path: statePrefix + "example_thing.app].values.mounts.shared.source", baseline: `"/data"`,
 			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
-				"mounts": {NestingMode: tfexec.NestingMap, Block: tfexec.SchemaBlock{
+				mountsBlock: {NestingMode: tfexec.NestingMap, Block: tfexec.SchemaBlock{
 					Attributes: map[string]tfexec.SchemaAttribute{
 						"source": {Optional: true, Type: json.RawMessage(`"string"`)},
 					},
@@ -504,7 +508,7 @@ func mapBlockRows() []renderingCase {
 			name: "a map-nested block whose path stops at the block is refused",
 			path: statePrefix + "example_thing.app].values.mounts.shared", baseline: `"/data"`,
 			schemas: schemaBlock(nil, map[string]tfexec.SchemaBlockType{
-				"mounts": {NestingMode: tfexec.NestingMap, Block: tfexec.SchemaBlock{
+				mountsBlock: {NestingMode: tfexec.NestingMap, Block: tfexec.SchemaBlock{
 					Attributes: map[string]tfexec.SchemaAttribute{
 						"source": {Optional: true, Type: json.RawMessage(`"string"`)},
 					},
@@ -588,7 +592,7 @@ func keyRows() []renderingCase {
 			name: "an index above the proven count is no count equality",
 			path: statePrefix + `example_thing.app["blue"]].values.input`, baseline: steadyBaseline, mutant: "",
 			schemas:  untyped(),
-			evidence: suggest.Evidence{InstanceCounts: map[string]int{"example_thing.app": 2}},
+			evidence: suggest.Evidence{InstanceCounts: map[string]int{exampleResource: 2}},
 			want:     `example_thing.app["blue"].input == "steady"`, refused: nil,
 		},
 	}

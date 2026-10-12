@@ -67,7 +67,7 @@ func TestAWireSchemaServesTheRenderingWalk(t *testing.T) {
 		{
 			name:     "a single-nested block's attribute, decoded from the wire",
 			path:     statePrefix + "example_thing.app].values.timeouts.create",
-			baseline: `"5m"`,
+			baseline: timeoutBaseline,
 			schemas:  schemas,
 			want:     `example_thing.app.timeouts.create == "5m"`,
 			refused:  nil,
@@ -92,14 +92,14 @@ func TestNestedSchemaPathsPreserveRendering(t *testing.T) {
 	t.Parallel()
 
 	schemas := schemaBlock(nil, map[string]tfexec.SchemaBlockType{
-		"connection": {NestingMode: tfexec.NestingList, Block: tfexec.SchemaBlock{
+		connectionBlock: {NestingMode: tfexec.NestingList, Block: tfexec.SchemaBlock{
 			BlockTypes: map[string]tfexec.SchemaBlockType{
 				"timeouts": {NestingMode: tfexec.NestingGroup, Block: tfexec.SchemaBlock{
 					Attributes: map[string]tfexec.SchemaAttribute{
 						"create": {Optional: true, Type: json.RawMessage(`"string"`)},
 					},
 				}},
-				"mounts": {NestingMode: tfexec.NestingMap, Block: tfexec.SchemaBlock{
+				mountsBlock: {NestingMode: tfexec.NestingMap, Block: tfexec.SchemaBlock{
 					Attributes: map[string]tfexec.SchemaAttribute{
 						"sources": {Optional: true, Type: json.RawMessage(`["list","string"]`)},
 					},
@@ -111,7 +111,7 @@ func TestNestedSchemaPathsPreserveRendering(t *testing.T) {
 		provider.DataSourceSchemas["example_lookup"] = provider.ResourceSchemas["example_thing"]
 	}
 
-	for _, resource := range []string{"example_thing.app", "data.example_lookup.app"} {
+	for _, resource := range []string{exampleResource, "data.example_lookup.app"} {
 		for _, testCase := range []struct {
 			path     string
 			baseline string
@@ -119,7 +119,7 @@ func TestNestedSchemaPathsPreserveRendering(t *testing.T) {
 		}{
 			{
 				path:     "connection[0].timeouts.create",
-				baseline: `"5m"`,
+				baseline: timeoutBaseline,
 				want:     `.connection[0].timeouts.create == "5m"`,
 			},
 			{
@@ -181,7 +181,7 @@ func TestOverlappingProviderSchemasPreserveRendering(t *testing.T) {
 				"registry.terraform.io/example/z": provider(!testCase.selectedHasLabels),
 			}}
 
-			for _, resource := range []string{"example_thing.app", "data.example_lookup.app"} {
+			for _, resource := range []string{exampleResource, "data.example_lookup.app"} {
 				want := ""
 				if testCase.selectedHasLabels {
 					want = resource + `.node_config[0].resource_labels.env == "steady"`

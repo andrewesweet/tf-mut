@@ -36,7 +36,8 @@ const (
 	// for, in both fixtures that declare one.
 	secondaryConfiguration = "null.secondary"
 
-	rungOutputs = "outputs"
+	rungOutputs    = "outputs"
+	rungConfigured = "configured"
 )
 
 func TestPinAddressesMatchListAndScalarOutputAssertions(t *testing.T) {
@@ -549,7 +550,7 @@ func TestTheConfiguredRungPinsOnlyWhatTheConfigurationDetermined(t *testing.T) {
 	module := copyFixture(t, untestedAliasesFixture)
 
 	config := characteriseRequest(t, module)
-	config.PinRung = "configured"
+	config.PinRung = rungConfigured
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {
@@ -604,7 +605,7 @@ resource "terraform_data" "object" {
 	}
 
 	request := characteriseRequest(t, module)
-	request.PinRung = "configured"
+	request.PinRung = rungConfigured
 	result, err := engine.Run(t.Context(), request)
 	if err != nil {
 		t.Fatalf("characterise: %v", err)
@@ -707,7 +708,7 @@ func TestARealCharacterisationReportValidatesAgainstThePublishedSchema(t *testin
 			return request
 		},
 		"skipped": func(request engine.CharacteriseRequest) engine.CharacteriseRequest {
-			request.PinRung = "configured"
+			request.PinRung = rungConfigured
 
 			return request
 		},
