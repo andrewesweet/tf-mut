@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
@@ -266,4 +267,17 @@ func SetCharacteriseWriteSeeds(
 		seedRenameWindowChange = func(discovery.Configuration, int) error { return nil }
 		seedRegistryFailure = func(string) error { return nil }
 	})
+}
+
+// SetGitTimeout shortens the fixed cap on git invocations for one test: the
+// deadline test drives a sleeping git through the real seam, and no caller
+// parameter changes the cap. Its callers are sequential for the hook's
+// complete lifetime.
+func SetGitTimeout(t *testing.T, limit time.Duration) {
+	t.Helper()
+
+	previous := gitTimeout
+	gitTimeout = limit
+
+	t.Cleanup(func() { gitTimeout = previous })
 }

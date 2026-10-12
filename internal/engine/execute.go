@@ -402,7 +402,12 @@ func (o executionOracle) validate(
 	telemetry *mutantCollector,
 ) (report.Mutant, oracle.Observation, *report.ExecutionError) {
 	validatePhase := telemetry.phase(phaseValidate)
-	validation, err := o.plan.runner.Validate(ctx, built.ModuleDir)
+	// validate is bounded by the absolute preflight cap, not the mutant's
+	// execution budget: it is the precedence table's sole discriminator
+	// between Invalid and KilledByError, so a budget that starves it would
+	// leave the table without its evidence. A hung validate is a hung binary,
+	// not a slow mutant, and the absolute cap is the honest bound.
+	validation, err := o.plan.runner.Validate(ctx, built.ModuleDir, o.plan.settings.preflightCap())
 	defer validatePhase(telemetry.child("validate", validation.Usage, validation.Started)...)
 	if err != nil {
 		return verdict, observation, &report.ExecutionError{

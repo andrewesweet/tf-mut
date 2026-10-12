@@ -49,7 +49,7 @@ func prepare(
 	settings settings, workRoot string,
 	collector *runCollector,
 ) (warmWorkspace, error) {
-	prepared, err := warmUp(ctx, runner, configuration, workRoot, collector)
+	prepared, err := warmUp(ctx, runner, configuration, workRoot, collector, settings)
 	if err != nil {
 		return warmWorkspace{}, err
 	}
@@ -61,7 +61,7 @@ func prepare(
 		return prepared, nil
 	}
 
-	if err := runBaseline(ctx, runner, configuration, &prepared, collector); err != nil {
+	if err := runBaseline(ctx, runner, configuration, &prepared, collector, settings.preflightCap()); err != nil {
 		return warmWorkspace{}, err
 	}
 
@@ -77,6 +77,7 @@ func warmUp(
 	configuration discovery.Configuration,
 	workRoot string,
 	collector *runCollector,
+	settings settings,
 ) (warmWorkspace, error) {
 	materialisePhase := collector.phase(phaseWarmMaterialise)
 	built, err := sandbox.Materialise(sandbox.Spec{
@@ -112,7 +113,7 @@ func warmUp(
 	initResult, initErr := runner.Init(ctx, prepared.moduleDir, tfexec.InitOptions{
 		TestDirectory: configuration.TestDirRelative(),
 		ReadonlyLock:  hasLock,
-	})
+	}, settings.initCap())
 	initPhase(collector.child("init", initResult.Usage, initResult.Started)...)
 	if initErr != nil {
 		return warmWorkspace{}, initErr
@@ -123,7 +124,7 @@ func warmUp(
 	}
 
 	schemaPhase := collector.phase(phaseWarmSchema)
-	prepared.schemas, err = runner.ProvidersSchema(ctx, prepared.moduleDir)
+	prepared.schemas, err = runner.ProvidersSchema(ctx, prepared.moduleDir, settings.preflightCap())
 	schemaPhase(collector.child("providers", prepared.schemas.Usage, prepared.schemas.Started)...)
 	if err != nil {
 		return warmWorkspace{}, err
@@ -136,7 +137,7 @@ func warmUp(
 	}
 
 	fmtPhase := collector.phase(phaseWarmFmt)
-	unformatted, fmtResult, fmtErr := runner.FmtCheck(ctx, prepared.moduleDir)
+	unformatted, fmtResult, fmtErr := runner.FmtCheck(ctx, prepared.moduleDir, settings.preflightCap())
 	fmtPhase(collector.child("fmt", fmtResult.Usage, fmtResult.Started)...)
 	if fmtErr == nil && len(unformatted) > 0 {
 		prepared.warnings = append(prepared.warnings, fmt.Sprintf(
@@ -169,15 +170,21 @@ func runBaseline(
 	configuration discovery.Configuration,
 	prepared *warmWorkspace,
 	collector *runCollector,
+	limit time.Duration,
 ) error {
 	testPhase := collector.phase(phaseBaselineTest)
 	result, err := runner.Test(ctx, prepared.moduleDir, tfexec.TestOptions{
 		TestDirectory: configuration.TestDirRelative(),
 		Filters:       nil,
 		Verbose:       true,
-		Timeout:       0,
+		Timeout:       limit,
 	})
 	testPhase(collector.child("test", result.Usage, result.Started)...)
+	if result.TimedOut {
+		return fmt.Errorf("%w: the baseline terraform test run did not finish within %s",
+			tfexec.ErrNotExecuted, limit)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -200,7 +207,7 @@ func runBaseline(
 			ErrBaselineNoRuns, configuration.TestDirRelative())
 	}
 
-	return calibrateOracle(ctx, runner, configuration, prepared, result, collector)
+	return calibrateOracle(ctx, runner, configuration, prepared, result, collector, limit)
 }
 
 // calibrateOracle projects the baseline payloads and derives the volatile mask.
@@ -211,6 +218,7 @@ func calibrateOracle(
 	prepared *warmWorkspace,
 	first tfexec.TestResult,
 	collector *runCollector,
+	limit time.Duration,
 ) error {
 	firstPayloads, err := fingerprint.Canonicalise(first.Payloads)
 	if err != nil {
@@ -222,9 +230,14 @@ func calibrateOracle(
 		TestDirectory: configuration.TestDirRelative(),
 		Filters:       nil,
 		Verbose:       true,
-		Timeout:       0,
+		Timeout:       limit,
 	})
 	fingerprintPhase(collector.child("test", second.Usage, second.Started)...)
+	if second.TimedOut {
+		return fmt.Errorf("%w: the baseline fingerprint run did not finish within %s",
+			tfexec.ErrNotExecuted, limit)
+	}
+
 	if err != nil {
 		return err
 	}

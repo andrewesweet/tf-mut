@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/buildinfo"
 	"github.com/andrewesweet/tf-mut/internal/config"
@@ -82,6 +83,9 @@ Flags for run, preview, suggest, characterise, todos and curate:
   --test-directory PATH        Test directory relative to the module (default "tests")
   --jobs N                     Mutants to execute concurrently (default: CPU count)
   --timeout-factor F           Multiple of the baseline run time (default 10)
+  --preflight-timeout D        Absolute cap on preflight terraform calls: version,
+                               init, providers schema, fmt, validate and the baseline
+                               runs (default: 10m for init, 1m for the rest; "90s", "10m")
   --allow-real-infrastructure  Permit execution against unmocked providers
   --allow-unsandboxed-effects  Permit apply-mode provisioners and unsevered data sources
   --reporter FORMAT            terminal|json|sarif|mte|html|junit|markdown (default terminal)
@@ -211,6 +215,7 @@ type flagValues struct {
 	excludePaths, excludeResources, since    *string
 	jobs                                     *int
 	timeoutFactor, minScore, sample          *float64
+	preflightTimeout                         *time.Duration
 	seed                                     *int64
 	failureTrip                              *int
 	allowIncomplete, allowReal, allowEffects *bool
@@ -251,6 +256,9 @@ func declareFlags(set *flag.FlagSet) flagValues {
 			"multiple of the baseline run time"),
 		failureTrip: set.Int("failure-trip", engine.DefaultFailureTripThreshold,
 			"stop the run after this many consecutive operational failures"),
+		preflightTimeout: set.Duration("preflight-timeout", 0,
+			"absolute cap on preflight terraform calls: version, init, providers schema, fmt, "+
+				"validate and the baseline runs (default: 10m for init, 1m for the rest)"),
 		minScore: set.Float64("min-score", 0, "fail below this mutation score percentage"),
 		allowIncomplete: set.Bool("allow-incomplete-score", false,
 			"let an untrustworthy score satisfy --min-score (timeout, nothing scored, Invalid-dominated)"),
@@ -627,6 +635,7 @@ func commonFlags(
 		TimeoutFactor:           *values.timeoutFactor,
 		FailureTripThreshold:    *values.failureTrip,
 		TimeoutFloor:            0,
+		PreflightTimeout:        *values.preflightTimeout,
 		AllowRealInfrastructure: *values.allowReal,
 		AllowUnsandboxedEffects: *values.allowEffects,
 		TerraformBinary:         "",

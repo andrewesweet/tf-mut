@@ -55,6 +55,7 @@ tf-mut version                   # print the build version
 | `--jobs N` | Mutants executing concurrently (default: CPU count) |
 | `--timeout-factor F` | Multiple of the baseline run time; the budget is `max(F × baseline, 30 s)` |
 | `--failure-trip N` | Consecutive operational-failure limit (default 5); see [execution and failure trips](docs/design/product-design.md#execute) |
+| `--preflight-timeout D` | Absolute cap on each preflight Terraform call — version, init, providers schema, fmt, validate and the baseline runs (`"90s"`, `"10m"`; default 10 m for init, 1 m for the rest). An expired cap is an operational failure |
 | `--min-score N` | Fail below this mutation score percentage |
 | `--allow-incomplete-score` | Let an [incomplete score](docs/design/product-design.md#5-metrics) satisfy `--min-score` |
 | `--allow-real-infrastructure` | Required when any provider is unmocked |
@@ -70,7 +71,11 @@ declaration still causes provider schema retrieval to fail.
 
 When a Terraform command reaches its deadline, tf-mut stops the command and its provider
 plugins. See [mutant states](docs/design/product-design.md#4-mutant-states) for how a test
-deadline appears beside the mutant's verdict.
+deadline appears beside the mutant's verdict. The preflight calls before the mutation loop —
+version, init, providers schema, fmt, validate and the baseline runs — carry their own absolute
+caps (`--preflight-timeout`); the survivor-side verbose, volatility and verification runs carry
+the mutant budget, and an overrun there lands as a `Timeout` verdict counted in the score's
+denominator.
 
 Interrupting evaluation with Ctrl-C or SIGTERM also stops Terraform and its provider
 plugins. The interrupted evaluation returns an operational failure (exit code `2`).

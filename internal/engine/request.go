@@ -44,11 +44,14 @@ const (
 
 // Common carries the options shared by every engine command.
 type Common struct {
-	ModuleDir               string
-	TestDirectory           string
-	Jobs                    int
-	TimeoutFactor           float64
-	TimeoutFloor            time.Duration
+	ModuleDir     string
+	TestDirectory string
+	Jobs          int
+	TimeoutFactor float64
+	TimeoutFloor  time.Duration
+	// PreflightTimeout is the absolute cap on preflight invocations. Zero
+	// selects the per-phase defaults; see settings.PreflightTimeout.
+	PreflightTimeout        time.Duration
 	AllowRealInfrastructure bool
 	AllowUnsandboxedEffects bool
 	// FailureTripThreshold sets the operational-failure trip limit described
@@ -302,6 +305,7 @@ func commonConfig(c Common) settings {
 	s.Jobs = c.Jobs
 	s.TimeoutFactor = c.TimeoutFactor
 	s.TimeoutFloor = c.TimeoutFloor
+	s.PreflightTimeout = c.PreflightTimeout
 	s.AllowRealInfrastructure = c.AllowRealInfrastructure
 	s.AllowUnsandboxedEffects = c.AllowUnsandboxedEffects
 	s.FailureTripThreshold = c.FailureTripThreshold

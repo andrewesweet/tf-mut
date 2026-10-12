@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/zclconf/go-cty/cty"
 	ctyjson "github.com/zclconf/go-cty/cty/json"
@@ -117,9 +118,10 @@ func BlockAttributeType(block SchemaBlock, name string) (cty.Type, bool) {
 }
 
 // ProvidersSchema retrieves the provider schemas visible from dir. It suppresses
-// colour codes so captured failure diagnostics remain plain text.
-func (r Runner) ProvidersSchema(ctx context.Context, dir string) (Schemas, error) {
-	result, err := r.Run(ctx, dir, "providers", "schema", "-json", "-no-color")
+// colour codes so captured failure diagnostics remain plain text. The limit
+// bounds the invocation; an expired limit is an operational failure.
+func (r Runner) ProvidersSchema(ctx context.Context, dir string, limit time.Duration) (Schemas, error) {
+	result, err := r.runLimited(ctx, dir, limit, "providers schema", "providers", "schema", "-json", "-no-color")
 	schemas := Schemas{Usage: result.Usage, Started: result.Started}
 	if err != nil {
 		return schemas, err

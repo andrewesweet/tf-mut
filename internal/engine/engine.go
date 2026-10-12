@@ -45,6 +45,14 @@ const (
 	DefaultTimeoutFactor = 10.0
 	// DefaultTimeoutFloor is the lower bound on a mutant's execution budget.
 	DefaultTimeoutFloor = 30 * time.Second
+	// DefaultInitTimeout bounds terraform init, which downloads providers and
+	// modules over the network: an order of magnitude more than a healthy
+	// warm-up needs, and short enough that a wedged download ends the run.
+	DefaultInitTimeout = 10 * time.Minute
+	// DefaultPreflightTimeout bounds every other preflight invocation — the
+	// version check, providers schema, fmt, validate and the baseline runs:
+	// these are local operations against an installed binary.
+	DefaultPreflightTimeout = time.Minute
 	// DefaultTerraformBinary is the executable looked up on PATH.
 	DefaultTerraformBinary = "terraform"
 	// DefaultFailureTripThreshold is the number of consecutive operational
@@ -80,6 +88,12 @@ type settings struct {
 	TimeoutFactor float64
 	// TimeoutFloor is the lower bound on that budget.
 	TimeoutFloor time.Duration
+	// PreflightTimeout is the absolute cap on preflight invocations: the
+	// version check, terraform init, providers schema, fmt, validate and the
+	// baseline runs. Zero selects the per-phase defaults — ten minutes for
+	// init, one minute for the rest. Negative values are refused at
+	// finalisation; the deadline is on every outbound call regardless.
+	PreflightTimeout time.Duration
 	// MinScore is the mutation score percentage the run must reach.
 	MinScore float64
 	// HasMinScore reports whether MinScore was requested.
@@ -314,7 +328,7 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	runner := tfexec.Runner{Binary: s.TerraformBinary, Env: s.Env}
 
 	versionPhase := collector.phase(phaseVersion)
-	version, err := checkVersion(ctx, runner, moduleDir)
+	version, err := checkVersion(ctx, runner, moduleDir, s.preflightCap())
 	versionPhase(collector.child("version", version.Usage, version.Started)...)
 	if err != nil {
 		return report.Report{}, err
@@ -831,6 +845,10 @@ func finalise(s settings, configured tfconfig.File) (settings, error) {
 	s.ExcludePaths = append(slices.Clone(s.ExcludePaths), configured.Exclude.Paths...)
 	s.ExcludeResources = append(slices.Clone(s.ExcludeResources), configured.Exclude.Resources...)
 
+	if s.PreflightTimeout < 0 {
+		return settings{}, fmt.Errorf("%w: the preflight timeout %s is negative", tfconfig.ErrConfig, s.PreflightTimeout)
+	}
+
 	// The gate truth table's sampled and write rows: refused before any work
 	// is done.
 	if err := checkSampledGate(s); err != nil {
@@ -1085,8 +1103,9 @@ func checkVersion(
 	ctx context.Context,
 	runner tfexec.Runner,
 	dir string,
+	limit time.Duration,
 ) (tfexec.Version, error) {
-	version, err := runner.Version(ctx, dir)
+	version, err := runner.Version(ctx, dir, limit)
 	if err != nil {
 		return version, err
 	}
@@ -1282,6 +1301,26 @@ func (s settings) withDefaults() settings {
 	}
 
 	return s
+}
+
+// initCap bounds terraform init: the caller's cap when set, else the
+// ten-minute default for the network phase.
+func (s settings) initCap() time.Duration {
+	if s.PreflightTimeout > 0 {
+		return s.PreflightTimeout
+	}
+
+	return DefaultInitTimeout
+}
+
+// preflightCap bounds the local preflight invocations and the baseline runs:
+// the caller's cap when set, else the one-minute default.
+func (s settings) preflightCap() time.Duration {
+	if s.PreflightTimeout > 0 {
+		return s.PreflightTimeout
+	}
+
+	return DefaultPreflightTimeout
 }
 
 // selection is the operator population the configuration asks for.

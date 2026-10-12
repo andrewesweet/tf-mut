@@ -13,11 +13,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
 // M3b.1 (#45): `--since` selection, per the C5 disposition — "the union of the
@@ -155,26 +157,72 @@ type change struct {
 // changedPaths lists the closure-relative changed paths across the committed
 // range, the index, the working tree, and the untracked files.
 func changedPaths(ctx context.Context, closureRoot, ref string) ([]change, error) {
-	if _, err := gitRun(ctx, closureRoot, "rev-parse", "--is-inside-work-tree"); err != nil {
-		return nil, fmt.Errorf("%w: %s is not inside a git work tree", ErrSinceRepository, closureRoot)
+	if err := checkWorkTree(ctx, closureRoot, ref); err != nil {
+		return nil, err
 	}
 
-	if _, err := gitRun(ctx, closureRoot, "rev-parse", "--verify", "--quiet", ref+"^{commit}"); err != nil {
-		return nil, fmt.Errorf("%w: %q (unknown ref, or a shallow clone that lacks it)", ErrSinceRef, ref)
+	changes, err := collectTracked(ctx, closureRoot, ref)
+	if err != nil {
+		return nil, err
 	}
 
-	if conflicted, err := gitRun(ctx, closureRoot, "ls-files", "-u"); err != nil {
-		return nil, fmt.Errorf("listing conflicts: %w", err)
-	} else if strings.TrimSpace(conflicted) != "" {
-		return nil, fmt.Errorf("%w", ErrSinceConflict)
+	untracked, err := collectUntracked(ctx, closureRoot)
+	if err != nil {
+		return nil, err
 	}
 
+	changes = append(changes, untracked...)
+
+	return changes, nil
+}
+
+// checkWorkTree refuses the three repository facts that stop selection before
+// any diff runs: not a work tree, an unknown ref, unresolved conflicts.
+func checkWorkTree(ctx context.Context, closureRoot, ref string) error {
+	if _, err := gitOrDeadline(ctx, closureRoot, "rev-parse", "--is-inside-work-tree"); err != nil {
+		if errors.Is(err, errGitDeadline) {
+			return err
+		}
+
+		return fmt.Errorf("%w: %s is not inside a git work tree", ErrSinceRepository, closureRoot)
+	}
+
+	if _, err := gitOrDeadline(ctx, closureRoot, "rev-parse", "--verify", "--quiet", ref+"^{commit}"); err != nil {
+		if errors.Is(err, errGitDeadline) {
+			return err
+		}
+
+		return fmt.Errorf("%w: %q (unknown ref, or a shallow clone that lacks it)", ErrSinceRef, ref)
+	}
+
+	conflicted, err := gitOrDeadline(ctx, closureRoot, "ls-files", "-u")
+	if err != nil {
+		if errors.Is(err, errGitDeadline) {
+			return err
+		}
+
+		return fmt.Errorf("listing conflicts: %w", err)
+	}
+
+	if strings.TrimSpace(conflicted) != "" {
+		return fmt.Errorf("%w", ErrSinceConflict)
+	}
+
+	return nil
+}
+
+// collectTracked diffs the committed range, the index and the working tree.
+func collectTracked(ctx context.Context, closureRoot, ref string) ([]change, error) {
 	changes := []change{}
 
 	// The committed range needs a merge base; its absence is an error too.
-	committed, err := gitRun(ctx, closureRoot,
+	committed, err := gitOrDeadline(ctx, closureRoot,
 		gitDiff, "--name-status", "--find-renames", "--relative", "-z", ref+"...HEAD")
 	if err != nil {
+		if errors.Is(err, errGitDeadline) {
+			return nil, err
+		}
+
 		return nil, fmt.Errorf("%w: no merge base between %q and HEAD", ErrSinceRef, ref)
 	}
 
@@ -184,30 +232,41 @@ func changedPaths(ctx context.Context, closureRoot, ref string) ([]change, error
 		{gitDiff, "--name-status", "--find-renames", "--relative", "-z", "--cached"},
 		{gitDiff, "--name-status", "--find-renames", "--relative", "-z"},
 	} {
-		output, diffErr := gitRun(ctx, closureRoot, args...)
+		output, diffErr := gitOrDeadline(ctx, closureRoot, args...)
 		if diffErr != nil {
+			if errors.Is(diffErr, errGitDeadline) {
+				return nil, diffErr
+			}
+
 			return nil, fmt.Errorf("diffing the working tree: %w", diffErr)
 		}
 
 		changes = append(changes, parseNameStatus(output)...)
 	}
 
+	return changes, nil
+}
+
+// collectUntracked lists untracked and ignored files as additions.
+func collectUntracked(ctx context.Context, closureRoot string) ([]change, error) {
 	// Untracked files, ignored ones included: Terraform does not read git's
 	// ignore rules, so an ignored *.auto.tfvars or .tf file still changes
 	// execution (review of #45). Tool-owned and Terraform-owned directories
 	// are excluded by name; everything is NUL-separated so no filename shape
 	// can hide.
-	untracked, err := gitRun(ctx, closureRoot,
+	untracked, err := gitOrDeadline(ctx, closureRoot,
 		"ls-files", "--others", "--exclude-standard", "-z")
 	if err != nil {
-		return nil, fmt.Errorf("listing untracked files: %w", err)
+		return nil, err
 	}
 
-	ignored, err := gitRun(ctx, closureRoot,
+	ignored, err := gitOrDeadline(ctx, closureRoot,
 		"ls-files", "--others", "--ignored", "--exclude-standard", "-z")
 	if err != nil {
-		return nil, fmt.Errorf("listing ignored files: %w", err)
+		return nil, err
 	}
+
+	changes := []change{}
 
 	for _, path := range splitNul(untracked + ignored) {
 		if toolOwnedPath(path) {
@@ -218,6 +277,18 @@ func changedPaths(ctx context.Context, closureRoot, ref string) ([]change, error
 	}
 
 	return changes, nil
+}
+
+// gitOrDeadline runs one selection command. A cap expiry is final and already
+// self-describing, so it passes through unchanged; a listing failure inside
+// the untracked collection has no repository-specific diagnosis to add.
+func gitOrDeadline(ctx context.Context, closureRoot string, args ...string) (string, error) {
+	output, err := gitRun(ctx, closureRoot, args...)
+	if errors.Is(err, errGitDeadline) {
+		return "", err
+	}
+
+	return output, err
 }
 
 // splitNul splits NUL-separated git output.
@@ -452,6 +523,20 @@ func sampleRank(seed int64, id string) uint64 {
 	return binary.BigEndian.Uint64(digest[:8])
 }
 
+// gitTimeout bounds every git invocation behind --since: a hung git would
+// otherwise hang the whole selection. The cap is short and fixed — these are
+// local metadata reads, not network operations — and an expired cap ends the
+// run operationally.
+//
+//nolint:gochecknoglobals // test seam: fixed for every caller, shortened only by the deadline test.
+var gitTimeout = 30 * time.Second
+
+// errGitDeadline marks a git invocation its own cap killed. The selection
+// diagnoses read a git failure as a fact about the repository — no merge
+// base, a conflict — and an expired cap is a fact about the machine instead,
+// so changedPaths re-releases it before those diagnoses can swallow it.
+var errGitDeadline = errors.New("the git call did not finish within its cap")
+
 // gitRun executes one git command against the closure root with a stripped
 // environment: anything that redirects git at another repository is removed,
 // and the caller's personal git configuration is neutralised so that a global
@@ -460,8 +545,13 @@ func sampleRank(seed int64, id string) uint64 {
 // .gitignore shapes nothing either: Terraform does not read git ignore rules,
 // so ignored untracked files are enumerated explicitly by the caller above.
 func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
-	//nolint:gosec // fixed binary; tool-controlled arguments.
-	command := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	limited, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+
+	// The shared constructor stops the whole process group at the deadline, so
+	// a child git starts — a hook, a credential helper — cannot outlive it and
+	// hold the output pipe open past the cap.
+	command := tfexec.GroupCommand(limited, "git", append([]string{"-C", dir}, args...)...)
 
 	environment := []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null"}
 
@@ -475,6 +565,11 @@ func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 
 	output, err := command.Output()
 	if err != nil {
+		if errors.Is(limited.Err(), context.DeadlineExceeded) {
+			return "", fmt.Errorf("git %s did not finish within %s: %w",
+				strings.Join(args, " "), gitTimeout, errGitDeadline)
+		}
+
 		detail := ""
 
 		exitError := &exec.ExitError{}
