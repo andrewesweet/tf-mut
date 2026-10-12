@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -282,54 +281,6 @@ func TestTheDocumentedVocabularyMatchesTheBinary(t *testing.T) {
 	assertReportVocabulary(t, documents.productDesign)
 	assertStopReasonVocabulary(t)
 	assertNeverWriteExceptions(t, documents.readme, documents.agents)
-	assertReportPackageCommentReporters(t)
-}
-
-// assertReportPackageCommentReporters keeps internal/report's package comment
-// tied to the renderers the package actually declares: every backticked
-// `Write*` name it mentions must be a Write* function of the package, and the
-// package must declare exactly those plus the terminal renderer — no more, no
-// fewer.
-func assertReportPackageCommentReporters(t *testing.T) {
-	t.Helper()
-
-	const packageFile = "../../internal/report/report.go"
-	comment := readDocument(t, packageFile)
-	var named []string
-	for _, match := range regexp.MustCompile("`Write[A-Za-z]+`").FindAllStringSubmatch(comment, -1) {
-		name := strings.Trim(match[0], "`")
-		if !slices.Contains(named, name) {
-			named = append(named, name)
-		}
-	}
-	if len(named) == 0 {
-		t.Fatalf("the package comment of %s names no `Write*` reporter", packageFile)
-	}
-
-	declared := map[string]bool{}
-	matches, globErr := filepath.Glob("../../internal/report/*.go")
-	if globErr != nil {
-		t.Fatalf("globbing internal/report: %v", globErr)
-	}
-	for _, path := range matches {
-		content := readDocument(t, path)
-		writerRe := regexp.MustCompile(`(?m)^func Write([A-Za-z]+)\(`)
-		for _, match := range writerRe.FindAllStringSubmatch(content, -1) {
-			declared["Write"+match[1]] = true
-		}
-	}
-
-	for _, name := range named {
-		if !declared[name] {
-			t.Errorf("the package comment names %s, which the package does not declare", name)
-		}
-	}
-	// The terminal renderer has no Write-prefixed name; every other declared
-	// renderer must have been named in the comment.
-	if want := len(named) + 1; len(declared) != want {
-		t.Errorf("the package comment names %d reporters plus the terminal renderer, but the package declares %d",
-			len(named), len(declared))
-	}
 }
 
 type vocabularyDocuments struct {

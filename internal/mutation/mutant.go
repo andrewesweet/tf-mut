@@ -17,7 +17,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 )
 
-// Operator identifies a Tier 0 mutation operator.
+// Operator identifies a mutation operator across Tiers 0 to 5, including the
+// Tier 5 domain pack form operators.
 type Operator string
 
 // The Tier 0 extreme operator catalogue.
