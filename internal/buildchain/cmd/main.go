@@ -25,10 +25,7 @@ var (
 )
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	err := run(ctx, os.Args[1:])
+	err := run(context.Background(), os.Args[1:])
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(failureExitCode)
@@ -48,6 +45,13 @@ func run(ctx context.Context, args []string) error {
 	case "verify-providers":
 		err = buildchain.VerifyProviderChain(root)
 	case "sync-go-toolchains":
+		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		go func() {
+			<-ctx.Done()
+			stop()
+		}()
+
 		err = buildchain.SyncGoToolchains(ctx, root, runtime.Version())
 	default:
 		return fmt.Errorf("%w %q", errUnknownCommand, args[commandArgumentIndex])
