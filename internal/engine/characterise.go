@@ -96,14 +96,10 @@ var seedMissingMock = func(_ discovery.Configuration,
 	return staged
 }
 
-// characterise scaffolds, harvests, pins and verifies a suite for a module.
+// characteriseModule scaffolds, harvests, pins and verifies a suite for a module.
 //
-// The order is the contract. The safety gates are evaluated against the
-// effective staged suite — the module sources plus the planned scaffold —
-// statically, before Terraform is asked to do anything; the scaffold is
-// harvested twice so that a value the mock invented cannot be pinned as one
-// the module computes; and the pinned suite is proven green in a sandbox
-// before a single byte reaches the source tree.
+// See gateStagedSuite for safety-gate ordering and scaffoldSuite for the
+// harvest, pin and verification contract.
 func characteriseModule(
 	ctx context.Context,
 	runner tfexec.Runner,
@@ -115,58 +111,25 @@ func characteriseModule(
 		return report.Report{}, err
 	}
 
-	// The gates first, and nothing before them but the version check.
-	//
-	// The program they judge is the module sources plus the effective staged
-	// suite, and the mock half of that suite needs no provider schema: a
-	// `mock_provider` block's name and alias come from discovery, and only the
-	// pinned defaults inside it come from a schema. So the mocks are rendered
-	// here, gated here, and enriched with defaults after the warm-up — and a
-	// refusal costs no `init`, no provider download and no schema read,
-	// exactly as it does for a mutation run.
-	mockOptions := characterise.Options{TestDirRel: configuration.TestDirRelative()}
-	gated := characterise.Plan(configuration, tfexec.Schemas{}, mockOptions,
-		characterise.Configurations(configuration))
-
-	warnings, err := checkStagedSafety(configuration,
-		seedMissingMock(configuration, gated), settings)
+	warnings, err := gateStagedSuite(configuration, settings)
 	if err != nil {
 		return report.Report{}, err
 	}
 
-	workRoot, err := os.MkdirTemp(settings.WorkDir, "tf-mut-")
-	if err != nil {
-		return report.Report{}, fmt.Errorf("creating work directory: %w", err)
-	}
-
-	defer func() { _ = os.RemoveAll(workRoot) }()
-
-	// Characterisation drops the collector's report record, but shares its tracer
-	// with warm-up and any staged grading rounds.
-	prepared, err := warmUp(ctx, runner, configuration, workRoot, collector, settings)
-	if err != nil {
-		return report.Report{}, err
-	}
-
-	scaffold, err := planScaffold(configuration, settings, prepared, rung, answers)
-	if err != nil {
-		return report.Report{}, err
-	}
-
-	warnings = append(warnings, prepared.warnings...)
-	result := reportShell(configuration, settings, version.Terraform, configuration.ModuleDir, prepared, warnings)
-	result.Command = report.CommandCharacterise
-	// A characterisation reads the whole module: there is no count lever it
-	// could have been scoped by, and saying so keeps the population contract
-	// the same shape for every command.
-	result.Selection = report.Selection{Mode: scopeLabel(true), Ref: "", ForcedFull: ""}
-
+	// The stage's static half — who runs, over what, with which answers — is
+	// known now; prepareStage adds the work directory, the warm workspace, the
+	// scaffold and the report shell the staged rounds fill in.
 	stage := characteriseStage{
 		configuration: configuration, settings: settings,
-		prepared: prepared, workRoot: workRoot, terraform: version, collector: collector,
-		runner: runner, scaffold: scaffold, answers: answers, scaffolds: newScaffoldSet(),
-		seedInitialPinDefect: hooks.initial, seedFinalPinDefect: hooks.final,
+		terraform: version, collector: collector, runner: runner,
+		answers: answers, scaffolds: newScaffoldSet(),
 	}
+
+	stage, result, err := prepareStage(ctx, stage, rung, warnings, hooks)
+	if err != nil {
+		return report.Report{}, err
+	}
+	defer func() { _ = os.RemoveAll(stage.workRoot) }()
 
 	events := dispatcher{}
 	projectSuite(&events, &result)
@@ -176,37 +139,15 @@ func characteriseModule(
 		return report.Report{}, err
 	}
 
-	// The until-dry loop grades what the scaffold pinned and pins whatever its
-	// survivors still yield, over the staged suite: nothing on disk changes
-	// until the caller asks for a write.
-	// Gated on the judgement points, not on `Complete`. `Complete` is false for
-	// a scaffold that pinned nothing, and a zero-assertion scaffold is exactly
-	// the case issue #76's assertion-kills-only rule is about: the loop has to
-	// run over it and report what a suite that asserts nothing actually grades,
-	// rather than declining to produce a mutation population or any convergence
-	// evidence for it. What the loop genuinely cannot run over is a scaffold
-	// with an unresolved judgement point, because there is no executable suite.
-	if settings.UntilDry && unresolvedTodos(block.Todos) == 0 {
-		closed, refused, err := closeTheGap(ctx, stage, &block, pins)
-		if err != nil {
-			return report.Report{}, err
-		}
+	files, refused, err := runUntilDry(ctx, stage, &block, pins, files, &result)
+	if err != nil {
+		return report.Report{}, err
+	}
 
-		result.Warnings = append(result.Warnings, refused...)
-
-		if !block.Complete {
-			// The loop was refused. `refused` is one of three published stop
-			// reasons, so the report that records it reaches the caller rather
-			// than being discarded with an error.
-			if err := events.suiteCharacterised.publish(SuiteCharacterised{suite: block}); err != nil {
-				return report.Report{}, err
-			}
-
-			return result, nil
-		}
-
-		files = closed
-		block.Files = entriesOf(files)
+	if refused {
+		// The loop was refused: one of three published stop reasons, so the
+		// report that records it reaches the caller rather than an error.
+		return result, events.suiteCharacterised.publish(SuiteCharacterised{suite: block})
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -217,11 +158,121 @@ func characteriseModule(
 		return report.Report{}, err
 	}
 
-	if err := events.suiteCharacterised.publish(SuiteCharacterised{suite: block}); err != nil {
-		return report.Report{}, err
+	return result, events.suiteCharacterised.publish(SuiteCharacterised{suite: block})
+}
+
+// gateStagedSuite decides the safety gates against the effective staged suite
+// — the module sources plus the planned scaffold — before stage preparation.
+// The version probe and discovery have already run; see probe. The mock half
+// of that suite needs no provider schema: a `mock_provider` block's name and
+// alias come from discovery, and only the pinned defaults inside it come from
+// a schema. The mocks are rendered and gated here, then enriched with defaults
+// after warm-up. A refusal costs no `init`, no provider download and no schema
+// read, exactly as it does for a mutation run.
+func gateStagedSuite(
+	configuration discovery.Configuration,
+	settings settings,
+) ([]string, error) {
+	mockOptions := characterise.Options{TestDirRel: configuration.TestDirRelative()}
+	gated := characterise.Plan(configuration, tfexec.Schemas{}, mockOptions,
+		characterise.Configurations(configuration))
+
+	return checkStagedSafety(configuration,
+		seedMissingMock(configuration, gated), settings)
+}
+
+// prepareStage creates the run's work directory, warms the sandbox against
+// it, plans the scaffold over the warm workspace and renders the report shell
+// the staged rounds fill in. The stage it returns is what every later step
+// travels through; its workRoot is the caller's to remove once the pipeline
+// is done with it, and prepareStage removes it itself when one of its own
+// steps fails.
+func prepareStage(
+	ctx context.Context,
+	stage characteriseStage,
+	rung characterise.Rung,
+	warnings []string,
+	hooks pinDefectHooks,
+) (characteriseStage, report.Report, error) {
+	workRoot, err := os.MkdirTemp(stage.settings.WorkDir, "tf-mut-")
+	if err != nil {
+		return characteriseStage{}, report.Report{}, fmt.Errorf("creating work directory: %w", err)
 	}
 
-	return result, nil
+	// Characterisation drops the collector's report record, but shares its tracer
+	// with warm-up and any staged grading rounds.
+	prepared, err := warmUp(ctx, stage.runner, stage.configuration, workRoot, stage.collector, stage.settings)
+	if err != nil {
+		_ = os.RemoveAll(workRoot)
+		return characteriseStage{}, report.Report{}, err
+	}
+
+	scaffold, err := planScaffold(stage.configuration, stage.settings, prepared, rung, stage.answers)
+	if err != nil {
+		_ = os.RemoveAll(workRoot)
+		return characteriseStage{}, report.Report{}, err
+	}
+
+	warnings = append(warnings, prepared.warnings...)
+	result := reportShell(stage.configuration, stage.settings, stage.terraform.Terraform,
+		stage.configuration.ModuleDir, prepared, warnings)
+	result.Command = report.CommandCharacterise
+	// A characterisation reads the whole module: there is no count lever it
+	// could have been scoped by, and saying so keeps the population contract
+	// the same shape for every command.
+	result.Selection = report.Selection{Mode: scopeLabel(true), Ref: "", ForcedFull: ""}
+
+	stage.prepared = prepared
+	stage.workRoot = workRoot
+	stage.scaffold = scaffold
+	stage.seedInitialPinDefect = hooks.initial
+	stage.seedFinalPinDefect = hooks.final
+
+	return stage, result, nil
+}
+
+// runUntilDry is the close-the-gap direction: it grades what the scaffold
+// pinned and pins whatever its survivors still yield, over the staged suite.
+// Nothing on disk changes until the caller asks for a write.
+//
+// The loop is gated on the judgement points, not on `Complete`. `Complete` is
+// false for a scaffold that pinned nothing, and a zero-assertion scaffold is
+// exactly the case issue #76's assertion-kills-only rule is about: the loop
+// has to run over it and report what a suite that asserts nothing actually
+// grades, rather than declining to produce a mutation population or any
+// convergence evidence for it. What the loop genuinely cannot run over is a
+// scaffold with an unresolved judgement point, because there is no executable
+// suite.
+//
+// It returns the files to commit and whether the loop was refused. A refusal
+// is one of three published stop reasons, so the report that records it
+// reaches the caller rather than being discarded with an error.
+func runUntilDry(
+	ctx context.Context,
+	stage characteriseStage,
+	block *report.Characterisation,
+	pins []characterise.Pin,
+	files []writtenFile,
+	result *report.Report,
+) ([]writtenFile, bool, error) {
+	if !stage.settings.UntilDry || unresolvedTodos(block.Todos) != 0 {
+		return files, false, nil
+	}
+
+	closed, refusals, err := closeTheGap(ctx, stage, block, pins)
+	if err != nil {
+		return nil, false, err
+	}
+
+	result.Warnings = append(result.Warnings, refusals...)
+
+	if !block.Complete {
+		return nil, true, nil
+	}
+
+	block.Files = entriesOf(closed)
+
+	return closed, false, nil
 }
 
 // projectSuite subscribes the report projection to the concluded suite:
@@ -421,37 +472,14 @@ func scaffoldSuite(
 
 	harvest, err := harvestScaffold(ctx, stage)
 	if err != nil {
-		rejected, failure := rejectAnswers(*block, scaffold, err)
-		if failure != nil {
-			return nil, nil, failure
-		}
-
-		*block = rejected.block
-
-		return nil, rejected.files, nil
+		return refusedScaffold(block, scaffold, err)
 	}
 
-	// The pins the context harvested are what everything downstream consumes:
-	// the renderer, the verifier and the defect-seeding hooks all read the
-	// context values, and the report block carries their projection.
-	pins := stage.initialPins(
-		characterise.PinHarvest(scaffold, stage.configuration, stage.prepared.schemas, harvest),
-	)
-	block.Pins = projectPins(pins)
-
-	files := pinnedFiles(scaffold, scaffold.Scenarios, pins)
-	block.Files = entriesOf(files)
+	pins, files := stage.pinHarvest(block, harvest)
 
 	verification, err := verifyScaffold(ctx, stage, pins, "verify")
 	if err != nil {
-		rejected, failure := rejectAnswers(*block, scaffold, err)
-		if failure != nil {
-			return nil, nil, failure
-		}
-
-		*block = rejected.block
-
-		return nil, rejected.files, nil
+		return refusedScaffold(block, scaffold, err)
 	}
 
 	// Promotion is what verification earns, and nothing else: an answer is
@@ -465,6 +493,44 @@ func scaffoldSuite(
 	block.Complete = pinnedCount(block.Pins) > 0
 
 	return pins, files, nil
+}
+
+// pinHarvest projects the pins the context harvested — what everything
+// downstream consumes: the renderer, the verifier and the defect-seeding
+// hooks all read the context values, and the report block carries their
+// projection — onto the block, and renders the pinned files.
+func (s characteriseStage) pinHarvest(
+	block *report.Characterisation,
+	harvest characterise.Harvest,
+) ([]characterise.Pin, []writtenFile) {
+	pins := s.initialPins(
+		characterise.PinHarvest(s.scaffold, s.configuration, s.prepared.schemas, harvest),
+	)
+	block.Pins = projectPins(pins)
+
+	files := pinnedFiles(s.scaffold, s.scaffold.Scenarios, pins)
+	block.Files = entriesOf(files)
+
+	return pins, files
+}
+
+// refusedScaffold projects a failed staged round onto the block when the
+// failure is an answerable refusal, and returns scaffoldSuite's return for
+// it. An operational failure is not a refusal: it comes back as the error,
+// with nothing produced.
+func refusedScaffold(
+	block *report.Characterisation,
+	scaffold characterise.SuitePlan,
+	failure error,
+) ([]characterise.Pin, []writtenFile, error) {
+	rejected, err := rejectAnswers(*block, scaffold, failure)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	*block = rejected.block
+
+	return nil, rejected.files, nil
 }
 
 // openTodos counts the judgement points still awaiting an answer.
@@ -694,10 +760,9 @@ func pinnedFiles(
 // harvestScaffold runs the assertion-less scaffold twice and projects what it
 // observed.
 //
-// Twice, because the difference between two runs of the same configuration is
-// the only evidence that separates a value the module computes from one a mock
-// invented — and pinning the second kind would generate a suite that is flaky
-// by construction.
+// Two runs expose volatility under the same configuration, so pinning can
+// skip values that would make the generated suite flaky. For schema-backed
+// mock-value exclusions, see characterise.PinHarvest.
 func harvestScaffold(
 	ctx context.Context,
 	stage characteriseStage,

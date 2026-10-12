@@ -239,7 +239,7 @@ var (
 // died never hangs on the way out.
 const traceFlushTimeout = 5 * time.Second
 
-// Run performs a complete mutation run and returns the report.
+// Run executes the requested command and returns its report.
 func Run(ctx context.Context, request Request) (result report.Report, err error) {
 	started := time.Now()
 	var collector *runCollector
@@ -255,97 +255,210 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 		return report.Report{}, err
 	}
 
-	stopProfile, profileErr := prepareRunOutput(&s)
-	if profileErr != nil {
-		return report.Report{}, profileErr
+	telemetry, runCtx, err := instrument(ctx, &s)
+	if err != nil {
+		return report.Report{}, err
 	}
 
-	defer stopProfile()
+	collector = telemetry.collector
+	defer telemetry.stop()
+	ctx = runCtx
 
-	// The flush outlives request cancellation so recorded spans can still reach the collector.
-	// Tracing and CPU-profile warnings share the request's progress writer —
-	// never a report sink — and a nil writer drops them.
-	tracer := tracing.New(ctx, s.OTLPEndpoint, s.Progress)
-	defer func() {
-		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), traceFlushTimeout)
-		defer cancel()
-		_ = tracer.Shutdown(flushCtx)
-	}()
+	return dispatch(ctx, request, s, collector)
+}
+
+// instrumentation is what the telemetry setup hands the pipeline: the
+// collector every phase records through, and the stop closure that ends the
+// run span, flushes the tracer and stops the CPU profile in reverse setup
+// order.
+type instrumentation struct {
+	collector *runCollector
+	stop      func()
+}
+
+// instrument sets up the command's own telemetry: the CPU profile the user
+// asked for, the tracer, and the collector whose phase recorders the pipeline
+// records through. It returns the instrumentation and the run-span context
+// the pipeline below runs under. The flush outlives request cancellation so
+// recorded spans can still reach the collector; tracing and CPU-profile
+// warnings share the request's progress writer — never a report sink — and a
+// nil writer drops them.
+func instrument(ctx context.Context, s *settings) (instrumentation, context.Context, error) {
+	stopProfile, profileErr := prepareRunOutput(s)
+	if profileErr != nil {
+		return instrumentation{}, nil, profileErr
+	}
 
 	// Telemetry records its own overhead without affecting verdicts.
-	collector = newRunCollector(ctx, tracer)
-	//nolint:contextcheck // beginRun returns the run-span context on purpose: the
-	// pipeline below runs under it, so every span it starts parents correctly.
-	ctx = collector.beginRun(string(commandName(s.mode)))
-	defer collector.endRun()
+	tracer := tracing.New(ctx, s.OTLPEndpoint, s.Progress)
+	collector := newRunCollector(ctx, tracer)
 
+	return instrumentation{
+		collector: collector,
+		stop: func() {
+			collector.endRun()
+
+			flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), traceFlushTimeout)
+			defer cancel()
+			_ = tracer.Shutdown(flushCtx)
+
+			stopProfile()
+		},
+	}, collector.beginRun(string(commandName(s.mode))), nil
+}
+
+// dispatch holds the single request type switch. Its arm order is part of the
+// contract: the todos request is answered before the Terraform version gate,
+// because it runs no Terraform at all — the shipped skill promises a cheap
+// local inspection an agent calls every iteration, and making it unavailable
+// when Terraform is absent or broken would break the loop over a check it
+// never needed. For safety-gate ordering, see applyGates and gateStagedSuite.
+func dispatch(
+	ctx context.Context, request Request, s settings, collector *runCollector,
+) (report.Report, error) {
+	s, moduleDir, err := configure(s)
+	if err != nil {
+		return report.Report{}, err
+	}
+
+	switch typed := request.(type) {
+	case TodosRequest, *TodosRequest:
+		return answerTodos(ctx, s, moduleDir)
+	case CurateRequest, *CurateRequest:
+		return curate(ctx, s, moduleDir, collector)
+	case CharacteriseRequest:
+		return characteriseFirstSuite(ctx, typed, s, moduleDir, collector)
+	case *CharacteriseRequest:
+		return characteriseFirstSuite(ctx, *typed, s, moduleDir, collector)
+	default:
+		return grade(ctx, s, moduleDir, collector)
+	}
+}
+
+// configure resolves the module directory and merges, finalises and checks
+// the configuration every request shares. It runs before dispatch's switch,
+// so every configuration gate has decided before any Terraform is asked for
+// anything.
+func configure(s settings) (settings, string, error) {
 	moduleDir, err := filepath.Abs(s.ModuleDir)
 	if err != nil {
-		return report.Report{}, fmt.Errorf("resolving module directory: %w", err)
+		return settings{}, "", fmt.Errorf("resolving module directory: %w", err)
 	}
 
 	s, configured, err := s.withConfiguration(moduleDir)
 	if err != nil {
-		return report.Report{}, err
+		return settings{}, "", err
 	}
 
 	s, err = finalise(s, configured)
 	if err != nil {
+		return settings{}, "", err
+	}
+
+	return s, moduleDir, nil
+}
+
+// answerTodos lists the open judgement points and the answers in force, over
+// the discovered configuration alone. It runs no Terraform, which is why
+// dispatch answers it before the version gate.
+func answerTodos(
+	ctx context.Context, s settings, moduleDir string,
+) (report.Report, error) {
+	listed, err := discoverConfiguration(ctx, moduleDir, s)
+	if err != nil {
 		return report.Report{}, err
 	}
 
-	// `todos` is dispatched before the version gate, because it runs no
-	// Terraform at all: the shipped skill promises a cheap local inspection an
-	// agent calls every iteration, and making it unavailable when Terraform is
-	// absent or broken would break the loop over a check it never needed.
-	switch request.(type) {
-	case TodosRequest, *TodosRequest:
-		listed, listErr := discoverConfiguration(ctx, moduleDir, s)
-		if listErr != nil {
-			return report.Report{}, listErr
-		}
-
-		if cancelErr := ctx.Err(); cancelErr != nil {
-			return report.Report{}, cancelErr
-		}
-
-		return listTodos(listed, s, "")
+	if cancelErr := ctx.Err(); cancelErr != nil {
+		return report.Report{}, cancelErr
 	}
 
+	return listTodos(listed, s, "")
+}
+
+// curate grades a full population and reports redundancy, through the same
+// version gate and discovery every Terraform-driving command shares.
+func curate(
+	ctx context.Context, s settings, moduleDir string, collector *runCollector,
+) (report.Report, error) {
+	found, err := probe(ctx, s, moduleDir, collector)
+	if err != nil {
+		return report.Report{}, err
+	}
+
+	return curateSuite(ctx, found.runner, found.configuration, s, found.version, moduleDir, collector)
+}
+
+// characteriseFirstSuite scaffolds, harvests and pins a first suite, through
+// the same version gate and discovery every Terraform-driving command shares.
+// Characterisation judges its safety gates against the planned staged suite
+// rather than the one on disk.
+func characteriseFirstSuite(
+	ctx context.Context,
+	request CharacteriseRequest,
+	s settings,
+	moduleDir string,
+	collector *runCollector,
+) (report.Report, error) {
+	found, err := probe(ctx, s, moduleDir, collector)
+	if err != nil {
+		return report.Report{}, err
+	}
+
+	return characteriseModule(ctx, found.runner, found.configuration, s,
+		found.version, collector, request.pinDefectHooks)
+}
+
+// grade is the pipeline run, preview and suggest share: the mode the request
+// carries in its settings decides preview's shortcuts and the suggest leg.
+// The population fact stays inside the application layer; the seam's
+// consumers receive its published report projection.
+func grade(
+	ctx context.Context, s settings, moduleDir string, collector *runCollector,
+) (report.Report, error) {
+	found, err := probe(ctx, s, moduleDir, collector)
+	if err != nil {
+		return report.Report{}, err
+	}
+
+	result, _, err := mutate(ctx, found.runner, found.configuration, s, found.version, moduleDir, collector)
+
+	return result, err
+}
+
+// probed is what the version gate and discovery establish for every
+// Terraform-driving command: the runner the pipeline executes through, the
+// gate's version, and the discovered configuration.
+type probed struct {
+	runner        tfexec.Runner
+	version       tfexec.Version
+	configuration discovery.Configuration
+}
+
+// probe runs the two steps every Terraform-driving command shares, in this
+// order: the version gate, then configuration discovery. Each phase closes
+// before its error is judged, so a failed step still records the phase it
+// spent.
+func probe(
+	ctx context.Context, s settings, moduleDir string, collector *runCollector,
+) (probed, error) {
 	runner := tfexec.Runner{Binary: s.TerraformBinary, Env: s.Env}
 
 	versionPhase := collector.phase(phaseVersion)
 	version, err := checkVersion(ctx, runner, moduleDir, s.preflightCap())
 	versionPhase(collector.child("version", version.Usage, version.Started)...)
 	if err != nil {
-		return report.Report{}, err
+		return probed{}, err
 	}
 
 	discoveryPhase := collector.phase(phaseDiscovery)
 	configuration, err := discoverConfiguration(ctx, moduleDir, s)
 	discoveryPhase()
 	if err != nil {
-		return report.Report{}, err
+		return probed{}, err
 	}
 
-	// Characterisation judges safety gates against its planned suite rather than the one on disk.
-	// Request types choose dispatch; characterise and todos publish no telemetry.
-	switch typed := request.(type) {
-	case CurateRequest, *CurateRequest:
-		return curateSuite(ctx, runner, configuration, s, version, moduleDir, collector)
-	case CharacteriseRequest:
-		return characteriseModule(ctx, runner, configuration, s, version, collector, typed.pinDefectHooks)
-	case *CharacteriseRequest:
-		return characteriseModule(ctx, runner, configuration, s, version, collector, typed.pinDefectHooks)
-	default:
-		// run, preview and suggest share the grading pipeline: the mode each
-		// request carries decides preview's shortcuts and the suggest leg.
-		// The population fact stays inside the application layer; the seam's
-		// consumers receive its published report projection.
-		result, _, err := mutate(ctx, runner, configuration, s, version, moduleDir, collector)
-
-		return result, err
-	}
+	return probed{runner: runner, version: version, configuration: configuration}, nil
 }
 
 func discoverConfiguration(ctx context.Context, moduleDir string, s settings) (discovery.Configuration, error) {
@@ -427,7 +540,10 @@ func applyGates(
 }
 
 // mutate is the grading pipeline: gates, generation, selection, execution and
-// the completed report.
+// the completed report. It reads top-down as named steps: the gates, the work
+// root and warm build, the described and suppressed population the count
+// levers scope, and the execution that grades the selection and completes the
+// report.
 func mutate(
 	ctx context.Context,
 	runner tfexec.Runner,
@@ -456,6 +572,62 @@ func mutate(
 		return report.Report{}, oracle.Population{}, err
 	}
 
+	found, err := describeSelection(ctx, configuration, settings, version.Terraform,
+		collector, prepared, generated, warnings)
+	if err != nil {
+		return report.Report{}, oracle.Population{}, err
+	}
+
+	if settings.mode == previewMode {
+		result := found.result
+		result.Mutants = found.selected.mutants
+		result.Metrics = emptyMetrics()
+
+		return result, oracle.Population{}, nil
+	}
+
+	plan := executionPlan{
+		runner:              runner,
+		configuration:       configuration,
+		settings:            settings,
+		prepared:            prepared,
+		generated:           found.selected.generated,
+		described:           found.selected.mutants,
+		populationDescribed: found.described,
+		classified:          found.selected.classified,
+		workRoot:            workRoot,
+		closure:             configuration.BuildClosure(),
+		graph:               found.graph,
+		collector:           collector,
+		events:              &dispatcher{},
+	}
+
+	return executePopulation(ctx, plan, version, moduleDir, found.result)
+}
+
+// describedPopulation is what describing and selecting produce: the report
+// shell with everything but a verdict on it, the selection the count levers
+// kept, the described population the coverage claims are judged over, and the
+// reference graph the unknown-value cone is judged over.
+type describedPopulation struct {
+	result    report.Report
+	selected  selectedPopulation
+	described []report.Mutant
+	graph     *discovery.Graph
+}
+
+// describeSelection describes the generated mutants, suppresses the
+// configured exclusions, and scopes the population with the count levers.
+func describeSelection(
+	ctx context.Context,
+	configuration discovery.Configuration,
+	settings settings,
+	terraformVersion string,
+	collector *runCollector,
+	prepared warmWorkspace,
+	generated mutation.Result,
+	warnings []string,
+) (describedPopulation, error) {
 	warnings = append(append(warnings, prepared.warnings...), generated.Warnings...)
 
 	// Preview's pack summary: an entry that found no site — no literal of its
@@ -466,7 +638,8 @@ func mutate(
 	}
 
 	graph := floorGraph(configuration)
-	result := reportShell(configuration, settings, version.Terraform, moduleDir, prepared, warnings)
+	result := reportShell(configuration, settings, terraformVersion,
+		configuration.ModuleDir, prepared, warnings)
 
 	mutants, classified := describeMutants(configuration, graph, settings, generated.Mutants)
 
@@ -488,33 +661,25 @@ func mutate(
 		generated.Mutants, classified)
 	selectionPhase()
 	if err != nil {
-		return report.Report{}, oracle.Population{}, err
+		return describedPopulation{}, err
 	}
 
-	if settings.mode == previewMode {
-		result.Mutants = selected.mutants
-		result.Metrics = emptyMetrics()
+	return describedPopulation{
+		result: result, selected: selected, described: mutants, graph: graph,
+	}, nil
+}
 
-		return result, oracle.Population{}, nil
-	}
-
-	plan := executionPlan{
-		runner:              runner,
-		configuration:       configuration,
-		settings:            settings,
-		prepared:            prepared,
-		generated:           selected.generated,
-		described:           selected.mutants,
-		populationDescribed: mutants,
-		classified:          selected.classified,
-		workRoot:            workRoot,
-		closure:             configuration.BuildClosure(),
-		graph:               graph,
-		collector:           collector,
-		events:              &dispatcher{},
-	}
-
-	executionPhase := collector.phase(phaseExecution)
+// executePopulation grades the selected population and completes the report:
+// the workers run under the execution phase, the verdict cache wraps them,
+// and finishReport projects the population aggregates last.
+func executePopulation(
+	ctx context.Context,
+	plan executionPlan,
+	version tfexec.Version,
+	moduleDir string,
+	result report.Report,
+) (report.Report, oracle.Population, error) {
+	executionPhase := plan.collector.phase(phaseExecution)
 	evaluated, err := executeWithCache(ctx, &result, version, plan)
 	executionPhase()
 	if err != nil {

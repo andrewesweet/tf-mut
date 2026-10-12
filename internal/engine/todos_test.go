@@ -536,6 +536,34 @@ func TestNoReportFieldVariesWithTheSensitiveAnswer(t *testing.T) {
 	}
 }
 
+// TestTodosIsAnsweredBeforeTheVersionGate pins the dispatch order the shipped
+// skill depends on: the todos request runs no Terraform at all — not even the
+// version gate — so an absent or broken Terraform binary must not take the
+// cheap local inspection an agent calls every iteration off the table. The
+// binary named here cannot start; if the todos request were dispatched after
+// the version gate, the gate would fail the command before it listed anything.
+func TestTodosIsAnsweredBeforeTheVersionGate(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedTodoFixture)
+
+	request := todosRequest(t, module)
+	request.TerraformBinary = "/nonexistent/tf-mut-todos-binary"
+
+	outcome, err := engine.Run(t.Context(), request)
+	if err != nil {
+		t.Fatalf("todos with an absent Terraform binary: %v, want the local inspection", err)
+	}
+
+	if outcome.Command != report.CommandTodos {
+		t.Fatalf("command = %v, want the todos report", outcome.Command)
+	}
+
+	if listed := len(outcome.Characterisation.Todos); listed != 1 {
+		t.Fatalf("listed %d judgement points, want one", listed)
+	}
+}
+
 // redactVolatile removes the fields that differ between any two runs, so that
 // what is compared is the report's dependence on its inputs and not on the
 // clock or the filesystem.
