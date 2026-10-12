@@ -134,7 +134,7 @@ declared by `internal/report`; they are not invitations to add aliases.
   means `--since` selected it, and `sample` means `--sample` selected it.
 - **Execution provenance:** how this run obtained a selected mutant's outcome or left it
   unobserved.
-  The [report schema](docs/schema/report-2.10.0.json) owns the wire vocabulary and counts.
+  The [report schema](docs/schema/report-2.11.0.json) owns the wire vocabulary and counts.
 - **Classified population:** outcomes paired with their mutation operators, together
   with execution provenance, including undispatched mutants and whether execution tripped.
 - **Scored population:** the selected population whose outcomes contribute to the

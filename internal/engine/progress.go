@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -27,6 +28,94 @@ func (w *synchronizedWriter) Write(p []byte) (int, error) {
 	defer w.mutex.Unlock()
 
 	return w.writer.Write(p)
+}
+
+// runPrefixWriter is the one stderr channel of a run: every line the engine
+// itself writes — progress, tracing warnings, CPU-profile warnings — carries
+// the run identifier as a `[<run_id>] ` prefix, so a reader can tie stderr to
+// the report that publishes the same identifier in its telemetry block. Lines
+// written before the identifier is minted — the tracer constructor's
+// warnings, which precede the run span — are held and released under it.
+// A nil writer, and every method on a nil receiver, writes nothing.
+type runPrefixWriter struct {
+	mutex       sync.Mutex
+	writer      io.Writer
+	prefix      string
+	atLineStart bool
+	pending     []byte
+}
+
+// newRunPrefixWriter wraps the run's stderr writer.
+func newRunPrefixWriter(writer io.Writer) *runPrefixWriter {
+	return &runPrefixWriter{writer: writer, atLineStart: true}
+}
+
+// Write prefixes every line with the run identifier. Best effort by
+// contract: a line nobody could read must never fail a run.
+func (w *runPrefixWriter) Write(p []byte) (int, error) {
+	if w == nil {
+		return len(p), nil
+	}
+
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+
+	if w.prefix == "" {
+		w.pending = append(w.pending, p...)
+
+		return len(p), nil
+	}
+
+	return w.emit(p)
+}
+
+// start sets the run identifier and releases whatever was written before it
+// existed. Safe to call once, immediately after the run span starts.
+func (w *runPrefixWriter) start(identifier string) {
+	if w == nil {
+		return
+	}
+
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+
+	w.prefix = "[" + identifier + "] "
+	pending := w.pending
+	w.pending = nil
+	_, _ = w.emit(pending)
+}
+
+// emit writes p through to the underlying writer, prefixing each line start.
+// A line and its prefix leave as one write, so a consumer reading writes —
+// not only bytes — sees whole prefixed lines.
+func (w *runPrefixWriter) emit(p []byte) (int, error) {
+	written := 0
+
+	for len(p) > 0 {
+		chunk := []byte{}
+		if w.atLineStart {
+			chunk = append(chunk, w.prefix...)
+			w.atLineStart = false
+		}
+
+		line := p
+		if index := bytes.IndexByte(p, '\n'); index >= 0 {
+			line = p[:index+1]
+			p = p[index+1:]
+			w.atLineStart = true
+		} else {
+			p = nil
+		}
+
+		chunk = append(chunk, line...)
+		if _, err := w.writer.Write(chunk); err != nil {
+			return written, err
+		}
+
+		written += len(line)
+	}
+
+	return written, nil
 }
 
 // progressTracker writes the periodic long-run line — n/N mutants, elapsed,

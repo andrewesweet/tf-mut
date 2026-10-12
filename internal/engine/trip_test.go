@@ -435,7 +435,13 @@ type tripReleaseWriter struct {
 
 func (w tripReleaseWriter) Write(content []byte) (int, error) {
 	done, total := 0, 0
-	if _, err := fmt.Sscanf(string(content), "tf-mut: %d/%d mutants,", &done, &total); err != nil {
+	// The line carries the run identifier's `[<run_id>] ` prefix; the count
+	// is what this writer reads.
+	line := string(content)
+	if end := strings.Index(line, "] "); end >= 0 && strings.HasPrefix(line, "[") {
+		line = line[end+2:]
+	}
+	if _, err := fmt.Sscanf(line, "tf-mut: %d/%d mutants,", &done, &total); err != nil {
 		return 0, err
 	}
 

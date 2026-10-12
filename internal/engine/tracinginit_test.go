@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
+	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
 const (
@@ -110,6 +111,11 @@ func TestConcurrentTraceInitializationDiagnosticsKeepTheirWriters(t *testing.T) 
 func assertConcurrentTraceInitializationWriters(t *testing.T, secondWriter bool) {
 	t.Helper()
 
+	type runOutcome struct {
+		report report.Report
+		err    error
+	}
+
 	var firstOutput, secondOutput bytes.Buffer
 	first := baseConfig(t, copyFixture(t, "skeleton"))
 	first.OTLPEndpoint = newSpanCollector(t, 0).server.URL
@@ -120,29 +126,38 @@ func assertConcurrentTraceInitializationWriters(t *testing.T, secondWriter bool)
 		second.Progress = &secondOutput
 	}
 
-	finished := make(chan error, 2)
+	finished := make(chan runOutcome, 2)
 	for _, request := range []engine.RunRequest{first, second} {
 		go func() {
-			_, err := engine.Run(t.Context(), request)
-			finished <- err
+			firstReport, err := engine.Run(t.Context(), request)
+			finished <- runOutcome{report: firstReport, err: err}
 		}()
 	}
+	// The goroutines arrive in either order; each warning carries its own
+	// run's identifier, so the outputs are matched by identifier, not by
+	// submission order.
+	expected := make([]string, 0, 2)
 	for range 2 {
-		if err := <-finished; err != nil {
-			t.Fatal(err)
+		outcome := <-finished
+		if outcome.err != nil {
+			t.Fatal(outcome.err)
 		}
+
+		expected = append(expected, "["+outcome.report.Telemetry.RunID+"] tf-mut: tracing initialization warning\n")
 	}
 
-	warning := "tf-mut: tracing initialization warning\n"
-	if got := firstOutput.String(); got != warning {
-		t.Fatalf("first run warning = %q, want %q", got, warning)
+	firstGot := firstOutput.String()
+	secondGot := secondOutput.String()
+	matched := slices.Index(expected, firstGot)
+	if matched < 0 {
+		t.Fatalf("first run warning = %q, want one of %q and %q", firstGot, expected[0], expected[1])
 	}
-	wanted := ""
 	if secondWriter {
-		wanted = warning
-	}
-	if got := secondOutput.String(); got != wanted {
-		t.Fatalf("second run warning = %q, want %q", got, wanted)
+		if want := expected[1-matched]; secondGot != want {
+			t.Fatalf("second run warning = %q, want %q", secondGot, want)
+		}
+	} else if secondGot != "" {
+		t.Fatalf("second run wrote to a nil writer: %q", secondGot)
 	}
 }
 
@@ -159,12 +174,15 @@ func assertTraceInitialization(t *testing.T) {
 		request.Progress = &warnings
 	}
 
-	if _, err := engine.Run(t.Context(), request); err != nil {
+	result, err := engine.Run(t.Context(), request)
+	if err != nil {
 		t.Fatal(err)
 	}
+	// The initialization warning is written before the run span exists and
+	// released under the run identifier's prefix once it is minted.
 	wanted := ""
 	if request.Progress != nil && os.Getenv("TF_MUT_TRACE_INITIALIZATION_WARNING") == traceInitializationEnabled {
-		wanted = "tf-mut: tracing initialization warning\n"
+		wanted = "[" + result.Telemetry.RunID + "] tf-mut: tracing initialization warning\n"
 	}
 	if got := warnings.String(); got != wanted {
 		t.Fatalf("initialization warning = %q, want %q", got, wanted)
