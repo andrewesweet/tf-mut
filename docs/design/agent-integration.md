@@ -78,13 +78,13 @@ affordance below degrades to a human running the same commands.
   `curate` — take `--reporter json` with a **versioned schema** (`"schema_version"` in every
   document). Exit codes are stable and documented.
 - Every entity has a **stable, content-derived ID**: mutants (`mut-<hash>`), TODOs
-  (`todo-<hash>`), assertions (`asrt-<hash>`), run blocks. IDs survive re-runs and unrelated
+  (`todo-<hash>`), run blocks. IDs survive re-runs and unrelated
   edits, so an agent can hold a reference across a session.
 - **Token-frugal output is a design requirement, not a nicety.** Agent context is the scarce
-  resource. Defaults: summaries with counts, `--top N` for lists, `explain <id>` for depth on
-  one entity, plan deltas rendered as *diffs against baseline* rather than full documents, and
-  `provider_schemas`-scale payloads never emitted to stdout. A driving agent should be able to
-  run the whole loop reading a few KB per iteration.
+  resource. Defaults: summaries with counts, plan deltas rendered as *diffs against baseline*
+  rather than full documents, and `provider_schemas`-scale payloads never emitted to stdout.
+  A driving agent should be able to run the whole loop reading a few KB per iteration. The
+  current flags are what `tf-mut --help` prints.
 
 ### 2.2 The TODO protocol
 
@@ -118,7 +118,7 @@ agent supplies decisions the same way a CI file would:
 | TODO answers | Edit the file (preferred), or `--answer todo-9f2a='10.0.0.0/16'` for scripted runs |
 | Granularity per run block | `--pin outputs\|counts\|configured`, overridable per run in `.tf-mut.hcl` |
 | Day-2 scenarios (C3) | An agent writes an ordinary second run block; the tool harvests and pins it like its own |
-| Prune approvals (D1) | Deferred: M4.5's `curate` is report-only (M4.5 spec review, M6) — an agent acts on its findings by editing the test files directly. A `curate --apply` returns only if it earns its own recorded write exception with the full protocol; when it does, it is explicit IDs only, no `--apply-all` |
+| Prune approvals (D1) | Deferred: M4.5's `curate` is report-only (M4.5 spec review, M6) — an agent acts on its findings by editing the test files directly. A `curate --apply` returns only if it earns its own recorded write exception with the full protocol; when it does, it is explicit IDs only, never a bulk apply |
 | Discriminating inputs (D3) | An agent adds a run block with the proposed inputs; the tool reports whether it changed the fingerprint, i.e. whether the proposal actually discriminates |
 
 ### 2.4 The verification loop is the safety property
@@ -153,7 +153,7 @@ tf-mut skill install [--agent claude|generic] [--path .]
 # adapter ships only if the generic form proves insufficient (M4 spec review, M4)
 ```
 
-- **`tf-mut-mutation`** — the grading loop. When to run `coverage` first, how to read the
+- **`tf-mut-mutation`** — the grading loop. How to read the
   three metrics together, the survivor-diagnosis decision tree (which diagnoses mean "add a
   run block" versus "add an assertion" versus "suppress with a reason"), how to apply
   `suggest` output, and the discipline of `--since` + baseline in PR workflows.
