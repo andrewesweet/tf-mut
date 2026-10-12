@@ -469,8 +469,6 @@ func writeMetrics(builder *strings.Builder, value Report) {
 	}
 }
 
-// writeDiagnoses shows how the survivors divide, because "twenty survivors" and
-// "twenty survivors, eighteen of them indeterminate" are different situations.
 // writeDeadlines names the mutants whose test reached its execution budget,
 // whatever verdict the runs that finished first earned: the state vocabulary is
 // unchanged by design, so without this list a deadline behind a Killed or
@@ -494,7 +492,8 @@ func writeDeadlines(builder *strings.Builder, value Report) {
 	}
 }
 
-// writeDiagnoses renders the survivor diagnosis counts.
+// writeDiagnoses renders the survivor diagnosis counts: "twenty survivors" and
+// "twenty survivors, eighteen of them indeterminate" are different situations.
 func writeDiagnoses(builder *strings.Builder, value Report) {
 	if len(value.Metrics.Diagnoses) == 0 {
 		return
