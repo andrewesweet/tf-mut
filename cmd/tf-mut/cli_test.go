@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/skill"
 )
@@ -65,7 +66,7 @@ func TestRunReportsPseudoTestedResourcesAndExitsWithFindings(t *testing.T) {
 	}
 }
 
-func TestABaselineRefusalPrintsTheTripAndFirstFailure(t *testing.T) {
+func TestAnAuthorityRefusalPrintsTheTripAndFirstFailure(t *testing.T) {
 	realTerraform, err := exec.LookPath("terraform")
 	if err != nil {
 		t.Fatalf("finding real Terraform on PATH: %v", err)
@@ -87,23 +88,43 @@ exec "$TF_MUT_REAL_TERRAFORM" "$@"
 	t.Setenv("TF_MUT_REAL_TERRAFORM", realTerraform)
 	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	for _, command := range []string{runCommand, suggestCommand, curateCommand} {
-		t.Run(command, func(t *testing.T) {
-			module := fixture(t)
+	for _, scenario := range []struct {
+		name    string
+		command string
+		flag    string
+		source  string
+		refusal error
+	}{
+		{"run-baseline", runCommand, "--write-baseline", fixtureSource, engine.ErrBaselineUnobserved},
+		{"suggest-baseline", suggestCommand, "--write-baseline", fixtureSource, engine.ErrBaselineUnobserved},
+		{"curate-baseline", curateCommand, "--write-baseline", fixtureSource, engine.ErrBaselineUnobserved},
+		{"curate", curateCommand, noCacheFlag, fixtureSource, engine.ErrCuratePopulation},
+		{
+			"characterise-until-dry", characteriseCommand, untilDryFlag,
+			"../../internal/engine/testdata/untested-branches", engine.ErrUntilDryPopulation,
+		},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			module := t.TempDir()
+			if err := os.CopyFS(module, os.DirFS(scenario.source)); err != nil {
+				t.Fatalf("copying fixture: %v", err)
+			}
 			var stdout, stderr bytes.Buffer
-			code := run([]string{command, "--write-baseline", noCacheFlag, "--jobs", "1", module},
+			args := []string{scenario.command, scenario.flag, "--jobs", "1", module}
+			code := run(args,
 				"dev", &stdout, &stderr)
 			if code != report.ExitOperational {
 				t.Fatalf("exit = %d, want operational: %s", code, stderr.String())
 			}
 
 			for _, evidence := range []string{
-				"a baseline write requires a fully observed run",
-				"warning: run tripped after 5 consecutive operational failures",
+				scenario.refusal.Error(),
+				"warning: run tripped after",
+				"consecutive operational failures",
 				"the mutation score is marked incomplete",
 				"First failure: terraform validate could not be executed",
 			} {
-				if !strings.Contains(stderr.String(), evidence) {
+				if strings.Count(stderr.String(), evidence) != 1 {
 					t.Fatalf("stderr lost trip evidence %q: %s", evidence, stderr.String())
 				}
 			}

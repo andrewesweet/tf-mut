@@ -658,10 +658,6 @@ func finishReport(
 	})
 
 	if err := plan.events.populationClassified.publish(PopulationClassified{population: population}); err != nil {
-		if evaluated.trip != nil {
-			err = fmt.Errorf("%w\nwarning: %s", err, strings.Join(tripWarnings(evaluated.trip), "\n"))
-		}
-
 		return report.Report{}, oracle.Population{}, err
 	}
 
@@ -966,11 +962,12 @@ func classifyRun(
 	}
 
 	return oracle.NewPopulation(evaluated.classified, oracle.Provenance{
-		Cached:     shell.Population.Cached,
-		TimedOut:   timedOut,
-		Errored:    len(evaluated.failures),
-		Unexecuted: unexecuted,
-		Tripped:    evaluated.trip != nil,
+		Cached:      shell.Population.Cached,
+		TimedOut:    timedOut,
+		Errored:     len(evaluated.failures),
+		Unexecuted:  unexecuted,
+		Tripped:     evaluated.trip != nil,
+		TripWarning: strings.Join(tripWarnings(evaluated.trip), "\n"),
 	})
 }
 

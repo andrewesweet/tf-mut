@@ -521,6 +521,8 @@ func TestInterleavedFailuresAndVerdictsNeverTrip(t *testing.T) {
 func TestATrippedRunWritesNoBaseline(t *testing.T) {
 	t.Parallel()
 
+	binary := dyingTerraform(t)
+
 	for _, command := range []report.Command{report.CommandRun, report.CommandSuggest, report.CommandCurate} {
 		t.Run(string(command), func(t *testing.T) {
 			t.Parallel()
@@ -529,7 +531,7 @@ func TestATrippedRunWritesNoBaseline(t *testing.T) {
 			config := baseConfig(t, module)
 			config.Jobs = testJobs
 			config.WriteBaseline = true
-			config.TerraformBinary = dyingTerraform(t)
+			config.TerraformBinary = binary
 
 			var request engine.Request = config
 			switch command {
@@ -558,6 +560,50 @@ func TestATrippedRunWritesNoBaseline(t *testing.T) {
 
 			if _, statErr := os.Stat(filepath.Join(module, engine.DefaultBaselineName)); !errors.Is(statErr, os.ErrNotExist) {
 				t.Fatalf("the tripped run wrote a baseline: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestPostFinishAuthorityRefusalsRetainTheTripDiagnostic(t *testing.T) {
+	t.Parallel()
+
+	binary := dyingTerraform(t)
+
+	for _, command := range []report.Command{report.CommandCurate, report.CommandCharacterise} {
+		t.Run(string(command), func(t *testing.T) {
+			t.Parallel()
+
+			var request engine.Request
+			refusal := engine.ErrCuratePopulation
+			if command == report.CommandCurate {
+				config := curateRequest(t, copyFixture(t, "skeleton"))
+				config.NoCache = true
+				config.Jobs = 1
+				config.TerraformBinary = binary
+				request = config
+			} else {
+				config := characteriseRequest(t, copyFixture(t, untestedBranchesFixture))
+				config.UntilDry = true
+				config.Jobs = 1
+				config.TerraformBinary = binary
+				request = config
+				refusal = engine.ErrUntilDryPopulation
+			}
+
+			_, err := engine.Run(t.Context(), request)
+			if !errors.Is(err, refusal) {
+				t.Fatalf("error = %v, want %v", err, refusal)
+			}
+			for _, evidence := range []string{
+				"warning: run tripped after",
+				"consecutive operational failures",
+				"the mutation score is marked incomplete",
+				"First failure: terraform validate could not be executed",
+			} {
+				if strings.Count(err.Error(), evidence) != 1 {
+					t.Fatalf("the refusal must carry trip evidence %q once: %v", evidence, err)
+				}
 			}
 		})
 	}
