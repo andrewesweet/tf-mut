@@ -14,19 +14,28 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
-// The flag names the command line can override a configured scalar with. The
-// precedence is per scalar rather than per file: a repository sets policy, and
-// one flag on one run should not discard the rest of it.
+// Setting names one configured scalar the caller can override. It is the
+// engine's own vocabulary: no command-line spelling lives in it.
+type Setting string
+
+// The settings the caller can override. The precedence is per setting rather
+// than per file: a repository sets policy, and one explicitly given value on
+// one run should not discard the rest of it.
 const (
-	FlagTestDirectory        = "test-directory"
-	FlagJobs                 = "jobs"
-	FlagTimeoutFactor        = "timeout-factor"
-	FlagPreflightTimeout     = "preflight-timeout"
-	FlagMinScore             = "min-score"
-	FlagAllowIncompleteScore = "allow-incomplete-score"
-	FlagTier                 = "tier"
-	FlagReporter             = "reporter"
+	SettingTestDirectory        Setting = "test-directory"
+	SettingJobs                 Setting = "jobs"
+	SettingTimeoutFactor        Setting = "timeout-factor"
+	SettingPreflightTimeout     Setting = "preflight-timeout"
+	SettingMinScore             Setting = "min-score"
+	SettingAllowIncompleteScore Setting = "allow-incomplete-score"
+	SettingTier                 Setting = "tier"
+	SettingReporter             Setting = "reporter"
 )
+
+// Overrides is the set of settings the caller set explicitly, keyed by setting
+// name. The caller carries it so a configured scalar can be overridden per
+// setting rather than per file.
+type Overrides map[Setting]bool
 
 // withConfiguration merges `.tf-mut.hcl` into the run's configuration, leaving
 // every scalar the caller set explicitly alone.
@@ -53,32 +62,32 @@ func (s settings) withConfiguration(moduleDir string) (settings, tfconfig.File, 
 
 	settings := file.Settings
 
-	if settings.TestDirectory != nil && !s.overridden(FlagTestDirectory) {
+	if settings.TestDirectory != nil && !s.overridden(SettingTestDirectory) {
 		s.TestDirectory = *settings.TestDirectory
 	}
 
-	if settings.Jobs != nil && !s.overridden(FlagJobs) {
+	if settings.Jobs != nil && !s.overridden(SettingJobs) {
 		s.Jobs = *settings.Jobs
 	}
 
-	if settings.TimeoutFactor != nil && !s.overridden(FlagTimeoutFactor) {
+	if settings.TimeoutFactor != nil && !s.overridden(SettingTimeoutFactor) {
 		s.TimeoutFactor = *settings.TimeoutFactor
 	}
 
-	if settings.PreflightTimeout != nil && !s.overridden(FlagPreflightTimeout) {
+	if settings.PreflightTimeout != nil && !s.overridden(SettingPreflightTimeout) {
 		s.PreflightTimeout = *settings.PreflightTimeout
 	}
 
-	if settings.MinScore != nil && !s.overridden(FlagMinScore) {
+	if settings.MinScore != nil && !s.overridden(SettingMinScore) {
 		s.MinScore = *settings.MinScore
 		s.HasMinScore = true
 	}
 
-	if settings.AllowIncompleteScore != nil && !s.overridden(FlagAllowIncompleteScore) {
+	if settings.AllowIncompleteScore != nil && !s.overridden(SettingAllowIncompleteScore) {
 		s.AllowIncompleteScore = *settings.AllowIncompleteScore
 	}
 
-	if file.Operators.Tier != "" && !s.overridden(FlagTier) {
+	if file.Operators.Tier != "" && !s.overridden(SettingTier) {
 		s.Tier = mutation.Tier(file.Operators.Tier)
 		if !s.Tier.Valid() {
 			return s, file, fmt.Errorf("%w: %s is not a tier", tfconfig.ErrConfig, file.Operators.Tier)
@@ -91,8 +100,8 @@ func (s settings) withConfiguration(moduleDir string) (settings, tfconfig.File, 
 	return s, file, nil
 }
 
-func (s settings) overridden(flag string) bool {
-	return slices.Contains(s.SetFlags, flag)
+func (s settings) overridden(setting Setting) bool {
+	return s.Overrides[setting]
 }
 
 // suppress applies configured exclusions and inline directives to the described

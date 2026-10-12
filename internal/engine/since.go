@@ -28,18 +28,20 @@ import (
 // are errors, never silent full or empty runs.
 
 // The --since failure modes. Each aborts the run: a wrong ref must never fake
-// a green gate.
+// a green gate. The reasons name the failure, not the remedy: the flag that
+// selects this mode is the command line's to spell when it renders the
+// refusal, so no command-line vocabulary lives here.
 var (
 	// ErrSinceRef reports a ref git cannot resolve, in this clone.
-	ErrSinceRef = errors.New("--since ref cannot be resolved")
+	ErrSinceRef = errors.New("ref cannot be resolved")
 	// ErrSinceRepository reports a module outside any git work tree.
-	ErrSinceRepository = errors.New("--since requires a git repository")
+	ErrSinceRepository = errors.New("requires a git repository")
 	// ErrSinceConflict reports an in-progress merge conflict.
-	ErrSinceConflict = errors.New("--since cannot select over an unresolved merge conflict")
+	ErrSinceConflict = errors.New("cannot select over an unresolved merge conflict")
 	// ErrSampledGate reports a sampled run asked to satisfy a gate without the
 	// separately named unsafe opt-in.
 	ErrSampledGate = errors.New(
-		"a sampled run is non-authoritative and cannot satisfy a gate without --allow-sampled-gate",
+		"a sampled run is non-authoritative and cannot satisfy a gate without the sampled-gate opt-in",
 	)
 )
 
@@ -644,7 +646,7 @@ func (s selection) apply(
 }
 
 // ErrSampleRange reports a sample percentage outside (0, 100].
-var ErrSampleRange = errors.New("--sample must be a percentage greater than 0 and at most 100")
+var ErrSampleRange = errors.New("must be a percentage greater than 0 and at most 100")
 
 // checkSampledGate refuses gates over a sampled population without the named
 // unsafe opt-in (the gate truth table's sampled row), and rejects a

@@ -118,9 +118,10 @@ type settings struct {
 	// ExcludePaths and ExcludeResources remove sites from the population.
 	ExcludePaths     []string
 	ExcludeResources []string
-	// SetFlags names the flags the caller set explicitly, so that a configured
-	// scalar can be overridden per scalar rather than per file.
-	SetFlags []string
+	// Overrides is the set of settings the caller set explicitly, keyed by
+	// setting name, so that a configured scalar can be overridden per scalar
+	// rather than per file.
+	Overrides Overrides
 	// Since scopes the run to configuration changed since the git ref: the
 	// union of the committed range, the working tree and untracked files.
 	Since string

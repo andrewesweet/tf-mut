@@ -63,7 +63,9 @@ type Common struct {
 	Env                  []string
 	WorkDir              string
 	ToolVersion          string
-	SetFlags             []string
+	// Overrides names the settings the caller set explicitly, keyed by the
+	// engine's own setting names — never by a command-line spelling.
+	Overrides Overrides
 	// CPUProfile names the file the command's own CPU profile is written to.
 	// Empty — the default — profiles nothing. It is a diagnostic for the
 	// person tuning tf-mut itself, not part of any report.
@@ -325,7 +327,7 @@ func commonConfig(c Common) settings {
 	s.Env = c.Env
 	s.WorkDir = c.WorkDir
 	s.ToolVersion = c.ToolVersion
-	s.SetFlags = c.SetFlags
+	s.Overrides = c.Overrides
 	s.CPUProfile = c.CPUProfile
 	s.OTLPEndpoint = c.OTLPEndpoint
 	s.Progress = c.Progress

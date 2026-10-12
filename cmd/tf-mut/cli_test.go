@@ -165,7 +165,7 @@ func TestJSONReporterEmitsTheVersionedSchema(t *testing.T) {
 	stdout := bytes.Buffer{}
 	stderr := bytes.Buffer{}
 
-	exitCode := run([]string{runCommand, reporterFlag, "json", module}, "dev", &stdout, &stderr)
+	exitCode := run([]string{runCommand, reporterFlag, reporterJSON, module}, "dev", &stdout, &stderr)
 	if exitCode != 1 {
 		t.Fatalf("exit code = %d, want 1\n%s", exitCode, stderr.String())
 	}
@@ -204,15 +204,35 @@ func TestMinScoreGateDecidesTheExitCode(t *testing.T) {
 	stdout := bytes.Buffer{}
 	stderr := bytes.Buffer{}
 
-	if code := run([]string{runCommand, "--min-score", "0", module}, "dev", &stdout, &stderr); code != 0 {
+	if code := run([]string{runCommand, "--" + minScoreFlag, "0", module}, "dev", &stdout, &stderr); code != 0 {
 		t.Fatalf("exit code with a satisfied gate = %d, want 0\n%s", code, stderr.String())
 	}
 
 	stdout.Reset()
 	stderr.Reset()
 
-	if code := run([]string{runCommand, "--min-score", "100", module}, "dev", &stdout, &stderr); code != 1 {
+	if code := run([]string{runCommand, "--" + minScoreFlag, "100", module}, "dev", &stdout, &stderr); code != 1 {
 		t.Fatalf("exit code with an unmet gate = %d, want 1\n%s", code, stderr.String())
+	}
+
+	// The flag-to-override mapping decides the same question against a
+	// configured policy: min_score = 100 in .tf-mut.hcl fails the gate, and
+	// --min-score 0 overrides exactly that scalar and passes it.
+	module = fixture(t)
+	testsupport.WriteFile(t, filepath.Join(module, ".tf-mut.hcl"), "tf-mut {\n  min_score = 100\n}\n")
+
+	stdout.Reset()
+	stderr.Reset()
+
+	if code := run([]string{runCommand, module}, "dev", &stdout, &stderr); code != 1 {
+		t.Fatalf("exit code under a configured unmet gate = %d, want 1\n%s", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+
+	if code := run([]string{runCommand, "--" + minScoreFlag, "0", module}, "dev", &stdout, &stderr); code != 0 {
+		t.Fatalf("the flag did not override the configured gate: exit code = %d, want 0\n%s", code, stderr.String())
 	}
 }
 
@@ -257,7 +277,7 @@ func TestConfiguredReportersMergeWithTheFlag(t *testing.T) {
 	stdout := bytes.Buffer{}
 	stderr := bytes.Buffer{}
 
-	code := run([]string{"run", reporterFlag, "json", module}, "test", &stdout, &stderr)
+	code := run([]string{"run", reporterFlag, reporterJSON, module}, "test", &stdout, &stderr)
 	if code != report.ExitFindings && code != report.ExitClean {
 		t.Fatalf("exit code = %d: %s", code, stderr.String())
 	}
