@@ -478,8 +478,8 @@ func runGitLookupFallbackCase(t *testing.T, testCase gitLookupFallbackCase, dead
 			t.Fatalf("error = %v, want a git deadline failure", err)
 		}
 
-		// The deadline's wording is published stderr text and this is the
-		// only test that pins it; which failure happened is the sentinel.
+		// The deadline's wording is published stderr text; the sentinel
+		// identifies which failure happened.
 		if !strings.Contains(err.Error(), "did not finish within") {
 			t.Fatalf("the failure does not name the cap: %v", err)
 		}

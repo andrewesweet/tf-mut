@@ -204,8 +204,8 @@ func promoteScaffolds(
 }
 
 // scaffoldRefusalError reports an answered scaffold the tool declined to promote:
-// the answer could not be rendered into a run block, or the rendered check did
-// not produce the failure it asserts. The reason is published wording — the
+// answer validation or staged verification did not establish the expected
+// failure. The reason is published wording — the
 // warning the report carries after the scaffold's identifier — so it changes
 // only with its consumers, never as a side effect of a refactor.
 type scaffoldRefusalError struct {
