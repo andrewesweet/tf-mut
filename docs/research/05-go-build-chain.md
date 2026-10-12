@@ -616,11 +616,14 @@ tests execute repository code, and security scans use egress.
 Define the cross-harness invariant in one direction only: every intent marked interactive
 (updates, releases, networked/credentialed execution, infrastructure opt-ins and policy-file
 changes) must not be auto-allowed in either harness. `agent-check` validates that negative
-property and adapter syntax, and that the protected-file hooks match only the tool's own input
-(`tool_input`), never payload metadata such as `transcript_path`
-(`tests/agent/protect-hooks.sh`); it does not claim the two permission systems are equivalent
-or active on an untrusted workspace. Treat repo rules and protected-file hooks as best-effort
-defence in depth, not as the sandbox or trust boundary.
+property and adapter syntax, and that the protected-file hooks match only the tool's own
+input — the Claude hook asks only when a Write or Edit targets a protected path
+(`.tool_input.file_path`, never a Bash command or written content, so read-only commands do
+not prompt), while the Codex hook inspects the whole `tool_input` — and never payload
+metadata such as `transcript_path` (`tests/agent/protect-hooks.sh`); it does not claim the
+two permission systems are equivalent or active on an untrusted workspace. Treat repo rules
+and protected-file hooks as best-effort defence in depth, not as the sandbox or trust
+boundary.
 
 ## Proposed repository layout
 

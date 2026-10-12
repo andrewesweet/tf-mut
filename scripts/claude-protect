@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Asks for review only when a Write or Edit targets a protected path; the
+# matcher in .claude/settings.json routes only Write|Edit here. Bash commands
+# and written content are deliberately not inspected, so read-only commands
+# naming a protected file never prompt.
 payload=$(cat)
 protected='(Justfile|mise\.(toml|lock)|\.golangci\.yml|\.gitleaks\.toml|AGENTS\.md|CLAUDE\.md|\.github/|\.claude/|\.codex/|\.agents/|\.terraform\.lock\.hcl|tools/[^/]+/go\.(mod|sum))'
 
-if grep -Eq "$protected" <<<"$(jq -r '.tool_input | tostring' <<<"$payload")"; then
+if grep -Eq "$protected" <<<"$(jq -r '.tool_input.file_path // empty' <<<"$payload")"; then
   jq -cn '{
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
