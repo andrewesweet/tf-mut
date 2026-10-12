@@ -220,6 +220,10 @@ func (t *tripCounter) record(failure *report.ExecutionError) {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
+	if t.tripped {
+		return
+	}
+
 	if failure == nil {
 		t.consecutive = 0
 
@@ -231,7 +235,7 @@ func (t *tripCounter) record(failure *report.ExecutionError) {
 	}
 
 	t.consecutive++
-	t.tripped = t.tripped || t.consecutive >= t.threshold
+	t.tripped = t.consecutive >= t.threshold
 }
 
 // stopped reports whether the trip fired, so the dispatcher stops before the

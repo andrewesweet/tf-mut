@@ -50,7 +50,11 @@ package report
 // documented in docs/schema/report-2.8.0.json.
 // 2.9.0 adds the per-mutant DeadlineReached flag. Its presence and compatibility
 // contract is documented in docs/schema/report-2.9.0.json.
-const SchemaVersion = "2.9.0"
+// 2.10.0 widens Metrics.Incomplete to include a consecutive-failure trip,
+// even when every selected mutant was dispatched before the trip fired.
+// No field was added, removed or renamed; the wire contract is documented
+// in docs/schema/report-2.10.0.json.
+const SchemaVersion = "2.10.0"
 
 // Command names what produced a report.
 type Command string
@@ -464,7 +468,7 @@ type Metrics struct {
 	MutationScore  float64 `json:"mutation_score"`
 	AssertionScore float64 `json:"assertion_score"`
 	Reachability   float64 `json:"reachability"`
-	// Incomplete marks an untrustworthy score: a timeout, a non-empty unscored
+	// Incomplete marks an untrustworthy score: a trip, a timeout, a non-empty unscored
 	// population, or a high share of judged mutants rejected by terraform validate.
 	Incomplete bool `json:"incomplete"`
 	// Counts holds the number of mutants in each state.

@@ -1,11 +1,14 @@
 package engine_test
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
@@ -142,6 +145,163 @@ func TestTheTripThresholdCapsAtThePendingPopulation(t *testing.T) {
 	}
 }
 
+func TestATripWithEveryMutantDispatchedStillMarksTheScoreIncomplete(t *testing.T) {
+	t.Parallel()
+
+	config := baseConfig(t, tripModule(t, 6))
+	config.Jobs = 1
+	config.NoCache = true
+	config.IncludeOperators = []string{string(mutation.BoolLiteralFlip)}
+	config.TerraformBinary = dyingTerraform(t, "m0001-", "m0002-", "m0003-", "m0004-", "m0005-")
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if len(result.Mutants) != 6 || len(result.Errors) != 5 ||
+		result.Metrics.Scored != 1 || result.Metrics.Counts[report.Killed] != 1 {
+		t.Fatalf("want one kill followed by five operational failures: %+v", result)
+	}
+
+	for _, mutant := range result.Mutants {
+		if mutant.Telemetry == nil {
+			t.Fatalf("mutant %s was not dispatched", mutant.ID)
+		}
+	}
+
+	if !result.Metrics.Incomplete {
+		t.Fatalf("a trip with no undispatched mutants left a complete score: %+v", result.Metrics)
+	}
+
+	if code := result.ExitCode(report.Gate{}); code != report.ExitOperational { //nolint:exhaustruct // no gate.
+		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
+	}
+
+	assertTripWarning(t, result)
+}
+
+func TestInFlightVerdictsAndFailuresPreserveTheTripEvidence(t *testing.T) {
+	t.Parallel()
+
+	releases := t.TempDir()
+	path := filepath.Join(t.TempDir(), "terraform-trip-evidence")
+	script := `#!/usr/bin/env bash
+if [ "$2" = "test" ] || [ "$2" = "validate" ]; then
+  case "$1" in
+    */m0000-*)
+      while [ ! -f "$TF_MUT_TRIP_RELEASES/done-5" ]; do sleep 0.01; done
+      ;;
+    */m0002-*|*/m000[7-9]-*)
+      while [ ! -f "$TF_MUT_TRIP_RELEASES/done-6" ]; do sleep 0.01; done
+      if [ "$2" = "validate" ]; then printf 'later'; fi
+      exit 137
+      ;;
+    */m[0-9][0-9][0-9][0-9]-*)
+      if [ "$2" = "validate" ]; then printf 'earlier'; fi
+      exit 137
+      ;;
+  esac
+fi
+exec terraform "$@"
+`
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec // the wrapper must run.
+		t.Fatalf("writing terraform wrapper: %v", err)
+	}
+
+	config := baseConfig(t, tripModule(t, 10))
+	config.Jobs = 3
+	config.NoCache = true
+	config.IncludeOperators = []string{string(mutation.BoolLiteralFlip)}
+	config.TerraformBinary = path
+	config.Env = append(config.Env, "TF_MUT_TRIP_RELEASES="+releases)
+	config.Progress = tripReleaseWriter{directory: releases}
+	config.ProgressIntervalForTesting = time.Millisecond
+
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+
+	result, err := engine.Run(ctx, config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if result.Metrics.Counts[report.Killed] != 1 {
+		t.Fatalf("the in-flight successful evaluation was not published: %+v", result.Metrics)
+	}
+
+	firstFailure := ""
+	lateFailures := 0
+	for _, failure := range result.Errors {
+		switch {
+		case strings.Contains(failure.Message, "invalid character 'e'"):
+			firstFailure = failure.Message
+		case strings.Contains(failure.Message, "invalid character 'l'"):
+			lateFailures++
+		default:
+			t.Fatalf("unexpected failure: %+v", failure)
+		}
+	}
+
+	if firstFailure == "" || lateFailures == 0 {
+		t.Fatalf("want both triggering and late failures: %v", result.Errors)
+	}
+
+	for _, warning := range result.Warnings {
+		if strings.Contains(warning, "run tripped after 5 consecutive operational failures") &&
+			strings.Contains(warning, "First failure: "+firstFailure) {
+			return
+		}
+	}
+
+	t.Fatalf("the trip lost its triggering evidence: %v", result.Warnings)
+}
+
+type tripReleaseWriter struct {
+	directory string
+}
+
+func (w tripReleaseWriter) Write(content []byte) (int, error) {
+	done, total := 0, 0
+	if _, err := fmt.Sscanf(string(content), "tf-mut: %d/%d mutants,", &done, &total); err != nil {
+		return 0, err
+	}
+
+	for _, threshold := range []int{5, 6} {
+		if done >= threshold {
+			path := filepath.Join(w.directory, fmt.Sprintf("done-%d", threshold))
+			if err := os.WriteFile(path, nil, 0o600); err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	return len(content), nil
+}
+
+func tripModule(t *testing.T, count int) string {
+	t.Helper()
+
+	module := t.TempDir()
+	source := strings.Builder{}
+	outputs := make([]string, count)
+	for index := range count {
+		fmt.Fprintf(&source, "output \"value%02d\" {\n  value = true\n}\n\n", index)
+		outputs[index] = fmt.Sprintf("output.value%02d", index)
+	}
+	writeFile(t, filepath.Join(module, "main.tf"), source.String())
+
+	tests := filepath.Join(module, "tests")
+	if err := os.Mkdir(tests, 0o750); err != nil {
+		t.Fatalf("creating tests: %v", err)
+	}
+	writeFile(t, filepath.Join(tests, "unit.tftest.hcl"), "run \"defaults\" {\n  command = plan\n\n"+
+		"  assert {\n    condition     = alltrue(["+strings.Join(outputs, ", ")+"])\n"+
+		"    error_message = \"all values must remain true\"\n  }\n}\n")
+
+	return module
+}
+
 // TestRaisingTheThresholdKeepsARunGoingThroughItsFailures pins the threshold
 // as a setting: against the same all-failing population, a raised threshold
 // trips later than the default — eight to ten failures instead of five to
@@ -245,9 +405,22 @@ func TestATrippedRunWritesNoBaseline(t *testing.T) {
 func assertTripWarning(t *testing.T, result report.Report) {
 	t.Helper()
 
+	unexecuted := 0
+	for _, mutant := range result.Mutants {
+		if mutant.State == report.Pending && mutant.Telemetry == nil {
+			unexecuted++
+		}
+	}
+
 	for _, warning := range result.Warnings {
 		if strings.Contains(warning, "consecutive operational failures") &&
-			strings.Contains(warning, "terraform validate could not be executed") {
+			strings.Contains(warning, "First failure: terraform validate could not be executed") {
+			if !strings.Contains(warning, fmt.Sprintf("%d mutant(s) were left unexecuted", unexecuted)) ||
+				!strings.Contains(warning, "the mutation score is marked incomplete") ||
+				strings.Contains(warning, "cached") {
+				t.Fatalf("trip warning has incorrect evidence or promises caching: %s", warning)
+			}
+
 			return
 		}
 	}

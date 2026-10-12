@@ -19,8 +19,8 @@ type Metrics struct {
 	MutationScore  float64
 	AssertionScore float64
 	Reachability   float64
-	// Incomplete marks a score that is not trustworthy: a timeout left part
-	// of the population unobserved, or a non-empty population produced no
+	// Incomplete marks a score that is not trustworthy: a trip or timeout left
+	// part of the population unobserved, or a non-empty population produced no
 	// score at all, or at least InvalidShareWarningThreshold of the judged
 	// (non-Ignored) population was rejected by terraform validate.
 	Incomplete bool
@@ -96,7 +96,7 @@ func ComputeMetrics(population Population) Metrics {
 		MutationScore:  ratio(killed+killedByError, scored),
 		AssertionScore: ratio(killed, killed+survived+unassertable+timeout),
 		Reachability:   ratio(killed+killedByError+survived+timeout, scored),
-		Incomplete: population.provenance.Unexecuted > 0 || timeout > 0 ||
+		Incomplete: population.provenance.Tripped || population.provenance.Unexecuted > 0 || timeout > 0 ||
 			(scored == 0 && len(population.Classified()) > 0) ||
 			(judged > 0 && ratio(invalid, judged) >= InvalidShareWarningThreshold),
 		Counts:    counts,

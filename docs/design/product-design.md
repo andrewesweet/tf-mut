@@ -350,7 +350,7 @@ A test deadline remains visible even when an earlier failure determines the muta
 Terminal reports for every command include a trailing `Deadline reached` list when any
 mutant's test reached its budget; the Markdown summary also names these mutants. The JSON
 flag and its compatibility contract are defined in the
-[published report schema](../schema/report-2.9.0.json).
+[published report schema](../schema/report-2.10.0.json).
 
 Three R2 corrections are embedded there. **`MockMasked` is a diagnosis, not a state** (R2-8):
 as a state it overlapped `Survived` by definition. **`Timeout` sits in the denominator and
@@ -446,9 +446,9 @@ partitions. The **scored set** is `K + KE + S + NC + SU + T`; `Invalid`, `Unobse
 | **Reachability** | (K + KE + S + T) ÷ scored set | Coverage |
 
 `T` sits in every denominator it can reach (R2-11): machine load can then only *lower* a
-score, never raise it. The [published report schema](../schema/report-2.9.0.json) owns the
-conditions that mark a score **incomplete**, including unscored and Invalid-heavy
-populations. `--min-score` gates fail on incomplete scores unless
+score, never raise it. The [published report schema](../schema/report-2.10.0.json) owns the
+conditions that mark a score **incomplete**, including consecutive-failure trips,
+unscored and Invalid-heavy populations. `--min-score` gates fail on incomplete scores unless
 `--allow-incomplete-score` is passed. The `K` versus `KE` share is always displayed alongside
 the mutation score: a score composed mostly of `KE` means Terraform is doing the detecting,
 not the tests.

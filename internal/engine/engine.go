@@ -962,6 +962,7 @@ func classifyRun(
 		TimedOut:   timedOut,
 		Errored:    len(evaluated.failures),
 		Unexecuted: unexecuted,
+		Tripped:    evaluated.trip != nil,
 	})
 }
 

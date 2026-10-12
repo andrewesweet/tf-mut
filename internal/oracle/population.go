@@ -34,6 +34,7 @@ type Provenance struct {
 	// Unexecuted is the number of selected mutants the run stopped before
 	// dispatching: the consecutive-failure trip left them unobserved.
 	Unexecuted int
+	Tripped    bool
 }
 
 // Population is the classified population of one run: every outcome the
