@@ -118,9 +118,6 @@ func New(ctx context.Context, endpoint string, warnings io.Writer) *Tracer {
 	}
 
 	otel.SetLogger(logr.Discard())
-	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(error) {
-		_, _ = fmt.Fprintln(warnings, "tf-mut: trace export failed")
-	}))
 
 	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(parsed.String()))
 	if err != nil {
@@ -129,12 +126,28 @@ func New(ctx context.Context, endpoint string, warnings io.Writer) *Tracer {
 		return &Tracer{disabled: true}
 	}
 
-	provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
+	provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(&warningExporter{
+		SpanExporter: exporter,
+		warnings:     warnings,
+	}))
 
 	return &Tracer{
 		tracer:   provider.Tracer("tf-mut"),
 		provider: provider,
 	}
+}
+
+type warningExporter struct {
+	sdktrace.SpanExporter
+	warnings io.Writer
+}
+
+func (e *warningExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
+	if err := e.SpanExporter.ExportSpans(ctx, spans); err != nil {
+		_, _ = fmt.Fprintln(e.warnings, "tf-mut: trace export failed")
+	}
+
+	return nil
 }
 
 func warn(warnings io.Writer, endpoint *url.URL) {

@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"maps"
@@ -490,6 +491,120 @@ func TestOTLPExportCarriesRunAndPhaseSpans(t *testing.T) {
 
 	if !slices.Contains(names, "tf-mut.phase") {
 		t.Errorf("no phase spans exported; got %v", names)
+	}
+}
+
+func TestTraceExportWarningsAndProgressShareTheWriter(t *testing.T) {
+	t.Setenv("OTEL_BSP_SCHEDULE_DELAY", "1")
+	t.Setenv("OTEL_BSP_MAX_EXPORT_BATCH_SIZE", "1")
+
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(sink.Close)
+
+	var output bytes.Buffer
+	request := baseConfig(t, copyFixture(t, discriminateFixture))
+	request.NoCache = true
+	request.OTLPEndpoint = sink.URL
+	request.Progress = &output
+	request.ProgressIntervalForTesting = time.Millisecond
+
+	if _, err := engine.Run(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	warning := "tf-mut: trace export failed"
+	progress := regexp.MustCompile(`^tf-mut: \d+/\d+ mutants, .* elapsed, ETA .*`)
+	warnings, lines := 0, 0
+	for _, line := range strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n") {
+		switch {
+		case line == warning:
+			warnings++
+		case progress.MatchString(line):
+			lines++
+		default:
+			t.Fatalf("corrupt warning or progress line: %q", line)
+		}
+	}
+
+	if warnings == 0 || lines == 0 {
+		t.Fatalf("warnings = %d, progress lines = %d; want both", warnings, lines)
+	}
+}
+
+func TestTraceExportWarningsStayWithTheirRun(t *testing.T) {
+	t.Setenv("OTEL_BSP_SCHEDULE_DELAY", "60000")
+
+	for _, secondWriter := range []string{"writer", "nil"} {
+		t.Run(secondWriter, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+			defer cancel()
+
+			exporting, release := make(chan struct{}), make(chan struct{})
+			var received, released sync.Once
+			firstSink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				received.Do(func() { close(exporting) })
+				select {
+				case <-release:
+					w.WriteHeader(http.StatusUnauthorized)
+				case <-r.Context().Done():
+				}
+			}))
+			t.Cleanup(firstSink.Close)
+			t.Cleanup(func() { released.Do(func() { close(release) }) })
+
+			secondSink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusUnauthorized)
+			}))
+			t.Cleanup(secondSink.Close)
+
+			var firstOutput, secondOutput bytes.Buffer
+			first := baseConfig(t, copyFixture(t, "skeleton"))
+			first.NoCache = true
+			first.OTLPEndpoint = firstSink.URL
+			first.Progress = &firstOutput
+			first.ProgressIntervalForTesting = time.Hour
+			second := baseConfig(t, copyFixture(t, "skeleton"))
+			second.NoCache = true
+			second.OTLPEndpoint = secondSink.URL
+			second.ProgressIntervalForTesting = time.Hour
+			if secondWriter == "writer" {
+				second.Progress = &secondOutput
+			}
+
+			finished := make(chan error, 1)
+			go func() {
+				_, err := engine.Run(ctx, first)
+				finished <- err
+			}()
+
+			select {
+			case <-exporting:
+			case <-ctx.Done():
+				t.Fatal("the first run never reached its trace export")
+			}
+
+			if _, err := engine.Run(ctx, second); err != nil {
+				t.Fatal(err)
+			}
+			released.Do(func() { close(release) })
+			if err := <-finished; err != nil {
+				t.Fatal(err)
+			}
+
+			warning := "tf-mut: trace export failed\n"
+			if firstOutput.String() != warning {
+				t.Fatalf("first run warning = %q, want %q", firstOutput.String(), warning)
+			}
+			wanted := ""
+			if secondWriter == "writer" {
+				wanted = warning
+			}
+			if secondOutput.String() != wanted {
+				t.Fatalf("second run warning = %q, want %q", secondOutput.String(), wanted)
+			}
+		})
 	}
 }
 

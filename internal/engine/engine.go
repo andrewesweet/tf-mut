@@ -255,6 +255,10 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 		return report.Report{}, err
 	}
 
+	if s.Progress != nil {
+		s.Progress = &synchronizedWriter{writer: s.Progress}
+	}
+
 	// The CPU profile writes only to the file the user explicitly requested.
 	if s.CPUProfile != "" {
 		stopProfile, profileErr := startCPUProfile(s.ModuleDir, s.CPUProfile, s.Progress)
