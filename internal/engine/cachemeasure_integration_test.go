@@ -13,6 +13,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // The cache over-invalidation measurement (M4d.2, issue #64), under the M5
@@ -91,7 +92,7 @@ func TestCacheOverInvalidationMeasurement(t *testing.T) {
 
 	for _, step := range cacheMeasurementEdits {
 		path := filepath.Join(module, step.file)
-		writeFile(t, path, step.edit(readFile(t, path)))
+		testsupport.WriteFile(t, path, step.edit(readFile(t, path)))
 
 		fileDigestsBefore := perFileDigests(previous)
 		fresh := measureRun(t, module)

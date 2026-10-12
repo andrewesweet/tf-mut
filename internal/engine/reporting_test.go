@@ -11,6 +11,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 func TestPseudoTestedResourcesAreHeadlined(t *testing.T) {
@@ -138,7 +139,7 @@ func appendUnrelatedComment(t *testing.T, path string) {
 	t.Helper()
 
 	content := readFile(t, path)
-	writeFile(t, path, "# an unrelated comment\n\n"+content)
+	testsupport.WriteFile(t, path, "# an unrelated comment\n\n"+content)
 }
 
 func TestJSONReportCarriesEverythingNeededToAct(t *testing.T) {

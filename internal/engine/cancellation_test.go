@@ -17,6 +17,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 func TestCancellationAfterAFailedRunWritesNoBaseline(t *testing.T) {
@@ -204,7 +205,7 @@ func interruptedRunRequest(t *testing.T) (engine.RunRequest, string) {
 
 	module := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "applying")
-	writeFile(t, filepath.Join(module, "main.tf"), `resource "terraform_data" "app" {
+	testsupport.WriteFile(t, filepath.Join(module, "main.tf"), `resource "terraform_data" "app" {
   input = false
 
   provisioner "local-exec" {
@@ -226,7 +227,7 @@ output "app" {
 	if err := os.Mkdir(tests, 0o750); err != nil {
 		t.Fatalf("creating test directory: %v", err)
 	}
-	writeFile(t, filepath.Join(tests, "unit.tftest.hcl"), `run "planned" {
+	testsupport.WriteFile(t, filepath.Join(tests, "unit.tftest.hcl"), `run "planned" {
   command = plan
 
   assert {

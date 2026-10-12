@@ -40,6 +40,9 @@ const wholeMilestoneBase = "d57f2cd"
 // default population anyway.
 func TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
 
 	root, found := repositoryRoot(t)
 	if !found {

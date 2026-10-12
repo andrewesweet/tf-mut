@@ -38,6 +38,9 @@ import (
 // document two different binaries emit.
 func TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperators(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
 
 	root, found := repositoryRoot(t)
 	if !found {

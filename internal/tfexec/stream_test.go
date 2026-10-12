@@ -185,6 +185,8 @@ func measurePeakLiveHeap(t *testing.T, work func()) uint64 {
 				peak = value
 			}
 
+			// The sleep spaces samples over real elapsed time; a peak is only
+			// visible while the work runs.
 			time.Sleep(heapSamplePeriod)
 		}
 	}()

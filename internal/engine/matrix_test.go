@@ -12,6 +12,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // The applicability matrix is a living artefact, not a paragraph. These tests
@@ -60,6 +61,9 @@ func TestEveryMatrixRowNamesAnEnabledOperator(t *testing.T) {
 
 func TestEveryEnabledOperatorHasAGenerationSite(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
 
 	// The matrix's fixtures. Three operators need a shape the older fixtures
 	// cannot carry: an alias needs a real provider to configure, a dynamic
@@ -310,7 +314,7 @@ func TestProviderAliasSwapKeepsMockStatus(t *testing.T) {
 	// would route execution to an unmocked provider past a gate that has run.
 	tests := filepath.Join(module, "tests", "unit.tftest.hcl")
 	content := readFile(t, tests)
-	writeFile(t, tests, strings.Replace(content,
+	testsupport.WriteFile(t, tests, strings.Replace(content,
 		"mock_provider \"null\" {\n  alias = \"secondary\"\n}\n\n", "", 1))
 
 	guarded := preview(t, module, []string{"PROVIDER-ALIAS-SWAP"})
@@ -537,6 +541,9 @@ func isolatedSite(t *testing.T, modules []string, operator mutation.Operator) bo
 
 func TestEveryOperatorInTheMatrixFixtureClassifiesThroughTheStateModel(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
 
 	// The matrix's end-to-end column: every operator that fires on the fixture
 	// reaches a state the normative table defines, and none is left Pending or
@@ -588,7 +595,7 @@ func TestIdentifiersSurviveALineMove(t *testing.T) {
 	before := identifierSet(preview(t, module, nil))
 
 	main := filepath.Join(module, "main.tf")
-	writeFile(t, main, "\n\n"+readFile(t, main))
+	testsupport.WriteFile(t, main, "\n\n"+readFile(t, main))
 
 	if moved := identifierSet(preview(t, module, nil)); !slices.Equal(before, moved) {
 		t.Fatalf("identifiers moved with the lines:\n  %v\n  %v", before, moved)

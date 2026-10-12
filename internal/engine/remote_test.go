@@ -9,6 +9,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // TestRemoteModuleIsPresentForExecutionButNeverMutated is the R2-7
@@ -63,7 +64,7 @@ func gitOrigin(t *testing.T) string {
 		t.Fatalf("creating origin: %v", err)
 	}
 
-	writeFile(t, filepath.Join(child, "main.tf"), `variable "prefix" {
+	testsupport.WriteFile(t, filepath.Join(child, "main.tf"), `variable "prefix" {
   type    = string
   default = "remote"
 }
@@ -91,7 +92,7 @@ func remoteConsumer(t *testing.T, origin string) string {
 		t.Fatalf("creating consumer: %v", err)
 	}
 
-	writeFile(t, filepath.Join(module, "main.tf"), `module "remote" {
+	testsupport.WriteFile(t, filepath.Join(module, "main.tf"), `module "remote" {
   source = "git::file://`+origin+`//mod"
   prefix = "root"
 }
@@ -101,7 +102,7 @@ output "name" {
 }
 `)
 
-	writeFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), `run "wires_the_remote_module" {
+	testsupport.WriteFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), `run "wires_the_remote_module" {
   command = plan
 
   assert {

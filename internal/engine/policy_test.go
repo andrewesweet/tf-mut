@@ -13,6 +13,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/config"
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // The operator identifiers the policy fixture's directives name.
@@ -88,7 +89,7 @@ func TestADuplicateBlockIsAnError(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, "policy")
-	writeFile(t, filepath.Join(module, config.FileName),
+	testsupport.WriteFile(t, filepath.Join(module, config.FileName),
 		"operators {\n  tier = \"smoke\"\n}\n\noperators {\n  tier = \"standard\"\n}\n")
 
 	if _, err := engine.Run(t.Context(), baseConfig(t, module)); !errors.Is(err, config.ErrConfig) {
@@ -100,7 +101,7 @@ func TestAnIncludeAndExcludeConflictIsAnError(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, "policy")
-	writeFile(t, filepath.Join(module, config.FileName),
+	testsupport.WriteFile(t, filepath.Join(module, config.FileName),
 		"operators {\n  include = [\""+strEmpty+"\"]\n  exclude = [\""+strEmpty+"\"]\n}\n")
 
 	_, err := engine.Run(t.Context(), baseConfig(t, module))
@@ -117,7 +118,7 @@ func TestAnUnknownSettingIsAnError(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, "policy")
-	writeFile(t, filepath.Join(module, config.FileName), "tf-mut {\n  min_scrore = 70\n}\n")
+	testsupport.WriteFile(t, filepath.Join(module, config.FileName), "tf-mut {\n  min_scrore = 70\n}\n")
 
 	if _, err := engine.Run(t.Context(), baseConfig(t, module)); !errors.Is(err, config.ErrConfig) {
 		t.Fatalf("error = %v, want a configuration refusal", err)
@@ -129,7 +130,7 @@ func TestConfigurationIsReadAtTheModuleRootAndNowhereElse(t *testing.T) {
 
 	root := copyFixture(t, "upward")
 	// A file one level above the module under test must not change its policy.
-	writeFile(t, filepath.Join(root, config.FileName),
+	testsupport.WriteFile(t, filepath.Join(root, config.FileName),
 		"operators {\n  exclude = [\"EXT-OUTPUT-NULL\"]\n}\n")
 
 	result, err := engine.Run(t.Context(), baseConfig(t, filepath.Join(root, "root")))
@@ -242,7 +243,7 @@ func TestConfigurationCannotHideAnUnmockedProviderFromTheSafetyGate(t *testing.T
 	module := copyFixture(t, "unmocked")
 	// The exclusion covers every site in the module. The gate is decided from
 	// the parsed configuration before generation, so it must still trip.
-	writeFile(t, filepath.Join(module, config.FileName),
+	testsupport.WriteFile(t, filepath.Join(module, config.FileName),
 		"exclude {\n  paths = [\"main.tf\"]\n}\n")
 
 	if _, err := engine.Run(t.Context(), baseConfig(t, module)); !errors.Is(err, engine.ErrRealInfrastructure) {
@@ -254,7 +255,7 @@ func TestConfigurationCannotHideAProvisionerFromTheSafetyGate(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, "provisioner")
-	writeFile(t, filepath.Join(module, config.FileName),
+	testsupport.WriteFile(t, filepath.Join(module, config.FileName),
 		"exclude {\n  paths     = [\"main.tf\"]\n  resources = [\"terraform_data.effectful\"]\n}\n")
 
 	if _, err := engine.Run(t.Context(), baseConfig(t, module)); !errors.Is(err, engine.ErrUnsandboxedEffects) {
@@ -391,6 +392,9 @@ func TestSARIFRulesCarryTheCatalogueDescription(t *testing.T) {
 
 func TestSARIFValidatesAgainstThePublishedSchema(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
 
 	result := runFixture(t, "closure")
 

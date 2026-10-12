@@ -14,6 +14,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // M4.5a: the characterise tracer bullet. Every case drives the engine seam
@@ -267,6 +268,9 @@ func TestTheDefaultCharacterisationWritesNothing(t *testing.T) {
 // records it, and the suite it wrote passes as an ordinary mutation baseline.
 func TestAWrittenSuiteIsGreenAndRegistered(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
 
 	module := copyFixture(t, untestedBranchesFixture)
 
@@ -1206,7 +1210,7 @@ func TestUntilDryRefusesAConfiguredNarrowing(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, untestedBranchesFixture)
-	writeFile(t, filepath.Join(module, ".tf-mut.hcl"),
+	testsupport.WriteFile(t, filepath.Join(module, ".tf-mut.hcl"),
 		"operators {\n  exclude = [\"BOOL-FLIP\"]\n}\n")
 
 	request := characteriseRequest(t, module)

@@ -14,6 +14,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // The M5c.1 pack mechanism. A pack is data under a normative contract: the
@@ -139,6 +140,9 @@ func origin(operator, pack, entry string) report.Origin {
 // suggestion engine through the existing adapters and comes back verified.
 func TestAUserPackGeneratesClassifiesAndSuggestsThroughTheSeam(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
 
 	module := copyFixture(t, packsFixture)
 
@@ -213,6 +217,9 @@ func TestAUserPackGeneratesClassifiesAndSuggestsThroughTheSeam(t *testing.T) {
 // carries none anywhere, with identical identifiers, baseline and verdicts.
 func TestOriginsNameThePackEntryOnACollapsedBooleanFlip(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
 
 	module := copyFixture(t, packsFixture)
 
@@ -245,20 +252,7 @@ func TestOriginsNameThePackEntryOnACollapsedBooleanFlip(t *testing.T) {
 		t.Fatalf("two packs requesting identical bytes = %+v, want %+v", size.Origins, wantSize)
 	}
 
-	for _, result := range []report.Report{with, without} {
-		for _, mutant := range result.Mutants {
-			if len(mutant.Origins) == 0 && mutant.Tier == string(mutation.TierPack) {
-				t.Fatalf("pack-tier mutant %s carries no origins", mutant.ID)
-			}
-
-			if len(mutant.Origins) > 0 && mutant.Site != flagSite && mutant.Site != sizeSite &&
-				mutant.Site != aclSite && mutant.Site != noteSite && mutant.Site != labelSite &&
-				mutant.Site != cidrSite {
-				t.Fatalf("%s at %s carries origins %+v where no pack contributed",
-					mutant.Operator, mutant.Site, mutant.Origins)
-			}
-		}
-	}
+	checkPackOrigins(t, with)
 
 	for _, mutant := range without.Mutants {
 		if len(mutant.Origins) > 0 || mutant.Tier == string(mutation.TierPack) {
@@ -391,11 +385,11 @@ func TestEveryPackContractRowIsRefusedByName(t *testing.T) {
 			selected := acmePack
 
 			if row.pack != "" {
-				writeFile(t, filepath.Join(module, acmePackFile), row.pack)
+				testsupport.WriteFile(t, filepath.Join(module, acmePackFile), row.pack)
 			}
 
 			if row.config != "" {
-				writeFile(t, filepath.Join(module, packConfigFile), row.config)
+				testsupport.WriteFile(t, filepath.Join(module, packConfigFile), row.config)
 				selected = row.selected
 			}
 
@@ -511,9 +505,9 @@ func TestAnUnsupportedAttributeFormIsANoOpInThePackSummary(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, packsFixture)
-	writeFile(t, filepath.Join(module, "counted.tf"),
+	testsupport.WriteFile(t, filepath.Join(module, "counted.tf"),
 		"resource \"terraform_data\" \"counted\" {\n  count = 1\n  input = \"counted\"\n}\n")
-	writeFile(t, filepath.Join(module, acmePackFile),
+	testsupport.WriteFile(t, filepath.Join(module, acmePackFile),
 		"entry \"count-zero\" {\n  resource_type = \"terraform_data\"\n  attribute = \"count\"\n"+
 			"  form = \"replace\"\n  from = 1\n  to = 0\n}\n")
 
@@ -636,8 +630,8 @@ func TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs(t *testing.T) {
 			t.Parallel()
 
 			module := copyFixture(t, packsFixture)
-			writeFile(t, filepath.Join(module, "staged.tf"), row.module)
-			writeFile(t, filepath.Join(module, acmePackFile), row.entry)
+			testsupport.WriteFile(t, filepath.Join(module, "staged.tf"), row.module)
+			testsupport.WriteFile(t, filepath.Join(module, acmePackFile), row.entry)
 
 			result := packPreview(t, module, acmePack)
 
@@ -666,9 +660,9 @@ func TestSchemaEvidenceRefusesAnUndescribedAttribute(t *testing.T) {
 			t.Parallel()
 
 			module := copyFixture(t, packsFixture)
-			writeFile(t, filepath.Join(module, "odd.tf"),
+			testsupport.WriteFile(t, filepath.Join(module, "odd.tf"),
 				"resource \"terraform_data\" \"odd\" {\n  "+attribute+" = \"x\"\n}\n")
-			writeFile(t, filepath.Join(module, acmePackFile),
+			testsupport.WriteFile(t, filepath.Join(module, acmePackFile),
 				"entry \"odd\" {\n  resource_type = \"terraform_data\"\n  attribute = \""+attribute+"\"\n"+
 					"  form = \"replace\"\n  from = \"x\"\n  to = \"y\"\n}\n")
 
@@ -703,9 +697,9 @@ func TestATypeIncompatibleReplacementFindsNoSite(t *testing.T) {
 			t.Parallel()
 
 			module := copyFixture(t, packsFixture)
-			writeFile(t, filepath.Join(module, "typed.tf"),
+			testsupport.WriteFile(t, filepath.Join(module, "typed.tf"),
 				"resource \"terraform_data\" \"typed\" {\n  id = "+row.literal+"\n}\n")
-			writeFile(t, filepath.Join(module, acmePackFile),
+			testsupport.WriteFile(t, filepath.Join(module, acmePackFile),
 				"entry \"typed\" {\n  resource_type = \"terraform_data\"\n  attribute = \"id\"\n"+
 					"  form = \"replace\"\n  from = "+row.from+"\n  to = "+row.to+"\n}\n")
 
@@ -782,6 +776,9 @@ func TestAConfiguredPackSelectionIsRefusedOnCurateAndUntilDry(t *testing.T) {
 // pack's bytes are in the cache key, so a pack edit replays nothing.
 func TestAnEditedUserPackIsACacheMiss(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
 
 	module := copyFixture(t, packsFixture)
 
@@ -826,7 +823,7 @@ func TestAStaleVerifiedPackSuggestionIsRefused(t *testing.T) {
 	stale := verified[0].ID
 
 	content := readFile(t, filepath.Join(module, acmePackFile))
-	writeFile(t, filepath.Join(module, acmePackFile),
+	testsupport.WriteFile(t, filepath.Join(module, acmePackFile),
 		strings.ReplaceAll(content, `to            = "dropped"`, `to            = "changed"`))
 
 	before := treeDigest(t, module)
@@ -884,8 +881,8 @@ func TestAChangedPackOutsideTheClosureForcesTheFullPopulationUnderSince(t *testi
 		t.Fatal(err)
 	}
 
-	writeFile(t, shared, readFile(t, filepath.Join(module, acmePackFile)))
-	writeFile(t, filepath.Join(module, packConfigFile),
+	testsupport.WriteFile(t, shared, readFile(t, filepath.Join(module, acmePackFile)))
+	testsupport.WriteFile(t, filepath.Join(module, packConfigFile),
 		"pack \"acme\" {\n  file = \"../../shared/acme.hcl\"\n}\n")
 
 	git(t, root, "init", "--quiet", "--initial-branch=main")
@@ -1037,5 +1034,25 @@ func TestARealPackReportValidatesAgainstThePublishedSchema(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// checkPackOrigins asserts the two pack-origin invariants over a report:
+// every pack-tier mutant names the pack entries that produced it, and no
+// mutant outside the pack-contributed sites carries origins.
+func checkPackOrigins(t *testing.T, result report.Report) {
+	t.Helper()
+
+	for _, mutant := range result.Mutants {
+		if len(mutant.Origins) == 0 && mutant.Tier == string(mutation.TierPack) {
+			t.Fatalf("pack-tier mutant %s carries no origins", mutant.ID)
+		}
+
+		if len(mutant.Origins) > 0 && mutant.Site != flagSite && mutant.Site != sizeSite &&
+			mutant.Site != aclSite && mutant.Site != noteSite && mutant.Site != labelSite &&
+			mutant.Site != cidrSite {
+			t.Fatalf("%s at %s carries origins %+v where no pack contributed",
+				mutant.Operator, mutant.Site, mutant.Origins)
+		}
 	}
 }

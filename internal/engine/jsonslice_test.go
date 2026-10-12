@@ -10,6 +10,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // The M4c slice: the same seven M4.0 cases, re-proven with the JSON read.
@@ -309,7 +310,7 @@ func TestAChangedJSONConfigurationIsACacheKeyDimension(t *testing.T) {
 		t.Fatalf("a first run served %d verdicts from the cache", first.Population.Cached)
 	}
 
-	writeFile(t, filepath.Join(module, "side.tf.json"), strings.Replace(
+	testsupport.WriteFile(t, filepath.Join(module, "side.tf.json"), strings.Replace(
 		readFile(t, filepath.Join(module, "side.tf.json")),
 		"read-from-json", "changed-in-json", 1,
 	))
@@ -466,7 +467,7 @@ func TestAJSONMockProviderBodyBeyondAliasRetainsTheFloor(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, jsonTestMockFixture)
-	writeFile(t, filepath.Join(module, "tests", "unit.tftest.json"),
+	testsupport.WriteFile(t, filepath.Join(module, "tests", "unit.tftest.json"),
 		`{"mock_provider":{"null":{"override_during":"plan"}},`+
 			`"run":{"defaults":{"command":"plan","assert":[{"condition":"${output.env == \"dev\"}",`+
 			`"error_message":"env trigger must be dev"}]}}}`+"\n")

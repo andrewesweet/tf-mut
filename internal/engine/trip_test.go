@@ -16,6 +16,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 const (
@@ -157,7 +158,7 @@ func TestATripPreservesSelectionAndExecutionProvenance(t *testing.T) {
 				git(t, module, "add", "--all")
 				commit(t, module, "initial")
 				path := filepath.Join(module, "main.tf")
-				writeFile(t, path, readFile(t, path)+"\n")
+				testsupport.WriteFile(t, path, readFile(t, path)+"\n")
 				config.Since = sinceHead
 			case report.SelectionSample:
 				config.HasSample = true
@@ -291,7 +292,7 @@ func TestABaselineCheckReportsUnobservedMutantsWithoutStaleness(t *testing.T) {
 	for index := range outputs {
 		outputs[index] = fmt.Sprintf("output.value%02d", index)
 	}
-	writeFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), "run \"weak\" {\n  command = plan\n\n"+
+	testsupport.WriteFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), "run \"weak\" {\n  command = plan\n\n"+
 		"  assert {\n    condition     = length(["+strings.Join(outputs, ", ")+"]) == 10\n"+
 		"    error_message = \"all outputs must exist\"\n  }\n}\n")
 
@@ -460,13 +461,13 @@ func tripModule(t *testing.T, count int) string {
 		fmt.Fprintf(&source, "output \"value%02d\" {\n  value = true\n}\n\n", index)
 		outputs[index] = fmt.Sprintf("output.value%02d", index)
 	}
-	writeFile(t, filepath.Join(module, "main.tf"), source.String())
+	testsupport.WriteFile(t, filepath.Join(module, "main.tf"), source.String())
 
 	tests := filepath.Join(module, "tests")
 	if err := os.Mkdir(tests, 0o750); err != nil {
 		t.Fatalf("creating tests: %v", err)
 	}
-	writeFile(t, filepath.Join(tests, "unit.tftest.hcl"), "run \"defaults\" {\n  command = plan\n\n"+
+	testsupport.WriteFile(t, filepath.Join(tests, "unit.tftest.hcl"), "run \"defaults\" {\n  command = plan\n\n"+
 		"  assert {\n    condition     = alltrue(["+strings.Join(outputs, ", ")+"])\n"+
 		"    error_message = \"all values must remain true\"\n  }\n}\n")
 
@@ -514,6 +515,9 @@ func TestRaisingTheThresholdKeepsARunGoingThroughItsFailures(t *testing.T) {
 // change through the matrix test — recompute them from a run report.
 func TestInterleavedFailuresAndVerdictsNeverTrip(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
 
 	module := copyFixture(t, "operators")
 

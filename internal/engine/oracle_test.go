@@ -502,6 +502,9 @@ func TestTheHigherDiagnosisWinsWhenTwoPredicatesHold(t *testing.T) {
 
 func TestStateAndDiagnosisAreIndependentOfOrderAndParallelism(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
 
 	// R2-8. Overlapping predicates without a precedence would let file order or
 	// worker scheduling decide a verdict.

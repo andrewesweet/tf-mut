@@ -363,15 +363,6 @@ func readFile(t *testing.T, path string) string {
 	return string(content)
 }
 
-func writeFile(t *testing.T, path, content string) {
-	t.Helper()
-
-	//nolint:gosec // every caller passes a fixture copy under t.TempDir.
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("writing %s: %v", path, err)
-	}
-}
-
 // runFixture copies a fixture and runs the engine over it.
 func runFixture(t *testing.T, name string) report.Report {
 	t.Helper()

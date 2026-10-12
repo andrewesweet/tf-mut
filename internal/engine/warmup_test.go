@@ -10,6 +10,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
@@ -127,7 +128,7 @@ func assertBackendFileChecksum(t *testing.T, module, file string) {
 	t.Helper()
 
 	digest := treeDigest(t, module)[file]
-	writeFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), fmt.Sprintf(`run "plans" {
+	testsupport.WriteFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), fmt.Sprintf(`run "plans" {
   command = plan
 
   assert {
@@ -166,7 +167,7 @@ func TestUnformattedBackendSourceIsWarnedAbout(t *testing.T) {
 
 	module := copyFixture(t, "backend-declared")
 	path := filepath.Join(module, mainFile)
-	writeFile(t, path, strings.Replace(readFile(t, path), "  backend", "    backend", 1))
+	testsupport.WriteFile(t, path, strings.Replace(readFile(t, path), "  backend", "    backend", 1))
 	before := treeDigest(t, module)
 	request := baseConfig(t, module)
 	request.IncludeOperators = []string{warmupOutputNullOperator}
@@ -250,7 +251,7 @@ func TestJSONBackendNeutralisationKeepsRepeatedDeclarations(t *testing.T) {
 
 			module := copyFixture(t, "backend-json-object")
 			backend := filepath.Join(module, "backend.tf.json")
-			writeFile(t, backend, testCase.document)
+			testsupport.WriteFile(t, backend, testCase.document)
 			//nolint:gosec // deliberate read-only fixture exercising the fresh-inode write path.
 			if err := os.Chmod(backend, 0o444); err != nil {
 				t.Fatalf("making backend read-only: %v", err)
@@ -353,7 +354,7 @@ func TestNullTerraformJSONBodiesAreAdmitted(t *testing.T) {
 
 			module := copyFixture(t, "backendless-json-null")
 			if testCase.document != "" {
-				writeFile(t, filepath.Join(module, "settings.tf.json"), testCase.document)
+				testsupport.WriteFile(t, filepath.Join(module, "settings.tf.json"), testCase.document)
 			}
 
 			before := treeDigest(t, module)
@@ -420,7 +421,7 @@ func TestBackendOverridesKeepClearedCloudDeclarationsOutOfWarmUp(t *testing.T) {
 			}
 
 			digests := treeDigest(t, module)
-			writeFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), fmt.Sprintf(`run "plans" {
+			testsupport.WriteFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), fmt.Sprintf(`run "plans" {
   command = plan
 
   assert {
@@ -491,7 +492,7 @@ func TestOnlyEffectiveBackendOverridesSuppressCloud(t *testing.T) {
 
 			module := copyFixture(t, "schema-uninitialised-cloud")
 			for name, content := range testCase.files {
-				writeFile(t, filepath.Join(module, name), content)
+				testsupport.WriteFile(t, filepath.Join(module, name), content)
 			}
 
 			before := treeDigest(t, module)

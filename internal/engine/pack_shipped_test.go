@@ -14,6 +14,7 @@ import (
 	tfconfig "github.com/andrewesweet/tf-mut/internal/config"
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // The shipped `security-aws` pack (M5c.2). The pack is embedded in the binary
@@ -233,10 +234,10 @@ func TestAUserPackCannotShadowTheShippedSecurityAWSPack(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, packsFixture)
-	writeFile(t, filepath.Join(module, "packs", "shadow.hcl"),
+	testsupport.WriteFile(t, filepath.Join(module, "packs", "shadow.hcl"),
 		"entry \"usurper\" {\n  resource_type = \"terraform_data\"\n  attribute = \"input\"\n"+
 			"  form = \"flip\"\n  from = true\n  to = false\n}\n")
-	writeFile(t, filepath.Join(module, packConfigFile),
+	testsupport.WriteFile(t, filepath.Join(module, packConfigFile),
 		"pack \""+shippedSecurityAWSName+"\" {\n  file = \"packs/shadow.hcl\"\n}\n")
 
 	request := previewRequest(t, module)

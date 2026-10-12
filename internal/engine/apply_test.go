@@ -9,6 +9,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // The apply protocol (M4b.2): snapshot-bound, path-safe, atomic. Every case
@@ -102,7 +103,7 @@ func TestAnEditBetweenVerificationAndApplyAbortsWithZeroWrites(t *testing.T) {
 	// the edit — so the digest mismatch is proven at the suggest package's
 	// preflight seam instead, over the recorded digest.
 	original := readFile(t, target)
-	writeFile(t, target, original+"\n# an editor was here\n")
+	testsupport.WriteFile(t, target, original+"\n# an editor was here\n")
 
 	current, err := suggest.ReadTarget(module, "tests/unit.tftest.hcl")
 	if err != nil {
@@ -180,7 +181,7 @@ func TestASymlinkedTargetAbortsBeforeAnyWrite(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "elsewhere.tftest.hcl")
 
 	content := readFile(t, target)
-	writeFile(t, outside, content)
+	testsupport.WriteFile(t, outside, content)
 
 	if err := os.Remove(target); err != nil {
 		t.Fatalf("removing the target: %v", err)
@@ -226,6 +227,10 @@ func TestAJSONTestFileIsNeverWrittenByApply(t *testing.T) {
 // defeats the temp-file creation but only after one file has been written.
 func TestAMultiFileApplyReportsAPartialFailureExplicitly(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
+
 	requireNonRoot(t)
 
 	module := copyFixture(t, suggestMultiFixture)

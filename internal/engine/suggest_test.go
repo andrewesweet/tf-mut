@@ -11,6 +11,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // M4a: generation behind the three fail-closed adapters, through the engine
@@ -65,6 +66,10 @@ func runSuggest(t *testing.T, request engine.SuggestRequest) report.Report {
 // fixture verifies.
 func TestANonIdentifierMapKeyIsRenderedInIndexForm(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
+
 	requireProviderMirror(t)
 
 	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestMapKeyFixture)))
@@ -323,7 +328,7 @@ func TestSuggestionIdentifiersAreStableAcrossRunsAndUnrelatedEdits(t *testing.T)
 		t.Fatalf("identifiers changed across runs:\n%v\n%v", first, second)
 	}
 
-	writeFile(t, filepath.Join(module, "unrelated.tf"),
+	testsupport.WriteFile(t, filepath.Join(module, "unrelated.tf"),
 		"resource \"terraform_data\" \"unrelated\" {\n  input = \"elsewhere\"\n}\n")
 
 	third := identifiersOf(runSuggest(t, dryRunRequest(t, module)))

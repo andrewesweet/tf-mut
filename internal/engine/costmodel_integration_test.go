@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
@@ -494,13 +495,13 @@ func writeSuite(t *testing.T, warm string, count int, split bool) {
 	if split {
 		for index, block := range blocks {
 			name := fmt.Sprintf("run%02d.tftest.hcl", index)
-			writeFile(t, filepath.Join(tests, name), mockHeader+block)
+			testsupport.WriteFile(t, filepath.Join(tests, name), mockHeader+block)
 		}
 
 		return
 	}
 
-	writeFile(t, filepath.Join(tests, "unit.tftest.hcl"), mockHeader+strings.Join(blocks, ""))
+	testsupport.WriteFile(t, filepath.Join(tests, "unit.tftest.hcl"), mockHeader+strings.Join(blocks, ""))
 }
 
 const mockHeader = `mock_provider "aws" {}

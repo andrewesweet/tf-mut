@@ -13,4 +13,5 @@ git ls-files --cached --others --exclude-standard -z \
 
 cd "$stage"
 GIT_DIR="$git_dir" GIT_WORK_TREE="$stage" \
-  gremlins unleash --workers 1 --test-cpu 1 --integration --coverpkg './...' "$@" .
+  gremlins unleash --workers 1 --test-cpu 1 --integration --tags integration,research \
+  --coverpkg './...' "$@" .

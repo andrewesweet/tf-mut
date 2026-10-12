@@ -12,6 +12,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // M3b.1 (#45): `--since` selects over the union of the committed range, the
@@ -108,7 +109,7 @@ func TestAnUncommittedNewResourceIsSelected(t *testing.T) {
 	t.Parallel()
 
 	module := gitFixture(t, discriminateFixture)
-	writeFile(t, filepath.Join(module, "extra.tf"), extraResource)
+	testsupport.WriteFile(t, filepath.Join(module, "extra.tf"), extraResource)
 
 	result := sincePreview(t, module, sinceHead)
 
@@ -136,7 +137,7 @@ func TestStagedAndUnstagedChangesAreSelected(t *testing.T) {
 	module := gitFixture(t, discriminateFixture)
 
 	// Staged: a new file added to the index.
-	writeFile(t, filepath.Join(module, "staged.tf"), extraResource)
+	testsupport.WriteFile(t, filepath.Join(module, "staged.tf"), extraResource)
 	git(t, module, "add", "staged.tf")
 
 	// Unstaged: an edit to a committed file.
@@ -158,7 +159,7 @@ func TestACommittedRangeIsSelected(t *testing.T) {
 	module := gitFixture(t, discriminateFixture)
 	git(t, module, "tag", "before")
 
-	writeFile(t, filepath.Join(module, "extra.tf"), extraResource)
+	testsupport.WriteFile(t, filepath.Join(module, "extra.tf"), extraResource)
 	git(t, module, "add", "--all")
 	commit(t, module, "add extra")
 
@@ -192,7 +193,7 @@ func TestADeletionSelectsTheWholeModule(t *testing.T) {
 	module := gitFixture(t, discriminateFixture)
 
 	// Give the root module a second file, then delete it.
-	writeFile(t, filepath.Join(module, "extra.tf"), extraResource)
+	testsupport.WriteFile(t, filepath.Join(module, "extra.tf"), extraResource)
 	git(t, module, "add", "--all")
 	commit(t, module, "add extra")
 	git(t, module, "tag", "before")
@@ -271,7 +272,7 @@ func TestAShallowCloneLackingTheRefIsAnError(t *testing.T) {
 
 	module := gitFixture(t, discriminateFixture)
 	git(t, module, "tag", "before")
-	writeFile(t, filepath.Join(module, "extra.tf"), extraResource)
+	testsupport.WriteFile(t, filepath.Join(module, "extra.tf"), extraResource)
 	git(t, module, "add", "--all")
 	commit(t, module, "add extra")
 
@@ -306,7 +307,7 @@ func TestNonTerraformClassChangesForceTheFullPopulation(t *testing.T) {
 			module := gitFixture(t, discriminateFixture)
 			full := preview(t, module, nil)
 
-			writeFile(t, filepath.Join(module, path), content)
+			testsupport.WriteFile(t, filepath.Join(module, path), content)
 
 			result := sincePreview(t, module, sinceHead)
 			if len(result.Mutants) != len(full.Mutants) {
@@ -323,7 +324,7 @@ func TestSinceSelectionIsDeterministic(t *testing.T) {
 	t.Parallel()
 
 	module := gitFixture(t, discriminateFixture)
-	writeFile(t, filepath.Join(module, "extra.tf"), extraResource)
+	testsupport.WriteFile(t, filepath.Join(module, "extra.tf"), extraResource)
 
 	first := sincePreview(t, module, sinceHead)
 	second := sincePreview(t, module, sinceHead)
@@ -444,7 +445,7 @@ func appendFile(t *testing.T, path, content string) {
 		t.Fatalf("reading %s: %v", path, err)
 	}
 
-	writeFile(t, path, string(existing)+content)
+	testsupport.WriteFile(t, path, string(existing)+content)
 }
 
 func applyIndexInfo(t *testing.T, dir, info string) {
@@ -496,11 +497,11 @@ func TestAnIgnoredUntrackedVariableFileForcesTheFullPopulation(t *testing.T) {
 	module := gitFixture(t, discriminateFixture)
 	full := preview(t, module, nil)
 
-	writeFile(t, filepath.Join(module, ".gitignore"), "*.auto.tfvars\n")
+	testsupport.WriteFile(t, filepath.Join(module, ".gitignore"), "*.auto.tfvars\n")
 	git(t, module, "add", ".gitignore")
 	commit(t, module, "ignore auto vars")
 
-	writeFile(t, filepath.Join(module, "secret.auto.tfvars"), "x = 1\n")
+	testsupport.WriteFile(t, filepath.Join(module, "secret.auto.tfvars"), "x = 1\n")
 
 	result := sincePreview(t, module, sinceHead)
 	if len(result.Mutants) != len(full.Mutants) {
@@ -515,7 +516,7 @@ func TestAWhitespaceFilenameSurvivesSelection(t *testing.T) {
 	t.Parallel()
 
 	module := gitFixture(t, discriminateFixture)
-	writeFile(t, filepath.Join(module, "with space.tf"), extraResource)
+	testsupport.WriteFile(t, filepath.Join(module, "with space.tf"), extraResource)
 
 	files := mutantFiles(sincePreview(t, module, sinceHead))
 	if !slices.Contains(files, "with space.tf") {
@@ -532,7 +533,7 @@ func TestAJSONConfigurationChangeForcesTheFullPopulation(t *testing.T) {
 	module := gitFixture(t, discriminateFixture)
 	full := preview(t, module, nil)
 
-	writeFile(t, filepath.Join(module, "extra.tf.json"), "{}\n")
+	testsupport.WriteFile(t, filepath.Join(module, "extra.tf.json"), "{}\n")
 
 	result := sincePreview(t, module, sinceHead)
 	if len(result.Mutants) != len(full.Mutants) {

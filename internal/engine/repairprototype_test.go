@@ -1,3 +1,5 @@
+//go:build research
+
 package engine_test
 
 import (
@@ -20,6 +22,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // M5-0.5b is deliberately test-only. This file is the pinned throwaway repair
@@ -417,7 +420,7 @@ func TestARepairPrototypeGateRefusalInvokesOnlyVersion(t *testing.T) {
 
 	module := copyFixture(t, repairDiagnosticFixture)
 
-	writeFile(t, filepath.Join(module, "effects.tf"), `resource "terraform_data" "effect" {
+	testsupport.WriteFile(t, filepath.Join(module, "effects.tf"), `resource "terraform_data" "effect" {
   provisioner "local-exec" {
     command = "exit 99"
   }
