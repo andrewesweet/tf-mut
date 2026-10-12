@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BurntSushi/toml"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -184,11 +185,11 @@ func assertCIWorkflowContract(t *testing.T) {
 			t.Errorf("CI has no %s trigger", event)
 		}
 	}
-	_, base := gitRevisions(t)
+	_, base := gitRevisions(t, repositoryRoot(t))
 	for job, recipe := range map[string]string{
 		"quality": "ci", "security": "security", "race": "test-race", "mutation-diff": "mutate-diff",
 	} {
-		commands := workflowCommands(t, workflow.Jobs[job], map[string]string{
+		commands := workflowCommands(t, repositoryRoot(t), workflow.Jobs[job], map[string]string{
 			"EVENT_BASE": base, "GITHUB_EVENT_NAME": "push",
 		})
 		want := []string{"exec", "--", "just", recipe}
@@ -207,7 +208,7 @@ func assertCIWorkflowContract(t *testing.T) {
 func assertWorkflowMisePins(t *testing.T) {
 	t.Helper()
 
-	miseVersion := valueBetween(t, readRepositoryFile(t, "mise.toml"), `min_version = "`, `"`)
+	miseVersion := miseMinimumVersion(t, readRepositoryFile(t, "mise.toml"))
 	for _, workflowPath := range workflowPaths() {
 		workflow := readWorkflow(t, workflowPath)
 		found := false
@@ -285,7 +286,7 @@ func assertImmutableActionReferences(t *testing.T, path string, workflow workflo
 	}
 }
 
-func workflowCommands(t *testing.T, job workflowJob, overrides map[string]string) [][]string {
+func workflowCommands(t *testing.T, directory string, job workflowJob, overrides map[string]string) [][]string {
 	t.Helper()
 
 	var commands [][]string
@@ -294,7 +295,7 @@ func workflowCommands(t *testing.T, job workflowJob, overrides map[string]string
 			continue
 		}
 		command := exec.CommandContext(context.Background(), "bash", "-euo", "pipefail")
-		command.Dir = repositoryRoot(t)
+		command.Dir = directory
 		command.Stdin = strings.NewReader("mise() { printf '%s\\0' \"$@\"; printf '\\n'; }\n" + step.Run)
 		command.Env = os.Environ()
 		for _, environment := range []map[string]string{job.Env, step.Env, overrides} {
@@ -316,11 +317,11 @@ func workflowCommands(t *testing.T, job workflowJob, overrides map[string]string
 	return commands
 }
 
-func gitRevisions(t *testing.T) (string, string) {
+func gitRevisions(t *testing.T, directory string) (string, string) {
 	t.Helper()
 
 	command := exec.CommandContext(context.Background(), "git", "rev-parse", "HEAD", "HEAD^")
-	command.Dir = repositoryRoot(t)
+	command.Dir = directory
 	output, err := command.Output()
 	if err != nil {
 		t.Fatalf("resolve HEAD and its parent: %v", err)
@@ -337,7 +338,7 @@ func TestMutationDiffResolvesEventBaseIndependentlyOfEventName(t *testing.T) {
 	t.Parallel()
 
 	job := readWorkflow(t, ciWorkflowPath).Jobs["mutation-diff"]
-	head, parent := gitRevisions(t)
+	head, parent := gitRevisions(t, repositoryRoot(t))
 	for _, event := range []string{"push", "pull_request", "workflow_call"} {
 		for _, test := range []struct {
 			name string
@@ -354,7 +355,7 @@ func TestMutationDiffResolvesEventBaseIndependentlyOfEventName(t *testing.T) {
 			t.Run(event+"/"+test.name, func(t *testing.T) {
 				t.Parallel()
 
-				commands := workflowCommands(t, job, map[string]string{
+				commands := workflowCommands(t, repositoryRoot(t), job, map[string]string{
 					"EVENT_BASE": test.base, "GITHUB_EVENT_NAME": event,
 				})
 				want := []string{"exec", "--", "just", "mutate-diff", test.want}
@@ -366,19 +367,95 @@ func TestMutationDiffResolvesEventBaseIndependentlyOfEventName(t *testing.T) {
 	}
 }
 
-func valueBetween(t *testing.T, contents, prefix, suffix string) string {
+func TestMutationDiffFallbackWorksWithTestJobCheckoutDepth(t *testing.T) {
+	t.Parallel()
+
+	workflow := readWorkflow(t, ciWorkflowPath)
+	for _, name := range []string{"quality", "race"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			depth := "1"
+			found := false
+			for _, step := range workflow.Jobs[name].Steps {
+				action, _, _ := strings.Cut(step.Uses, "@")
+				if action == "actions/checkout" {
+					found = true
+					if configured := step.With["fetch-depth"]; configured != "" {
+						depth = configured
+					}
+				}
+			}
+			if !found {
+				t.Fatal("test job has no checkout")
+			}
+			directory := shallowCheckout(t, depth)
+			_, parent := gitRevisions(t, directory)
+			commands := workflowCommands(t, directory, workflow.Jobs["mutation-diff"], map[string]string{
+				"EVENT_BASE": strings.Repeat("0", 40), "GITHUB_EVENT_NAME": "push",
+			})
+			want := []string{"exec", "--", "just", "mutate-diff", parent}
+			if len(commands) == 0 || !slices.Equal(commands[len(commands)-1], want) {
+				t.Fatalf("commands = %q, want final invocation %q", commands, want)
+			}
+		})
+	}
+}
+
+func shallowCheckout(t *testing.T, depth string) string {
 	t.Helper()
 
-	_, after, found := strings.Cut(contents, prefix)
-	if !found {
-		t.Fatalf("content does not contain %q", prefix)
+	directory := t.TempDir()
+	command := exec.CommandContext(context.Background(), "bash", "-euo", "pipefail")
+	command.Dir = directory
+	command.Env = []string{
+		"PATH=" + os.Getenv("PATH"), "CHECKOUT_DEPTH=" + depth,
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
 	}
-	value, _, found := strings.Cut(after, suffix)
-	if !found || value == "" {
-		t.Fatalf("content does not terminate %q with %q", prefix, suffix)
+	command.Stdin = strings.NewReader(`git init -q --initial-branch=main --object-format=sha1 source
+for message in root parent tagged; do
+  git -C source -c user.name=Test -c user.email=test@example.invalid -c commit.gpgsign=false commit -q --allow-empty -m "$message"
+done
+git clone -q --depth "$CHECKOUT_DEPTH" "file://$PWD/source" checkout
+git -C checkout rev-parse --is-shallow-repository
+`)
+	output, err := command.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(output)) != "true" {
+		t.Fatalf("create shallow checkout: %v\n%s", err, output)
 	}
 
-	return value
+	return filepath.Join(directory, "checkout")
+}
+
+func miseMinimumVersion(t *testing.T, contents string) string {
+	t.Helper()
+
+	var configuration struct {
+		MinimumVersion string `toml:"min_version"`
+	}
+	if _, err := toml.Decode(contents, &configuration); err != nil {
+		t.Fatalf("parse mise configuration: %v", err)
+	}
+
+	return configuration.MinimumVersion
+}
+
+func TestMiseMinimumVersionUsesActiveTOML(t *testing.T) {
+	t.Parallel()
+
+	for _, contents := range []string{
+		"# min_version = \"2026.1.0\"\nmin_version = \"2026.8.6\"\n",
+		"min_version = '2026.8.6'\n",
+		"\"min_version\" = \"2026.8.6\"\n",
+	} {
+		t.Run(contents, func(t *testing.T) {
+			t.Parallel()
+
+			if got := miseMinimumVersion(t, contents); got != "2026.8.6" {
+				t.Fatalf("active min_version = %q, want 2026.8.6", got)
+			}
+		})
+	}
 }
 
 func TestLanguageManifestsAreComplete(t *testing.T) {
