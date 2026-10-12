@@ -88,7 +88,7 @@ func characteriseModule(
 	// here, gated here, and enriched with defaults after the warm-up — and a
 	// refusal costs no `init`, no provider download and no schema read,
 	// exactly as it does for a mutation run.
- // only the mocks are read from this plan.
+	// only the mocks are read from this plan.
 	mockOptions := characterise.Options{TestDirRel: configuration.TestDirRelative()}
 	gated := characterise.Plan(configuration, tfexec.Schemas{}, mockOptions,
 		characterise.Configurations(configuration))

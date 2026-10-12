@@ -154,7 +154,7 @@ func installOne(root, agent, version string, force bool, name Name) (Result, err
 
 	body, known := bodyOf(name)
 	if !known {
- // nothing was installed.
+		// nothing was installed.
 		return Result{}, fmt.Errorf("%w: %q ships no content", ErrUnknownAgent, name)
 	}
 

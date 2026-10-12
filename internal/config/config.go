@@ -119,7 +119,7 @@ func Load(moduleDir string) (File, error) {
 
 	parsed, diagnostics := hclsyntax.ParseConfig(content, path, hcl.InitialPos)
 	if diagnostics.HasErrors() {
- // no file to describe.
+		// no file to describe.
 		return File{}, fmt.Errorf("%w: %s: %s", ErrConfig, path, diagnostics.Error())
 	}
 
