@@ -32,6 +32,10 @@ const (
 	// The two trees that hold this repository's Go sources.
 	internalTree = "internal"
 	commandTree  = "cmd"
+
+	// The Go tool's machine-output switch, spelled once here so the package's
+	// flag literals stay under goconst's repetition threshold.
+	jsonFlag = "-json"
 )
 
 // gateName matches one test name inside the recipe's -run pattern.
@@ -72,7 +76,10 @@ func compiledEnginePackage(t *testing.T) *types.Package {
 	t.Helper()
 
 	packagePath := reflect.TypeFor[engine.Request]().PkgPath()
-	command := exec.CommandContext(t.Context(), "go", "list", "-mod=readonly", "-deps", "-export", "-json", packagePath)
+	// The arguments are fixed go-toolchain arguments built by the test:
+	// packagePath is this package's own import path, not external input.
+	arguments := []string{"list", "-mod=readonly", "-deps", "-export", jsonFlag, packagePath}
+	command := exec.CommandContext(t.Context(), "go", arguments...) //nolint:gosec // fixed go-toolchain arguments.
 	var stderr bytes.Buffer
 	command.Stderr = &stderr
 	output, err := command.Output()
@@ -84,8 +91,10 @@ func compiledEnginePackage(t *testing.T) *types.Package {
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	for {
 		var entry struct {
-			ImportPath string
-			Export     string
+			// The keys are the Go tool's own `go list -json` keys, PascalCase by
+			// its convention; snake tags would not decode them.
+			ImportPath string `json:"ImportPath"` //nolint:tagliatelle // go list's keys, not this tool's snake_case schema.
+			Export     string `json:"Export"`     //nolint:tagliatelle // go list's keys, not this tool's snake_case schema.
 		}
 		decodeErr := decoder.Decode(&entry)
 		if errors.Is(decodeErr, io.EOF) {
@@ -98,7 +107,7 @@ func compiledEnginePackage(t *testing.T) *types.Package {
 	}
 
 	lookup := func(path string) (io.ReadCloser, error) {
-		return os.Open(archives[path]) //nolint:gosec // Paths supplied by the Go compiler.
+		return os.Open(archives[path])
 	}
 	compiled, err := importer.ForCompiler(token.NewFileSet(), "gc", lookup).Import(packagePath)
 	if err != nil {
@@ -131,8 +140,7 @@ func auditExportedEngineType(t *testing.T, name string, compiled types.Type, see
 		return
 	}
 	seen[structure] = true
-	for i := range structure.NumFields() {
-		field := structure.Field(i)
+	for field := range structure.Fields() {
 		if field.Exported() && isSeamControl(field.Name()) {
 			t.Errorf("exported engine type %s exposes seam field %s", name, field.Name())
 		}
