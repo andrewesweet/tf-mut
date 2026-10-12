@@ -70,25 +70,36 @@ exec terraform "$@"
 func TestAFailingDependencyStopsTheRunAtTheThreshold(t *testing.T) {
 	t.Parallel()
 
+	binary := dyingTerraform(t)
+	for _, jobs := range []int{1, testJobs} {
+		t.Run(fmt.Sprintf("jobs-%d", jobs), func(t *testing.T) {
+			t.Parallel()
+
+			assertFailingDependencyStopsAtThreshold(t, jobs, binary)
+		})
+	}
+}
+
+func assertFailingDependencyStopsAtThreshold(t *testing.T, jobs int, binary string) {
+	t.Helper()
+
 	module := copyFixture(t, "skeleton")
 
 	config := baseConfig(t, module)
-	config.Jobs = testJobs
-	config.TerraformBinary = dyingTerraform(t)
+	config.Jobs = jobs
+	config.TerraformBinary = binary
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
 
-	// The trip fires at the fifth consecutive failure. The workers already
-	// holding a mutant finish it, so the executed count is the threshold plus
-	// at most one in-flight mutant per worker; everything after stops.
+	maximumFailures := engine.DefaultFailureTripThreshold + jobs - 1
 	if len(result.Errors) < engine.DefaultFailureTripThreshold ||
-		len(result.Errors) > engine.DefaultFailureTripThreshold+testJobs {
+		len(result.Errors) > maximumFailures {
 		t.Fatalf("operational failures = %d, want between %d and %d: %v",
 			len(result.Errors), engine.DefaultFailureTripThreshold,
-			engine.DefaultFailureTripThreshold+testJobs, result.Errors)
+			maximumFailures, result.Errors)
 	}
 
 	executed := 0

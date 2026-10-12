@@ -95,9 +95,9 @@ func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, erro
 
 	budget := timeoutBudget(plan.settings, plan.prepared.baselineDuration)
 
-	queue := make(chan int)
 	mutex := sync.Mutex{}
 	group := sync.WaitGroup{}
+	next := 0
 
 	var delivery error
 
@@ -125,7 +125,20 @@ func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, erro
 
 	for range workers {
 		group.Go(func() {
-			for index := range queue {
+			for {
+				mutex.Lock()
+				for next < len(plan.described) && plan.described[next].State != report.Pending {
+					next++
+				}
+				if trip.tripped || next == len(plan.described) {
+					mutex.Unlock()
+
+					return
+				}
+				index := next
+				next++
+				mutex.Unlock()
+
 				verdict, outcome, failure := evaluateSafely(ctx, plan, index, budget)
 
 				mutex.Lock()
@@ -147,24 +160,6 @@ func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, erro
 		})
 	}
 
-	for index, mutant := range plan.described {
-		if mutant.State != report.Pending {
-			// Statically classified, suppressed, or replayed from the cache:
-			// nothing left to execute, and the row's outcome is already in
-			// plan.classified.
-			continue
-		}
-
-		// The trip is checked between dispatches: the workers already holding
-		// a mutant finish it, and everything after it stays unexecuted.
-		if trip.stopped() {
-			break
-		}
-
-		queue <- index
-	}
-
-	close(queue)
 	group.Wait()
 
 	population.trip = trip.outcome(population.rows, population.failures)
@@ -200,7 +195,6 @@ type tripCounter struct {
 	// smaller than the default.
 	threshold int
 
-	mutex        sync.Mutex
 	consecutive  int
 	firstFailure string
 	tripped      bool
@@ -217,9 +211,6 @@ func newTripCounter(threshold, pending int) *tripCounter {
 // record folds one published result into the consecutive count: a verdict
 // resets it, a failure extends it.
 func (t *tripCounter) record(failure *report.ExecutionError) {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
 	if t.tripped {
 		return
 	}
@@ -238,23 +229,11 @@ func (t *tripCounter) record(failure *report.ExecutionError) {
 	t.tripped = t.consecutive >= t.threshold
 }
 
-// stopped reports whether the trip fired, so the dispatcher stops before the
-// next send.
-func (t *tripCounter) stopped() bool {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
-	return t.tripped
-}
-
 // outcome is the trip's published record, or nil when the run never tripped.
 // The unexecuted count is the pending rows minus the failures: every
 // dispatched mutant either published a verdict or a failure, so what is left
 // pending and unfailed is exactly what was never dispatched.
 func (t *tripCounter) outcome(rows []report.Mutant, failures []report.ExecutionError) *tripOutcome {
-	t.mutex.Lock()
-	defer t.mutex.Unlock()
-
 	if !t.tripped {
 		return nil
 	}
