@@ -80,10 +80,8 @@ func untilDry(
 
 		updated, added, err := oneRound(ctx, scoped, block, pins)
 		if err != nil {
-			// The stop reason is a published value of a closed vocabulary, so
-			// the report that carries it has to reach a reporter. The caller
-			// keeps the block and renders it; the loop's failure is a warning
-			// on a report rather than an error that discards one.
+			// closeTheGap retains this block for a reported refusal, while
+			// operational failures abort the command.
 			convergence.StopReason = report.StopRefused
 
 			return pins, err
