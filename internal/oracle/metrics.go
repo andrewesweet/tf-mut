@@ -96,7 +96,8 @@ func ComputeMetrics(population Population) Metrics {
 		MutationScore:  ratio(killed+killedByError, scored),
 		AssertionScore: ratio(killed, killed+survived+unassertable+timeout),
 		Reachability:   ratio(killed+killedByError+survived+timeout, scored),
-		Incomplete: timeout > 0 || (scored == 0 && len(population.Classified()) > 0) ||
+		Incomplete: population.provenance.Unexecuted > 0 || timeout > 0 ||
+			(scored == 0 && len(population.Classified()) > 0) ||
 			(judged > 0 && ratio(invalid, judged) >= InvalidShareWarningThreshold),
 		Counts:    counts,
 		Diagnoses: diagnoses,

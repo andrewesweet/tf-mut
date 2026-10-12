@@ -54,6 +54,10 @@ type evaluatedPopulation struct {
 	rows       []report.Mutant
 	classified []oracle.Classified
 	failures   []report.ExecutionError
+	// trip is the consecutive-failure trip's record, present only when the
+	// run stopped dispatching. It is the fact the trip warning and the
+	// population provenance's unexecuted count are drawn from.
+	trip *tripOutcome
 }
 
 func (p *evaluatedPopulation) observe(event MutantEvaluated) error {
@@ -105,6 +109,10 @@ func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, erro
 		}
 	}
 
+	// The consecutive-failure trip: a dependency failing for every mutant is
+	// reported after a few failures instead of after the whole population.
+	trip := newTripCounter(plan.settings.FailureTripThreshold, pending)
+
 	// The long-run line goes only where the caller pointed a writer; nowhere
 	// is the default.
 	progress := startProgress(ctx, plan, pending)
@@ -122,6 +130,7 @@ func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, erro
 				verdict, outcome, failure := evaluateSafely(ctx, plan, index, budget)
 
 				mutex.Lock()
+				trip.record(failure)
 				err := plan.events.mutantEvaluated.publish(MutantEvaluated{
 					index: index,
 					row:   verdict,
@@ -147,6 +156,12 @@ func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, erro
 			continue
 		}
 
+		// The trip is checked between dispatches: the workers already holding
+		// a mutant finish it, and everything after it stays unexecuted.
+		if trip.stopped() {
+			break
+		}
+
 		queue <- index
 	}
 
@@ -157,11 +172,106 @@ func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, erro
 		return evaluatedPopulation{}, delivery
 	}
 
+	population.trip = trip.outcome(population.rows, population.failures)
+
 	slices.SortFunc(population.failures, func(left, right report.ExecutionError) int {
 		return strings.Compare(left.MutantID, right.MutantID)
 	})
 
 	return population, nil
+}
+
+// tripOutcome records what the run observed when it stopped dispatching: the
+// streak that tripped it, the failure that started the streak, and the
+// selected mutants never dispatched. It is execution's own fact — the report
+// names the trip from it and the population provenance counts it.
+type tripOutcome struct {
+	consecutiveFailures int
+	firstFailure        string
+	unexecuted          int
+}
+
+// tripCounter counts consecutive operational failures across workers. Any
+// verdict resets the count: the trip answers "is the dependency dead", and a
+// mutant that produced a verdict proves it was alive for that mutant.
+type tripCounter struct {
+	// threshold is the consecutive-failure count the trip fires at, already
+	// capped at the pending population so the trip stays reachable on a run
+	// smaller than the default.
+	threshold int
+
+	mutex        sync.Mutex
+	consecutive  int
+	firstFailure string
+	tripped      bool
+}
+
+func newTripCounter(threshold, pending int) *tripCounter {
+	if pending < threshold {
+		threshold = pending
+	}
+
+	return &tripCounter{threshold: threshold}
+}
+
+// record folds one published result into the consecutive count: a verdict
+// resets it, a failure extends it.
+func (t *tripCounter) record(failure *report.ExecutionError) {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	if failure == nil {
+		t.consecutive = 0
+
+		return
+	}
+
+	if t.consecutive == 0 {
+		t.firstFailure = failure.Message
+	}
+
+	t.consecutive++
+	t.tripped = t.tripped || t.consecutive >= t.threshold
+}
+
+// stopped reports whether the trip fired, so the dispatcher stops before the
+// next send.
+func (t *tripCounter) stopped() bool {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	return t.tripped
+}
+
+// outcome is the trip's published record, or nil when the run never tripped.
+// The unexecuted count is the pending rows minus the failures: every
+// dispatched mutant either published a verdict or a failure, so what is left
+// pending and unfailed is exactly what was never dispatched.
+func (t *tripCounter) outcome(rows []report.Mutant, failures []report.ExecutionError) *tripOutcome {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	if !t.tripped {
+		return nil
+	}
+
+	failed := make(map[string]struct{}, len(failures))
+	for _, failure := range failures {
+		failed[failure.MutantID] = struct{}{}
+	}
+
+	unexecuted := 0
+	for _, row := range rows {
+		if _, isFailed := failed[row.ID]; row.State == report.Pending && !isFailed {
+			unexecuted++
+		}
+	}
+
+	return &tripOutcome{
+		consecutiveFailures: t.threshold,
+		firstFailure:        t.firstFailure,
+		unexecuted:          unexecuted,
+	}
 }
 
 // timeoutBudget is max(factor × baseline, floor), per the milestone spec.

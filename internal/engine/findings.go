@@ -208,6 +208,23 @@ func unanswerableResources(configuration discovery.Configuration, mutants []repo
 	)}
 }
 
+// tripWarnings names the trip and the failure that started the streak, so a
+// reader with a dead dependency learns it from one line instead of a page of
+// identical failures. The verdicts already produced stay cached, so the
+// re-run costs only the unexecuted remainder.
+func tripWarnings(trip *tripOutcome) []string {
+	if trip == nil {
+		return nil
+	}
+
+	return []string{fmt.Sprintf(
+		"run tripped after %d consecutive operational failures; %d mutant(s) were left "+
+			"unexecuted and the mutation score is marked incomplete. First failure: %s. "+
+			"Verdicts already produced are cached, so re-run to execute the remainder.",
+		trip.consecutiveFailures, trip.unexecuted, trip.firstFailure,
+	)}
+}
+
 // unscoredWarnings turns the population arithmetic the metrics already
 // decided into warnings a reader sees without opening the counts: a run
 // whose non-empty population produced no score at all, and a run whose

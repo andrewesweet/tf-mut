@@ -47,6 +47,9 @@ const (
 	DefaultTimeoutFloor = 30 * time.Second
 	// DefaultTerraformBinary is the executable looked up on PATH.
 	DefaultTerraformBinary = "terraform"
+	// DefaultFailureTripThreshold is the number of consecutive operational
+	// failures after which a run stops dispatching.
+	DefaultFailureTripThreshold = 5
 	// jobsNumerator and jobsDenominator set the default share of the machine.
 	jobsNumerator   = 3
 	jobsDenominator = 4
@@ -88,6 +91,12 @@ type settings struct {
 	// AllowUnsandboxedEffects permits apply-mode execution of provisioners and
 	// the data sources mocking does not sever.
 	AllowUnsandboxedEffects bool
+	// FailureTripThreshold is the number of consecutive operational failures
+	// after which the run stops dispatching: a dependency failing for every
+	// mutant is reported after a few failures instead of after the whole
+	// population. The trip fires at this threshold or the pending population,
+	// whichever is smaller.
+	FailureTripThreshold int
 	// TerraformBinary is the Terraform executable to drive.
 	TerraformBinary string
 	// Env adds environment entries to every Terraform invocation.
@@ -628,7 +637,7 @@ func finishReport(
 		return report.Report{}, oracle.Population{}, err
 	}
 
-	population := classifyRun(shell, evaluated.classified, evaluated.failures)
+	population := classifyRun(shell, evaluated)
 	projection := &gradingProjection{plan: plan, moduleDir: moduleDir, shell: shell, evaluated: evaluated}
 
 	plan.events.populationClassified.subscribe(projection.completeReport)
@@ -682,7 +691,7 @@ type gradingProjection struct {
 func (p *gradingProjection) completeReport(event PopulationClassified) error {
 	finalisePhase := p.plan.collector.phase(phaseFinalise)
 	p.completed = completeReport(p.plan.configuration, p.plan.settings, p.plan.populationDescribed, p.shell,
-		p.evaluated.rows, event.population)
+		p.evaluated.rows, event.population, p.evaluated.trip)
 	finalisePhase()
 
 	return nil
@@ -898,6 +907,7 @@ func completeReport(
 	shell report.Report,
 	executed []report.Mutant,
 	population oracle.Population,
+	trip *tripOutcome,
 ) completedRun {
 	metrics := projectMetrics(oracle.ComputeMetrics(population))
 
@@ -905,8 +915,8 @@ func completeReport(
 		metrics:        metrics,
 		operatorErrors: projectOperatorErrors(oracle.ComputeOperatorErrors(population)),
 		findings:       findingsOf(configuration, executed, population),
-		warnings: append(unanswerableResources(configuration, populationDescribed),
-			unscoredWarnings(population, metrics)...),
+		warnings: append(append(unanswerableResources(configuration, populationDescribed),
+			unscoredWarnings(population, metrics)...), tripWarnings(trip)...),
 		gates: gateOutcomes(settings, shell, metrics),
 	}
 }
@@ -932,21 +942,26 @@ type completedRun struct {
 // affected rows retain their last outcome without proving full observation.
 func classifyRun(
 	shell report.Report,
-	classified []oracle.Classified,
-	failures []report.ExecutionError,
+	evaluated evaluatedPopulation,
 ) oracle.Population {
 	timedOut := 0
 
-	for _, row := range classified {
+	for _, row := range evaluated.classified {
 		if row.Outcome.State() == oracle.StateTimeout {
 			timedOut++
 		}
 	}
 
-	return oracle.NewPopulation(classified, oracle.Provenance{
-		Cached:   shell.Population.Cached,
-		TimedOut: timedOut,
-		Errored:  len(failures),
+	unexecuted := 0
+	if evaluated.trip != nil {
+		unexecuted = evaluated.trip.unexecuted
+	}
+
+	return oracle.NewPopulation(evaluated.classified, oracle.Provenance{
+		Cached:     shell.Population.Cached,
+		TimedOut:   timedOut,
+		Errored:    len(evaluated.failures),
+		Unexecuted: unexecuted,
 	})
 }
 
@@ -1235,6 +1250,10 @@ func (s settings) withDefaults() settings {
 
 	if s.TerraformBinary == "" {
 		s.TerraformBinary = DefaultTerraformBinary
+	}
+
+	if s.FailureTripThreshold <= 0 {
+		s.FailureTripThreshold = DefaultFailureTripThreshold
 	}
 
 	return s

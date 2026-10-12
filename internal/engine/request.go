@@ -51,11 +51,15 @@ type Common struct {
 	TimeoutFloor            time.Duration
 	AllowRealInfrastructure bool
 	AllowUnsandboxedEffects bool
-	TerraformBinary         string
-	Env                     []string
-	WorkDir                 string
-	ToolVersion             string
-	SetFlags                []string
+	// FailureTripThreshold stops a run after this many consecutive
+	// operational failures. Zero — the zero value a caller leaves untouched —
+	// selects the documented default.
+	FailureTripThreshold int
+	TerraformBinary      string
+	Env                  []string
+	WorkDir              string
+	ToolVersion          string
+	SetFlags             []string
 	// CPUProfile names the file the command's own CPU profile is written to.
 	// Empty — the default — profiles nothing. It is a diagnostic for the
 	// person tuning tf-mut itself, not part of any report.
@@ -300,6 +304,7 @@ func commonConfig(c Common) settings {
 	s.TimeoutFloor = c.TimeoutFloor
 	s.AllowRealInfrastructure = c.AllowRealInfrastructure
 	s.AllowUnsandboxedEffects = c.AllowUnsandboxedEffects
+	s.FailureTripThreshold = c.FailureTripThreshold
 	s.TerraformBinary = c.TerraformBinary
 	s.Env = c.Env
 	s.WorkDir = c.WorkDir
