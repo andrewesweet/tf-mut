@@ -184,14 +184,8 @@ const (
 	outputRoot = "output"
 )
 
-// schemaAttribute splits a Terraform address into the schema lookup it
-// implies. The grammar is the canonical one's: a data address carries its
-// attribute at `data.<type>.<name>.<attribute>`, a managed resource's at
-// `<type>.<name>.<attribute>`, and an `output.` root names no schema entry.
-//
-// The parse is discovery's: the canonical grammar, instance keys and all, is
-// the one this package asks, so the oracle's reading of an address cannot
-// drift from the graph's and the mutation walker's (SDP review T4).
+// schemaAttribute maps discovery.ParseAddr's canonical address segments to a
+// provider-schema lookup. Output addresses name no provider-schema entry.
 func schemaAttribute(address string) (lookup, bool) {
 	parsed := discovery.ParseAddr(address)
 
@@ -216,11 +210,9 @@ func schemaAttribute(address string) (lookup, bool) {
 	return lookup{kind: "", resource: "", attribute: ""}, false
 }
 
-// resourceOf is the resource address an attribute address belongs to: the
-// `data.<type>.<name>` a data address carries, or the bare `<type>.<name>` a
-// managed resource's does. A module-qualified address belongs to no resource
-// of this module, so it names nothing the mutant's volatility scan keys — the
-// empty address.
+// resourceOf uses discovery's address contract to derive the volatility-scan
+// key. A module-qualified address returns empty because this module's scan
+// cannot flag child-module resources.
 func resourceOf(address string) string {
 	parsed := discovery.ParseAddr(address)
 

@@ -46,7 +46,7 @@ type Addr struct {
 
 // ParseAddr parses the canonical grammar. It never fails: an address is a
 // sequence of segments whatever its shape, and deciding whether those segments
-// name anything is the graph's job, where the decision can fail closed.
+// name a supported value is each consumer's job, where the decision can fail closed.
 func ParseAddr(address string) Addr {
 	segments := splitAddress(address)
 	modulePath := []string{}
@@ -60,14 +60,11 @@ func ParseAddr(address string) Addr {
 }
 
 // BlockAddr renders the canonical address of a configuration block from its
-// type and labels. It is the one spelling of the block-address scheme: the
-// graph's nodes and the mutation walker's sites both name their blocks through
-// it, so the two can no longer drift apart — a block the graph declares and a
-// site the walker generates are the same address by construction.
+// type and labels. Native HCL and JSON discovery, the graph, mutation generation
+// and the oracle share this constructor.
 //
-// It reports false for the block kinds that name no address of their own
-// (`locals` names its attributes, `terraform` is the tool's own contract) and
-// for a label count the kind cannot carry.
+// It reports false for unsupported block kinds and incorrect label counts.
+// In particular, locals names its attributes and terraform has no block address.
 func BlockAddr(kind string, labels []string) (string, bool) {
 	switch kind {
 	case resourceBlock, dataBlock:
