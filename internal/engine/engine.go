@@ -257,7 +257,7 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 
 	// The CPU profile writes only to the file the user explicitly requested.
 	if s.CPUProfile != "" {
-		stopProfile, profileErr := startCPUProfile(s.ModuleDir, s.CPUProfile)
+		stopProfile, profileErr := startCPUProfile(s.ModuleDir, s.CPUProfile, s.Progress)
 		if profileErr != nil {
 			return report.Report{}, profileErr
 		}
@@ -266,7 +266,9 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	}
 
 	// The flush outlives request cancellation so recorded spans can still reach the collector.
-	tracer := tracing.New(ctx, s.OTLPEndpoint)
+	// Tracing and CPU-profile warnings share the request's progress writer —
+	// never a report sink — and a nil writer drops them.
+	tracer := tracing.New(ctx, s.OTLPEndpoint, s.Progress)
 	defer func() {
 		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), traceFlushTimeout)
 		defer cancel()
@@ -345,7 +347,7 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	}
 }
 
-func startCPUProfile(moduleDir, destination string) (func(), error) {
+func startCPUProfile(moduleDir, destination string, warnings io.Writer) (func(), error) {
 	profilePath, profileErr := cpuProfilePath(moduleDir, destination)
 	if profileErr != nil {
 		return nil, profileErr
@@ -365,8 +367,8 @@ func startCPUProfile(moduleDir, destination string) (func(), error) {
 
 	return func() {
 		pprof.StopCPUProfile()
-		if profileErr := errors.Join(writer.err, profileFile.Close()); profileErr != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "tf-mut: CPU profile may be incomplete: %s\n",
+		if profileErr := errors.Join(writer.err, profileFile.Close()); profileErr != nil && warnings != nil {
+			_, _ = fmt.Fprintf(warnings, "tf-mut: CPU profile may be incomplete: %s\n",
 				strings.ReplaceAll(profileErr.Error(), "\n", "; "))
 		}
 	}, nil

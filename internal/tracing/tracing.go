@@ -11,6 +11,7 @@ package tracing
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path"
@@ -41,13 +42,58 @@ type Span struct {
 	span oteltrace.Span
 }
 
+// Attribute is one span attribute: a string key carrying a string or an
+// integer value. String and Int are the only constructors; the zero value
+// carries nothing and is dropped rather than guessed at. It is the port's
+// own vocabulary, so callers never import OpenTelemetry's attribute types.
+type Attribute struct {
+	key   string
+	value any // string or int64, by the constructors alone
+}
+
+// String returns an attribute carrying a string value.
+func String(key, value string) Attribute {
+	return Attribute{key: key, value: value}
+}
+
+// Int returns an attribute carrying an integer value.
+func Int(key string, value int64) Attribute {
+	return Attribute{key: key, value: value}
+}
+
+// keyValues projects the port's attributes onto the exporter's vocabulary.
+// An attribute carrying neither a string nor an integer — only the zero
+// value can be one — is dropped.
+func keyValues(attributes []Attribute) []attribute.KeyValue {
+	values := make([]attribute.KeyValue, 0, len(attributes))
+	for _, a := range attributes {
+		switch value := a.value.(type) {
+		case string:
+			values = append(values, attribute.String(a.key, value))
+		case int64:
+			values = append(values, attribute.Int64(a.key, value))
+		default:
+			// Only the constructors write the field; the zero value carries
+			// nothing and is dropped rather than guessed at.
+		}
+	}
+
+	return values
+}
+
 // New resolves the endpoint — the argument first, then the environment — and
 // returns a tracer that exports over OTLP/HTTP. Any failure to build the
 // exporter disables tracing rather than failing the run: the telemetry is a
 // passenger, and a misconfigured endpoint must not cost the verdicts. A
-// misconfigured endpoint is reported on stderr, which is not a report sink.
-// With no endpoint configured, tracing is disabled silently.
-func New(ctx context.Context, endpoint string) *Tracer {
+// misconfigured endpoint, and a failed export, is reported on warnings, the
+// caller-supplied writer the engine points at the request's progress writer —
+// never a report sink; a nil writer drops the warning. With no endpoint
+// configured, tracing is disabled silently.
+func New(ctx context.Context, endpoint string, warnings io.Writer) *Tracer {
+	if warnings == nil {
+		warnings = io.Discard
+	}
+
 	if endpoint == "" {
 		endpoint = os.Getenv(EndpointEnv)
 	}
@@ -61,7 +107,7 @@ func New(ctx context.Context, endpoint string) *Tracer {
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Host == "" ||
 		(parsed.Scheme != "http" && parsed.Scheme != "https") {
-		warn(parsed)
+		warn(warnings, parsed)
 
 		return &Tracer{disabled: true}
 	}
@@ -73,12 +119,12 @@ func New(ctx context.Context, endpoint string) *Tracer {
 
 	otel.SetLogger(logr.Discard())
 	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(error) {
-		_, _ = fmt.Fprintln(os.Stderr, "tf-mut: trace export failed")
+		_, _ = fmt.Fprintln(warnings, "tf-mut: trace export failed")
 	}))
 
 	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(parsed.String()))
 	if err != nil {
-		warn(parsed)
+		warn(warnings, parsed)
 
 		return &Tracer{disabled: true}
 	}
@@ -91,13 +137,13 @@ func New(ctx context.Context, endpoint string) *Tracer {
 	}
 }
 
-func warn(endpoint *url.URL) {
+func warn(warnings io.Writer, endpoint *url.URL) {
 	target := ""
 	if endpoint != nil && endpoint.Scheme != "" && endpoint.Host != "" {
 		target = " " + (&url.URL{Scheme: endpoint.Scheme, Host: endpoint.Host}).Redacted()
 	}
 
-	_, _ = fmt.Fprintf(os.Stderr, "tf-mut: tracing disabled: an unusable OTLP endpoint%s\n", target)
+	_, _ = fmt.Fprintf(warnings, "tf-mut: tracing disabled: an unusable OTLP endpoint%s\n", target)
 }
 
 // Enabled reports whether spans are being recorded.
@@ -107,21 +153,21 @@ func (t *Tracer) Enabled() bool {
 
 // Start begins a span parented to the context's current span. When disabled
 // it returns an inert placeholder and the context unchanged.
-func (t *Tracer) Start(ctx context.Context, name string, attributes ...attribute.KeyValue) (context.Context, *Span) {
+func (t *Tracer) Start(ctx context.Context, name string, attributes ...Attribute) (context.Context, *Span) {
 	if !t.Enabled() {
 		return ctx, &Span{}
 	}
 
 	//nolint:spancheck // the span is the caller's to End; every collector bracket does
-	ctx, span := t.tracer.Start(ctx, name, oteltrace.WithAttributes(attributes...))
+	ctx, span := t.tracer.Start(ctx, name, oteltrace.WithAttributes(keyValues(attributes)...))
 
 	return ctx, &Span{span: span} //nolint:spancheck // the span is the caller's to End; every collector bracket does
 }
 
 // End closes the span. A disabled span's End is a no-op.
-func (s *Span) End(attributes ...attribute.KeyValue) {
+func (s *Span) End(attributes ...Attribute) {
 	if s != nil && s.span != nil {
-		s.span.SetAttributes(attributes...)
+		s.span.SetAttributes(keyValues(attributes)...)
 		s.span.End()
 	}
 }

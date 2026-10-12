@@ -164,6 +164,19 @@ linters:
           deny:
             - pkg: github.com/andrewesweet/tf-mut
               desc: "internal/report is the stdlib-only publication leaf; it imports nothing from this module. See CONTEXT.md's dependency direction."
+        # The telemetry boundary: OpenTelemetry is internal/tracing's own
+        # dependency — the one package that names spans and projects the
+        # port's attribute values onto the exporter's vocabulary. Every other
+        # file carries tracing.Attribute values instead; the engine's two
+        # OTLP wire-decoder test files hold the recorded exclusion below.
+        telemetry-boundary:
+          list-mode: lax
+          files:
+            - $all
+            - "!**/internal/tracing/**"
+          deny:
+            - pkg: go.opentelemetry.io
+              desc: "OpenTelemetry is confined to internal/tracing; carry tracing.Attribute values instead. See CONTEXT.md's infrastructure packages and dependency direction."
     cyclop:
       # Matched to revive's cyclomatic setting below. A complete dispatch over
       # Terraform's grammar — every top-level block kind, every reference form,
@@ -256,5 +269,13 @@ linters:
       - path: internal/report/sarif\.go
         linters:
           - tagliatelle
+      # The engine's telemetry and cancellation tests decode exported OTLP
+      # payloads with the protobuf wire types — the fake collector's decoder,
+      # not the instrumentation library. The telemetry-boundary rule denies
+      # the whole go.opentelemetry.io organisation, so these two files carry
+      # this recorded exclusion; the tracer stays the only span producer.
+      - path: internal/engine/(telemetry|cancellation)_test\.go
+        linters:
+          - depguard
 formatters:
   enable: []
