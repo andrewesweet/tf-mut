@@ -1,9 +1,12 @@
 package main
 
 import (
-	"regexp"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // TestTheActionDocumentNamesTheDeclaredReleaseVersion is
@@ -21,27 +24,129 @@ func TestTheActionDocumentNamesTheDeclaredReleaseVersion(t *testing.T) {
 	actionDoc := readDocument(t, "../../ACTION.md")
 	declared := strings.TrimSpace(readDocument(t, "../../VERSION"))
 
-	uses := captureActionExampleToken(t, actionDoc, `uses: andrewesweet/tf-mut@(\S+)`)
-	if uses != declared {
-		t.Errorf("ACTION.md pins andrewesweet/tf-mut@%s, want the declared release version %s", uses, declared)
-	}
-
-	versionInput := captureActionExampleToken(t, actionDoc, `version:\s+(\S+)`)
-	if versionInput != declared {
-		t.Errorf("ACTION.md passes version: %s, want the declared release version %s", versionInput, declared)
+	if err := checkActionDocumentVersion(actionDoc, declared); err != nil {
+		t.Fatal(err)
 	}
 }
 
-// captureActionExampleToken extracts the first capture group of pattern from
-// the document, failing the test rather than comparing against an absent
-// token: the version coupling only holds when both sides are present.
-func captureActionExampleToken(t *testing.T, document, pattern string) string {
-	t.Helper()
-
-	match := regexp.MustCompile(pattern).FindStringSubmatch(document)
-	if len(match) < 2 {
-		t.Fatalf("ACTION.md carries no %q token", pattern)
+func checkActionDocumentVersion(document, declared string) error {
+	_, example, found := strings.Cut(document, "```yaml\n")
+	if !found {
+		return errors.New("ACTION.md has no YAML example")
+	}
+	example, _, found = strings.Cut(example, "\n```")
+	if !found {
+		return errors.New("ACTION.md has no closing YAML fence")
 	}
 
-	return match[1]
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Uses string `yaml:"uses"`
+				With struct {
+					Version string `yaml:"version"`
+				} `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(example), &workflow); err != nil {
+		return fmt.Errorf("parse ACTION.md's YAML example: %w", err)
+	}
+
+	found = false
+	for _, job := range workflow.Jobs {
+		for _, step := range job.Steps {
+			action, ref, _ := strings.Cut(step.Uses, "@")
+			if action != "andrewesweet/tf-mut" {
+				continue
+			}
+			found = true
+			if ref != declared || step.With.Version != declared {
+				return fmt.Errorf("ACTION.md pins %q with version %q, want declared release %q",
+					step.Uses, step.With.Version, declared)
+			}
+		}
+	}
+	if !found {
+		return errors.New("ACTION.md's YAML example has no tf-mut step")
+	}
+
+	return nil
+}
+
+func TestActionDocumentVersionChecksActiveYAMLFields(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name     string
+		steps    string
+		declared string
+		wantErr  bool
+	}{
+		{
+			name: "quoted pins",
+			steps: `      - uses: "andrewesweet/tf-mut@v0.1.0"
+        with:
+          version: 'v0.1.0'`,
+			declared: "v0.1.0",
+		},
+		{
+			name: "commented pins cannot hide a stale uses ref",
+			steps: `      # uses: andrewesweet/tf-mut@v0.1.0
+      # version: v0.1.0
+      - uses: andrewesweet/tf-mut@v0.0.1
+        with:
+          version: v0.1.0`,
+			declared: "v0.1.0",
+			wantErr:  true,
+		},
+		{
+			name: "commented pins cannot hide a stale version input",
+			steps: `      # version: v0.1.0
+      - uses: andrewesweet/tf-mut@v0.1.0
+        with:
+          version: v0.0.1`,
+			declared: "v0.1.0",
+			wantErr:  true,
+		},
+		{
+			name: "a Terraform version belongs to its own step",
+			steps: `      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.15.8
+      - uses: andrewesweet/tf-mut@v0.1.0
+        with:
+          version: v0.1.0`,
+			declared: "v0.1.0",
+		},
+		{
+			name: "equal prerelease pins",
+			steps: `      - uses: andrewesweet/tf-mut@v0.1.0-rc.1
+        with:
+          version: v0.1.0-rc.1`,
+			declared: "v0.1.0-rc.1",
+		},
+		{
+			name: "every tf-mut step must match",
+			steps: `      - uses: andrewesweet/tf-mut@v0.1.0
+        with:
+          version: v0.1.0
+      - uses: andrewesweet/tf-mut@v0.0.1
+        with:
+          version: v0.0.1`,
+			declared: "v0.1.0",
+			wantErr:  true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			document := "Example: tf-mut@v1, version: v1\n\n```yaml\njobs:\n  mutate:\n    steps:\n" +
+				test.steps + "\n```\n"
+			err := checkActionDocumentVersion(document, test.declared)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("version check error = %v, want error %v", err, test.wantErr)
+			}
+		})
+	}
 }

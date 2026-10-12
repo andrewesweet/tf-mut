@@ -127,7 +127,7 @@ jobs:
           # The release pipeline's call arrives as a tag push, whose event
           # carries the zero SHA as `before`; the meaningful diff base is
           # then the tagged commit's parent.
-          if [[ $GITHUB_EVENT_NAME == workflow_call && ( ! $base =~ ^[0-9a-f]{40}$ || $base =~ ^0{40}$ ) ]]; then
+          if [[ ! $base =~ ^[0-9a-f]{40}$ || $base =~ ^0{40}$ ]]; then
             base=$(git rev-parse HEAD^)
           fi
           mise exec -- just mutate-diff "$base"
