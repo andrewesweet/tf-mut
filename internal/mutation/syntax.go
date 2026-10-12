@@ -167,16 +167,16 @@ func (g Generator) expressionOperators(source []byte, where site, attribute *hcl
 // grades nothing.
 func (g Generator) nullInjection(where site, attribute *hclsyntax.Attribute) (edit, bool) {
 	if where.kind != resourceKind && where.kind != dataKind {
-		return edit{}, false //nolint:exhaustruct // discarded by the caller.
+		return edit{}, false // discarded by the caller.
 	}
 
 	if literal, ok := attribute.Expr.(*hclsyntax.LiteralValueExpr); ok && literal.Val.IsNull() {
-		return edit{}, false //nolint:exhaustruct // discarded by the caller.
+		return edit{}, false // discarded by the caller.
 	}
 
 	optional, known := g.Schemas.Optionality(where.kind, where.blockType, attribute.Name)
 	if !known || !optional {
-		return edit{}, false //nolint:exhaustruct // discarded by the caller.
+		return edit{}, false // discarded by the caller.
 	}
 
 	return replace(NullInject, where, attribute.Expr.Range(), "null"), true

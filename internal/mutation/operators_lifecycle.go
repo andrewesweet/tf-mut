@@ -74,7 +74,7 @@ func entryDropEdits(operator Operator, source []byte, where site, attribute *hcl
 func ignoreAllEdit(where site, attribute *hclsyntax.Attribute) (edit, bool) {
 	tuple, ok := attribute.Expr.(*hclsyntax.TupleConsExpr)
 	if !ok || len(tuple.Exprs) == 0 {
-		return edit{}, false //nolint:exhaustruct // discarded by the caller.
+		return edit{}, false // discarded by the caller.
 	}
 
 	return replace(LCIgnoreAll, where, tuple.SrcRange, allKeyword), true

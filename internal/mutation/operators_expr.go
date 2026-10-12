@@ -364,7 +364,7 @@ func interpolationRange(source []byte, template, inner hcl.Range) (hcl.Range, bo
 	}
 
 	if !strings.HasPrefix(string(source[start:]), "${") {
-		return hcl.Range{}, false //nolint:exhaustruct // the caller ignores it.
+		return hcl.Range{}, false // the caller ignores it.
 	}
 
 	end := inner.End.Byte
@@ -373,7 +373,7 @@ func interpolationRange(source []byte, template, inner hcl.Range) (hcl.Range, bo
 	}
 
 	if end >= template.End.Byte || source[end] != '}' {
-		return hcl.Range{}, false //nolint:exhaustruct // the caller ignores it.
+		return hcl.Range{}, false // the caller ignores it.
 	}
 
 	span := inner

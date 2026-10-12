@@ -156,7 +156,7 @@ func TestJSONReportCarriesEverythingNeededToAct(t *testing.T) {
 		t.Fatalf("writing JSON: %v", err)
 	}
 
-	decoded := report.Report{} //nolint:exhaustruct // populated by the decoder.
+	decoded := report.Report{} // populated by the decoder.
 	if err := json.Unmarshal(buffer.Bytes(), &decoded); err != nil {
 		t.Fatalf("decoding JSON report: %v", err)
 	}

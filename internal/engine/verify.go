@@ -144,7 +144,7 @@ func attributeBatch(
 	}
 
 	if err := a.attribute(ctx, group); err != nil {
-		return batchAttribution{}, err //nolint:exhaustruct // nothing was concluded.
+		return batchAttribution{}, err // nothing was concluded.
 	}
 
 	return a.attribution, nil
@@ -389,14 +389,14 @@ func runBatch(
 ) (batchRun, error) {
 	content, digest, err := batched(plan, file, candidates)
 	if err != nil {
-		return batchRun{}, err //nolint:exhaustruct // nothing ran.
+		return batchRun{}, err // nothing ran.
 	}
 
 	result, err := runVerification(ctx, plan, "batch-"+shortName(file), map[string][]byte{
 		closureRelative(plan, file): content,
 	}, executions)
 	if err != nil {
-		return batchRun{}, err //nolint:exhaustruct // nothing ran.
+		return batchRun{}, err // nothing ran.
 	}
 
 	green := !result.HasStatus(tfexec.StatusFail) &&
@@ -430,19 +430,19 @@ func verifyAgainstMutant(
 ) (suggest.Leg, error) {
 	mutant, found := mutated[mutantID]
 	if !found {
-		return suggest.Leg{}, //nolint:exhaustruct // nothing ran.
+		return suggest.Leg{}, // nothing ran.
 			fmt.Errorf("%w: mutant %s is not in this population", ErrSurvivorSelection, mutantID)
 	}
 
 	original, err := suggest.ReadTarget(plan.configuration.ModuleDir, candidate.TargetFile())
 	if err != nil {
-		return suggest.Leg{}, err //nolint:exhaustruct // nothing ran.
+		return suggest.Leg{}, err // nothing ran.
 	}
 
 	alone, err := suggest.Apply(original, candidate.TargetFile(), candidate.TargetRun(),
 		candidate.Expression(), verificationMessage(candidate))
 	if err != nil {
-		return suggest.Leg{}, err //nolint:exhaustruct // nothing ran.
+		return suggest.Leg{}, err // nothing ran.
 	}
 
 	result, err := runVerification(ctx, plan, "kill-"+candidate.ID()+"-"+mutantID, map[string][]byte{
@@ -450,7 +450,7 @@ func verifyAgainstMutant(
 		mutant.File: mutant.Mutated,
 	}, executions)
 	if err != nil {
-		return suggest.Leg{}, err //nolint:exhaustruct // nothing ran.
+		return suggest.Leg{}, err // nothing ran.
 	}
 
 	killed := result.HasStatus(tfexec.StatusFail)
@@ -491,7 +491,7 @@ func runVerification(
 		Hardlink: true,
 	})
 	if err != nil {
-		return tfexec.TestResult{}, //nolint:exhaustruct // nothing ran.
+		return tfexec.TestResult{}, // nothing ran.
 			fmt.Errorf("materialising the verification sandbox: %w", err)
 	}
 
@@ -510,7 +510,7 @@ func runVerification(
 	}
 
 	if err != nil {
-		return tfexec.TestResult{}, //nolint:exhaustruct // the run did not complete.
+		return tfexec.TestResult{}, // the run did not complete.
 			fmt.Errorf("running the verification suite: %w", err)
 	}
 

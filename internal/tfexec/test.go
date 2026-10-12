@@ -127,7 +127,7 @@ func (r Runner) Test(ctx context.Context, dir string, options TestOptions) (Test
 		defer cancel()
 	}
 
-	decoded := TestResult{} //nolint:exhaustruct // replaced by the decoder.
+	decoded := TestResult{} // replaced by the decoder.
 
 	result, err := r.StreamOutput(runCtx, dir, func(stdout io.Reader) error {
 		var decodeErr error

@@ -237,7 +237,7 @@ func (g Generator) placement(changes []fingerprint.Change) (discovery.RunBlock, 
 		}
 	}
 
-	return discovery.RunBlock{}, false //nolint:exhaustruct // no run carried the delta.
+	return discovery.RunBlock{}, false // no run carried the delta.
 }
 
 // runKey is the payload key of a run block: the module-relative test file and

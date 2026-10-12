@@ -210,7 +210,7 @@ func scenarioOf(scaffold SuitePlan, run string) (Scenario, bool) {
 		}
 	}
 
-	return Scenario{}, false //nolint:exhaustruct // the not-found sentinel.
+	return Scenario{}, false // the not-found sentinel.
 }
 
 // valuePins pins the output and configured-attribute values of one payload.
@@ -301,7 +301,7 @@ func onePin(context pinContext) Pin {
 	}
 
 	rendered, err := suggest.Express(
-		discovery.RunBlock{Name: RunPrefix + context.scenario.Name()}, //nolint:exhaustruct // the adapter reads the address.
+		discovery.RunBlock{Name: RunPrefix + context.scenario.Name()}, // the adapter reads the address.
 		context.schemas,
 		// Pinning has baseline output types, but no delta neighbourhood.
 		suggest.Evidence{OutputTypes: context.payload.OutputTypes},

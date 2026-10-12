@@ -859,7 +859,7 @@ func build(
 ) (warm, mutation.Result, error) {
 	prepared, err := prepare(ctx, runner, configuration, settings, workRoot, collector)
 	if err != nil {
-		return warm{}, mutation.Result{}, err //nolint:exhaustruct // nothing was built.
+		return warm{}, mutation.Result{}, err // nothing was built.
 	}
 
 	generationPhase := collector.phase(phaseGeneration)
@@ -1003,7 +1003,7 @@ func shell(
 		},
 		Mutants:        []report.Mutant{},
 		Findings:       []report.Finding{},
-		Metrics:        report.Metrics{}, //nolint:exhaustruct // replaced once mutants have verdicts.
+		Metrics:        report.Metrics{}, // replaced once mutants have verdicts.
 		OperatorErrors: []report.OperatorErrors{},
 		Suppressions:   []report.Suppression{},
 		Warnings:       warnings,

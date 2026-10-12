@@ -164,7 +164,7 @@ func findToken(source []byte, within hcl.Range, token string) (hcl.Range, bool) 
 
 	offset := strings.Index(text, token)
 	if offset < 0 {
-		return hcl.Range{}, false //nolint:exhaustruct // the caller ignores it.
+		return hcl.Range{}, false // the caller ignores it.
 	}
 
 	found := within

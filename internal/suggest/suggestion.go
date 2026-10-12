@@ -279,7 +279,7 @@ func (s Suggestion) VerifiedDigest() string { return s.digest }
 // Verification is the two-leg evidence, for a verified or refuted outcome.
 func (s Suggestion) Verification() (Verification, bool) {
 	if s.evidence == nil {
-		return Verification{}, false //nolint:exhaustruct // no evidence exists.
+		return Verification{}, false // no evidence exists.
 	}
 
 	return *s.evidence, true

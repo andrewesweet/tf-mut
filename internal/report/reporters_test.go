@@ -85,7 +85,7 @@ func allStatesReport() report.Report {
 	mutants := make([]report.Mutant, 0, len(states))
 
 	for index, entry := range states {
-		mutant := report.Mutant{ //nolint:exhaustruct // the mapped subset.
+		mutant := report.Mutant{ // the mapped subset.
 			ID:       string(rune('a'+index)) + "00000000000",
 			Operator: sampleNullOperator,
 			Tier:     smokeTier,
@@ -101,7 +101,7 @@ func allStatesReport() report.Report {
 		}
 
 		if entry.state == report.Survived || entry.state == report.StructurallyUnassertable {
-			mutant.Verdict = &report.Verdict{ //nolint:exhaustruct // message and fix suffice.
+			mutant.Verdict = &report.Verdict{ // message and fix suffice.
 				Diagnosis: entry.diagnosis,
 				Message:   "the mutant survived",
 				Fix:       "add an assertion",
@@ -114,7 +114,7 @@ func allStatesReport() report.Report {
 				status = "accepted"
 			}
 
-			mutant.Provenance = &report.Provenance{ //nolint:exhaustruct // the labelled subset.
+			mutant.Provenance = &report.Provenance{ // the labelled subset.
 				Selection:      report.SelectionFull,
 				Execution:      report.ExecutionFresh,
 				BaselineStatus: status,
@@ -733,7 +733,7 @@ func sitesReport() report.Report {
 	mutants := make([]report.Mutant, 0, len(lines))
 
 	for _, entry := range lines {
-		mutant := report.Mutant{ //nolint:exhaustruct // the rendered subset.
+		mutant := report.Mutant{ // the rendered subset.
 			ID:       entry.id,
 			Operator: entry.operator,
 			Tier:     smokeTier,
@@ -745,7 +745,7 @@ func sitesReport() report.Report {
 				End:   report.Position{Line: entry.line, Column: 12},
 			},
 			State: entry.state,
-			Verdict: &report.Verdict{ //nolint:exhaustruct // message and fix suffice.
+			Verdict: &report.Verdict{ // message and fix suffice.
 				Message: findingMessage,
 				Fix:     findingFix,
 			},
@@ -756,7 +756,7 @@ func sitesReport() report.Report {
 		}
 
 		if entry.status != "" {
-			mutant.Provenance = &report.Provenance{ //nolint:exhaustruct // the labelled subset.
+			mutant.Provenance = &report.Provenance{ // the labelled subset.
 				Selection:      report.SelectionFull,
 				Execution:      report.ExecutionFresh,
 				BaselineStatus: entry.status,
@@ -768,7 +768,7 @@ func sitesReport() report.Report {
 
 	value := sampleReport()
 	value.Mutants = mutants
-	value.Metrics = report.Metrics{ //nolint:exhaustruct // the rendered subset.
+	value.Metrics = report.Metrics{ // the rendered subset.
 		Counts:    map[report.State]int{report.Survived: 3, report.StructurallyUnassertable: 1},
 		Diagnoses: map[report.Diagnosis]int{report.WeakAssertion: 3},
 		Scored:    4,
@@ -979,7 +979,7 @@ func TestMarkdownOmitsTheEmptyGateTable(t *testing.T) {
 	t.Parallel()
 
 	value := allStatesReport()
-	value.Gates = &report.Gates{ //nolint:exhaustruct // the unevaluated shape a plain run carries.
+	value.Gates = &report.Gates{ // the unevaluated shape a plain run carries.
 		MinScore:  report.GateOutcome{Evaluated: false},
 		FailOnNew: report.GateOutcome{Evaluated: false},
 	}
@@ -1003,7 +1003,7 @@ func TestMarkdownTruncationNamesEveryHiddenSite(t *testing.T) {
 	mutants := make([]report.Mutant, 0, 27)
 
 	for index := range 27 {
-		mutants = append(mutants, report.Mutant{ //nolint:exhaustruct // the rendered subset.
+		mutants = append(mutants, report.Mutant{ // the rendered subset.
 			ID:       fmt.Sprintf("aaaa%08d", index),
 			Operator: "NUM-OFF-BY-ONE",
 			Tier:     smokeTier,
@@ -1015,7 +1015,7 @@ func TestMarkdownTruncationNamesEveryHiddenSite(t *testing.T) {
 				End:   report.Position{Line: index + 1, Column: 12},
 			},
 			State: report.Survived,
-			Verdict: &report.Verdict{ //nolint:exhaustruct // message and fix suffice.
+			Verdict: &report.Verdict{ // message and fix suffice.
 				Diagnosis: report.WeakAssertion,
 				Message:   findingMessage,
 				Fix:       findingFix,
@@ -1025,7 +1025,7 @@ func TestMarkdownTruncationNamesEveryHiddenSite(t *testing.T) {
 
 	value := sampleReport()
 	value.Mutants = mutants
-	value.Metrics = report.Metrics{ //nolint:exhaustruct // the rendered subset.
+	value.Metrics = report.Metrics{ // the rendered subset.
 		Counts:    map[report.State]int{report.Survived: 27},
 		Diagnoses: map[report.Diagnosis]int{report.WeakAssertion: 27},
 		Scored:    27,
@@ -1068,10 +1068,10 @@ func indeterminateReport() report.Report {
 		switch mutant.ID {
 		case "aaaa00000001", "aaaa00000002":
 			mutant.Verdict.Diagnosis = report.IndeterminateUnknownValues
-			mutant.Verdict.Evidence = report.Evidence{UnknownPaths: shared} //nolint:exhaustruct // the grouped subset.
+			mutant.Verdict.Evidence = report.Evidence{UnknownPaths: shared} // the grouped subset.
 		case "aaaa00000003":
 			mutant.Verdict.Diagnosis = report.IndeterminateUnknownValues
-			mutant.Verdict.Evidence = report.Evidence{ //nolint:exhaustruct // the grouped subset.
+			mutant.Verdict.Evidence = report.Evidence{ // the grouped subset.
 				UnknownPaths: []string{"aws_iam_role.this[0].unique_id"},
 			}
 		default:

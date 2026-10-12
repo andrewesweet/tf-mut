@@ -344,7 +344,7 @@ func attributeOf(block discovery.Block, name string) (discovery.Attribute, bool)
 		}
 	}
 
-	return discovery.Attribute{}, false //nolint:exhaustruct // the not-found sentinel.
+	return discovery.Attribute{}, false // the not-found sentinel.
 }
 
 // planMocks builds one mock per provider configuration, with a pinned default
@@ -557,7 +557,7 @@ func variableByName(root discovery.Module, name string) (discovery.Block, bool) 
 		}
 	}
 
-	return discovery.Block{}, false //nolint:exhaustruct // the not-found sentinel.
+	return discovery.Block{}, false // the not-found sentinel.
 }
 
 // branchFlips walks the module for conditionals a variable decides, and

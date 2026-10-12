@@ -212,7 +212,7 @@ func verifyScaffoldAnswer(
 	entry characterise.Scaffold,
 	answer, target string,
 ) (generated, string) {
-	empty := generated{} //nolint:exhaustruct // the not-promoted sentinel.
+	empty := generated{} // the not-promoted sentinel.
 
 	checkable, addressable := characterise.Checkable(entry.Address())
 	if !addressable {

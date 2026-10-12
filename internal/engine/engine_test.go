@@ -71,7 +71,7 @@ func TestSurvivorsExitNonZeroAndCleanRunsExitZero(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	if code := result.ExitCode(report.Gate{}); code != report.ExitFindings { //nolint:exhaustruct // no gate requested.
+	if code := result.ExitCode(report.Gate{}); code != report.ExitFindings { // no gate requested.
 		t.Fatalf("exit code with survivors = %d, want %d", code, report.ExitFindings)
 	}
 
@@ -86,7 +86,7 @@ func TestSurvivorsExitNonZeroAndCleanRunsExitZero(t *testing.T) {
 		t.Fatalf("all-killed should have no survivors, got %v", cleanResult.Metrics.Counts)
 	}
 
-	if code := cleanResult.ExitCode(report.Gate{}); code != report.ExitClean { //nolint:exhaustruct // no gate requested.
+	if code := cleanResult.ExitCode(report.Gate{}); code != report.ExitClean { // no gate requested.
 		t.Fatalf("exit code without survivors = %d, want %d", code, report.ExitClean)
 	}
 }
@@ -112,7 +112,7 @@ func TestAnAllInvalidRunIsMarkedIncompleteAndWarns(t *testing.T) {
 	// The exit code is unchanged: an all-Invalid run has no findings and the
 	// gates were not asked for a verdict. What changes is that the run says
 	// so.
-	if code := result.ExitCode(report.Gate{}); code != report.ExitClean { //nolint:exhaustruct // no gate requested.
+	if code := result.ExitCode(report.Gate{}); code != report.ExitClean { // no gate requested.
 		t.Fatalf("an all-Invalid run without a gate exits %d, want %d", code, report.ExitClean)
 	}
 
@@ -469,7 +469,7 @@ func TestPreviewExecutesNothing(t *testing.T) {
 		}
 	}
 
-	if code := result.ExitCode(report.Gate{}); code != report.ExitClean { //nolint:exhaustruct // no gate requested.
+	if code := result.ExitCode(report.Gate{}); code != report.ExitClean { // no gate requested.
 		t.Fatalf("preview exit code = %d, want %d", code, report.ExitClean)
 	}
 
@@ -536,7 +536,7 @@ func TestSelectionMatchingNothingIsAnOperationalFailure(t *testing.T) {
 		t.Fatal("a selection matching nothing must never report survivors")
 	}
 
-	if code := result.ExitCode(report.Gate{}); code != report.ExitOperational { //nolint:exhaustruct // no gate requested.
+	if code := result.ExitCode(report.Gate{}); code != report.ExitOperational { // no gate requested.
 		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
 	}
 }

@@ -446,7 +446,7 @@ func collectJSONVariable(module *Module, path, relative string, block *hcl.Block
 		return fmt.Errorf("%w: %s: %s", ErrParse, path, diagnostics.Error())
 	}
 
-	discovered := Block{ //nolint:exhaustruct // a variable carries no type, address parts or meta-arguments.
+	discovered := Block{ // a variable carries no type, address parts or meta-arguments.
 		Kind:         variableBlock,
 		Name:         block.Labels[0],
 		Address:      variableBlock + "." + block.Labels[0],

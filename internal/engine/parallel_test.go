@@ -80,7 +80,7 @@ func TestOneFailingWorkerDoesNotPoisonTheOthers(t *testing.T) {
 		t.Fatalf("the surviving workers produced no verdicts: %v", result.Metrics.Counts)
 	}
 
-	if code := result.ExitCode(report.Gate{}); code != report.ExitOperational { //nolint:exhaustruct // no gate.
+	if code := result.ExitCode(report.Gate{}); code != report.ExitOperational { // no gate.
 		t.Fatalf("exit code = %d, want %d", code, report.ExitOperational)
 	}
 }

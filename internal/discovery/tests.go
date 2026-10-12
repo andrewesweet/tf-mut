@@ -120,7 +120,7 @@ func readJSONTests(
 	records := make([]JSONFile, 0, len(paths))
 
 	for _, path := range paths {
-		scratch := TestSuite{ //nolint:exhaustruct // a decode sink: only the collected fields matter.
+		scratch := TestSuite{ // a decode sink: only the collected fields matter.
 			References:     map[string][]Reference{},
 			JSONAssertions: []Assertion{},
 		}
