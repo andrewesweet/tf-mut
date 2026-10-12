@@ -147,9 +147,10 @@ the fault-bearing path. #93 also moved that case onto an offline lifecycle-persi
 comparing scenario/address/expression tuples, because an order-independent set of values alone
 could hide state leaking between scenarios.
 
-`TestExportedEngineTypesDeclareNoSeamControls` (#95, pull request #126) now reads the engine
-package's production sources and rejects a `Seed*` or `Disable*` field on any exported type,
-including pointer and generic embeddings; #100 extended it to the six request types. Its
+`TestExportedEngineTypesDeclareNoSeamControls` (#95, pull request #126; extended to the
+six request types by #100) uses compiler export metadata to inspect every exported engine
+type, including struct aliases and fields exposed through embedded structs. It rejects
+exported fields named `Seed*` or `Disable*`, or ending in `ForTesting`. Its original
 deliberate reintroduction proofs — a compile-valid `Config.SeedAuditProof`, then four
 embedded forms — failed by naming the offending fields.
 

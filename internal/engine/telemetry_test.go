@@ -350,15 +350,15 @@ func (b *lockedBuffer) String() string {
 // a short interval emits periodic n/N lines carrying elapsed time and an ETA,
 // on the writer given and nowhere else. A run with no writer — the default,
 // and every other test in this suite — stays silent.
+//
+//nolint:paralleltest // Swaps the package-level progress interval, which is not safe in parallel.
 func TestProgressLinesReportTheLongRun(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, discriminateFixture)
 	config := baseConfig(t, module)
 
 	var line lockedBuffer
 	config.Progress = &line
-	config.ProgressIntervalForTesting = time.Millisecond
+	engine.SetProgressInterval(t, time.Millisecond)
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {
@@ -407,10 +407,6 @@ func TestProgressStaysSilentWithoutAWriter(t *testing.T) {
 	config := baseConfig(t, module)
 
 	var line lockedBuffer
-	config.Progress = &line
-	config.ProgressIntervalForTesting = 0 // the default interval, still no writer below
-
-	config.Progress = nil
 
 	if _, err := engine.Run(t.Context(), config); err != nil {
 		t.Fatalf("run: %v", err)
@@ -421,13 +417,13 @@ func TestProgressStaysSilentWithoutAWriter(t *testing.T) {
 	}
 }
 
+//
+//nolint:paralleltest // Swaps the package-level progress interval, which is not safe in parallel.
 func TestShortRunPrintsNoProgress(t *testing.T) {
-	t.Parallel()
-
 	config := baseConfig(t, copyFixture(t, discriminateFixture))
 	var line lockedBuffer
 	config.Progress = &line
-	config.ProgressIntervalForTesting = time.Hour
+	engine.SetProgressInterval(t, time.Hour)
 	if _, err := engine.Run(t.Context(), config); err != nil {
 		t.Fatal(err)
 	}
@@ -510,7 +506,7 @@ func TestTraceExportWarningsAndProgressShareTheWriter(t *testing.T) {
 	request.NoCache = true
 	request.OTLPEndpoint = sink.URL
 	request.Progress = &output
-	request.ProgressIntervalForTesting = time.Millisecond
+	engine.SetProgressInterval(t, time.Millisecond)
 
 	if _, err := engine.Run(t.Context(), request); err != nil {
 		t.Fatal(err)
@@ -566,7 +562,7 @@ func TestTraceExportWarningsStopWhenRunReturns(t *testing.T) {
 	request.NoCache = true
 	request.OTLPEndpoint = sink.URL
 	request.Progress = &output
-	request.ProgressIntervalForTesting = time.Hour
+	engine.SetProgressInterval(t, time.Hour)
 
 	if _, err := engine.Run(t.Context(), request); err != nil {
 		t.Fatal(err)
@@ -629,15 +625,14 @@ func assertTraceExportWarningsStayWithTheirRun(t *testing.T, secondWriter string
 	t.Cleanup(secondSink.Close)
 
 	var firstOutput, secondOutput bytes.Buffer
+	engine.SetProgressInterval(t, time.Hour)
 	first := baseConfig(t, copyFixture(t, "skeleton"))
 	first.NoCache = true
 	first.OTLPEndpoint = firstSink.URL
 	first.Progress = &firstOutput
-	first.ProgressIntervalForTesting = time.Hour
 	second := baseConfig(t, copyFixture(t, "skeleton"))
 	second.NoCache = true
 	second.OTLPEndpoint = secondSink.URL
-	second.ProgressIntervalForTesting = time.Hour
 	if secondWriter == traceWriterCase {
 		second.Progress = &secondOutput
 	}

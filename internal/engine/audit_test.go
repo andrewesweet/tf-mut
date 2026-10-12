@@ -1,14 +1,22 @@
 package engine_test
 
 import (
-	"go/ast"
-	"go/parser"
+	"bytes"
+	"encoding/json"
+	"errors"
+	"go/importer"
 	"go/token"
+	"go/types"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/andrewesweet/tf-mut/internal/engine"
 )
 
 // The closure rule, enforced rather than described: M2b and M2c cannot close the
@@ -24,6 +32,10 @@ const (
 	// The two trees that hold this repository's Go sources.
 	internalTree = "internal"
 	commandTree  = "cmd"
+
+	// The Go tool's machine-output switch, spelled once here so the package's
+	// flag literals stay under goconst's repetition threshold.
+	jsonFlag = "-json"
 )
 
 // gateName matches one test name inside the recipe's -run pattern.
@@ -57,119 +69,90 @@ func TestTheHonestyGateNamesOnlyTestsThatExist(t *testing.T) {
 func TestExportedEngineTypesDeclareNoSeamControls(t *testing.T) {
 	t.Parallel()
 
-	root, found := repositoryRoot(t)
-	if !found {
-		t.Fatal("repository root not found")
-	}
+	auditExportedEngineTypes(t, compiledEnginePackage(t))
+}
 
-	engineDir := filepath.Join(root, internalTree, "engine")
-	fset := token.NewFileSet()
-	audited := map[string]bool{}
-	entries, err := os.ReadDir(engineDir)
+func compiledEnginePackage(t *testing.T) *types.Package {
+	t.Helper()
+
+	packagePath := reflect.TypeFor[engine.Request]().PkgPath()
+	// The arguments are fixed go-toolchain arguments built by the test:
+	// packagePath is this package's own import path, not external input.
+	arguments := []string{"list", "-mod=readonly", "-deps", "-export", jsonFlag, packagePath}
+	command := exec.CommandContext(t.Context(), "go", arguments...) //nolint:gosec // fixed go-toolchain arguments.
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	output, err := command.Output()
 	if err != nil {
-		t.Fatalf("reading exported engine sources in %s: %v", engineDir, err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
-			continue
-		}
-
-		path := filepath.Join(engineDir, entry.Name())
-		file, parseErr := parser.ParseFile(fset, path, nil, 0)
-		if parseErr != nil {
-			t.Fatalf("parsing %s: %v", path, parseErr)
-		}
-		if file.Name.Name != "engine" {
-			continue
-		}
-		for name := range auditExportedEngineTypes(t, fset, file) {
-			audited[name] = true
-		}
+		t.Fatalf("compiling engine export data: %v\n%s", err, &stderr)
 	}
 
-	// The seam's input is the closed request set: every request type has to
-	// sit inside this audit's reach, so a rename or a move cannot silently
-	// take an input type out of it. The settings value the requests produce is
-	// internal, and is deliberately outside this assertion.
-	for _, request := range []string{
-		"RunRequest", "PreviewRequest", "SuggestRequest",
-		"CharacteriseRequest", "TodosRequest", "CurateRequest",
-	} {
-		if !audited[request] {
-			t.Errorf("the engine input %s is not an exported struct in package engine, "+
-				"so the seam-control audit does not cover it", request)
+	archives := map[string]string{}
+	decoder := json.NewDecoder(bytes.NewReader(output))
+	for {
+		var entry struct {
+			// The keys are the Go tool's own `go list -json` keys, PascalCase by
+			// its convention; snake tags would not decode them.
+			ImportPath string `json:"ImportPath"` //nolint:tagliatelle // go list's keys, not this tool's snake_case schema.
+			Export     string `json:"Export"`     //nolint:tagliatelle // go list's keys, not this tool's snake_case schema.
+		}
+		decodeErr := decoder.Decode(&entry)
+		if errors.Is(decodeErr, io.EOF) {
+			break
+		}
+		if decodeErr != nil {
+			t.Fatalf("decoding compiler export paths: %v", decodeErr)
+		}
+		archives[entry.ImportPath] = entry.Export
+	}
+
+	lookup := func(path string) (io.ReadCloser, error) {
+		return os.Open(archives[path])
+	}
+	compiled, err := importer.ForCompiler(token.NewFileSet(), "gc", lookup).Import(packagePath)
+	if err != nil {
+		t.Fatalf("importing compiled engine types: %v", err)
+	}
+
+	return compiled
+}
+
+func auditExportedEngineTypes(t *testing.T, compiled *types.Package) {
+	t.Helper()
+
+	for _, name := range compiled.Scope().Names() {
+		typeName, ok := compiled.Scope().Lookup(name).(*types.TypeName)
+		if ok && typeName.Exported() {
+			auditExportedEngineType(t, name, typeName.Type(), map[*types.Struct]bool{})
 		}
 	}
 }
 
-func auditExportedEngineTypes(t *testing.T, fset *token.FileSet, file *ast.File) map[string]bool {
+func auditExportedEngineType(t *testing.T, name string, compiled types.Type, seen map[*types.Struct]bool) {
 	t.Helper()
 
-	audited := map[string]bool{}
-
-	for _, declaration := range file.Decls {
-		general, ok := declaration.(*ast.GenDecl)
-		if !ok || general.Tok != token.TYPE {
-			continue
-		}
-		for _, specification := range general.Specs {
-			typeSpec, ok := specification.(*ast.TypeSpec)
-			if ok {
-				auditExportedEngineType(t, fset, typeSpec)
-				audited[typeSpec.Name.Name] = true
-			}
-		}
+	underlying := compiled.Underlying()
+	if pointer, ok := underlying.(*types.Pointer); ok {
+		underlying = pointer.Elem().Underlying()
 	}
-
-	return audited
-}
-
-func auditExportedEngineType(t *testing.T, fset *token.FileSet, typeSpec *ast.TypeSpec) {
-	t.Helper()
-
-	if !ast.IsExported(typeSpec.Name.Name) {
+	structure, ok := underlying.(*types.Struct)
+	if !ok || seen[structure] {
 		return
 	}
-	structure, ok := typeSpec.Type.(*ast.StructType)
-	if !ok {
-		return
-	}
-	for _, field := range structure.Fields.List {
-		names := field.Names
-		if len(names) == 0 {
-			if name := embeddedFieldName(field.Type); name != "" {
-				names = []*ast.Ident{{Name: name, NamePos: field.Type.Pos()}}
-			}
+	seen[structure] = true
+	for field := range structure.Fields() {
+		if field.Exported() && isSeamControl(field.Name()) {
+			t.Errorf("exported engine type %s exposes seam field %s", name, field.Name())
 		}
-		for _, name := range names {
-			if isSeamControl(name.Name) {
-				position := fset.Position(field.Pos())
-				t.Errorf("exported engine type %s declares seam field %s at %s:%d",
-					typeSpec.Name.Name, name.Name, position.Filename, position.Line)
-			}
+		if field.Embedded() {
+			auditExportedEngineType(t, name, field.Type(), seen)
 		}
 	}
 }
 
 func isSeamControl(name string) bool {
-	return strings.HasPrefix(name, "Seed") || strings.HasPrefix(name, "Disable")
-}
-
-func embeddedFieldName(expression ast.Expr) string {
-	switch expression := expression.(type) {
-	case *ast.Ident:
-		return expression.Name
-	case *ast.StarExpr:
-		return embeddedFieldName(expression.X)
-	case *ast.SelectorExpr:
-		return expression.Sel.Name
-	case *ast.IndexExpr:
-		return embeddedFieldName(expression.X)
-	case *ast.IndexListExpr:
-		return embeddedFieldName(expression.X)
-	default:
-		return ""
-	}
+	return strings.HasPrefix(name, "Seed") || strings.HasPrefix(name, "Disable") ||
+		strings.HasSuffix(name, "ForTesting")
 }
 
 func TestTheHonestyGateCoversEveryNamedReproduction(t *testing.T) {

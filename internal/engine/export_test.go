@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
@@ -116,6 +117,16 @@ func SetFinalPinDefectSeed(t *testing.T, moduleDir string) {
 		seedFinalPinDefect = func(_ discovery.Configuration, pins []characterise.Pin) []characterise.Pin {
 			return pins
 		}
+	})
+}
+
+// SetProgressInterval overrides the progress cadence for one test. Its
+// callers are sequential for the seam's complete lifetime.
+func SetProgressInterval(t *testing.T, interval time.Duration) {
+	t.Helper()
+	progressInterval = interval
+	t.Cleanup(func() {
+		progressInterval = DefaultProgressInterval
 	})
 }
 

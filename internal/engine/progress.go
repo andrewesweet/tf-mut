@@ -14,6 +14,9 @@ import (
 // is for a human glancing at a long run, not for a driver.
 const DefaultProgressInterval = 10 * time.Second
 
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var progressInterval = DefaultProgressInterval
+
 type synchronizedWriter struct {
 	mutex  sync.Mutex
 	writer io.Writer
@@ -47,7 +50,7 @@ type progressTracker struct {
 // nil — and costs nothing — when there is no writer or nothing pending. The
 // caller defers the returned tracker's stop exactly once.
 func startProgress(ctx context.Context, plan executionPlan, pending int) *progressTracker {
-	interval := plan.settings.ProgressIntervalForTesting
+	interval := progressInterval
 	if interval <= 0 {
 		interval = DefaultProgressInterval
 	}
