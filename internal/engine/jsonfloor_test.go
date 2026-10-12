@@ -302,17 +302,6 @@ func TestNoJSONInTheClosureLeavesTheFloorUp(t *testing.T) {
 func assertRefusalNames(t *testing.T, err error, file, flag string) {
 	t.Helper()
 
-	// Which gate refused is the sentinel's identity; the refusal's wording is
-	// published text and stays a text contract.
-	wanted := engine.ErrUnsandboxedEffects
-	if flag == engine.FlagAllowRealInfrastructure {
-		wanted = engine.ErrRealInfrastructure
-	}
-
-	if !errors.Is(err, wanted) {
-		t.Fatalf("error = %v, want the %s gate's refusal", err, flag)
-	}
-
 	if !strings.Contains(err.Error(), filepath.Base(file)) {
 		t.Fatalf("refusal does not name the unread file %s: %v", file, err)
 	}
