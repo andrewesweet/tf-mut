@@ -1248,6 +1248,44 @@ func TestUntilDryRefusesAnUnobservedPopulation(t *testing.T) {
 	}
 }
 
+// A failed characterisation must not leave its work directory behind. The
+// cleanup is split across the step-down: prepareStage removes its own
+// workRoot when one of its steps fails, and characteriseModule removes it
+// once the pipeline is done with a stage that came back. No other gate can
+// observe a temp directory, so the seam observable is pinned directly: a
+// WorkDir that is empty after a warm-up failure. The fixture's invalid
+// provider version constraint makes terraform init fail offline, past the
+// static safety gates and inside prepareStage.
+func TestAFailedCharacterisationLeavesNoWorkDirectoryBehind(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "characterise-init-failure")
+	workDir := t.TempDir()
+
+	request := characteriseRequest(t, module)
+	request.WorkDir = workDir
+
+	_, err := engine.Run(t.Context(), request)
+	if err == nil {
+		t.Fatal("characterise: want the warm-up failure to surface, got nil")
+	}
+
+	// The failure must be the one the fixture staged — past the gates, inside
+	// the prepare step's warm-up — or the assertion below passes vacuously.
+	if !strings.Contains(err.Error(), "version constraint") {
+		t.Fatalf("error = %v, want the staged init failure", err)
+	}
+
+	entries, readErr := os.ReadDir(workDir)
+	if readErr != nil {
+		t.Fatalf("reading work directory: %v", readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("WorkDir left with %d entries after a failed characterisation: %v",
+			len(entries), entries)
+	}
+}
+
 // pinCount counts the pins a block actually pinned.
 func pinCount(block *report.Characterisation) int {
 	count := 0
