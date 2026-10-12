@@ -100,6 +100,11 @@ func mteDocument(value Report) map[string]any {
 		entry["mutants"] = append(mutants, mteMutant(mutant))
 	}
 
+	authoritative := authoritativeMetrics(value)
+	if len(value.Warnings) > 0 {
+		authoritative["warnings"] = value.Warnings
+	}
+
 	return map[string]any{
 		"schemaVersion": MTESchemaVersion,
 		"thresholds":    map[string]any{"high": mteThresholdHigh, "low": mteThresholdLow},
@@ -109,7 +114,7 @@ func mteDocument(value Report) map[string]any {
 			"version": value.SchemaVersion,
 		},
 		"config": map[string]any{
-			sarifTool: authoritativeMetrics(value),
+			sarifTool: authoritative,
 		},
 		"files": files,
 	}

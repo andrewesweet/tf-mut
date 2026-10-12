@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"os"
 	"path/filepath"
@@ -25,6 +26,15 @@ import (
 
 // smokeTier is the tier every synthetic mutant carries.
 const smokeTier = "smoke"
+
+// Literals the findings-rendering tests share.
+const (
+	findingMessage   = "the mutant survived"
+	findingFix       = "add an assertion"
+	statusNew        = "new"
+	statusAccepted   = "accepted"
+	unassertableSite = "output.value"
+)
 
 // mteSchemaPath is the pinned, vendored mutation-testing-report-schema.
 const mteSchemaPath = "../../docs/schema/mutation-testing-report-2.0.0.json"
@@ -696,6 +706,886 @@ func TestTheJUnitValidatorRejectsTheNegativeWitnesses(t *testing.T) {
 	for name, witness := range witnesses {
 		if err := validateJUnit(schema, witness); err == nil {
 			t.Errorf("the validator accepted the %s witness", name)
+		}
+	}
+}
+
+// sitesReport builds findings across several sites and files, deliberately in
+// generation order rather than location order, so grouping, per-finding
+// file:line rendering and the group ordering are all observable. Two mutants
+// share one site with different lines; the others sit in their own files.
+func sitesReport() report.Report {
+	lines := []struct {
+		id       string
+		operator string
+		state    report.State
+		site     string
+		file     string
+		line     int
+		status   string
+	}{
+		{"aaaa00000001", "NUM-OFF-BY-ONE", report.Survived, "local.locations", sampleFile, 21, statusNew},
+		{"aaaa00000002", "BOOL-FLIP", report.Survived, "local.locations", sampleFile, 23, statusAccepted},
+		{"aaaa00000003", "STR-CASE", report.Survived, "var.type", "variables.tf", 9, statusAccepted},
+		{"aaaa00000004", "EXT-BODY-BLANK", report.StructurallyUnassertable, unassertableSite, "outputs.tf", 5, ""},
+	}
+
+	mutants := make([]report.Mutant, 0, len(lines))
+
+	for _, entry := range lines {
+		mutant := report.Mutant{ //nolint:exhaustruct // the rendered subset.
+			ID:       entry.id,
+			Operator: entry.operator,
+			Tier:     smokeTier,
+			Module:   ".",
+			Site:     entry.site,
+			Range: report.Range{
+				File:  entry.file,
+				Start: report.Position{Line: entry.line, Column: 1},
+				End:   report.Position{Line: entry.line, Column: 12},
+			},
+			State: entry.state,
+			Verdict: &report.Verdict{ //nolint:exhaustruct // message and fix suffice.
+				Message: findingMessage,
+				Fix:     findingFix,
+			},
+		}
+
+		if entry.state == report.Survived {
+			mutant.Verdict.Diagnosis = report.WeakAssertion
+		}
+
+		if entry.status != "" {
+			mutant.Provenance = &report.Provenance{ //nolint:exhaustruct // the labelled subset.
+				Selection:      report.SelectionFull,
+				Execution:      report.ExecutionFresh,
+				BaselineStatus: entry.status,
+			}
+		}
+
+		mutants = append(mutants, mutant)
+	}
+
+	value := sampleReport()
+	value.Mutants = mutants
+	value.Metrics = report.Metrics{ //nolint:exhaustruct // the rendered subset.
+		Counts:    map[report.State]int{report.Survived: 3, report.StructurallyUnassertable: 1},
+		Diagnoses: map[report.Diagnosis]int{report.WeakAssertion: 3},
+		Scored:    4,
+	}
+
+	return value
+}
+
+// renderMarkdown is the one rendering path the markdown assertions share.
+func renderMarkdown(t *testing.T, value report.Report) string {
+	t.Helper()
+
+	rendered := strings.Builder{}
+	if err := report.WriteMarkdown(&rendered, value); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	return rendered.String()
+}
+
+func markdownTextContent(value string) string {
+	return html.UnescapeString(regexp.MustCompile(`\\([[:punct:]])`).ReplaceAllString(value, "$1"))
+}
+
+// TestMarkdownFindingsCarryFileLineGroupedBySite: the PR summary is a to-do
+// list a reader can act on without opening the JSON report — every finding
+// names the file and line it sits at, and the findings are grouped under
+// their mutation site.
+func TestMarkdownFindingsCarryFileLineGroupedBySite(t *testing.T) {
+	t.Parallel()
+
+	page := renderMarkdown(t, sitesReport())
+
+	for _, heading := range []string{
+		"#### `local.locations` — main\\.tf:21",
+		"#### `output.value` — outputs\\.tf:5",
+		"#### `var.type` — variables\\.tf:9",
+	} {
+		if !strings.Contains(page, heading) {
+			t.Fatalf("the markdown summary is missing the site heading %q:\n%s", heading, page)
+		}
+	}
+
+	for _, line := range []string{
+		"- `NUM-OFF-BY-ONE` Survived at main\\.tf:21 — weak\\-assertion (new)",
+		"- `BOOL-FLIP` Survived at main\\.tf:23 — weak\\-assertion",
+		"- `STR-CASE` Survived at variables\\.tf:9 — weak\\-assertion",
+		"- `EXT-BODY-BLANK` StructurallyUnassertable at outputs\\.tf:5",
+	} {
+		if !strings.Contains(page, line) {
+			t.Fatalf("the markdown summary is missing the finding line %q:\n%s", line, page)
+		}
+	}
+
+	main, outputs, variables := strings.Index(page, "local.locations"),
+		strings.Index(page, "output.value"), strings.Index(page, "var.type")
+
+	if main < 0 || variables <= main || outputs <= variables {
+		t.Fatalf("the site groups are not in report order (main < variables < outputs):\n%s", page)
+	}
+}
+
+func TestMarkdownEscapesAllTextPunctuation(t *testing.T) {
+	t.Parallel()
+
+	literal := "\\`*_[]()#+-.!~|&<>"
+	escaped := "\\\\" + "\\`\\*\\_\\[\\]\\(\\)\\#\\+\\-\\.\\!\\~\\|&amp;&lt;&gt;"
+	value := indeterminateReport()
+	value.Warnings = []string{literal}
+	value.Selection.Mode = report.SelectionSince
+	value.Selection.Ref = "feature`"
+	value.Selection.ForcedFull = literal
+	value.Mutants[0].Verdict.Fix = literal
+	value.Suggestions[0].TargetFile = "tests/main*env*|`unit`.tftest.hcl"
+	value.Suggestions[0].TargetRun = "test"
+	value.Suggestions[0].Expression = "output.value == \"a|`b\""
+
+	page := renderMarkdown(t, value)
+
+	for _, want := range []string{
+		"Fix: " + escaped + "\n",
+		"full population forced: " + escaped,
+		"### Warnings\n\n- " + escaped + "\n",
+		" (`` --since feature` ``",
+		"| ``tests/main*env*\\|`unit`.tftest.hcl:test`` | ``output.value == \"a\\|`b\"`` |",
+		"| skipped\\-sensitive |",
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("the markdown summary lost literal text %q:\n%s", want, page)
+		}
+	}
+}
+
+func TestMarkdownEscapesFindingLocations(t *testing.T) {
+	t.Parallel()
+
+	const (
+		htmlFile            = "main<env>.tf"
+		markdownFile        = "main*env*.tf"
+		escapedHTMLFile     = "main&lt;env&gt;\\.tf"
+		escapedMarkdownFile = "main\\*env\\*\\.tf"
+	)
+
+	for _, entry := range []struct {
+		name      string
+		state     report.State
+		diagnosis report.Diagnosis
+		file      string
+		escaped   string
+	}{
+		{"ordinary-html", report.Survived, report.WeakAssertion, htmlFile, escapedHTMLFile},
+		{"ordinary-markdown", report.Survived, report.WeakAssertion, markdownFile, escapedMarkdownFile},
+		{"unassertable-html", report.StructurallyUnassertable, "", htmlFile, escapedHTMLFile},
+		{"unassertable-markdown", report.StructurallyUnassertable, "", markdownFile, escapedMarkdownFile},
+		{"indeterminate-html", report.Survived, report.IndeterminateUnknownValues, htmlFile, escapedHTMLFile},
+		{"indeterminate-markdown", report.Survived, report.IndeterminateUnknownValues, markdownFile, escapedMarkdownFile},
+	} {
+		t.Run(entry.name, func(t *testing.T) {
+			t.Parallel()
+
+			value := sitesReport()
+			value.Mutants = value.Mutants[:2]
+
+			for index := range value.Mutants {
+				mutant := &value.Mutants[index]
+				mutant.Range.File = entry.file
+				mutant.State = entry.state
+				mutant.Verdict.Diagnosis = entry.diagnosis
+				if entry.diagnosis == report.IndeterminateUnknownValues {
+					mutant.Verdict.Evidence.UnknownPaths = []string{"terraform_data.app.id"}
+				}
+			}
+
+			page := renderMarkdown(t, value)
+
+			if locations := strings.Count(page, entry.escaped+":21"); locations != 2 {
+				t.Fatalf("escaped first finding location appears %d times, want heading and member:\n%s", locations, page)
+			}
+
+			if !strings.Contains(page, "at "+entry.escaped+":23") || strings.Contains(page, entry.file) {
+				t.Fatalf("a finding's location is missing or treated as markup:\n%s", page)
+			}
+		})
+	}
+}
+
+func TestMarkdownCodeSpansPreserveBacktickPathsAndSites(t *testing.T) {
+	t.Parallel()
+
+	for _, entry := range []struct {
+		key       string
+		delimiter string
+	}{
+		{"a`b", "``"},
+		{"a``b`c", "```"},
+		{"a<env>&`b", "``"},
+	} {
+		t.Run(entry.key, func(t *testing.T) {
+			t.Parallel()
+
+			address := "terraform_data.app[" + strconv.Quote(entry.key) + "]"
+			path, site := address+".id", address+".input"
+			value := indeterminateReport()
+			value.Mutants = value.Mutants[:2]
+
+			for index := range value.Mutants {
+				value.Mutants[index].Site = site
+				value.Mutants[index].Verdict.Evidence.UnknownPaths = []string{path}
+			}
+
+			page := renderMarkdown(t, value)
+
+			for _, want := range []string{
+				"- " + entry.delimiter + path + entry.delimiter + "\n",
+				"##### " + entry.delimiter + site + entry.delimiter + " — main\\.tf:21",
+			} {
+				if strings.Count(page, want) != 1 {
+					t.Fatalf("the literal path or site lost its code span %q:\n%s", want, page)
+				}
+			}
+
+			prototype := value.Mutants[0]
+			prototype.Verdict.Diagnosis = report.WeakAssertion
+			value.Mutants = nil
+
+			for index := range 26 {
+				mutant := prototype
+				mutant.Module = fmt.Sprintf("module_%02d", index)
+				value.Mutants = append(value.Mutants, mutant)
+			}
+
+			page = renderMarkdown(t, value)
+			if headings := strings.Count(page, "#### "+entry.delimiter+site+entry.delimiter+" —"); headings != 25 {
+				t.Fatalf("rendered %d literal site headings, want 25:\n%s", headings, page)
+			}
+
+			if !strings.Contains(page, "  - "+entry.delimiter+site+entry.delimiter+" — 1 finding") {
+				t.Fatalf("the overflow site lost its literal code span:\n%s", page)
+			}
+		})
+	}
+}
+
+// TestMarkdownOmitsTheEmptyGateTable: a run that requested no gate and
+// judged no baseline renders no gate table — a two-line table with no rows
+// is noise where a decision should be. A populated table still renders.
+func TestMarkdownOmitsTheEmptyGateTable(t *testing.T) {
+	t.Parallel()
+
+	value := allStatesReport()
+	value.Gates = &report.Gates{ //nolint:exhaustruct // the unevaluated shape a plain run carries.
+		MinScore:  report.GateOutcome{Evaluated: false},
+		FailOnNew: report.GateOutcome{Evaluated: false},
+	}
+
+	if page := renderMarkdown(t, value); strings.Contains(page, "| Gate | Outcome |") {
+		t.Fatalf("the markdown summary renders a gate table with no rows:\n%s", page)
+	}
+
+	if page := renderMarkdown(t, allStatesReport()); !strings.Contains(page, "| Gate | Outcome |") {
+		t.Fatal("the markdown summary dropped the populated gate table")
+	}
+}
+
+// TestMarkdownTruncationNamesEveryHiddenSite: the site cap bounds the
+// summary without hiding anything — every site beyond it is named with its
+// finding count, so the overflow lists what exists even where it does not
+// render the findings themselves.
+func TestMarkdownTruncationNamesEveryHiddenSite(t *testing.T) {
+	t.Parallel()
+
+	mutants := make([]report.Mutant, 0, 27)
+
+	for index := range 27 {
+		mutants = append(mutants, report.Mutant{ //nolint:exhaustruct // the rendered subset.
+			ID:       fmt.Sprintf("aaaa%08d", index),
+			Operator: "NUM-OFF-BY-ONE",
+			Tier:     smokeTier,
+			Module:   ".",
+			Site:     fmt.Sprintf("resource_%02d.attr", index),
+			Range: report.Range{
+				File:  sampleFile,
+				Start: report.Position{Line: index + 1, Column: 1},
+				End:   report.Position{Line: index + 1, Column: 12},
+			},
+			State: report.Survived,
+			Verdict: &report.Verdict{ //nolint:exhaustruct // message and fix suffice.
+				Diagnosis: report.WeakAssertion,
+				Message:   findingMessage,
+				Fix:       findingFix,
+			},
+		})
+	}
+
+	value := sampleReport()
+	value.Mutants = mutants
+	value.Metrics = report.Metrics{ //nolint:exhaustruct // the rendered subset.
+		Counts:    map[report.State]int{report.Survived: 27},
+		Diagnoses: map[report.Diagnosis]int{report.WeakAssertion: 27},
+		Scored:    27,
+	}
+
+	page := renderMarkdown(t, value)
+
+	if !strings.Contains(page, "… and 2 more sites") {
+		t.Fatalf("the overflow does not name the hidden-site count:\n%s", page)
+	}
+
+	for index := range 27 {
+		if !strings.Contains(page, fmt.Sprintf("resource_%02d", index)) {
+			t.Fatalf("site resource_%02d appears nowhere in the summary; the overflow hides sites", index)
+		}
+	}
+
+	// The cap bounds the rendered findings, not the named sites: a hidden
+	// site's finding lines are not rendered.
+	if strings.Contains(page, "- `NUM-OFF-BY-ONE` Survived at main\\.tf:26") {
+		t.Fatal("a hidden site's findings rendered despite the cap")
+	}
+}
+
+// indeterminateReport is sitesReport with three survivors made
+// indeterminate-unknown-values: two share one unknown-path set and one
+// carries its own, so grouping by shared paths is observable alongside the
+// site-grouped findings that remain.
+func indeterminateReport() report.Report {
+	value := sitesReport()
+
+	shared := []string{
+		"kubernetes_deployment_v1.workspace[0].id",
+		"kubernetes_deployment_v1.workspace[0].metadata[0].uid",
+	}
+
+	for index := range value.Mutants {
+		mutant := &value.Mutants[index]
+
+		switch mutant.ID {
+		case "aaaa00000001", "aaaa00000002":
+			mutant.Verdict.Diagnosis = report.IndeterminateUnknownValues
+			mutant.Verdict.Evidence = report.Evidence{UnknownPaths: shared} //nolint:exhaustruct // the grouped subset.
+		case "aaaa00000003":
+			mutant.Verdict.Diagnosis = report.IndeterminateUnknownValues
+			mutant.Verdict.Evidence = report.Evidence{ //nolint:exhaustruct // the grouped subset.
+				UnknownPaths: []string{"aws_iam_role.this[0].unique_id"},
+			}
+		default:
+			// The remaining finding stays as sitesReport built it.
+		}
+	}
+
+	return value
+}
+
+// TestMarkdownGroupsIndeterminateSurvivorsBySharedUnknownPaths: survivors
+// indeterminate for the same reason read as one finding — the shared paths
+// are stated once per group with the group's size, not once per survivor.
+func TestMarkdownGroupsIndeterminateSurvivorsBySharedUnknownPaths(t *testing.T) {
+	t.Parallel()
+
+	value := indeterminateReport()
+	value.Mutants[1].Site = "local.regions"
+
+	page := renderMarkdown(t, value)
+
+	for _, want := range []string{
+		"**2 survivors** are indeterminate because these paths are unknown at plan:",
+		"**1 survivor** is indeterminate because these paths are unknown at plan:",
+		"- `kubernetes_deployment_v1.workspace[0].id`",
+		"- `kubernetes_deployment_v1.workspace[0].metadata[0].uid`",
+		"- `aws_iam_role.this[0].unique_id`",
+		// The grouped survivors are still named, with their own file:line.
+		"##### `local.locations` — main\\.tf:21\n\n- `NUM-OFF-BY-ONE` Survived at main\\.tf:21 (new)",
+		"##### `local.regions` — main\\.tf:23\n\n- `BOOL-FLIP` Survived at main\\.tf:23 (accepted)",
+		"##### `var.type` — variables\\.tf:9\n\n- `STR-CASE` Survived at variables\\.tf:9 (accepted)",
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("the markdown summary is missing %q:\n%s", want, page)
+		}
+	}
+
+	// Said once per path set, not once per survivor: two sentences for two
+	// groups, whatever the membership.
+	if said := strings.Count(page, "because these paths are unknown at plan"); said != 2 {
+		t.Fatalf("the indeterminate sentence appears %d times, want once per group (2)", said)
+	}
+
+	if !strings.Contains(page, "#### `output.value`") {
+		t.Fatalf("the surviving site group disappeared:\n%s", page)
+	}
+}
+
+func TestMarkdownSiteGroupsKeepModulesDistinct(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		state     report.State
+		diagnosis report.Diagnosis
+	}{
+		{"survived", report.Survived, report.WeakAssertion},
+		{"unassertable", report.StructurallyUnassertable, ""},
+		{"indeterminate", report.Survived, report.IndeterminateUnknownValues},
+	}
+
+	for _, entry := range cases {
+		t.Run(entry.name, func(t *testing.T) {
+			t.Parallel()
+
+			value := sitesReport()
+			value.Mutants = value.Mutants[:2]
+			value.Mutants[1].Module = "child"
+			value.Mutants[1].Range.File = "child/main.tf"
+
+			for index := range value.Mutants {
+				mutant := &value.Mutants[index]
+				mutant.Site = unassertableSite
+				mutant.State = entry.state
+				mutant.Verdict.Diagnosis = entry.diagnosis
+				if entry.diagnosis == report.IndeterminateUnknownValues {
+					mutant.Verdict.Evidence.UnknownPaths = []string{"terraform_data.seed.id"}
+				}
+			}
+
+			page := renderMarkdown(t, value)
+			level := "####"
+			if entry.diagnosis == report.IndeterminateUnknownValues {
+				level = "#####"
+			}
+
+			locations := []string{"main\\.tf:21", "child/main\\.tf:23"}
+			for index, mutant := range value.Mutants {
+				want := fmt.Sprintf("%s `%s` — %s\n\n- `%s` %s at %s",
+					level, mutant.Site, locations[index], mutant.Operator, mutant.State, locations[index])
+				if !strings.Contains(page, want) {
+					t.Fatalf("the module's finding is missing its own site group %q:\n%s", want, page)
+				}
+			}
+
+			if groups := strings.Count(page, "`output.value` —"); groups != 2 {
+				t.Fatalf("rendered %d module-local site groups, want 2:\n%s", groups, page)
+			}
+		})
+	}
+}
+
+func TestMarkdownOverflowCountsModuleLocalSites(t *testing.T) {
+	t.Parallel()
+
+	value := sitesReport()
+	prototype := value.Mutants[0]
+	value.Mutants = nil
+
+	for index := range 26 {
+		mutant := prototype
+		mutant.ID = fmt.Sprintf("aaaa%08d", index)
+		mutant.Module = fmt.Sprintf("module_%02d", index)
+		mutant.Range.File = mutant.Module + "/main.tf"
+		value.Mutants = append(value.Mutants, mutant)
+	}
+
+	page := renderMarkdown(t, value)
+
+	if groups := strings.Count(page, "#### `local.locations`"); groups != 25 {
+		t.Fatalf("rendered %d module-local site groups, want 25:\n%s", groups, page)
+	}
+
+	if !strings.Contains(page, "… and 1 more sites") ||
+		!strings.Contains(page, "  - `local.locations` — 1 finding") {
+		t.Fatalf("the overflow lost a module-local site:\n%s", page)
+	}
+}
+
+// TestTerminalGroupsIndeterminateSurvivorsBySharedUnknownPaths: the
+// terminal to-do list says once per path set that N survivors are
+// indeterminate because these paths are unknown at plan, names the paths,
+// and lists the group's members — instead of one indeterminate verdict per
+// survivor hiding the shared cause.
+func TestTerminalGroupsIndeterminateSurvivorsBySharedUnknownPaths(t *testing.T) {
+	t.Parallel()
+
+	rendered := strings.Builder{}
+	if err := report.WriteTerminal(&rendered, indeterminateReport()); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	page := rendered.String()
+
+	for _, want := range []string{
+		"  2 survivors are indeterminate because these paths are unknown at plan:",
+		"  1 survivor is indeterminate because these paths are unknown at plan:",
+		"    kubernetes_deployment_v1.workspace[0].id",
+		"    kubernetes_deployment_v1.workspace[0].metadata[0].uid",
+		"    aws_iam_role.this[0].unique_id",
+		"    NUM-OFF-BY-ONE  main.tf:21  local.locations",
+		"    BOOL-FLIP  main.tf:23  local.locations",
+		"    STR-CASE  variables.tf:9  var.type",
+		"    Fix: add an assertion",
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("the terminal report is missing %q:\n%s", want, page)
+		}
+	}
+
+	if said := strings.Count(page, "because these paths are unknown at plan"); said != 2 {
+		t.Fatalf("the indeterminate sentence appears %d times, want once per group (2)", said)
+	}
+}
+
+func TestIndeterminateGroupsFollowReportOrder(t *testing.T) {
+	t.Parallel()
+
+	for name, write := range map[string]func(io.Writer, report.Report) error{
+		"markdown": report.WriteMarkdown,
+		"terminal": report.WriteTerminal,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			value := indeterminateReport()
+			value.Mutants[0].Verdict.Evidence.UnknownPaths = slices.Clone(value.Mutants[0].Verdict.Evidence.UnknownPaths)
+			slices.Reverse(value.Mutants[0].Verdict.Evidence.UnknownPaths)
+			value.Mutants[1].Site = "local.regions"
+			value.Mutants[3].State = report.Survived
+			value.Mutants[3].Verdict.Diagnosis = report.IndeterminateUnknownValues
+			value.Mutants[3].Verdict.Evidence.UnknownPaths = []string{"a_last.computed"}
+			value.Mutants = []report.Mutant{value.Mutants[2], value.Mutants[1], value.Mutants[0], value.Mutants[3]}
+			value.Metrics.Counts = map[report.State]int{report.Survived: 4}
+			value.Metrics.Diagnoses = map[report.Diagnosis]int{report.IndeterminateUnknownValues: 4}
+
+			rendered := strings.Builder{}
+			if err := write(&rendered, value); err != nil {
+				t.Fatalf("rendering: %v", err)
+			}
+
+			page := rendered.String()
+			previous := -1
+
+			for _, path := range []string{
+				"aws_iam_role.this[0].unique_id",
+				"kubernetes_deployment_v1.workspace[0].id",
+				"kubernetes_deployment_v1.workspace[0].metadata[0].uid",
+				"a_last.computed",
+			} {
+				at := strings.Index(page, path)
+				if at <= previous || strings.Count(page, path) != 1 {
+					t.Fatalf("path %q lost its canonical order or its group's report order:\n%s", path, page)
+				}
+
+				previous = at
+			}
+
+			if groups := strings.Count(page, "because these paths are unknown at plan"); groups != 3 {
+				t.Fatalf("rendered %d unknown-path groups, want 3:\n%s", groups, page)
+			}
+
+			first, second := strings.Index(page, "BOOL-FLIP"), strings.Index(page, "NUM-OFF-BY-ONE")
+			if first < 0 || second <= first {
+				t.Fatalf("the shared group's members or site subgroups lost report order:\n%s", page)
+			}
+		})
+	}
+}
+
+func TestTerminalKeepsDiffsForGroupedAndUngroupedSurvivors(t *testing.T) {
+	t.Parallel()
+
+	value := indeterminateReport()
+
+	for index, replacement := range []int{6, 4} {
+		mutant := &value.Mutants[index]
+		mutant.Operator = value.Mutants[0].Operator
+		mutant.Range = value.Mutants[0].Range
+		mutant.Diff = fmt.Sprintf("--- main.tf\n+++ main.tf\n@@ -1 +1 @@\n"+
+			"-value = tonumber(terraform_data.seed.id) + 5\n"+
+			"+value = tonumber(terraform_data.seed.id) + %d\n", replacement)
+	}
+
+	value.Mutants[2].Verdict.Diagnosis = report.WeakAssertion
+	value.Mutants[2].Diff = "-value = \"old\"\n+value = \"OLD\"\n"
+
+	rendered := strings.Builder{}
+	if err := report.WriteTerminal(&rendered, value); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	page := rendered.String()
+
+	for _, replacement := range []int{6, 4} {
+		want := fmt.Sprintf("    NUM-OFF-BY-ONE  main.tf:21  local.locations\n"+
+			"    -value = tonumber(terraform_data.seed.id) + 5\n"+
+			"    +value = tonumber(terraform_data.seed.id) + %d\n", replacement)
+		if strings.Count(page, want) != 1 {
+			t.Fatalf("the grouped survivor lost its own diff %q:\n%s", want, page)
+		}
+	}
+
+	if !strings.Contains(page, "  STR-CASE  variables.tf:9  var.type\n"+
+		"    -value = \"old\"\n    +value = \"OLD\"\n") {
+		t.Fatalf("the ungrouped survivor lost its diff:\n%s", page)
+	}
+
+	if said := strings.Count(page, "because these paths are unknown at plan"); said != 1 {
+		t.Fatalf("the indeterminate explanation appears %d times, want once for the group", said)
+	}
+}
+
+// TestWarningsReachEveryReporter: the report's warnings — preview's
+// safety-gate outcome among them — travel through every reporter, each in
+// its format's natural place. Terminal and JSON already rendered them; the
+// other five discarded them.
+func TestWarningsReachEveryReporter(t *testing.T) {
+	t.Parallel()
+
+	value := allStatesReport()
+	value.Warnings = []string{
+		"the safety gates would refuse a mutation run: unsandboxed effects at main.tf:9",
+		"1 file(s) are not canonically formatted",
+		"unsandboxed effects at main<env>.tf:9",
+		"unsandboxed effects at main*env*.tf:9",
+	}
+
+	t.Run("markdown", func(t *testing.T) {
+		t.Parallel()
+
+		assertMarkdownCarriesWarnings(t, value)
+	})
+
+	t.Run("html", func(t *testing.T) {
+		t.Parallel()
+
+		assertHTMLCarriesWarnings(t, value)
+	})
+
+	t.Run("sarif", func(t *testing.T) {
+		t.Parallel()
+
+		assertSARIFCarriesWarnings(t, value)
+	})
+
+	t.Run("junit", func(t *testing.T) {
+		t.Parallel()
+
+		assertJUnitCarriesWarnings(t, value)
+	})
+
+	t.Run("mte", func(t *testing.T) {
+		t.Parallel()
+
+		assertMTECarriesWarnings(t, value)
+	})
+}
+
+// assertMarkdownCarriesWarnings holds the summary to a warnings section
+// carrying every warning verbatim.
+func assertMarkdownCarriesWarnings(t *testing.T, value report.Report) {
+	t.Helper()
+
+	page := renderMarkdown(t, value)
+
+	if !strings.Contains(page, "### Warnings") {
+		t.Fatalf("the markdown summary has no warnings section:\n%s", page)
+	}
+
+	for _, warning := range value.Warnings {
+		if !strings.Contains(markdownTextContent(page), warning) {
+			t.Fatalf("the markdown summary dropped the warning %q:\n%s", warning, page)
+		}
+	}
+}
+
+// assertHTMLCarriesWarnings holds the page to human-visible warnings: in
+// tf-mut's own header section, above the embedded viewer.
+func assertHTMLCarriesWarnings(t *testing.T, value report.Report) {
+	t.Helper()
+
+	rendered := strings.Builder{}
+	if err := report.WriteHTML(&rendered, value); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	page := rendered.String()
+
+	for _, warning := range value.Warnings {
+		if !strings.Contains(page, html.EscapeString(warning)) {
+			t.Fatalf("the HTML page dropped the warning %q", warning)
+		}
+	}
+
+	header := strings.Index(page, "authoritative metrics")
+	viewer := strings.Index(page, "<mutation-test-report-app")
+	warnings := strings.Index(page, html.EscapeString(value.Warnings[0]))
+
+	if warnings < 0 || header >= warnings || warnings >= viewer {
+		t.Fatal("the warnings do not render in the header section above the viewer")
+	}
+}
+
+// assertSARIFCarriesWarnings holds the document to one warning-level tool
+// execution notification per report warning, after the run summary.
+func assertSARIFCarriesWarnings(t *testing.T, value report.Report) {
+	t.Helper()
+
+	rendered := strings.Builder{}
+	if err := report.WriteSARIF(&rendered, value, nil); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	document := map[string]any{}
+	if err := json.Unmarshal([]byte(rendered.String()), &document); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+
+	runs, ok := document[sarifRunsKey].([]any)
+	if !ok || len(runs) != 1 {
+		t.Fatalf("the SARIF document carries %v runs", document[sarifRunsKey])
+	}
+
+	run, ok := runs[0].(map[string]any)
+	if !ok {
+		t.Fatal("the SARIF run is not an object")
+	}
+
+	invocations, ok := run[sarifInvocationsKey].([]any)
+	if !ok || len(invocations) != 1 {
+		t.Fatalf("the SARIF run carries %v invocations", run[sarifInvocationsKey])
+	}
+
+	invocation, ok := invocations[0].(map[string]any)
+	if !ok {
+		t.Fatal("the SARIF invocation is not an object")
+	}
+
+	notifications, ok := invocation["toolExecutionNotifications"].([]any)
+	if !ok {
+		t.Fatal("the SARIF invocation carries no toolExecutionNotifications")
+	}
+
+	// The run summary notification plus one per warning.
+	if len(notifications) != 1+len(value.Warnings) {
+		t.Fatalf("%d tool execution notifications, want %d (summary + warnings)",
+			len(notifications), 1+len(value.Warnings))
+	}
+
+	for _, warning := range value.Warnings {
+		if !sarifNotifiesWarning(notifications, warning) {
+			t.Fatalf("no warning-level notification carries %q", warning)
+		}
+	}
+}
+
+// sarifNotifiesWarning reports whether a warning-level notification carries
+// the text.
+func sarifNotifiesWarning(notifications []any, warning string) bool {
+	for _, entry := range notifications {
+		notification, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		message, ok := notification[sarifMessageKey].(map[string]any)
+		if !ok {
+			continue
+		}
+
+		text, ok := message[sarifTextKey].(string)
+		if !ok {
+			continue
+		}
+
+		if notification["level"] == "warning" && strings.Contains(text, warning) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// assertJUnitCarriesWarnings holds the suite to a system-out carrying every
+// warning, in the dialect's own place for run-level messages.
+func assertJUnitCarriesWarnings(t *testing.T, value report.Report) {
+	t.Helper()
+
+	rendered := strings.Builder{}
+	if err := report.WriteJUnit(&rendered, value); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	document := rendered.String()
+	assertJUnitValidatesAgainstTheVendoredSchema(t, document)
+
+	type testsuite struct {
+		SystemOut string `xml:"system-out"`
+	}
+
+	decoded := struct {
+		Suites []testsuite `xml:"testsuite"`
+	}{}
+	if err := xml.Unmarshal([]byte(document), &decoded); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+
+	if len(decoded.Suites) != 1 {
+		t.Fatalf("expected one testsuite, got %d", len(decoded.Suites))
+	}
+
+	for _, warning := range value.Warnings {
+		if !strings.Contains(decoded.Suites[0].SystemOut, warning) {
+			t.Fatalf("the JUnit system-out dropped the warning %q:\n%s",
+				warning, decoded.Suites[0].SystemOut)
+		}
+	}
+}
+
+// assertMTECarriesWarnings holds the document to the full warning list in
+// the config's tf-mut block, beside the authoritative metrics, and to the
+// pinned schema.
+func assertMTECarriesWarnings(t *testing.T, value report.Report) {
+	t.Helper()
+
+	rendered := strings.Builder{}
+	if err := report.WriteMTE(&rendered, value); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	document := map[string]any{}
+	if err := json.Unmarshal([]byte(rendered.String()), &document); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+
+	schema := loadSchemaFile(t, mteSchemaPath)
+	if problems := validate(schema, schema, document, "$"); len(problems) > 0 {
+		t.Fatalf("the MTE document does not validate:\n  %s", strings.Join(problems, "\n  "))
+	}
+
+	config, ok := document["config"].(map[string]any)
+	if !ok {
+		t.Fatal("the MTE document carries no config object")
+	}
+
+	embedded, ok := config["tf-mut"].(map[string]any)
+	if !ok {
+		t.Fatal("the MTE config carries no tf-mut block")
+	}
+
+	carried, ok := embedded["warnings"].([]any)
+	if !ok || len(carried) != len(value.Warnings) {
+		t.Fatalf("the MTE config carries %v, want all %d warnings", embedded["warnings"], len(value.Warnings))
+	}
+
+	for index, warning := range value.Warnings {
+		text, ok := carried[index].(string)
+		if !ok {
+			t.Fatalf("the MTE config carries %v at %d, want the string %q", carried[index], index, warning)
+		}
+
+		if text != warning {
+			t.Fatalf("the MTE config carries %q at %d, want %q", text, index, warning)
 		}
 	}
 }

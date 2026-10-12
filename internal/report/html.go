@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"strings"
 )
@@ -64,6 +65,16 @@ func writeAuthoritativeHeader(page *strings.Builder, value Report) {
 		value.Metrics.AssertionScore*percent,
 		value.Metrics.Reachability*percent,
 		value.Metrics.Scored)
+
+	if len(value.Warnings) > 0 {
+		page.WriteString("<p><strong>Warnings</strong></p>\n<ul>\n")
+
+		for _, warning := range value.Warnings {
+			fmt.Fprintf(page, "<li>%s</li>\n", html.EscapeString(warning))
+		}
+
+		page.WriteString("</ul>\n")
+	}
 
 	if value.Metrics.Incomplete {
 		page.WriteString("<p><strong>Incomplete:</strong> this score is untrustworthy &mdash; " +
