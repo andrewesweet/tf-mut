@@ -47,16 +47,16 @@ type characteriseStage struct {
 	// discovered. A path that does not run the loop leaves it empty.
 	scaffolds *scaffoldSet
 	// seedInitialPinDefect and seedFinalPinDefect are the pin-defect hooks
-	// beside the initial and final verifiers. Production never writes them, so
-	// a staged run's pin sets pass through untouched; the internal test
-	// constructor is the only writer.
+	// beside the initial and final verifiers, copied from the request.
+	// Production never writes them, so a staged run's pin sets pass through
+	// untouched; a nil hook is the identity.
 	seedInitialPinDefect func([]characterise.Pin) []characterise.Pin
 	seedFinalPinDefect   func([]characterise.Pin) []characterise.Pin
 }
 
 // initialPins passes the harvested pin set through the initial pin-defect
-// hook. A nil hook is the production path and the identity: only the internal
-// test constructor sets one.
+// hook. A nil hook is the production path and the identity: the request's
+// zero value carries none, and export_test.go is the only writer of one.
 func (s characteriseStage) initialPins(pins []characterise.Pin) []characterise.Pin {
 	if s.seedInitialPinDefect == nil {
 		return pins
@@ -109,8 +109,7 @@ func characteriseModule(
 	ctx context.Context,
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
-	settings settings, version tfexec.Version,
-	collector *runCollector,
+	settings settings, version tfexec.Version, collector *runCollector, hooks pinDefectHooks,
 ) (report.Report, error) {
 	rung, answers, err := characteriseInputs(configuration, settings)
 	if err != nil {
@@ -167,6 +166,7 @@ func characteriseModule(
 		configuration: configuration, settings: settings,
 		prepared: prepared, workRoot: workRoot, terraform: version, collector: collector,
 		runner: runner, scaffold: scaffold, answers: answers, scaffolds: newScaffoldSet(),
+		seedInitialPinDefect: hooks.initial, seedFinalPinDefect: hooks.final,
 	}
 
 	events := dispatcher{}

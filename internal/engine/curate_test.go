@@ -481,6 +481,45 @@ func TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions(t *testing.T) {
 	}
 }
 
+// TestTheFinalPinSetIsVerifiedBeforeAnyWrite is the write contract on the
+// loop's other exit, asserted by seeding a defect rather than by observing a
+// success.
+//
+// Each round proves the previous round's pins by baselining them at its start,
+// so on the `dry` exit everything written was baselined. On the `bounded` exit
+// there is no next round, and the pins the last round added would reach disk
+// verified only one suggestion at a time — evidence, not the claim the
+// contract makes. A pin nothing could have harvested is added to the final
+// set: the verification between the loop and the write has to catch it, and
+// nothing may be written. Remove that verification and this test fails.
+//
+//nolint:paralleltest // owns the package-global until-dry seed for its lifetime.
+func TestTheFinalPinSetIsVerifiedBeforeAnyWrite(t *testing.T) {
+	module := copyFixture(t, untestedBranchesFixture)
+
+	config := characteriseRequest(t, module)
+	config.UntilDry = true
+	config.Write = true
+	engine.SetUntilDryRounds(t, module, 1)
+	config = engine.WithSeededFinalPinDefect(config)
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrScaffoldRed) {
+		t.Fatalf("error = %v, want the final verification to catch the seeded pin", err)
+	}
+
+	entries, readErr := os.ReadDir(filepath.Join(module, "tests"))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatalf("reading the test directory: %v", readErr)
+	}
+
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tftest.hcl") {
+			t.Fatalf("an unverified suite was written: %s", entry.Name())
+		}
+	}
+}
+
 // TestAScaffoldAnswerCannotInjectConfiguration is the answer grammar's real
 // boundary.
 //

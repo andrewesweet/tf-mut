@@ -245,3 +245,37 @@ func SetGitTimeout(t *testing.T, limit time.Duration) {
 
 	t.Cleanup(func() { gitTimeout = previous })
 }
+
+// WithSeededInitialPinDefect returns the request with the characterisation's
+// initial pin verifier seeded to emit one knowingly false pin. The request is
+// the only carrier of the hook pair production never sets, so the seeded
+// hooks stay bound to the one request and its run.
+func WithSeededInitialPinDefect(request CharacteriseRequest) CharacteriseRequest {
+	request.pinDefectHooks.initial = seedOneFalsePin("tf-mut-seeded-initial-pin-defect")
+	return request
+}
+
+// WithSeededFinalPinDefect returns the request with the characterisation's
+// final pin verifier seeded the same way, proving the verification between
+// the until-dry loop's exit and the write.
+func WithSeededFinalPinDefect(request CharacteriseRequest) CharacteriseRequest {
+	request.pinDefectHooks.final = seedOneFalsePin("tf-mut-seeded-final-pin-defect")
+	return request
+}
+
+// seedOneFalsePin is the defect both proofs seed: one pin nothing could have
+// harvested, appended to the set the verifier is about to judge.
+func seedOneFalsePin(marker string) func([]characterise.Pin) []characterise.Pin {
+	return func(pins []characterise.Pin) []characterise.Pin {
+		if len(pins) == 0 {
+			return pins
+		}
+
+		defect := pins[0]
+
+		return append(slices.Clone(pins), characterise.Pinned(
+			defect.Scenario(), defect.Address(),
+			defect.Address()+` == "`+marker+`"`, defect.Rung(),
+		))
+	}
+}
