@@ -1,8 +1,6 @@
 package oracle
 
 import (
-	"strings"
-
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
@@ -233,11 +231,15 @@ func resourceOf(address string) string {
 	parts := parsed.Parts
 
 	if len(parts) >= 3 && parts[0] == dataRoot {
-		return strings.Join(parts[:3], ".")
+		resource, _ := discovery.BlockAddr(dataRoot, parts[1:3])
+
+		return resource
 	}
 
 	if len(parts) >= 2 { //nolint:mnd // the canonical grammar's bare `<type>.<name>` resource arity.
-		return strings.Join(parts[:2], ".")
+		resource, _ := discovery.BlockAddr("resource", parts[:2])
+
+		return resource
 	}
 
 	return address
