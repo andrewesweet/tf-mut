@@ -986,7 +986,7 @@ func TestARegistryFailureReportsThePartialState(t *testing.T) {
 	engine.SetCharacteriseWriteSeeds(t, module, "", "", 0, false, true)
 
 	result, err := engine.Run(ctx, config)
-	assertTraceCancellationPreservesResult(t, ctx, err)
+	assertTraceCancellationPreservesResult(ctx, t, err)
 
 	write := result.Characterisation.Write
 	if write == nil || len(write.Partial) == 0 {

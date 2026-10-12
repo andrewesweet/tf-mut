@@ -97,7 +97,7 @@ func TestCancellationDuringTraceFlushPreservesBaselineReport(t *testing.T) {
 	request.OTLPEndpoint = endpoint
 
 	result, err := engine.Run(ctx, request)
-	assertTraceCancellationPreservesResult(t, ctx, err)
+	assertTraceCancellationPreservesResult(ctx, t, err)
 	if result.Gates == nil || result.Gates.Baseline == nil ||
 		result.Gates.Baseline.Write != report.BaselineWritten {
 		t.Fatalf("the report lost the completed baseline write: %+v", result.Gates)
@@ -116,7 +116,7 @@ func TestCancellationDuringTraceFlushPreservesApplyReport(t *testing.T) {
 	request.OTLPEndpoint = endpoint
 
 	result, err := engine.Run(ctx, request)
-	assertTraceCancellationPreservesResult(t, ctx, err)
+	assertTraceCancellationPreservesResult(ctx, t, err)
 	if result.Apply == nil || len(result.Apply.Written) == 0 || result.Apply.Aborted != "" {
 		t.Fatalf("the report lost the completed suggestion writes: %+v", result.Apply)
 	}
@@ -136,7 +136,7 @@ func TestCancellationDuringTraceFlushPreservesCharacterisationReport(t *testing.
 	request.OTLPEndpoint = endpoint
 
 	result, err := engine.Run(ctx, request)
-	assertTraceCancellationPreservesResult(t, ctx, err)
+	assertTraceCancellationPreservesResult(ctx, t, err)
 	if result.Characterisation == nil || result.Characterisation.Write == nil ||
 		len(result.Characterisation.Write.Written) == 0 || result.Characterisation.Write.Refused != "" {
 		t.Fatalf("the report lost the completed suite writes: %+v", result.Characterisation)
@@ -188,7 +188,7 @@ func cancelDuringTraceFlush(t *testing.T) (context.Context, string) {
 	return ctx, server.URL
 }
 
-func assertTraceCancellationPreservesResult(t *testing.T, ctx context.Context, err error) {
+func assertTraceCancellationPreservesResult(ctx context.Context, t *testing.T, err error) {
 	t.Helper()
 
 	if !errors.Is(ctx.Err(), context.Canceled) {
