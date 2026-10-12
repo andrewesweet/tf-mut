@@ -46,7 +46,7 @@ exception, not a dependency from the report DTO leaf. Publication otherwise
 does not import a domain context. The application layer performs the projections
 between context values and report DTOs.
 
-Lint enforces six boundaries, including test files:
+Lint enforces seven boundaries, including test files:
 
 - The pre-existing [#89](https://github.com/andrewesweet/tf-mut/issues/89)
   `context-boundary` rule denies `internal/report` imports from all core,
@@ -68,6 +68,10 @@ Lint enforces six boundaries, including test files:
 - `report-leaf` allows only standard-library imports from `internal/report`,
   with one exception: its external test files may import the exact package
   they test.
+- `telemetry-boundary` permits `go.opentelemetry.io` imports only in
+  `internal/tracing`, the infrastructure package that projects span attributes
+  and owns the exporter; callers carry `tracing.Attribute` values instead.
+  The engine's two OTLP wire-decoder test files hold the rule's one recorded exclusion.
 
 Core, supporting and boundary imports of `internal/skill`, and skill's own
 imports beyond its one documented sandbox exception, remain policy; these lint

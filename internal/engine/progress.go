@@ -14,6 +14,18 @@ import (
 // is for a human glancing at a long run, not for a driver.
 const DefaultProgressInterval = 10 * time.Second
 
+type synchronizedWriter struct {
+	mutex  sync.Mutex
+	writer io.Writer
+}
+
+func (w *synchronizedWriter) Write(p []byte) (int, error) {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+
+	return w.writer.Write(p)
+}
+
 // progressTracker writes the periodic long-run line — n/N mutants, elapsed,
 // ETA — to the writer the caller pointed at the run's progress. A nil writer
 // records nothing and costs one nil check per mutant; the CLI passes

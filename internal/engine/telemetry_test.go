@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"maps"
@@ -14,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,6 +44,7 @@ const (
 	parentSymlinkExistingKind = "parent-symlink-existing"
 	parentSymlinkNewKind      = "parent-symlink-new"
 	fileExistsError           = "file exists"
+	traceWriterCase           = "writer"
 )
 
 // phaseNames projects a phase list onto its names, in the recorded order.
@@ -493,11 +496,191 @@ func TestOTLPExportCarriesRunAndPhaseSpans(t *testing.T) {
 	}
 }
 
+func TestTraceExportWarningsAndProgressShareTheWriter(t *testing.T) {
+	t.Setenv("OTEL_BSP_SCHEDULE_DELAY", "1")
+	t.Setenv("OTEL_BSP_MAX_EXPORT_BATCH_SIZE", "1")
+
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(sink.Close)
+
+	var output bytes.Buffer
+	request := baseConfig(t, copyFixture(t, discriminateFixture))
+	request.NoCache = true
+	request.OTLPEndpoint = sink.URL
+	request.Progress = &output
+	request.ProgressIntervalForTesting = time.Millisecond
+
+	if _, err := engine.Run(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+
+	warning := "tf-mut: trace export failed"
+	progress := regexp.MustCompile(`^tf-mut: \d+/\d+ mutants, .* elapsed, ETA .*`)
+	warnings, lines := 0, 0
+	for line := range strings.SplitSeq(strings.TrimSuffix(output.String(), "\n"), "\n") {
+		switch {
+		case line == warning:
+			warnings++
+		case progress.MatchString(line):
+			lines++
+		default:
+			t.Fatalf("corrupt warning or progress line: %q", line)
+		}
+	}
+
+	if warnings == 0 || lines == 0 {
+		t.Fatalf("warnings = %d, progress lines = %d; want both", warnings, lines)
+	}
+}
+
+func TestTraceExportWarningsStopWhenRunReturns(t *testing.T) {
+	t.Setenv("OTEL_BSP_MAX_EXPORT_BATCH_SIZE", "1")
+	t.Setenv("OTEL_BSP_EXPORT_TIMEOUT", "30000")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_TIMEOUT", "30000")
+
+	release, drained := make(chan struct{}), make(chan struct{})
+	var requests atomic.Int32
+	var released sync.Once
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch requests.Add(1) {
+		case 1:
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
+		case 2:
+			close(drained)
+		default:
+		}
+
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(sink.Close)
+	t.Cleanup(func() { released.Do(func() { close(release) }) })
+
+	var output bytes.Buffer
+	request := baseConfig(t, copyFixture(t, "skeleton"))
+	request.NoCache = true
+	request.OTLPEndpoint = sink.URL
+	request.Progress = &output
+	request.ProgressIntervalForTesting = time.Hour
+
+	if _, err := engine.Run(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("export requests before return = %d, want one still pending", got)
+	}
+	warning := output.String()
+
+	output.Reset()
+	_, _ = output.WriteString("caller owns this buffer\n")
+	released.Do(func() { close(release) })
+	select {
+	case <-drained:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the timed-out exporter did not finish its pending batch")
+	}
+
+	if got := output.String(); got != "caller owns this buffer\n" {
+		t.Fatalf("an export wrote to the caller's buffer after return: %q", got)
+	}
+	if warning != "tf-mut: trace export failed\n" {
+		t.Fatalf("shutdown warning = %q", warning)
+	}
+}
+
+//nolint:paralleltest // Subtests share the process-wide OTel environment set by their parent.
+func TestTraceExportWarningsStayWithTheirRun(t *testing.T) {
+	t.Setenv("OTEL_BSP_SCHEDULE_DELAY", "60000")
+
+	for _, secondWriter := range []string{traceWriterCase, "nil"} {
+		t.Run(secondWriter, func(t *testing.T) {
+			assertTraceExportWarningsStayWithTheirRun(t, secondWriter)
+		})
+	}
+}
+
+func assertTraceExportWarningsStayWithTheirRun(t *testing.T, secondWriter string) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	exporting, release := make(chan struct{}), make(chan struct{})
+	var received, released sync.Once
+	firstSink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received.Do(func() { close(exporting) })
+		select {
+		case <-release:
+			w.WriteHeader(http.StatusUnauthorized)
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(firstSink.Close)
+	t.Cleanup(func() { released.Do(func() { close(release) }) })
+
+	secondSink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(secondSink.Close)
+
+	var firstOutput, secondOutput bytes.Buffer
+	first := baseConfig(t, copyFixture(t, "skeleton"))
+	first.NoCache = true
+	first.OTLPEndpoint = firstSink.URL
+	first.Progress = &firstOutput
+	first.ProgressIntervalForTesting = time.Hour
+	second := baseConfig(t, copyFixture(t, "skeleton"))
+	second.NoCache = true
+	second.OTLPEndpoint = secondSink.URL
+	second.ProgressIntervalForTesting = time.Hour
+	if secondWriter == traceWriterCase {
+		second.Progress = &secondOutput
+	}
+
+	finished := make(chan error, 1)
+	go func() {
+		_, err := engine.Run(ctx, first)
+		finished <- err
+	}()
+
+	select {
+	case <-exporting:
+	case <-ctx.Done():
+		t.Fatal("the first run never reached its trace export")
+	}
+
+	if _, err := engine.Run(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	released.Do(func() { close(release) })
+	if err := <-finished; err != nil {
+		t.Fatal(err)
+	}
+
+	warning := "tf-mut: trace export failed\n"
+	if firstOutput.String() != warning {
+		t.Fatalf("first run warning = %q, want %q", firstOutput.String(), warning)
+	}
+	wanted := ""
+	if secondWriter == traceWriterCase {
+		wanted = warning
+	}
+	if secondOutput.String() != wanted {
+		t.Fatalf("second run warning = %q, want %q", secondOutput.String(), wanted)
+	}
+}
+
 // spanCollector is the OTLP/HTTP sink the seam test points the engine at.
 type spanCollector struct {
-	server *httptest.Server
-	mutex  sync.Mutex
-	spans  []*tracepb.Span
+	server    *httptest.Server
+	mutex     sync.Mutex
+	spans     []*tracepb.Span
+	resources []*tracepb.ResourceSpans
 }
 
 func newSpanCollector(t *testing.T, delay time.Duration) *spanCollector {
@@ -522,6 +705,7 @@ func newSpanCollector(t *testing.T, delay time.Duration) *spanCollector {
 
 		sink.mutex.Lock()
 		defer sink.mutex.Unlock()
+		sink.resources = append(sink.resources, request.GetResourceSpans()...)
 		for _, resource := range request.GetResourceSpans() {
 			for _, scope := range resource.GetScopeSpans() {
 				sink.spans = append(sink.spans, scope.GetSpans()...)
@@ -556,6 +740,21 @@ func (s *spanCollector) exportedSpans() []*tracepb.Span {
 	defer s.mutex.Unlock()
 
 	return slices.Clone(s.spans)
+}
+
+func (s *spanCollector) resourceAttributeString(key string) string {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	for _, resource := range s.resources {
+		for _, attr := range resource.GetResource().GetAttributes() {
+			if attr.GetKey() == key {
+				return attr.GetValue().GetStringValue()
+			}
+		}
+	}
+
+	return ""
 }
 
 func TestTraceMeasurementsMatchTheReport(t *testing.T) {

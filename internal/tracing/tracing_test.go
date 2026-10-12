@@ -1,17 +1,21 @@
 package tracing_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	collectortrace "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/andrewesweet/tf-mut/internal/tracing"
@@ -28,6 +32,7 @@ type collector struct {
 	names  []string
 	paths  []string
 	bodies int
+	spans  []*tracepb.Span
 }
 
 func newCollector(t *testing.T, status int) *collector {
@@ -56,6 +61,7 @@ func newCollector(t *testing.T, status int) *collector {
 		sink.paths = append(sink.paths, r.URL.Path)
 		for _, resource := range request.GetResourceSpans() {
 			for _, scope := range resource.GetScopeSpans() {
+				sink.spans = append(sink.spans, scope.GetSpans()...)
 				for _, span := range scope.GetSpans() {
 					sink.names = append(sink.names, span.GetName())
 				}
@@ -81,11 +87,79 @@ func (c *collector) spanNames(t *testing.T) []string {
 	return append([]string{}, c.names...)
 }
 
+func (c *collector) exportedSpans(t *testing.T) []*tracepb.Span {
+	t.Helper()
+
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	return slices.Clone(c.spans)
+}
+
+// TestAttributesProjectOntoTheExportedSpans pins the port's own attribute
+// value: string and integer values the caller hands Start and End reach the
+// exported spans unchanged, and an attribute that is neither — only the zero
+// value can be one — is dropped rather than guessed at. The engine seam's
+// OTLP tests pin the same projection for the spans the run actually records.
+func TestAttributesProjectOntoTheExportedSpans(t *testing.T) {
+	sink := newCollector(t, http.StatusOK)
+	t.Setenv(tracing.EndpointEnv, "")
+
+	tracer := tracing.New(t.Context(), sink.server.URL+"/v1/traces", nil)
+
+	ctx, run := tracer.Start(t.Context(), "tf-mut.run",
+		tracing.String("tf-mut.command", "run"), tracing.Int("tf-mut.jobs", 4))
+	run.End(tracing.String("tf-mut.state", "clean"),
+		tracing.Int("tf-mut.overhead_ms", 12),
+		tracing.Attribute{})
+
+	shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := tracer.Shutdown(shutdown); err != nil {
+		t.Fatalf("flushing: %v", err)
+	}
+
+	started := false
+	for _, span := range sink.exportedSpans(t) {
+		if span.GetName() != "tf-mut.run" {
+			continue
+		}
+		started = true
+
+		values := map[string]any{}
+		for _, attribute := range span.GetAttributes() {
+			if attribute.GetKey() == "" {
+				t.Fatal("the zero attribute reached the wire")
+			}
+
+			if intValue, ok := attribute.GetValue().GetValue().(*commonv1.AnyValue_IntValue); ok {
+				values[attribute.GetKey()] = intValue.IntValue
+
+				continue
+			}
+
+			values[attribute.GetKey()] = attribute.GetValue().GetStringValue()
+		}
+
+		if values["tf-mut.command"] != "run" || values["tf-mut.state"] != "clean" {
+			t.Fatalf("string attributes did not survive the projection: %v", values)
+		}
+
+		if values["tf-mut.jobs"] != int64(4) || values["tf-mut.overhead_ms"] != int64(12) {
+			t.Fatalf("integer attributes did not survive the projection: %v", values)
+		}
+	}
+
+	if !started {
+		t.Fatal("no run span was exported")
+	}
+}
+
 func TestDisabledWithoutEndpoint(t *testing.T) {
 	t.Setenv(tracing.EndpointEnv, "")
 
 	ctx := context.Background()
-	tracer := tracing.New(ctx, "")
+	tracer := tracing.New(ctx, "", nil)
 
 	if tracer.Enabled() {
 		t.Fatal("a tracer with no flag and no environment variable must be disabled")
@@ -106,7 +180,7 @@ func TestExplicitEndpointWinsOverEnvironment(t *testing.T) {
 	target := newCollector(t, http.StatusOK)
 
 	ctx := context.Background()
-	tracer := tracing.New(ctx, target.server.URL+"/v1/traces")
+	tracer := tracing.New(ctx, target.server.URL+"/v1/traces", nil)
 	if !tracer.Enabled() {
 		t.Fatal("an explicit endpoint must enable the tracer")
 	}
@@ -135,7 +209,7 @@ func TestEnvironmentConfiguresExport(t *testing.T) {
 	t.Setenv(tracing.EndpointEnv, sink.server.URL+"/v1/traces")
 
 	ctx := context.Background()
-	tracer := tracing.New(ctx, "")
+	tracer := tracing.New(ctx, "", nil)
 	if !tracer.Enabled() {
 		t.Fatal("the environment variable alone must enable the tracer")
 	}
@@ -163,7 +237,8 @@ func TestUnusableEndpointDisablesInsteadOfFailing(t *testing.T) {
 	t.Setenv(tracing.EndpointEnv, "")
 
 	ctx := context.Background()
-	tracer := tracing.New(ctx, "://not-a-url")
+	// A nil warning writer must disable the tracer without anywhere to write.
+	tracer := tracing.New(ctx, "://not-a-url", nil)
 	if tracer.Enabled() {
 		t.Fatal("a tracer over an unusable endpoint must disable itself")
 	}
@@ -181,7 +256,7 @@ func TestEndpointPathsUseTheTraceSuffix(t *testing.T) {
 					endpoint = ""
 				}
 
-				tracer := tracing.New(t.Context(), endpoint)
+				tracer := tracing.New(t.Context(), endpoint, nil)
 				_, span := tracer.Start(t.Context(), "tf-mut.run")
 				span.End()
 				shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -241,6 +316,9 @@ func TestUnusableEndpointWarningsRedactSecrets(t *testing.T) {
 func assertUnusableEndpointWarning(t *testing.T, endpoint, safeURL string) {
 	t.Helper()
 
+	// The warning must land on the writer the caller supplies — the engine
+	// passes the request's progress writer, never a report sink — and leave
+	// the process's own stderr untouched.
 	log, err := os.CreateTemp(t.TempDir(), "stderr")
 	if err != nil {
 		t.Fatal(err)
@@ -253,7 +331,8 @@ func assertUnusableEndpointWarning(t *testing.T, endpoint, safeURL string) {
 		_ = log.Close()
 	})
 
-	tracer := tracing.New(t.Context(), endpoint)
+	warnings := &bytes.Buffer{}
+	tracer := tracing.New(t.Context(), endpoint, warnings)
 	if tracer.Enabled() {
 		t.Fatal("an unusable endpoint enabled tracing")
 	}
@@ -262,14 +341,18 @@ func assertUnusableEndpointWarning(t *testing.T, endpoint, safeURL string) {
 		t.Fatal(seekErr)
 	}
 
-	warning, err := io.ReadAll(log)
+	wanted := "tf-mut: tracing disabled: an unusable OTLP endpoint" + safeURL + "\n"
+	if warnings.String() != wanted {
+		t.Fatalf("warning = %q, want %q", warnings.String(), wanted)
+	}
+
+	stray, err := io.ReadAll(log)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	want := "tf-mut: tracing disabled: an unusable OTLP endpoint" + safeURL + "\n"
-	if string(warning) != want {
-		t.Fatalf("warning = %q, want %q", warning, want)
+	if len(stray) != 0 {
+		t.Fatalf("the tracer wrote to stderr instead of the warning writer: %q", stray)
 	}
 }
 
@@ -289,7 +372,8 @@ func TestExportFailureWarningsOmitConfigurationSecrets(t *testing.T) {
 		_ = log.Close()
 	})
 
-	tracer := tracing.New(t.Context(), sink.server.URL+"/private-path-token")
+	warnings := &bytes.Buffer{}
+	tracer := tracing.New(t.Context(), sink.server.URL+"/private-path-token", warnings)
 	_, span := tracer.Start(t.Context(), "tf-mut.run")
 	span.End()
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -298,17 +382,21 @@ func TestExportFailureWarningsOmitConfigurationSecrets(t *testing.T) {
 		t.Fatal(shutdownErr)
 	}
 
+	if warnings.String() != "tf-mut: trace export failed\n" {
+		t.Fatalf("warning exposes configuration or omits the fixed message: %q", warnings.String())
+	}
+
 	if _, seekErr := log.Seek(0, io.SeekStart); seekErr != nil {
 		t.Fatal(seekErr)
 	}
 
-	warning, err := io.ReadAll(log)
+	stray, err := io.ReadAll(log)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if string(warning) != "tf-mut: trace export failed\n" {
-		t.Fatalf("warning exposes configuration or omits the fixed message: %q", warning)
+	if len(stray) != 0 {
+		t.Fatalf("the tracer wrote to stderr instead of the warning writer: %q", stray)
 	}
 
 	sink.mutex.Lock()

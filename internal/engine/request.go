@@ -64,9 +64,10 @@ type Common struct {
 	// Empty — the default — falls back to OTEL_EXPORTER_OTLP_ENDPOINT.
 	// Tracing is disabled when neither supplies an endpoint.
 	OTLPEndpoint string
-	// Progress receives the periodic long-run progress lines. Nil — the
-	// default — prints nothing; the CLI passes os.Stderr, which is never a
-	// report sink.
+	// Progress receives periodic long-run progress lines and tracing and
+	// CPU-profile warnings. Nil — the default — discards both. Run serializes
+	// writes within one invocation and stops writing before it returns.
+	// The CLI passes its stderr writer; callers must keep report output separate.
 	Progress io.Writer
 	// ProgressIntervalForTesting overrides the cadence for engine-seam tests.
 	// Zero selects the default ten seconds; it is honoured only when Progress is set.

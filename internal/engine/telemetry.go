@@ -6,8 +6,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 	"github.com/andrewesweet/tf-mut/internal/tracing"
@@ -113,7 +111,7 @@ func newRunCollector(ctx context.Context, tracer *tracing.Tracer) *runCollector 
 // beginRun starts the run span and returns the context its phases nest under.
 func (c *runCollector) beginRun(command string) context.Context {
 	marked := time.Now()
-	c.base, c.runSpan = c.tracer.Start(c.base, spanRun, attribute.String(attrCommand, command))
+	c.base, c.runSpan = c.tracer.Start(c.base, spanRun, tracing.String(attrCommand, command))
 	c.overhead.Add(int64(time.Since(marked)))
 
 	return c.base
@@ -129,12 +127,12 @@ func (c *runCollector) endRun() {
 
 // phase times one named step of the run. The returned function ends the step
 // and records its wall time; a step that panics never records.
-func (c *runCollector) phase(name string) func(...attribute.KeyValue) {
+func (c *runCollector) phase(name string) func(...tracing.Attribute) {
 	start := time.Now()
-	_, span := c.tracer.Start(c.base, spanPhase, attribute.String(attrPhase, name))
+	_, span := c.tracer.Start(c.base, spanPhase, tracing.String(attrPhase, name))
 	c.overhead.Add(int64(time.Since(start)))
 
-	return func(attributes ...attribute.KeyValue) {
+	return func(attributes ...tracing.Attribute) {
 		elapsed := time.Since(start)
 
 		marked := time.Now()
@@ -147,7 +145,7 @@ func (c *runCollector) phase(name string) func(...attribute.KeyValue) {
 }
 
 // child records one child Terraform process's usage under its subcommand.
-func (c *runCollector) child(command string, usage tfexec.Usage, started bool) []attribute.KeyValue {
+func (c *runCollector) child(command string, usage tfexec.Usage, started bool) []tracing.Attribute {
 	if !started {
 		return nil
 	}
@@ -170,11 +168,11 @@ func (c *runCollector) child(command string, usage tfexec.Usage, started bool) [
 	}
 
 	c.mutex.Unlock()
-	attributes := []attribute.KeyValue{
-		attribute.String("tf-mut.child.command", command),
-		attribute.Int64("tf-mut.child.user_cpu_ms", usage.UserCPU.Milliseconds()),
-		attribute.Int64("tf-mut.child.system_cpu_ms", usage.SystemCPU.Milliseconds()),
-		attribute.Int64("tf-mut.child.peak_rss_kb", usage.PeakRSSKB),
+	attributes := []tracing.Attribute{
+		tracing.String("tf-mut.child.command", command),
+		tracing.Int("tf-mut.child.user_cpu_ms", usage.UserCPU.Milliseconds()),
+		tracing.Int("tf-mut.child.system_cpu_ms", usage.SystemCPU.Milliseconds()),
+		tracing.Int("tf-mut.child.peak_rss_kb", usage.PeakRSSKB),
 	}
 	c.overhead.Add(int64(time.Since(marked)))
 
@@ -201,7 +199,7 @@ func (c *runCollector) finish() *report.Telemetry {
 func (c *runCollector) mutant(ctx context.Context, id, operator string) *mutantCollector {
 	marked := time.Now()
 	base, span := c.tracer.Start(ctx, spanMutant,
-		attribute.String(attrMutantID, id), attribute.String(attrOperator, operator))
+		tracing.String(attrMutantID, id), tracing.String(attrOperator, operator))
 
 	collector := &mutantCollector{
 		run:        c,
@@ -219,12 +217,12 @@ func (c *runCollector) mutant(ctx context.Context, id, operator string) *mutantC
 // phase times one named step of the mutant's evaluation. It runs on the
 // worker goroutine that owns the collector, so the only lock it takes is the
 // run aggregate's, through the overhead ledger.
-func (m *mutantCollector) phase(name string) func(...attribute.KeyValue) {
+func (m *mutantCollector) phase(name string) func(...tracing.Attribute) {
 	start := time.Now()
-	_, span := m.run.tracer.Start(m.base, spanPhase, attribute.String(attrPhase, name))
+	_, span := m.run.tracer.Start(m.base, spanPhase, tracing.String(attrPhase, name))
 	m.run.overhead.Add(int64(time.Since(start)))
 
-	return func(attributes ...attribute.KeyValue) {
+	return func(attributes ...tracing.Attribute) {
 		elapsed := time.Since(start)
 
 		marked := time.Now()
@@ -236,7 +234,7 @@ func (m *mutantCollector) phase(name string) func(...attribute.KeyValue) {
 
 // child records one child process of this evaluation, per invocation, and
 // merges it into the run aggregate.
-func (m *mutantCollector) child(command string, usage tfexec.Usage, started bool) []attribute.KeyValue {
+func (m *mutantCollector) child(command string, usage tfexec.Usage, started bool) []tracing.Attribute {
 	if !started {
 		return nil
 	}

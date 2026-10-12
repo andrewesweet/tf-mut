@@ -11,10 +11,13 @@ package tracing
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
@@ -28,11 +31,18 @@ import (
 // collector endpoint. An explicit flag value wins over it.
 const EndpointEnv = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
+const exportFailureWarning = "tf-mut: trace export failed\n"
+
+//nolint:gochecknoglobals // OpenTelemetry's initialization callback is process-global.
+var initializationMutex sync.Mutex
+
 // Tracer hands out spans, or no-ops when disabled.
 type Tracer struct {
-	disabled bool
-	tracer   oteltrace.Tracer
-	provider *sdktrace.TracerProvider
+	disabled     bool
+	tracer       oteltrace.Tracer
+	provider     *sdktrace.TracerProvider
+	warningMutex sync.Mutex
+	warnings     io.Writer
 }
 
 // Span is one span in progress, or an inert placeholder when the tracer is
@@ -41,19 +51,62 @@ type Span struct {
 	span oteltrace.Span
 }
 
+// Attribute is one span attribute: a string key carrying a string or an
+// integer value. String and Int are the only constructors; the zero value
+// carries nothing and is dropped rather than guessed at. It is the port's
+// own vocabulary, so callers never import OpenTelemetry's attribute types.
+type Attribute struct {
+	key   string
+	value any // string or int64, by the constructors alone
+}
+
+// String returns an attribute carrying a string value.
+func String(key, value string) Attribute {
+	return Attribute{key: key, value: value}
+}
+
+// Int returns an attribute carrying an integer value.
+func Int(key string, value int64) Attribute {
+	return Attribute{key: key, value: value}
+}
+
+// keyValues projects the port's attributes onto the exporter's vocabulary.
+// An attribute carrying neither a string nor an integer — only the zero
+// value can be one — is dropped.
+func keyValues(attributes []Attribute) []attribute.KeyValue {
+	values := make([]attribute.KeyValue, 0, len(attributes))
+	for _, a := range attributes {
+		switch value := a.value.(type) {
+		case string:
+			values = append(values, attribute.String(a.key, value))
+		case int64:
+			values = append(values, attribute.Int64(a.key, value))
+		default:
+			// Only the constructors write the field; the zero value carries
+			// nothing and is dropped rather than guessed at.
+		}
+	}
+
+	return values
+}
+
 // New resolves the endpoint — the argument first, then the environment — and
 // returns a tracer that exports over OTLP/HTTP. Any failure to build the
 // exporter disables tracing rather than failing the run: the telemetry is a
-// passenger, and a misconfigured endpoint must not cost the verdicts. A
-// misconfigured endpoint is reported on stderr, which is not a report sink.
+// passenger, and a misconfigured endpoint must not cost the verdicts.
+// Endpoint, initialization and export warnings use the caller-supplied writer;
+// a nil writer drops them. Resource and sampler initialization diagnostics
+// produce a fixed warning while preserving the SDK's fallback behavior.
 // With no endpoint configured, tracing is disabled silently.
-func New(ctx context.Context, endpoint string) *Tracer {
+func New(ctx context.Context, endpoint string, warnings io.Writer) *Tracer {
+	tracer := &Tracer{disabled: true, warnings: warnings}
+
 	if endpoint == "" {
 		endpoint = os.Getenv(EndpointEnv)
 	}
 
 	if strings.TrimSpace(endpoint) == "" {
-		return &Tracer{disabled: true}
+		return tracer
 	}
 
 	// The exporter defers URL problems to export time, where they would die
@@ -61,9 +114,9 @@ func New(ctx context.Context, endpoint string) *Tracer {
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Host == "" ||
 		(parsed.Scheme != "http" && parsed.Scheme != "https") {
-		warn(parsed)
+		tracer.warnEndpoint(parsed)
 
-		return &Tracer{disabled: true}
+		return tracer
 	}
 
 	if !strings.HasSuffix(parsed.Path, "/v1/traces") {
@@ -72,32 +125,53 @@ func New(ctx context.Context, endpoint string) *Tracer {
 	}
 
 	otel.SetLogger(logr.Discard())
+
+	// SDK initialization uses a process-global diagnostic callback. Serialize
+	// this window, record only whether a diagnostic occurred, and restore the
+	// previous handler before emitting a local warning without its payload.
+	initializationMutex.Lock()
+	previousHandler := otel.GetErrorHandler()
+	var diagnostic atomic.Bool
 	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(error) {
-		_, _ = fmt.Fprintln(os.Stderr, "tf-mut: trace export failed")
+		diagnostic.Store(true)
 	}))
+	defer func() {
+		otel.SetErrorHandler(previousHandler)
+		initializationMutex.Unlock()
+		if diagnostic.Load() {
+			tracer.writeWarningf("tf-mut: tracing initialization warning\n")
+		}
+	}()
 
 	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(parsed.String()))
 	if err != nil {
-		warn(parsed)
+		tracer.warnEndpoint(parsed)
 
-		return &Tracer{disabled: true}
+		return tracer
 	}
 
-	provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter))
+	tracer.provider = sdktrace.NewTracerProvider(sdktrace.WithBatcher(&warningExporter{
+		SpanExporter: exporter,
+		tracer:       tracer,
+	}))
+	tracer.tracer = tracer.provider.Tracer("tf-mut")
+	tracer.disabled = false
 
-	return &Tracer{
-		tracer:   provider.Tracer("tf-mut"),
-		provider: provider,
-	}
+	return tracer
 }
 
-func warn(endpoint *url.URL) {
-	target := ""
-	if endpoint != nil && endpoint.Scheme != "" && endpoint.Host != "" {
-		target = " " + (&url.URL{Scheme: endpoint.Scheme, Host: endpoint.Host}).Redacted()
+type warningExporter struct {
+	sdktrace.SpanExporter
+
+	tracer *Tracer
+}
+
+func (e *warningExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
+	if err := e.SpanExporter.ExportSpans(ctx, spans); err != nil {
+		e.tracer.writeWarningf(exportFailureWarning)
 	}
 
-	_, _ = fmt.Fprintf(os.Stderr, "tf-mut: tracing disabled: an unusable OTLP endpoint%s\n", target)
+	return nil
 }
 
 // Enabled reports whether spans are being recorded.
@@ -107,21 +181,21 @@ func (t *Tracer) Enabled() bool {
 
 // Start begins a span parented to the context's current span. When disabled
 // it returns an inert placeholder and the context unchanged.
-func (t *Tracer) Start(ctx context.Context, name string, attributes ...attribute.KeyValue) (context.Context, *Span) {
+func (t *Tracer) Start(ctx context.Context, name string, attributes ...Attribute) (context.Context, *Span) {
 	if !t.Enabled() {
 		return ctx, &Span{}
 	}
 
 	//nolint:spancheck // the span is the caller's to End; every collector bracket does
-	ctx, span := t.tracer.Start(ctx, name, oteltrace.WithAttributes(attributes...))
+	ctx, span := t.tracer.Start(ctx, name, oteltrace.WithAttributes(keyValues(attributes)...))
 
 	return ctx, &Span{span: span} //nolint:spancheck // the span is the caller's to End; every collector bracket does
 }
 
 // End closes the span. A disabled span's End is a no-op.
-func (s *Span) End(attributes ...attribute.KeyValue) {
+func (s *Span) End(attributes ...Attribute) {
 	if s != nil && s.span != nil {
-		s.span.SetAttributes(attributes...)
+		s.span.SetAttributes(keyValues(attributes)...)
 		s.span.End()
 	}
 }
@@ -129,10 +203,45 @@ func (s *Span) End(attributes ...attribute.KeyValue) {
 // Shutdown flushes whatever the batcher still holds. It is the caller's job
 // to give the call a context that outlives any request cancellation — a
 // Ctrl-C killed run should still ship the spans it managed to record.
+// Before returning, Shutdown detaches the warning writer even if the context
+// expires, so a pending export cannot write to it after the caller regains it.
 func (t *Tracer) Shutdown(ctx context.Context) error {
+	if t == nil {
+		return nil
+	}
+
+	defer func() {
+		t.warningMutex.Lock()
+		t.warnings = nil
+		t.warningMutex.Unlock()
+	}()
+
 	if !t.Enabled() {
 		return nil
 	}
 
-	return t.provider.Shutdown(ctx)
+	err := t.provider.Shutdown(ctx)
+	if err != nil {
+		t.writeWarningf(exportFailureWarning)
+	}
+
+	return err
+}
+
+func (t *Tracer) warnEndpoint(endpoint *url.URL) {
+	target := ""
+	if endpoint != nil && endpoint.Scheme != "" && endpoint.Host != "" {
+		target = " " + (&url.URL{Scheme: endpoint.Scheme, Host: endpoint.Host}).Redacted()
+	}
+
+	t.writeWarningf("tf-mut: tracing disabled: an unusable OTLP endpoint%s\n", target)
+}
+
+func (t *Tracer) writeWarningf(format string, args ...any) {
+	t.warningMutex.Lock()
+	defer t.warningMutex.Unlock()
+
+	if t.warnings != nil {
+		_, _ = fmt.Fprintf(t.warnings, format, args...)
+	}
 }

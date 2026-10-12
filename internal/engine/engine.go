@@ -187,8 +187,7 @@ type settings struct {
 	// Empty means unconfigured; the OTel environment variable is honoured
 	// then, resolved by the tracing package.
 	OTLPEndpoint string
-	// Progress receives the periodic long-run progress lines. Nil prints
-	// nothing; the CLI passes os.Stderr, which is never a report sink.
+	// Progress carries Common.Progress; see that field's output contract.
 	Progress io.Writer
 	// ProgressIntervalForTesting overrides the cadence for engine-seam tests.
 	// Zero selects the ten-second default; honoured only when Progress is set.
@@ -255,18 +254,17 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 		return report.Report{}, err
 	}
 
-	// The CPU profile writes only to the file the user explicitly requested.
-	if s.CPUProfile != "" {
-		stopProfile, profileErr := startCPUProfile(s.ModuleDir, s.CPUProfile)
-		if profileErr != nil {
-			return report.Report{}, profileErr
-		}
-
-		defer stopProfile()
+	stopProfile, profileErr := prepareRunOutput(&s)
+	if profileErr != nil {
+		return report.Report{}, profileErr
 	}
 
+	defer stopProfile()
+
 	// The flush outlives request cancellation so recorded spans can still reach the collector.
-	tracer := tracing.New(ctx, s.OTLPEndpoint)
+	// Tracing and CPU-profile warnings share the request's progress writer —
+	// never a report sink — and a nil writer drops them.
+	tracer := tracing.New(ctx, s.OTLPEndpoint, s.Progress)
 	defer func() {
 		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), traceFlushTimeout)
 		defer cancel()
@@ -345,7 +343,20 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	}
 }
 
-func startCPUProfile(moduleDir, destination string) (func(), error) {
+func prepareRunOutput(s *settings) (func(), error) {
+	if s.Progress != nil {
+		s.Progress = &synchronizedWriter{writer: s.Progress}
+	}
+
+	// The CPU profile writes only to the file the user explicitly requested.
+	if s.CPUProfile == "" {
+		return func() {}, nil
+	}
+
+	return startCPUProfile(s.ModuleDir, s.CPUProfile, s.Progress)
+}
+
+func startCPUProfile(moduleDir, destination string, warnings io.Writer) (func(), error) {
 	profilePath, profileErr := cpuProfilePath(moduleDir, destination)
 	if profileErr != nil {
 		return nil, profileErr
@@ -365,8 +376,8 @@ func startCPUProfile(moduleDir, destination string) (func(), error) {
 
 	return func() {
 		pprof.StopCPUProfile()
-		if profileErr := errors.Join(writer.err, profileFile.Close()); profileErr != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "tf-mut: CPU profile may be incomplete: %s\n",
+		if profileErr := errors.Join(writer.err, profileFile.Close()); profileErr != nil && warnings != nil {
+			_, _ = fmt.Fprintf(warnings, "tf-mut: CPU profile may be incomplete: %s\n",
 				strings.ReplaceAll(profileErr.Error(), "\n", "; "))
 		}
 	}, nil
