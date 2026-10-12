@@ -45,13 +45,10 @@ const (
 	DefaultTimeoutFactor = 10.0
 	// DefaultTimeoutFloor is the lower bound on a mutant's execution budget.
 	DefaultTimeoutFloor = 30 * time.Second
-	// DefaultInitTimeout bounds terraform init, which downloads providers and
-	// modules over the network: an order of magnitude more than a healthy
-	// warm-up needs, and short enough that a wedged download ends the run.
+	// DefaultInitTimeout gives provider and module downloads a longer cap
+	// than the other preflight calls while still bounding a stalled download.
 	DefaultInitTimeout = 10 * time.Minute
-	// DefaultPreflightTimeout bounds every other preflight invocation — the
-	// version check, providers schema, fmt, validate and the baseline runs:
-	// these are local operations against an installed binary.
+	// DefaultPreflightTimeout bounds preflight invocations other than init.
 	DefaultPreflightTimeout = time.Minute
 	// DefaultTerraformBinary is the executable looked up on PATH.
 	DefaultTerraformBinary = "terraform"
@@ -88,11 +85,8 @@ type settings struct {
 	TimeoutFactor float64
 	// TimeoutFloor is the lower bound on that budget.
 	TimeoutFloor time.Duration
-	// PreflightTimeout is the absolute cap on preflight invocations: the
-	// version check, terraform init, providers schema, fmt, validate and the
-	// baseline runs. Zero selects the per-phase defaults — ten minutes for
-	// init, one minute for the rest. Negative values are refused at
-	// finalisation; the deadline is on every outbound call regardless.
+	// PreflightTimeout uses zero to preserve the distinct init and non-init
+	// defaults. Finalisation rejects negative values before any command runs.
 	PreflightTimeout time.Duration
 	// MinScore is the mutation score percentage the run must reach.
 	MinScore float64
@@ -1313,7 +1307,7 @@ func (s settings) initCap() time.Duration {
 	return DefaultInitTimeout
 }
 
-// preflightCap bounds the local preflight invocations and the baseline runs:
+// preflightCap bounds non-init preflight, baseline and staged invocations:
 // the caller's cap when set, else the one-minute default.
 func (s settings) preflightCap() time.Duration {
 	if s.PreflightTimeout > 0 {

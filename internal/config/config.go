@@ -66,9 +66,8 @@ type Settings struct {
 	TestDirectory *string
 	Jobs          *int
 	TimeoutFactor *float64
-	// PreflightTimeout is the absolute cap on preflight invocations: the
-	// version check, terraform init, providers schema, fmt, validate and the
-	// baseline runs. Expressed as a Go duration string ("90s", "10m").
+	// PreflightTimeout is the parsed preflight_timeout duration from the
+	// tf-mut block; nil distinguishes omission from an explicit zero.
 	PreflightTimeout     *time.Duration
 	MinScore             *float64
 	AllowIncompleteScore *bool

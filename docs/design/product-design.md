@@ -643,7 +643,7 @@ Key flags for `run`:
 | `--since REF` | — | Mutate only lines changed versus a git ref |
 | `--jobs N` | `NumCPU` | Parallelism |
 | `--timeout-factor F` | `10` | Multiple of baseline run time |
-| `--preflight-timeout D` | init `10m`, the rest `1m` | Absolute cap on each preflight invocation: version, init, providers schema, fmt, validate, the baseline runs and characterisation's staged runs. An expired cap is an operational failure naming the phase |
+| `--preflight-timeout D` | See usage | See [deadline behavior and defaults](../../README.md#using-it) |
 | `--min-score N` | — | Exit non-zero below this score |
 | `--fail-on-new` | off | Fail on findings the baseline does not accept |
 | `--engine terraform\|tofu` | `terraform` | OpenTofu support — roadmap, a claim until [#166](https://github.com/andrewesweet/tf-mut/issues/166) corrects it |
@@ -662,7 +662,6 @@ tf-mut {
   test_dir   = "tests"
   min_score  = 70
 
-  # Absolute cap on preflight terraform calls (duration string).
   preflight_timeout = "90s"
 }
 
@@ -680,6 +679,10 @@ exclude {
 reporter "sarif" { path = "tf-mut.sarif" }
 reporter "html"  { path = "tf-mut-report/" }
 ```
+
+`preflight_timeout` is a duration string using units such as `s` or `m`. It configures
+the cap documented in [usage](../../README.md#using-it). An explicit
+`--preflight-timeout` flag overrides this setting.
 
 Inline suppression, with a mandatory reason:
 

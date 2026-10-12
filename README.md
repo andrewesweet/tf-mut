@@ -71,11 +71,15 @@ declaration still causes provider schema retrieval to fail.
 
 When a Terraform command reaches its deadline, tf-mut stops the command and its provider
 plugins. See [mutant states](docs/design/product-design.md#4-mutant-states) for how a test
-deadline appears beside the mutant's verdict. The calls before the mutation loop —
-version, init, providers schema, fmt, validate, the baseline runs and characterisation's staged
-runs — carry their own absolute caps (`--preflight-timeout`). Survivor-side fingerprint,
-volatility and suggestion-verification runs use the mutant budget. Fingerprint and volatility
-overruns produce a `Timeout` verdict counted in the score's denominator. A suggestion-verification
+deadline appears beside the mutant's verdict. The `--preflight-timeout` cap applies to
+each call separately, including validation during mutant execution. Zero retains the
+defaults; negative durations are refused. For a persistent cap,
+see [configuration](docs/design/product-design.md#configuration--tf-muthcl).
+Git calls for `--since` have a fixed 30-second cap; an overrun is an operational failure.
+
+Survivor-side fingerprint, volatility and suggestion-verification runs use the mutant budget.
+Fingerprint and volatility overruns produce a `Timeout` verdict counted in the score's
+denominator. A suggestion-verification
 overrun returns a fail-closed verification error: batch verification aborts, while isolated
 verification refutes the suggestion. It does not change the mutant verdict or score.
 

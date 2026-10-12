@@ -23,8 +23,8 @@ import (
 )
 
 // ErrNotExecuted reports an operational failure to start or complete a Terraform
-// invocation. It includes context cancellation; an expired deadline is recorded
-// in Result.TimedOut instead.
+// invocation. It includes context cancellation and preflight deadline expiry.
+// Raw Run and Test calls record deadline expiry in their TimedOut fields instead.
 var ErrNotExecuted = errors.New("terraform could not be executed")
 
 // ErrCommandFailed reports a Terraform subcommand that exited non-zero where a
@@ -324,10 +324,10 @@ func (r Runner) FmtCheck(ctx context.Context, dir string, limit time.Duration) (
 }
 
 // runLimited bounds one invocation at limit and reports an expired deadline
-// as an operational failure naming the subcommand: these are the preflight
-// and per-mutant commands a verdict is never judged from, so a dependency
-// that hangs past its cap ends the run instead of hanging it. A zero limit
-// means no bound.
+// as an operational failure naming the subcommand. In particular, validate
+// supplies verdict evidence, so its overrun must not be treated as a mutant
+// timeout or as a completed validation result. A non-positive limit leaves
+// the invocation bounded only by ctx.
 //
 // The deadline is enforced through the context, so the same process-group
 // stop that bounds a test run kills this command and everything it started.
