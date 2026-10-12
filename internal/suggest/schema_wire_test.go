@@ -87,3 +87,55 @@ func TestAWireSchemaServesTheRenderingWalk(t *testing.T) {
 		})
 	}
 }
+
+func TestNestedSchemaPathsPreserveRendering(t *testing.T) {
+	t.Parallel()
+
+	schemas := schemaBlock(nil, map[string]tfexec.SchemaBlockType{
+		"connection": {NestingMode: tfexec.NestingList, Block: tfexec.SchemaBlock{
+			BlockTypes: map[string]tfexec.SchemaBlockType{
+				"timeouts": {NestingMode: tfexec.NestingGroup, Block: tfexec.SchemaBlock{
+					Attributes: map[string]tfexec.SchemaAttribute{
+						"create": {Optional: true, Type: json.RawMessage(`"string"`)},
+					},
+				}},
+				"mounts": {NestingMode: tfexec.NestingMap, Block: tfexec.SchemaBlock{
+					Attributes: map[string]tfexec.SchemaAttribute{
+						"sources": {Optional: true, Type: json.RawMessage(`["list","string"]`)},
+					},
+				}},
+			},
+		}},
+	})
+	for _, provider := range schemas.ProviderSchemas {
+		provider.DataSourceSchemas["example_lookup"] = provider.ResourceSchemas["example_thing"]
+	}
+
+	for _, resource := range []string{"example_thing.app", "data.example_lookup.app"} {
+		for _, testCase := range []struct {
+			path     string
+			baseline string
+			want     string
+		}{
+			{
+				path:     "connection[0].timeouts.create",
+				baseline: `"5m"`,
+				want:     `.connection[0].timeouts.create == "5m"`,
+			},
+			{
+				path:     "connection[0].mounts.shared.sources[0]",
+				baseline: secondValue,
+				want:     `.connection[0].mounts["shared"].sources[0] == "second"`,
+			},
+		} {
+			t.Run(resource+"/"+testCase.path, func(t *testing.T) {
+				t.Parallel()
+
+				change := changeAt(statePrefix+resource+"].values."+testCase.path, testCase.baseline)
+				expression, err := suggest.Express(schemas, suggest.Evidence{}, change)
+
+				assertAdapter(t, expression, err, resource+testCase.want, nil)
+			})
+		}
+	}
+}

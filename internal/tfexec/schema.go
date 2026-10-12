@@ -100,25 +100,6 @@ func (s Schemas) Block(kind, resourceType string) (SchemaBlock, bool) {
 	return SchemaBlock{}, false // no provider describes the type.
 }
 
-// AttributeType returns the cty type this block publishes for one of its
-// arguments, with the same dynamic-withholding rule Attribute.ValueType
-// applies at the root: a dynamic attribute is type evidence about the schema
-// and none about the value. The walk calls it on the block it currently
-// occupies, which no Schemas lookup can name.
-func (b SchemaBlock) AttributeType(name string) (cty.Type, bool) {
-	described, found := b.Attributes[name]
-	if !found {
-		return cty.NilType, false
-	}
-
-	decoded, ok := decodePublishedType(described.Type)
-	if !ok || decoded == cty.DynamicPseudoType {
-		return cty.NilType, false
-	}
-
-	return decoded, true
-}
-
 // ProvidersSchema retrieves the provider schemas visible from dir. It suppresses
 // colour codes so captured failure diagnostics remain plain text. The limit
 // bounds the invocation; an expired limit is an operational failure.
@@ -201,9 +182,9 @@ func decodePublishedType(raw json.RawMessage) (cty.Type, bool) {
 }
 
 // Attribute looks up one argument of a managed resource or data source type,
-// and whether any visible provider describes it. The path descends the
-// type's nested configuration blocks: every segment but the last names a
-// nested block, and the last names the argument.
+// and whether any visible provider describes the resource type. The path
+// descends the type's nested configuration blocks: every segment but the last
+// names a nested block, and the last names the argument.
 //
 // An argument the schema does not describe is never reported as optional or
 // computed: the flags are false whether the type, the path or the argument
@@ -228,16 +209,13 @@ func (s Schemas) Attribute(kind, resourceType string, path []string) (Attribute,
 		for _, name := range path[:len(path)-1] {
 			nested, found := block.BlockTypes[name]
 			if !found {
-				return Attribute{}, false // no block was described at the path.
+				return Attribute{}, true // no block was described at the path.
 			}
 
 			block = nested.Block
 		}
 
-		described, found := block.Attributes[path[len(path)-1]]
-		if !found {
-			return Attribute{}, false // nothing was described.
-		}
+		described := block.Attributes[path[len(path)-1]]
 
 		return Attribute{
 			Optional: described.Optional && !described.Required,

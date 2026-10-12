@@ -150,7 +150,7 @@ func (o executionOracle) rerunForVolatility(
 
 // computedOf adapts the schema lookup to the oracle's computed question: a
 // mock invents values for exactly the attributes the provider fills in, and
-// whether the schema knew the attribute at all is the lookup's second
+// whether the schema knew the resource type is the lookup's second
 // result.
 func computedOf(
 	schemas tfexec.Schemas,

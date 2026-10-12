@@ -191,7 +191,7 @@ func (r render) spellContinuation(p fingerprint.Path, resource, attribute string
 	}
 
 	builder := &strings.Builder{}
-	if err := walkBlockSteps(root, segments, builder); err != nil {
+	if err := r.walkBlockSteps(kind, resourceType, root, segments, builder); err != nil {
 		return "", err
 	}
 
@@ -207,12 +207,19 @@ func (r render) spellContinuation(p fingerprint.Path, resource, attribute string
 // namespace. A name resolves against the block's nested block types and
 // attributes; the first attribute consumes the remainder of the path in type
 // space, because inside a block an attribute is never a map key.
-func walkBlockSteps(block tfexec.SchemaBlock, steps []string, builder *strings.Builder) error {
+func (r render) walkBlockSteps(
+	kind, resourceType string,
+	block tfexec.SchemaBlock,
+	steps []string,
+	builder *strings.Builder,
+) error {
 	insideBlock := false
+	path := []string{}
 
 	for i := 0; i < len(steps); i++ {
 		step := steps[i]
 		name, key, indexed := cutIndex(step)
+		path = append(path, name)
 
 		if blockType, found := block.BlockTypes[name]; found {
 			if blockType.NestingMode == tfexec.NestingMap && !indexed {
@@ -244,7 +251,9 @@ func walkBlockSteps(block tfexec.SchemaBlock, steps []string, builder *strings.B
 			return nestedValue(strings.Join(steps, "."))
 		}
 
-		return walkAttributeSteps(block, name, key, indexed, steps[i+1:], builder)
+		described, _ := r.schemas.Attribute(kind, resourceType, path)
+
+		return walkAttributeSteps(described, name, key, indexed, steps[i+1:], builder)
 	}
 
 	if insideBlock {
@@ -327,7 +336,7 @@ func blockTypeStep(
 // attribute: the attribute is consumed, its element indexed if the path did,
 // and everything after it is consumed in type space.
 func walkAttributeSteps(
-	block tfexec.SchemaBlock,
+	attribute tfexec.Attribute,
 	name, key string,
 	indexed bool,
 	rest []string,
@@ -335,7 +344,7 @@ func walkAttributeSteps(
 ) error {
 	builder.WriteString("." + name)
 
-	declared, known := block.AttributeType(name)
+	declared, known := attribute.ValueType()
 
 	if indexed {
 		if !known {
