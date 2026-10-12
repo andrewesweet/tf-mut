@@ -335,13 +335,13 @@ func mockInvented(context pinContext) (string, bool) {
 
 	name, _, _ := strings.Cut(context.attribute, ".")
 
-	computed, known := context.schemas.Computed(kind, resourceType, name)
+	described, known := context.schemas.Attribute(kind, resourceType, []string{name})
 	if !known {
 		return fmt.Sprintf("no provider schema describes %s.%s, so it cannot be told apart "+
 			"from a value the mock invented", resourceType, name), true
 	}
 
-	if computed {
+	if described.Computed {
 		return fmt.Sprintf("the provider computes %s.%s, so its value came from the mock "+
 			"rather than from the configuration", resourceType, name), true
 	}

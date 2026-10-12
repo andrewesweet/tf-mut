@@ -77,6 +77,11 @@ type SchemaAttribute struct {
 
 // Block returns the root configuration block of a managed resource or data
 // source type, and whether any visible provider describes the type at all.
+//
+// Block is the document's navigation half: the suggestion renderer walks a
+// payload path through nested blocks and their nesting modes, a walk no
+// attribute lookup can answer because a nested block is not an attribute.
+// Evidence about one argument is Attribute's question.
 func (s Schemas) Block(kind, resourceType string) (SchemaBlock, bool) {
 	for _, provider := range s.ProviderSchemas {
 		schemas := provider.ResourceSchemas
@@ -95,22 +100,19 @@ func (s Schemas) Block(kind, resourceType string) (SchemaBlock, bool) {
 	return SchemaBlock{}, false // no provider describes the type.
 }
 
-// BlockAttributeType returns the cty type a block schema publishes for one of
-// its arguments, with the same dynamic-withholding rule AttributeType applies
-// at the root: a dynamic attribute is type evidence about the schema and none
-// about the value.
-func BlockAttributeType(block SchemaBlock, name string) (cty.Type, bool) {
-	described, found := block.Attributes[name]
-	if !found || len(described.Type) == 0 {
+// AttributeType returns the cty type this block publishes for one of its
+// arguments, with the same dynamic-withholding rule Attribute.ValueType
+// applies at the root: a dynamic attribute is type evidence about the schema
+// and none about the value. The walk calls it on the block it currently
+// occupies, which no Schemas lookup can name.
+func (b SchemaBlock) AttributeType(name string) (cty.Type, bool) {
+	described, found := b.Attributes[name]
+	if !found {
 		return cty.NilType, false
 	}
 
-	decoded, err := ctyjson.UnmarshalType(described.Type)
-	if err != nil {
-		return cty.NilType, false
-	}
-
-	if decoded == cty.DynamicPseudoType {
+	decoded, ok := decodePublishedType(described.Type)
+	if !ok || decoded == cty.DynamicPseudoType {
 		return cty.NilType, false
 	}
 
@@ -138,69 +140,59 @@ func (r Runner) ProvidersSchema(ctx context.Context, dir string, limit time.Dura
 	return schemas, nil
 }
 
-// Optionality reports whether the named argument of a managed resource or data
-// source is schema-optional, and whether the schema knew about it at all.
-//
-// An argument the schema does not describe is never reported as optional: the
-// deletion operators must not fire on a site whose optionality is unknown.
-func (s Schemas) Optionality(kind, resourceType, attribute string) (optional, known bool) {
-	for _, provider := range s.ProviderSchemas {
-		schemas := provider.ResourceSchemas
-		if kind == dataSourceKind {
-			schemas = provider.DataSourceSchemas
-		}
-
-		schema, found := schemas[resourceType]
-		if !found {
-			continue
-		}
-
-		described, found := schema.Block.Attributes[attribute]
-		if !found {
-			return false, true
-		}
-
-		return described.Optional && !described.Required, true
-	}
-
-	return false, false
+// Attribute is one argument's published schema, as the tool's questions ask
+// it. Optional and Computed carry the optionality rules the document's raw
+// flags only imply, so a caller never re-derives them against Required.
+type Attribute struct {
+	// Optional reports whether the configuration may set the argument or
+	// omit it: the schema publishes it optional and not required. The
+	// deletion operators fire on exactly these arguments — nulling or
+	// deleting a required argument is statically doomed and grades
+	// nothing.
+	Optional bool
+	// Computed reports whether the provider fills the argument in: the
+	// schema publishes it computed, and not settable by configuration. A
+	// mock invents values for exactly these attributes, which is what the
+	// oracle's volatility rule and the pinning stage must know.
+	Computed bool
+	// Type is the argument's cty type in its JSON encoding, exactly as the
+	// provider published it: "string", or ["list","string"], or
+	// ["object",{...}]. Read it through DeclaredType or ValueType, which
+	// carry the two decoding rules; the payload alone cannot tell a set
+	// from a list.
+	Type json.RawMessage
 }
 
-// AttributeType returns the cty type the provider published for an argument.
-//
-// The second result is false where no provider schema types the argument at
-// all, including where the published type is Terraform's `dynamic`: a dynamic
-// attribute is type evidence about the schema and none about the value.
-func (s Schemas) AttributeType(kind, resourceType, attribute string) (cty.Type, bool) {
-	described, found := s.attribute(kind, resourceType, attribute)
-	if !found || len(described.Type) == 0 {
-		return cty.NilType, false
-	}
+// DeclaredType decodes the cty type the provider published for the argument,
+// Terraform's dynamic included. This is the schema's admission evidence —
+// the pack entries fire where the replacement is of the declared type — and
+// a dynamic argument admits any of them, even though it is no evidence about
+// the values the argument holds.
+func (a Attribute) DeclaredType() (cty.Type, bool) {
+	return decodePublishedType(a.Type)
+}
 
-	decoded, err := ctyjson.UnmarshalType(described.Type)
-	if err != nil {
-		return cty.NilType, false
-	}
-
-	if decoded == cty.DynamicPseudoType {
+// ValueType decodes the cty type the provider published for the argument,
+// with Terraform's dynamic withheld: a dynamic attribute is type evidence
+// about the schema and none about the value.
+func (a Attribute) ValueType() (cty.Type, bool) {
+	decoded, ok := decodePublishedType(a.Type)
+	if !ok || decoded == cty.DynamicPseudoType {
 		return cty.NilType, false
 	}
 
 	return decoded, true
 }
 
-// Describes reports whether a provider schema describes the named argument
-// at all, and the type it declares — `cty.DynamicPseudoType` for Terraform's
-// `dynamic`, which AttributeType above deliberately withholds. This is the
-// pack contract's evidence: an entry fires only where the schema describes
-// the attribute and the entry's replacement is of the declared type.
-func (s Schemas) Describes(kind, resourceType, attribute string) (cty.Type, bool) {
-	described, found := s.attribute(kind, resourceType, attribute)
-	if !found || len(described.Type) == 0 {
+// decodePublishedType decodes one argument's published JSON type. An argument
+// published with no type, and one whose type does not decode, publishes no
+// type evidence at all.
+func decodePublishedType(raw json.RawMessage) (cty.Type, bool) {
+	if len(raw) == 0 {
 		return cty.NilType, false
 	}
 
-	decoded, err := ctyjson.UnmarshalType(described.Type)
+	decoded, err := ctyjson.UnmarshalType(raw)
 	if err != nil {
 		return cty.NilType, false
 	}
@@ -208,55 +200,51 @@ func (s Schemas) Describes(kind, resourceType, attribute string) (cty.Type, bool
 	return decoded, true
 }
 
-// Computed reports whether the named argument of a managed resource or data
-// source is one the provider fills in.
+// Attribute looks up one argument of a managed resource or data source type,
+// and whether any visible provider describes it. The path descends the
+// type's nested configuration blocks: every segment but the last names a
+// nested block, and the last names the argument.
 //
-// It feeds the oracle's mutation-volatility re-run rule: a mock invents values
-// for exactly the computed attributes, so a delta confined to them says the
-// mock moved, not the module.
-func (s Schemas) Computed(kind, resourceType, attribute string) (computed, known bool) {
+// An argument the schema does not describe is never reported as optional or
+// computed: the flags are false whether the type, the path or the argument
+// is unknown, so no operator fires on evidence the schema did not publish.
+func (s Schemas) Attribute(kind, resourceType string, path []string) (Attribute, bool) {
+	if len(path) == 0 {
+		return Attribute{}, false
+	}
+
 	for _, provider := range s.ProviderSchemas {
 		schemas := provider.ResourceSchemas
 		if kind == dataSourceKind {
 			schemas = provider.DataSourceSchemas
 		}
 
-		schema, found := schemas[resourceType]
-		if !found {
+		schema, known := schemas[resourceType]
+		if !known {
 			continue
 		}
 
-		described, found := schema.Block.Attributes[attribute]
-		if !found {
-			return false, true
+		block := schema.Block
+		for _, name := range path[:len(path)-1] {
+			nested, found := block.BlockTypes[name]
+			if !found {
+				return Attribute{}, false // no block was described at the path.
+			}
+
+			block = nested.Block
 		}
 
-		return described.Computed && !described.Optional && !described.Required, true
+		described, found := block.Attributes[path[len(path)-1]]
+		if !found {
+			return Attribute{}, false // nothing was described.
+		}
+
+		return Attribute{
+			Optional: described.Optional && !described.Required,
+			Computed: described.Computed && !described.Optional && !described.Required,
+			Type:     described.Type,
+		}, true
 	}
 
-	return false, false
-}
-
-// attribute finds one argument's schema across every visible provider.
-func (s Schemas) attribute(kind, resourceType, attribute string) (SchemaAttribute, bool) {
-	for _, provider := range s.ProviderSchemas {
-		schemas := provider.ResourceSchemas
-		if kind == dataSourceKind {
-			schemas = provider.DataSourceSchemas
-		}
-
-		schema, found := schemas[resourceType]
-		if !found {
-			continue
-		}
-
-		described, found := schema.Block.Attributes[attribute]
-		if !found {
-			return SchemaAttribute{}, false // nothing was described.
-		}
-
-		return described, true
-	}
-
-	return SchemaAttribute{}, false // no provider describes it.
+	return Attribute{}, false // no provider describes it.
 }

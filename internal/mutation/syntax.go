@@ -174,8 +174,8 @@ func (g Generator) nullInjection(where site, attribute *hclsyntax.Attribute) (ed
 		return edit{}, false // discarded by the caller.
 	}
 
-	optional, known := g.Schemas.Optionality(where.kind, where.blockType, attribute.Name)
-	if !known || !optional {
+	described, known := g.Schemas.Attribute(where.kind, where.blockType, []string{attribute.Name})
+	if !known || !described.Optional {
 		return edit{}, false // discarded by the caller.
 	}
 

@@ -335,7 +335,7 @@ func walkAttributeSteps(
 ) error {
 	builder.WriteString("." + name)
 
-	declared, known := tfexec.BlockAttributeType(block, name)
+	declared, known := block.AttributeType(name)
 
 	if indexed {
 		if !known {
@@ -703,7 +703,8 @@ func (r render) leafEquality(expression, resource, segment, baseline string) (st
 		return scalarEquality(expression, baseline)
 	}
 
-	declared, typed := r.schemas.AttributeType(kind, resourceType, name)
+	described, _ := r.schemas.Attribute(kind, resourceType, []string{name})
+	declared, typed := described.ValueType()
 
 	if !indexed {
 		if typed && !declared.IsPrimitiveType() {

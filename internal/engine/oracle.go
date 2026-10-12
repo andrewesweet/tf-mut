@@ -148,6 +148,20 @@ func (o executionOracle) rerunForVolatility(
 	), nil
 }
 
+// computedOf adapts the schema lookup to the oracle's computed question: a
+// mock invents values for exactly the attributes the provider fills in, and
+// whether the schema knew the attribute at all is the lookup's second
+// result.
+func computedOf(
+	schemas tfexec.Schemas,
+) func(kind, resourceType, attribute string) (computed, known bool) {
+	return func(kind, resourceType, attribute string) (computed, known bool) {
+		described, known := schemas.Attribute(kind, resourceType, []string{attribute})
+
+		return described.Computed, known
+	}
+}
+
 // observation assembles what the engine measured for the oracle to judge:
 // the phase-one measurements, plus the fail-closed adapters over the graph
 // cone, the output and local closure, the provider schemas and the mutant's
@@ -168,7 +182,7 @@ func (o executionOracle) observation(
 	).
 		WithCone(o.coneOf(verdict)).
 		WithClosure(o.plan.closure.Reads).
-		WithComputedAttributes(o.plan.prepared.schemas.Computed).
+		WithComputedAttributes(computedOf(o.plan.prepared.schemas)).
 		WithSuspicion(o.suspicion(index))
 }
 
