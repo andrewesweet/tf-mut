@@ -3,6 +3,7 @@ package oracle
 import (
 	"strings"
 
+	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 )
@@ -179,66 +180,65 @@ type lookup struct {
 	attribute string
 }
 
-// The address lengths that carry an attribute, by block kind.
-const (
-	dataAddressParts     = 4
-	resourceAddressParts = 3
-)
-
 // The address roots that are not managed resources.
 const (
 	dataRoot   = "data"
 	outputRoot = "output"
 )
 
-// schemaAttribute splits a Terraform address into the schema lookup it implies.
+// schemaAttribute splits a Terraform address into the schema lookup it
+// implies. The grammar is the canonical one's: a data address carries its
+// attribute at `data.<type>.<name>.<attribute>`, a managed resource's at
+// `<type>.<name>.<attribute>`, and an `output.` root names no schema entry.
+//
+// The parse is discovery's: the canonical grammar, instance keys and all, is
+// the one this package asks, so the oracle's reading of an address cannot
+// drift from the graph's and the mutation walker's (SDP review T4).
 func schemaAttribute(address string) (lookup, bool) {
-	parts := strings.Split(stripInstanceKeys(address), ".")
+	parsed := discovery.ParseAddr(address)
 
-	if len(parts) >= dataAddressParts && parts[0] == dataRoot {
+	// A module-qualified address names child-module internals, which a run
+	// rooted at this module observes only through its outputs — the same
+	// refusal suggest's address adapter makes. It implies no schema lookup
+	// here, and no resource this module's volatility scan could flag.
+	if len(parsed.ModulePath) > 0 {
+		return lookup{}, false
+	}
+
+	parts := parsed.Parts
+
+	if len(parts) >= 4 && parts[0] == dataRoot {
 		return lookup{kind: dataRoot, resource: parts[1], attribute: parts[3]}, true
 	}
 
-	if len(parts) >= resourceAddressParts && parts[0] != dataRoot && parts[0] != outputRoot {
+	if len(parts) >= 3 && parts[0] != dataRoot && parts[0] != outputRoot {
 		return lookup{kind: "resource", resource: parts[0], attribute: parts[2]}, true
 	}
 
 	return lookup{kind: "", resource: "", attribute: ""}, false
 }
 
-// resourceOf is the resource address an attribute address belongs to.
+// resourceOf is the resource address an attribute address belongs to: the
+// `data.<type>.<name>` a data address carries, or the bare `<type>.<name>` a
+// managed resource's does. A module-qualified address belongs to no resource
+// of this module, so it names nothing the mutant's volatility scan keys — the
+// empty address.
 func resourceOf(address string) string {
-	parts := strings.Split(stripInstanceKeys(address), ".")
+	parsed := discovery.ParseAddr(address)
 
-	if len(parts) >= resourceAddressParts && parts[0] == dataRoot {
-		return strings.Join(parts[:resourceAddressParts], ".")
+	if len(parsed.ModulePath) > 0 {
+		return ""
 	}
 
-	if len(parts) >= addressParts {
-		return strings.Join(parts[:addressParts], ".")
+	parts := parsed.Parts
+
+	if len(parts) >= 3 && parts[0] == dataRoot {
+		return strings.Join(parts[:3], ".")
+	}
+
+	if len(parts) >= 2 { //nolint:mnd // the canonical grammar's bare `<type>.<name>` resource arity.
+		return strings.Join(parts[:2], ".")
 	}
 
 	return address
-}
-
-// addressParts is the length of a bare `<type>.<name>` address.
-const addressParts = 2
-
-func stripInstanceKeys(address string) string {
-	builder := strings.Builder{}
-	depth := 0
-
-	for _, letter := range address {
-		switch {
-		case letter == '[':
-			depth++
-		case letter == ']':
-			depth--
-		case depth == 0:
-			builder.WriteRune(letter)
-		default:
-		}
-	}
-
-	return builder.String()
 }
