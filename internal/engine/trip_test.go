@@ -609,11 +609,56 @@ func TestPostFinishAuthorityRefusalsRetainTheTripDiagnostic(t *testing.T) {
 	}
 }
 
+func TestATrippedSurvivorSelectionRefusalRetainsTheTripDiagnostic(t *testing.T) {
+	t.Parallel()
+
+	config := baseConfig(t, copyFixture(t, "skeleton"))
+	config.Jobs = 1
+	config.NoCache = true
+	control := runWith(t, config)
+
+	id := ""
+	for index := len(control.Mutants) - 1; index > engine.DefaultFailureTripThreshold+config.Jobs; index-- {
+		if control.Mutants[index].State == report.Survived {
+			id = control.Mutants[index].ID
+			break
+		}
+	}
+	if id == "" {
+		t.Fatal("the control needs a survivor after the trip point")
+	}
+
+	config.TerraformBinary = dyingTerraform(t)
+	request := engine.SuggestRequest{
+		Common: config.Common, Population: config.Population, Gate: config.Gate,
+		NoCache: true, SurvivorIDs: []string{id},
+	}
+	_, err := engine.Run(t.Context(), request)
+	if !errors.Is(err, engine.ErrSurvivorSelection) {
+		t.Fatalf("error = %v, want %v", err, engine.ErrSurvivorSelection)
+	}
+	for _, evidence := range []string{
+		id + " is not a survivor of this population",
+		"the report it came from is stale, so re-run before selecting again",
+		"warning: run tripped after 5 consecutive operational failures",
+		"the mutation score is marked incomplete",
+		"First failure: terraform validate could not be executed",
+	} {
+		if strings.Count(err.Error(), evidence) != 1 {
+			t.Fatalf("the refusal must carry evidence %q once: %v", evidence, err)
+		}
+	}
+}
+
 // assertTripWarning checks the run warned about the trip and named the first
 // failure's message. The dying wrapper makes every failure's message
 // identical, so the first failure's message is every failure's message.
 func assertTripWarning(t *testing.T, result report.Report) {
 	t.Helper()
+
+	if count := strings.Count(strings.Join(result.Warnings, "\n"), "run tripped after"); count != 1 {
+		t.Fatalf("trip warnings = %d, want exactly one: %v", count, result.Warnings)
+	}
 
 	unexecuted := 0
 	for _, mutant := range result.Mutants {

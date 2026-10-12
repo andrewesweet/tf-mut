@@ -33,9 +33,8 @@ type Provenance struct {
 	Errored int
 	// Unexecuted is the number of selected mutants the run stopped before
 	// dispatching: the consecutive-failure trip left them unobserved.
-	Unexecuted  int
-	Tripped     bool
-	TripWarning string
+	Unexecuted int
+	Tripped    bool
 }
 
 // Population is the classified population of one run: every outcome the
@@ -105,13 +104,8 @@ func (p Population) Authoritative(refused error, rationale string) (Authoritativ
 	}
 
 	if len(reasons) != 0 {
-		err := fmt.Errorf("%w: %s\n%s",
+		return Authoritative{}, fmt.Errorf("%w: %s\n%s",
 			refused, strings.Join(reasons, "; "), rationale)
-		if p.provenance.TripWarning != "" {
-			err = fmt.Errorf("%w\nwarning: %s", err, p.provenance.TripWarning)
-		}
-
-		return Authoritative{}, err
 	}
 
 	return Authoritative{population: p}, nil

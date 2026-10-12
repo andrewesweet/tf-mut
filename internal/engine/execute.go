@@ -168,11 +168,12 @@ func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, erro
 	close(queue)
 	group.Wait()
 
+	population.trip = trip.outcome(population.rows, population.failures)
+	plan.collector.trip = population.trip
+
 	if delivery != nil {
 		return evaluatedPopulation{}, delivery
 	}
-
-	population.trip = trip.outcome(population.rows, population.failures)
 
 	slices.SortFunc(population.failures, func(left, right report.ExecutionError) int {
 		return strings.Compare(left.MutantID, right.MutantID)

@@ -81,6 +81,7 @@ type runCollector struct {
 	order    []string
 	overhead atomic.Int64
 	runSpan  *tracing.Span
+	trip     *tripOutcome
 	// base parents every phase span to the run span; it is the collector's
 	// parenting chain, not request state captured for later.
 	base context.Context //nolint:containedctx // the parenting chain, not stored request state

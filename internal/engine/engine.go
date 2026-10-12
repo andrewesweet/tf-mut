@@ -249,7 +249,20 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	started := time.Now()
 	var collector *runCollector
 	defer func() {
-		if err != nil || collector == nil ||
+		if collector == nil {
+			return
+		}
+
+		if collector.trip != nil {
+			warnings := tripWarnings(collector.trip)
+			if err != nil {
+				err = fmt.Errorf("%w\nwarning: %s", err, strings.Join(warnings, "\n"))
+			} else {
+				result.Warnings = append(result.Warnings, warnings...)
+			}
+		}
+
+		if err != nil ||
 			result.Command == report.CommandCharacterise || result.Command == report.CommandTodos {
 			return
 		}
@@ -691,7 +704,7 @@ type gradingProjection struct {
 func (p *gradingProjection) completeReport(event PopulationClassified) error {
 	finalisePhase := p.plan.collector.phase(phaseFinalise)
 	p.completed = completeReport(p.plan.configuration, p.plan.settings, p.plan.populationDescribed, p.shell,
-		p.evaluated.rows, event.population, p.evaluated.trip)
+		p.evaluated.rows, event.population)
 	finalisePhase()
 
 	return nil
@@ -911,7 +924,6 @@ func completeReport(
 	shell report.Report,
 	executed []report.Mutant,
 	population oracle.Population,
-	trip *tripOutcome,
 ) completedRun {
 	metrics := projectMetrics(oracle.ComputeMetrics(population))
 
@@ -919,8 +931,8 @@ func completeReport(
 		metrics:        metrics,
 		operatorErrors: projectOperatorErrors(oracle.ComputeOperatorErrors(population)),
 		findings:       findingsOf(configuration, executed, population),
-		warnings: append(append(unanswerableResources(configuration, populationDescribed),
-			unscoredWarnings(population, metrics)...), tripWarnings(trip)...),
+		warnings: append(unanswerableResources(configuration, populationDescribed),
+			unscoredWarnings(population, metrics)...),
 		gates: gateOutcomes(settings, shell, metrics, population),
 	}
 }
@@ -962,12 +974,11 @@ func classifyRun(
 	}
 
 	return oracle.NewPopulation(evaluated.classified, oracle.Provenance{
-		Cached:      shell.Population.Cached,
-		TimedOut:    timedOut,
-		Errored:     len(evaluated.failures),
-		Unexecuted:  unexecuted,
-		Tripped:     evaluated.trip != nil,
-		TripWarning: strings.Join(tripWarnings(evaluated.trip), "\n"),
+		Cached:     shell.Population.Cached,
+		TimedOut:   timedOut,
+		Errored:    len(evaluated.failures),
+		Unexecuted: unexecuted,
+		Tripped:    evaluated.trip != nil,
 	})
 }
 
