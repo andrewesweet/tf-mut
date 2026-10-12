@@ -15,7 +15,7 @@ import (
 )
 
 // A pack is data, not operators (M5c.1). The catalogue carries exactly the
-// form operators — PACK-FLIP and PACK-REPLACE — and a pack file's entries
+// form operators listed below, and a pack file's entries
 // parameterise them: each entry names a resource type, an attribute, a form
 // and the literal pair the form rewrites. The contract below is the normative
 // table in docs/design/mutation-operators.md, checked at load so that a pack

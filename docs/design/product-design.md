@@ -119,7 +119,8 @@ lookup fails, this run-block boundary check is disabled.
    rewrite and restoration protocol. For validation, see [Execute](#execute).
 3. `terraform test -verbose -json` — **twice**. Establish that the suite is green, record
    per-run plan fingerprints and `resource_changes` (which resources each run block plans —
-   the resource-coverage source), and time each run block for timeout calibration.
+   the resource-coverage source), and time the whole invocation for timeout calibration (the
+   baseline stores the invocation's `Duration`; the per-mutant timeout budget scales it).
 
 The second baseline run guards the fingerprint oracle against volatility, but the review
 (M5) established that the run-diff alone is insufficient in three ways: it is empty in plan
@@ -329,7 +330,7 @@ fail one run and error another; changing file order must not change the verdict)
 | 1 | `Invalid` | Lazy `validate` fails after an `error` result | **Excluded** |
 | 2 | `Killed` | ≥ 1 executed run reports `fail` — an **assertion** caught it | Numerator |
 | 3 | `KilledByError` | No `fail`, ≥ 1 run reports `error`, lazy `validate` passes — **Terraform** caught it | Numerator, always reported separately |
-| 4 | `Timeout` | No kill; ≥ 1 run exceeded `max(factor × baseline, 30 s)` | **Denominator** — and any timeout marks the whole score *incomplete* |
+| 4 | `Timeout` | No kill; the mutant's test invocation exceeded `max(factor × baseline, 30 s)` | **Denominator** — and any timeout marks the whole score *incomplete* |
 | 5 | `Survived` | All runs pass; masked fingerprint differs from baseline — or is `indeterminate` (unknown values or undecomposable volatility in scope, R2-2/R2-9) | Denominator. Diagnoses include `weak-assertion` and `indeterminate-unknown-values`; `mock-masked` was withdrawn in M3 (#50) |
 | 6 | `StructurallyUnassertable` | Fingerprint identical **and** the construct has no plan/state projection (`lifecycle`, `depends_on`, unexercised `validation`) | Denominator, with fix guidance |
 | 7 | `Unobservable` | Fingerprint identical, the construct projects, **and no unknown value lies in the mutation's forward cone** (M3a delivered the path-scoped upgrade of the M2-spec-review C2 rule: unknowns are judged by whether the mutation can reach them, under the fail-closed address adapters, and the whole-payload test remains the floor wherever a mapping fails). A mutant whose cone reaches nothing observable at all — no resource, data source, output, check or contract construct — is classified statically, guarded by the structural-state precedence | **Excluded** |

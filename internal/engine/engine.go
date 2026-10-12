@@ -408,6 +408,8 @@ type cpuProfileWriter struct {
 	err error
 }
 
+// Write forwards the profile bytes to the wrapped writer and remembers the
+// first error, so the caller can report it once after the run completes.
 func (w *cpuProfileWriter) Write(data []byte) (int, error) {
 	n, err := w.Writer.Write(data)
 	if err == nil && n != len(data) {

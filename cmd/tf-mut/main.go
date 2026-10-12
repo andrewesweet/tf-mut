@@ -181,8 +181,12 @@ type options struct {
 // outputFlag collects repeatable FORMAT=PATH reporter outputs.
 type outputFlag []config.Reporter
 
+// String implements flag.Value. The flag is repeatable and its value is the
+// accumulated FORMAT=PATH list, so the value's own text form is empty.
 func (*outputFlag) String() string { return "" }
 
+// Set parses one FORMAT=PATH pair and appends it to the accumulated outputs,
+// refusing an unknown reporter name or a malformed pair.
 func (o *outputFlag) Set(value string) error {
 	name, path, found := strings.Cut(value, "=")
 	if !found || name == "" || path == "" {
@@ -223,8 +227,11 @@ type flagValues struct {
 // answerFlag collects repeatable todo-<id>=<value> answers.
 type answerFlag []string
 
+// String implements flag.Value. The flag is repeatable and its value is the
+// accumulated answer list, so the value's own text form is empty.
 func (*answerFlag) String() string { return "" }
 
+// Set appends one todo-<id>=<value> answer to the accumulated list.
 func (a *answerFlag) Set(value string) error {
 	*a = append(*a, value)
 

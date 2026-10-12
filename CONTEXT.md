@@ -3,7 +3,7 @@
 This repository is one Go module and one documented context. The bounded contexts
 below are package groupings, not deployables. `internal/engine` is the synchronous
 application layer that coordinates them; `cmd/tf-mut` is an adapter. `internal/config`,
-`internal/buildinfo`, and `internal/buildchain` are infrastructure outside this map.
+`internal/buildinfo`, `internal/buildchain`, and `internal/tracing` are infrastructure outside this map.
 
 ## Bounded contexts
 

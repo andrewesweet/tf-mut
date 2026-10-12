@@ -115,11 +115,9 @@ const (
 	exitCodeUnavailable = -1
 )
 
-// Run executes Terraform in dir with the supplied arguments.
-//
-// A non-zero exit status is not an error: Terraform uses exit codes to report
-// test outcomes, so the caller inspects Result.ExitCode instead.
 // Run executes Terraform in dir with the supplied arguments, buffering stdout.
+//
+// A non-zero exit status alone is not an error; inspect Result.ExitCode.
 //
 // It is StreamOutput with a consumer that keeps everything, rather than a second
 // implementation: the exit-status ladder and the environment stripping standing

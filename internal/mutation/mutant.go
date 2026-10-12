@@ -1,9 +1,9 @@
-// Package mutation generates the Tier 0 extreme mutant population for a
-// discovered Terraform configuration.
+// Package mutation generates the mutant population for a discovered Terraform
+// configuration. Tier 0 uses hclwrite; Tiers 1 to 5 use byte-range rewrites
+// that change only the tokens an operator owns.
 //
-// Every mutant is anchored to a node in the hclsyntax AST and applied through
-// hclwrite, so the rewritten file differs from the original only in the tokens
-// the operator owns.
+// The catalogue and domain pack contracts are specified in
+// docs/design/mutation-operators.md.
 package mutation
 
 import (
@@ -15,7 +15,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 )
 
-// Operator identifies a Tier 0 mutation operator.
+// Operator identifies a mutation operator across Tiers 0 to 5, including the
+// Tier 5 domain pack form operators.
 type Operator string
 
 // The Tier 0 extreme operator catalogue.
