@@ -291,6 +291,56 @@ func TestACharacterisationStagedRunThatOutlivesTheBudgetFailsTheRun(t *testing.T
 	}
 }
 
+func TestAScaffoldAnswerVerificationDeadlineFailsBeforeWriting(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, contractFixture)
+	removeTests(t, module)
+	before := treeDigest(t, module)
+
+	request := characteriseRequest(t, module)
+	request.UntilDry = true
+	opened, err := engine.Run(t.Context(), request)
+	if err != nil {
+		t.Fatalf("opening scaffolds: %v", err)
+	}
+
+	identifier := scaffoldFor(t, opened.Characterisation, "var.size.validation")
+	request.Answers = []string{identifier + "={ size = 0 }"}
+	request.Write = true
+	request.PreflightTimeout = 2 * time.Second
+	request.TerraformBinary = sleepingTerraform(t,
+		`[ "$2" = test ] && [[ "$1" == */scaffold-*/verify ]] && touch "$0.started"`, 300)
+
+	started := time.Now()
+	_, err = engine.Run(t.Context(), request)
+	if !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, tfexec.ErrNotExecuted) {
+		t.Fatalf("error = %v, want an operational staged-verification deadline", err)
+	}
+
+	if _, markerErr := os.Stat(request.TerraformBinary + ".started"); markerErr != nil {
+		t.Fatalf("the answered scaffold never reached verification: %v", markerErr)
+	}
+
+	if !strings.Contains(err.Error(), "staged run verify") || !strings.Contains(err.Error(), "did not finish within") {
+		t.Fatalf("the failure does not name staged verification and its cap: %v", err)
+	}
+
+	if elapsed := time.Since(started); elapsed > 30*time.Second {
+		t.Fatalf("the cap was not honoured: the run took %s", elapsed)
+	}
+
+	if err := t.Context().Err(); err != nil {
+		t.Fatalf("the root context was cancelled: %v", err)
+	}
+
+	assertTreeUnchanged(t, module, before)
+	entries, readErr := os.ReadDir(request.WorkDir)
+	if readErr != nil || len(entries) != 0 {
+		t.Fatalf("work directory was not cleaned: %v, %v", entries, readErr)
+	}
+}
+
 // TestAGitCallThatOutlivesItsCapFailsTheRun bounds the git subprocesses
 // behind --since: a short fixed cap, and a run that ends operationally when
 // it fires, because a hung git hangs the whole selection otherwise.

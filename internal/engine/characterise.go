@@ -336,7 +336,10 @@ func closeTheGap(
 		return nil, []string{err.Error()}, nil
 	}
 
-	promoted, refusals := promoteScaffolds(ctx, runner, stage, block, scaffold, answers, scaffolds)
+	promoted, refusals, err := promoteScaffolds(ctx, runner, stage, block, scaffold, answers, scaffolds)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// The final leg's evidence is not carried further: the judgement points
 	// and scaffolds were promoted on the legs above, and this leg re-proves
@@ -816,8 +819,8 @@ func stagedRun(
 	})
 	if result.TimedOut {
 		return tfexec.TestResult{}, // the run did not complete.
-			fmt.Errorf("%w: the staged run %s did not finish within %s",
-				tfexec.ErrNotExecuted, name, budget)
+			fmt.Errorf("%w: the staged run %s did not finish within %s: %w",
+				tfexec.ErrNotExecuted, name, budget, context.DeadlineExceeded)
 	}
 
 	return result, err
