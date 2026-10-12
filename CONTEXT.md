@@ -69,9 +69,9 @@ Lint enforces seven boundaries, including test files:
   with one exception: its external test files may import the exact package
   they test.
 - `telemetry-boundary` permits `go.opentelemetry.io` imports only in
-  `internal/tracing`, the infrastructure package that names spans and owns the
-  exporter; callers carry `tracing.Attribute` values instead. The engine's two
-  OTLP wire-decoder test files hold the rule's one recorded exclusion.
+  `internal/tracing`, the infrastructure package that projects span attributes
+  and owns the exporter; callers carry `tracing.Attribute` values instead.
+  The engine's two OTLP wire-decoder test files hold the rule's one recorded exclusion.
 
 Core, supporting and boundary imports of `internal/skill`, and skill's own
 imports beyond its one documented sandbox exception, remain policy; these lint

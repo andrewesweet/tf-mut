@@ -164,11 +164,8 @@ linters:
           deny:
             - pkg: github.com/andrewesweet/tf-mut
               desc: "internal/report is the stdlib-only publication leaf; it imports nothing from this module. See CONTEXT.md's dependency direction."
-        # The telemetry boundary: OpenTelemetry is internal/tracing's own
-        # dependency — the one package that names spans and projects the
-        # port's attribute values onto the exporter's vocabulary. Every other
-        # file carries tracing.Attribute values instead; the engine's two
-        # OTLP wire-decoder test files hold the recorded exclusion below.
+        # CONTEXT.md#dependency-direction owns the telemetry import policy
+        # and attribute port; the OTLP wire-decoder exclusion is below.
         telemetry-boundary:
           list-mode: lax
           files:

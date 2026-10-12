@@ -15,10 +15,10 @@ report DTOs.
 ## Alternatives considered
 
 A context map without enforcement was rejected because it records intent but does
-not make an import violation fail when introduced. The configured
-boundary rules cover test files too. See
-[dependency direction](../../CONTEXT.md#dependency-direction) for the enforced
-edges and the policy constraints that remain unenforced.
+not make an import violation fail when introduced. The
+[dependency direction in `CONTEXT.md`](../../CONTEXT.md#dependency-direction)
+lists the configured lint boundaries, their test-file exclusions, and the policy
+constraints that remain unenforced.
 
 A hand-written architecture test was rejected because the configured linter
 answers the structural questions it enforces without creating a second rule to

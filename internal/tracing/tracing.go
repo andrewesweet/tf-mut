@@ -93,11 +93,11 @@ func keyValues(attributes []Attribute) []attribute.KeyValue {
 // New resolves the endpoint — the argument first, then the environment — and
 // returns a tracer that exports over OTLP/HTTP. Any failure to build the
 // exporter disables tracing rather than failing the run: the telemetry is a
-// passenger, and a misconfigured endpoint must not cost the verdicts. A
-// misconfigured endpoint, and a failed export, is reported on warnings, the
-// caller-supplied writer the engine points at the request's progress writer —
-// never a report sink; a nil writer drops the warning. With no endpoint
-// configured, tracing is disabled silently.
+// passenger, and a misconfigured endpoint must not cost the verdicts.
+// Endpoint, initialization and export warnings use the caller-supplied writer;
+// a nil writer drops them. Resource and sampler initialization diagnostics
+// produce a fixed warning while preserving the SDK's fallback behavior.
+// With no endpoint configured, tracing is disabled silently.
 func New(ctx context.Context, endpoint string, warnings io.Writer) *Tracer {
 	tracer := &Tracer{disabled: true, warnings: warnings}
 
@@ -126,6 +126,9 @@ func New(ctx context.Context, endpoint string, warnings io.Writer) *Tracer {
 
 	otel.SetLogger(logr.Discard())
 
+	// SDK initialization uses a process-global diagnostic callback. Serialize
+	// this window, record only whether a diagnostic occurred, and restore the
+	// previous handler before emitting a local warning without its payload.
 	initializationMutex.Lock()
 	previousHandler := otel.GetErrorHandler()
 	var diagnostic atomic.Bool
@@ -136,7 +139,7 @@ func New(ctx context.Context, endpoint string, warnings io.Writer) *Tracer {
 		otel.SetErrorHandler(previousHandler)
 		initializationMutex.Unlock()
 		if diagnostic.Load() {
-			tracer.writeWarning("tf-mut: tracing initialization warning\n")
+			tracer.writeWarningf("tf-mut: tracing initialization warning\n")
 		}
 	}()
 
@@ -159,33 +162,16 @@ func New(ctx context.Context, endpoint string, warnings io.Writer) *Tracer {
 
 type warningExporter struct {
 	sdktrace.SpanExporter
+
 	tracer *Tracer
 }
 
 func (e *warningExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
 	if err := e.SpanExporter.ExportSpans(ctx, spans); err != nil {
-		e.tracer.writeWarning(exportFailureWarning)
+		e.tracer.writeWarningf(exportFailureWarning)
 	}
 
 	return nil
-}
-
-func (t *Tracer) warnEndpoint(endpoint *url.URL) {
-	target := ""
-	if endpoint != nil && endpoint.Scheme != "" && endpoint.Host != "" {
-		target = " " + (&url.URL{Scheme: endpoint.Scheme, Host: endpoint.Host}).Redacted()
-	}
-
-	t.writeWarning("tf-mut: tracing disabled: an unusable OTLP endpoint%s\n", target)
-}
-
-func (t *Tracer) writeWarning(format string, args ...any) {
-	t.warningMutex.Lock()
-	defer t.warningMutex.Unlock()
-
-	if t.warnings != nil {
-		_, _ = fmt.Fprintf(t.warnings, format, args...)
-	}
 }
 
 // Enabled reports whether spans are being recorded.
@@ -217,6 +203,8 @@ func (s *Span) End(attributes ...Attribute) {
 // Shutdown flushes whatever the batcher still holds. It is the caller's job
 // to give the call a context that outlives any request cancellation — a
 // Ctrl-C killed run should still ship the spans it managed to record.
+// Before returning, Shutdown detaches the warning writer even if the context
+// expires, so a pending export cannot write to it after the caller regains it.
 func (t *Tracer) Shutdown(ctx context.Context) error {
 	if t == nil {
 		return nil
@@ -234,8 +222,26 @@ func (t *Tracer) Shutdown(ctx context.Context) error {
 
 	err := t.provider.Shutdown(ctx)
 	if err != nil {
-		t.writeWarning(exportFailureWarning)
+		t.writeWarningf(exportFailureWarning)
 	}
 
 	return err
+}
+
+func (t *Tracer) warnEndpoint(endpoint *url.URL) {
+	target := ""
+	if endpoint != nil && endpoint.Scheme != "" && endpoint.Host != "" {
+		target = " " + (&url.URL{Scheme: endpoint.Scheme, Host: endpoint.Host}).Redacted()
+	}
+
+	t.writeWarningf("tf-mut: tracing disabled: an unusable OTLP endpoint%s\n", target)
+}
+
+func (t *Tracer) writeWarningf(format string, args ...any) {
+	t.warningMutex.Lock()
+	defer t.warningMutex.Unlock()
+
+	if t.warnings != nil {
+		_, _ = fmt.Fprintf(t.warnings, format, args...)
+	}
 }

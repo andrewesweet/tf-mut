@@ -187,8 +187,7 @@ type settings struct {
 	// Empty means unconfigured; the OTel environment variable is honoured
 	// then, resolved by the tracing package.
 	OTLPEndpoint string
-	// Progress receives the periodic long-run progress lines. Nil prints
-	// nothing; the CLI passes os.Stderr, which is never a report sink.
+	// Progress carries Common.Progress; see that field's output contract.
 	Progress io.Writer
 	// ProgressIntervalForTesting overrides the cadence for engine-seam tests.
 	// Zero selects the ten-second default; honoured only when Progress is set.

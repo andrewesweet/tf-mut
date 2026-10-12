@@ -95,8 +95,10 @@ When `--otlp-endpoint` is unset, tf-mut uses `OTEL_EXPORTER_OTLP_ENDPOINT`. With
 configured, it sends no traces. Phase spans carry the recorded child CPU and peak memory
 measurements. Endpoints use HTTP or HTTPS. tf-mut appends `/v1/traces` to
 the supplied base path unless it already ends with that suffix. An unusable endpoint disables
-tracing with a stderr warning. Export failures produce a fixed stderr warning without endpoint
-paths or credentials.
+tracing with a warning. Tracing warnings share the CLI's progress stream on stderr and never
+enter report output. Export failures produce a fixed warning without endpoint paths or
+credentials. Resource or sampler initialization diagnostics produce a fixed warning while
+preserving the OpenTelemetry SDK's fallback behavior.
 
 Use a new file outside the module directory for `--cpu-profile`. Its parent directory must
 exist. tf-mut refuses existing files and symlinks, and warns on stderr if profile output fails
