@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 
 	"github.com/andrewesweet/tf-mut/internal/buildchain"
 )
@@ -23,7 +25,10 @@ var (
 )
 
 func main() {
-	err := run(context.Background(), os.Args[1:])
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	err := run(ctx, os.Args[1:])
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(failureExitCode)
