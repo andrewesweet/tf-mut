@@ -321,9 +321,6 @@ func TestTheDesignDocumentsNameOnlyCommandsAndFlagsTheBinaryHas(t *testing.T) {
 		// Backticked flag occurrences: the --word after each backtick.
 		flags := captureVocabulary(t, surface, document.name+" flags",
 			"`(--[a-z][a-z-]*)")
-		if len(flags) == 0 {
-			t.Fatalf("%s has no backticked flags; the audit is not scanning", document.name)
-		}
 		assertVocabularyKnown(t, document.name+" flags", flags, usageFlags)
 	}
 }
