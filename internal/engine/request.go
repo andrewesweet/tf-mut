@@ -156,8 +156,7 @@ type CharacteriseRequest struct {
 
 // pinDefectHooks is the pair of defect hooks beside the characterisation's
 // initial and final pin verifiers. It rides the request rather than any
-// package state, so a test's hooks stay bound to the one request that seeded
-// them and nothing survives a run.
+// package state, so a test's hooks affect only requests carrying them.
 type pinDefectHooks struct {
 	initial func([]characterise.Pin) []characterise.Pin
 	final   func([]characterise.Pin) []characterise.Pin
