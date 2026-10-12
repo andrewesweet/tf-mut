@@ -249,7 +249,8 @@ func WriteMarkdown(writer io.Writer, value Report) error {
 
 	if value.Metrics.Incomplete {
 		page.WriteString("> **Incomplete:** this score is untrustworthy — " +
-			"a mutant timed out, nothing in the population could be scored, or a high share " +
+			"an operational-failure trip stopped execution, a mutant timed out, " +
+			"nothing in the population could be scored, or a high share " +
 			"of judged mutants were rejected by terraform validate.\n\n")
 	}
 

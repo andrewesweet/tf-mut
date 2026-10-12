@@ -2,10 +2,13 @@ package engine_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -112,6 +115,64 @@ func TestAFailingDependencyStopsTheRunAtTheThreshold(t *testing.T) {
 	}
 
 	assertTripWarning(t, result)
+	assertTripProvenance(t, result, report.SelectionFull)
+}
+
+func TestATripPreservesSelectionAndExecutionProvenance(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range []string{report.SelectionFull, report.SelectionSince, report.SelectionSample} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+
+			module := tripModule(t, 10)
+			config := baseConfig(t, module)
+			config.Jobs = 1
+			config.NoCache = true
+			config.IncludeOperators = []string{string(mutation.BoolLiteralFlip)}
+			config.TerraformBinary = dyingTerraform(t)
+
+			switch mode {
+			case report.SelectionSince:
+				git(t, module, "init", "--quiet", "--initial-branch=main")
+				git(t, module, "add", "--all")
+				commit(t, module, "initial")
+				path := filepath.Join(module, "main.tf")
+				writeFile(t, path, readFile(t, path)+"\n")
+				config.Since = sinceHead
+			case report.SelectionSample:
+				config.HasSample = true
+				config.SamplePercent = 80
+				config.SampleSeed = 17
+			}
+
+			result := runWith(t, config)
+			assertTripWarning(t, result)
+			assertTripProvenance(t, result, mode)
+		})
+	}
+}
+
+func TestATripKeepsCachedVerdictsDistinctFromUnexecutedMutants(t *testing.T) {
+	t.Parallel()
+
+	config := baseConfig(t, tripModule(t, 10))
+	config.Jobs = 1
+	config.IncludeOperators = []string{string(mutation.BoolLiteralFlip)}
+	config.TerraformBinary = dyingTerraform(t, "m000[1-9]-")
+
+	first := runWith(t, config)
+	if first.Population.Cached != 0 || first.Count(report.Killed) != 1 {
+		t.Fatalf("want one fresh kill to seed the cache: %+v", first.Population)
+	}
+
+	second := runWith(t, config)
+	if second.Population.Cached != 1 {
+		t.Fatalf("cached = %d, want the first run's one verdict", second.Population.Cached)
+	}
+
+	assertTripWarning(t, second)
+	assertTripProvenance(t, second, report.SelectionFull)
 }
 
 // TestTheTripThresholdCapsAtThePendingPopulation covers the clause that makes
@@ -179,6 +240,88 @@ func TestATripWithEveryMutantDispatchedStillMarksTheScoreIncomplete(t *testing.T
 	}
 
 	assertTripWarning(t, result)
+	assertTripProvenance(t, result, report.SelectionFull)
+
+	for name, write := range map[string]func(io.Writer, report.Report) error{
+		"terminal": report.WriteTerminal,
+		"html":     report.WriteHTML,
+		"markdown": report.WriteMarkdown,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var rendered strings.Builder
+			if err := write(&rendered, result); err != nil {
+				t.Fatalf("rendering: %v", err)
+			}
+
+			if !strings.Contains(strings.ToLower(rendered.String()), "operational-failure trip stopped execution") {
+				t.Fatal("the incomplete score explanation omits the operational-failure trip")
+			}
+		})
+	}
+}
+
+func TestABaselineCheckReportsUnobservedMutantsWithoutStaleness(t *testing.T) {
+	t.Parallel()
+
+	module := tripModule(t, 10)
+	outputs := make([]string, 10)
+	for index := range outputs {
+		outputs[index] = fmt.Sprintf("output.value%02d", index)
+	}
+	writeFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), "run \"weak\" {\n  command = plan\n\n"+
+		"  assert {\n    condition     = length(["+strings.Join(outputs, ", ")+"]) == 10\n"+
+		"    error_message = \"all outputs must exist\"\n  }\n}\n")
+
+	adopt := baseConfig(t, module)
+	adopt.NoCache = true
+	adopt.IncludeOperators = []string{string(mutation.BoolLiteralFlip)}
+	adopt.WriteBaseline = true
+	accepted := runWith(t, adopt)
+	ids := findingIDs(accepted)
+	if len(ids) != 10 {
+		t.Fatalf("want ten accepted survivors, got %v", ids)
+	}
+
+	for _, mode := range []string{"trip", "timeout"} {
+		t.Run(mode, func(t *testing.T) {
+			config := adopt
+			config.WriteBaseline = false
+			config.FailOnNew = true
+			config.Jobs = 1
+			if mode == "trip" {
+				config.TerraformBinary = dyingTerraform(t)
+			} else {
+				config.TimeoutFactor = 0.0001
+				config.TimeoutFloor = time.Millisecond
+			}
+
+			result := runWith(t, config)
+			if mode == "trip" {
+				assertTripWarning(t, result)
+			} else if result.Count(report.Timeout) == 0 {
+				t.Fatal("the run observed no timeout")
+			}
+
+			baseline := result.Gates.Baseline
+			if baseline == nil || baseline.StalenessReported || len(baseline.Stale) != 0 {
+				t.Fatalf("an unobserved population reported staleness: %+v", baseline)
+			}
+			if !slices.Equal(baseline.Unobserved, ids) {
+				t.Fatalf("unobserved = %v, want %v", baseline.Unobserved, ids)
+			}
+			if !result.Gates.FailOnNew.Partial || result.Gates.FailOnNew.Scope != "selected" {
+				t.Fatalf("an unobserved population claims a full gate: %+v", result.Gates.FailOnNew)
+			}
+
+			for _, mutant := range result.Mutants {
+				if mutant.Provenance == nil || mutant.Provenance.BaselineStatus != "unobserved" {
+					t.Fatalf("mutant %s is not labelled unobserved: %+v", mutant.ID, mutant.Provenance)
+				}
+			}
+		})
+	}
 }
 
 func TestInFlightVerdictsAndFailuresPreserveTheTripEvidence(t *testing.T) {
@@ -426,6 +569,56 @@ func assertTripWarning(t *testing.T, result report.Report) {
 	}
 
 	t.Fatalf("no warning names the trip and the first failure: %v", result.Warnings)
+}
+
+func assertTripProvenance(t *testing.T, result report.Report, selection string) {
+	t.Helper()
+
+	fresh, cached, unexecuted := 0, 0, 0
+	for _, mutant := range result.Mutants {
+		provenance := mutant.Provenance
+		if provenance == nil || provenance.Selection != selection || provenance.Reason == "" {
+			t.Fatalf("mutant %s lost selection provenance: %+v", mutant.ID, provenance)
+		}
+
+		switch provenance.Execution {
+		case report.ExecutionFresh:
+			fresh++
+			if mutant.Telemetry == nil {
+				t.Fatalf("mutant %s claims fresh execution without telemetry", mutant.ID)
+			}
+		case report.ExecutionCached:
+			cached++
+			if mutant.Telemetry != nil || provenance.CacheKey == "" {
+				t.Fatalf("mutant %s lost cached execution provenance", mutant.ID)
+			}
+		case report.ExecutionUnexecuted:
+			unexecuted++
+			if mutant.State != report.Pending || mutant.Telemetry != nil || provenance.CacheKey != "" {
+				t.Fatalf("undispatched mutant %s claims an execution: %+v", mutant.ID, mutant)
+			}
+		default:
+			t.Fatalf("mutant %s has unknown execution provenance %q", mutant.ID, provenance.Execution)
+		}
+	}
+
+	if result.Population.Fresh != fresh || result.Population.Cached != cached ||
+		result.Population.Selected != fresh+cached+unexecuted {
+		t.Fatalf("population split disagrees with execution provenance: %+v", result.Population)
+	}
+
+	var encoded strings.Builder
+	if err := report.WriteJSON(&encoded, result); err != nil {
+		t.Fatalf("writing JSON: %v", err)
+	}
+	document := any(nil)
+	if err := json.Unmarshal([]byte(encoded.String()), &document); err != nil {
+		t.Fatalf("decoding JSON: %v", err)
+	}
+	schema := loadPublishedSchema(t)
+	if problems := validateAgainst(schema, schema, document, "$"); len(problems) > 0 {
+		t.Fatalf("trip report violates the published schema: %v", problems)
+	}
 }
 
 func assertNoTripWarning(t *testing.T, result report.Report) {

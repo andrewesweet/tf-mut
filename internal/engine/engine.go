@@ -790,6 +790,10 @@ func executeWithCache(
 		return evaluatedPopulation{}, err
 	}
 
+	if evaluated.trip != nil {
+		result.Population.Fresh -= evaluated.trip.unexecuted
+	}
+
 	if err := ctx.Err(); err != nil {
 		return evaluatedPopulation{}, err
 	}

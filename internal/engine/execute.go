@@ -265,8 +265,9 @@ func (t *tripCounter) outcome(rows []report.Mutant, failures []report.ExecutionE
 	}
 
 	unexecuted := 0
-	for _, row := range rows {
+	for index, row := range rows {
 		if _, isFailed := failed[row.ID]; row.State == report.Pending && !isFailed {
+			rows[index].Provenance.Execution = report.ExecutionUnexecuted
 			unexecuted++
 		}
 	}
