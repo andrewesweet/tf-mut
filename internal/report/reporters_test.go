@@ -1614,6 +1614,42 @@ func TestMarkdownCarriesGateOutcomeAndNewVersusAccepted(t *testing.T) {
 	}
 }
 
+// TestTheMarkdownSummaryNamesTheMutantsWhoseTestReachedItsDeadline: the PR
+// summary must surface a deadline behind a verdict that outranked it, and stay
+// quiet when no test reached its budget.
+func TestTheMarkdownSummaryNamesTheMutantsWhoseTestReachedItsDeadline(t *testing.T) {
+	t.Parallel()
+
+	value := allStatesReport()
+	value.Mutants[9].DeadlineReached = true // the Timeout row.
+
+	rendered := strings.Builder{}
+	if err := report.WriteMarkdown(&rendered, value); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	page := rendered.String()
+	for _, needle := range []string{"**Deadline reached:**", sampleNullOperator, "Timeout"} {
+		if !strings.Contains(page, needle) {
+			t.Fatalf("the markdown summary is missing %q:\n%s", needle, page)
+		}
+	}
+
+	quiet := allStatesReport()
+	for index := range quiet.Mutants {
+		quiet.Mutants[index].DeadlineReached = false
+	}
+
+	unmarked := strings.Builder{}
+	if err := report.WriteMarkdown(&unmarked, quiet); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	if strings.Contains(unmarked.String(), "Deadline reached") {
+		t.Fatalf("the markdown summary names a deadline no test reached:\n%s", unmarked.String())
+	}
+}
+
 // TestSARIFSpeaksOnlyTheSchemaVocabulary: GitHub's code-scanning upload
 // validates the document against the SARIF 2.1.0 schema and rejects any
 // undeclared property — an invocation-level `message` cost the Action its

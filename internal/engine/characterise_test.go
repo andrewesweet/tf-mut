@@ -978,15 +978,15 @@ func TestConfigurationAliasesAreMockedAndGated(t *testing.T) {
 //nolint:paralleltest // owns package-global characterisation hooks for its lifetime.
 func TestARegistryFailureReportsThePartialState(t *testing.T) {
 	module := copyFixture(t, untestedBranchesFixture)
+	ctx, endpoint := cancelDuringTraceFlush(t)
 
 	config := characteriseRequest(t, module)
 	config.Write = true
+	config.OTLPEndpoint = endpoint
 	engine.SetCharacteriseWriteSeeds(t, module, "", "", 0, false, true)
 
-	result, err := engine.Run(t.Context(), config)
-	if err != nil {
-		t.Fatalf("a partial commit must return its report: %v", err)
-	}
+	result, err := engine.Run(ctx, config)
+	assertTraceCancellationPreservesResult(ctx, t, err)
 
 	write := result.Characterisation.Write
 	if write == nil || len(write.Partial) == 0 {

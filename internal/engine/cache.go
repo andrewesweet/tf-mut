@@ -33,8 +33,9 @@ import (
 // cacheFormatVersion invalidates every entry when verdict semantics, the
 // stored shape, or key derivation changes. Sandbox changes that affect
 // verdicts also require a bump. TestPreSandboxFixInvalidVerdictsAreNotReplayed
-// protects this upgrade boundary.
-const cacheFormatVersion = "tf-mut-cache-2"
+// protects this upgrade boundary. 2.9.0's deadline flag is stored beside the
+// verdict, so a pre-2.9.0 entry — which cannot carry one — is a miss.
+const cacheFormatVersion = "tf-mut-cache-3"
 
 // The cache is private by construction: evidence may embed plan values and
 // source text.
@@ -59,15 +60,16 @@ type verdictCache struct {
 
 // cacheEntry is the persisted verdict of one mutant under one key.
 type cacheEntry struct {
-	FormatVersion string              `json:"format_version"`
-	RunKey        string              `json:"run_key"`
-	MutantID      string              `json:"mutant_id"`
-	State         report.State        `json:"state"`
-	Verdict       *report.Verdict     `json:"verdict,omitempty"`
-	Runs          []report.RunOutcome `json:"runs"`
-	Diagnostics   []report.Diagnostic `json:"diagnostics,omitempty"`
-	ExecutedRuns  int                 `json:"executed_runs"`
-	Validated     bool                `json:"validated"`
+	FormatVersion   string              `json:"format_version"`
+	RunKey          string              `json:"run_key"`
+	MutantID        string              `json:"mutant_id"`
+	State           report.State        `json:"state"`
+	Verdict         *report.Verdict     `json:"verdict,omitempty"`
+	Runs            []report.RunOutcome `json:"runs"`
+	Diagnostics     []report.Diagnostic `json:"diagnostics,omitempty"`
+	ExecutedRuns    int                 `json:"executed_runs"`
+	Validated       bool                `json:"validated"`
+	DeadlineReached bool                `json:"deadline_reached"`
 }
 
 // openCache computes the run key and opens the project-local cache. It
@@ -539,6 +541,7 @@ func rehydrated(mutant *report.Mutant, classified *oracle.Classified, entry cach
 	slices.SortFunc(mutant.Diagnostics, compareDiagnostics)
 	mutant.ExecutedRuns = entry.ExecutedRuns
 	mutant.Validated = entry.Validated
+	mutant.DeadlineReached = entry.DeadlineReached
 
 	return true
 }
@@ -586,15 +589,16 @@ func (c *verdictCache) store(mutants []report.Mutant) {
 		}
 
 		entry := cacheEntry{
-			FormatVersion: cacheFormatVersion,
-			RunKey:        c.key,
-			MutantID:      mutant.ID,
-			State:         mutant.State,
-			Verdict:       mutant.Verdict,
-			Runs:          mutant.Runs,
-			Diagnostics:   mutant.Diagnostics,
-			ExecutedRuns:  mutant.ExecutedRuns,
-			Validated:     mutant.Validated,
+			FormatVersion:   cacheFormatVersion,
+			RunKey:          c.key,
+			MutantID:        mutant.ID,
+			State:           mutant.State,
+			Verdict:         mutant.Verdict,
+			Runs:            mutant.Runs,
+			Diagnostics:     mutant.Diagnostics,
+			ExecutedRuns:    mutant.ExecutedRuns,
+			Validated:       mutant.Validated,
+			DeadlineReached: mutant.DeadlineReached,
 		}
 
 		c.write(mutant.ID, entry)

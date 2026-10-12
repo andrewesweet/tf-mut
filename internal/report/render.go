@@ -458,6 +458,8 @@ func writeMetrics(builder *strings.Builder, value Report) {
 		value.Count(Timeout), value.Count(Invalid),
 		value.Count(Unobservable), value.Count(Ignored))
 
+	writeDeadlines(builder, value)
+
 	writeDiagnoses(builder, value)
 
 	if metrics.Incomplete {
@@ -467,7 +469,30 @@ func writeMetrics(builder *strings.Builder, value Report) {
 	}
 }
 
-// writeDiagnoses shows how the survivors divide, because "twenty survivors" and
+// writeDeadlines names the mutants whose test reached its execution budget,
+// whatever verdict the runs that finished first earned: the state vocabulary is
+// unchanged by design, so without this list a deadline behind a Killed or
+// KilledByError verdict would be invisible.
+func writeDeadlines(builder *strings.Builder, value Report) {
+	reached := make([]Mutant, 0)
+	for _, mutant := range value.Mutants {
+		if mutant.DeadlineReached {
+			reached = append(reached, mutant)
+		}
+	}
+
+	if len(reached) == 0 {
+		return
+	}
+
+	fmt.Fprintf(builder, "\n  Deadline reached %d\n", len(reached))
+
+	for _, mutant := range reached {
+		fmt.Fprintf(builder, "    %s  %s  %s\n", mutant.Operator, location(mutant.Range), mutant.State)
+	}
+}
+
+// writeDiagnoses renders the survivor diagnosis counts: "twenty survivors" and
 // "twenty survivors, eighteen of them indeterminate" are different situations.
 func writeDiagnoses(builder *strings.Builder, value Report) {
 	if len(value.Metrics.Diagnoses) == 0 {

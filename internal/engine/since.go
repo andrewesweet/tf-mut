@@ -18,6 +18,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
 // M3b.1 (#45): `--since` selection, per the C5 disposition — "the union of the
@@ -460,8 +461,10 @@ func sampleRank(seed int64, id string) uint64 {
 // .gitignore shapes nothing either: Terraform does not read git ignore rules,
 // so ignored untracked files are enumerated explicitly by the caller above.
 func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
-	//nolint:gosec // fixed binary; tool-controlled arguments.
-	command := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	// The shared constructor stops the whole process group when the command's
+	// context expires, so no git subprocess outlives the run either.
+	arguments := append([]string{"-C", dir}, args...)
+	command := tfexec.GroupCommand(ctx, "git", arguments...)
 
 	environment := []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null"}
 

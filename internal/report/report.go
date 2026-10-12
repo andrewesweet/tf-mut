@@ -46,7 +46,12 @@ package report
 // population was rejected by terraform validate. No field was added, removed
 // or renamed, and the exit-code semantics are unchanged; the wire contract is
 // documented in docs/schema/report-2.8.0.json.
-const SchemaVersion = "2.8.0"
+// 2.9.0 adds, additively: the per-mutant DeadlineReached flag — true exactly
+// when this mutant's Terraform test invocation reached its execution budget,
+// whatever verdict the runs that finished first earned. Verdict precedence is
+// unchanged, and every 2.8.0 document is a valid 2.9.0 document; the wire
+// contract is documented in docs/schema/report-2.9.0.json.
+const SchemaVersion = "2.9.0"
 
 // Command names what produced a report.
 type Command string
@@ -273,6 +278,11 @@ type Mutant struct {
 	ExecutedRuns int `json:"executed_runs"`
 	// Validated records whether lazy validation ran for this mutant.
 	Validated bool `json:"validated"`
+	// DeadlineReached records whether this mutant's Terraform test invocation
+	// reached its execution budget, whatever verdict the runs that finished
+	// first earned: the verdict precedence is unchanged, so the deadline is
+	// visible behind a Killed or KilledByError verdict too (2.9.0).
+	DeadlineReached bool `json:"deadline_reached"`
 	// Suppression records the directive or exclusion that made the mutant
 	// Ignored.
 	Suppression *Suppression `json:"suppression,omitempty"`

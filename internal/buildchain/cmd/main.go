@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime"
+	"syscall"
 
 	"github.com/andrewesweet/tf-mut/internal/buildchain"
 )
@@ -43,7 +45,14 @@ func run(ctx context.Context, args []string) error {
 	case "verify-providers":
 		err = buildchain.VerifyProviderChain(root)
 	case "sync-go-toolchains":
-		err = buildchain.SyncGoToolchains(ctx, root, runtime.Version())
+		signalCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		go func() {
+			<-signalCtx.Done()
+			stop()
+		}()
+
+		err = buildchain.SyncGoToolchains(signalCtx, root, runtime.Version())
 	default:
 		return fmt.Errorf("%w %q", errUnknownCommand, args[commandArgumentIndex])
 	}

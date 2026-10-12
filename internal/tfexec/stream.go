@@ -35,7 +35,9 @@ func (r Runner) StreamOutput(
 	args ...string,
 ) (Result, error) {
 	full := append([]string{"-chdir=" + dir}, args...)
-	command := exec.CommandContext(ctx, r.Binary, full...) //nolint:gosec // the binary and arguments are tool-controlled.
+	// The shared constructor stops the whole process group at the deadline, so
+	// the provider plugins Terraform started cannot outlive the run.
+	command := GroupCommand(ctx, r.Binary, full...)
 	command.Env = append(inheritedEnvironment(), r.Env...)
 
 	stderr := bytes.Buffer{}
@@ -89,6 +91,10 @@ func completed(ctx context.Context, command *exec.Cmd, started time.Time, stderr
 		TimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded),
 		Duration: time.Since(started),
 		Usage:    childUsage(command.ProcessState),
+	}
+
+	if err := ctx.Err(); err != nil && !result.TimedOut {
+		return outcome{Result: result, Err: fmt.Errorf("%w: %w", ErrNotExecuted, err)}
 	}
 
 	if waitErr == nil {

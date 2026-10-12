@@ -184,6 +184,8 @@ internal/engine/testdata/unit-directory-modulecall/main.tf
 internal/engine/testdata/unit-directory-modulecall/tests/unit/unit.tftest.hcl
 internal/engine/testdata/unknown-refinement/main.tf
 internal/engine/testdata/unknown-refinement/tests/unit.tftest.hcl
+internal/engine/testdata/unmocked-timeout/main.tf
+internal/engine/testdata/unmocked-timeout/tests/unit.tftest.hcl
 internal/engine/testdata/unmocked/main.tf
 internal/engine/testdata/unmocked/tests/unit.tftest.hcl
 internal/engine/testdata/untested-aliases/main.tf

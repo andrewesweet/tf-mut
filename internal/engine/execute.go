@@ -255,6 +255,11 @@ func evaluate(
 	verdict.Runs = runOutcomes(result)
 	verdict.ExecutedRuns = result.ExecutedRuns()
 	verdict.Diagnostics = diagnostics(result.Diagnostics)
+	// The deadline is an evaluation fact, not a verdict: when the invocation
+	// was cut short the finished runs still stand, and whatever verdict they
+	// earned keeps its precedence — the deadline is recorded beside it so the
+	// report shows both.
+	verdict.DeadlineReached = result.TimedOut
 
 	judge := executionOracle{plan: plan}
 	observation := judge.observation(index, verdict, result, budget)

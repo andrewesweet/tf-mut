@@ -12,7 +12,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/andrewesweet/tf-mut/internal/buildinfo"
 	"github.com/andrewesweet/tf-mut/internal/config"
@@ -741,7 +743,15 @@ func execute(command, buildVersion string, args []string, stdout, stderr io.Writ
 		return fail(stderr, err.Error())
 	}
 
-	result, err := engine.Run(context.Background(), parsed.config)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
+
+	result, err := engine.Run(ctx, parsed.config)
+	stop()
 	if err != nil {
 		return fail(stderr, "tf-mut: "+err.Error())
 	}

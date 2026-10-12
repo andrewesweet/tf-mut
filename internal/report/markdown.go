@@ -253,6 +253,8 @@ func WriteMarkdown(writer io.Writer, value Report) error {
 			"of judged mutants were rejected by terraform validate.\n\n")
 	}
 
+	writeDeadlineNote(&page, value)
+
 	writePopulation(&page, value)
 	writeGates(&page, value)
 	writeFindingList(&page, value)
@@ -264,6 +266,33 @@ func WriteMarkdown(writer io.Writer, value Report) error {
 	}
 
 	return nil
+}
+
+// writeDeadlineNote names the mutants whose test reached its execution budget,
+// whatever verdict the runs that finished first earned: without it, a deadline
+// behind a killed or killed-by-error verdict would be invisible in the PR
+// summary.
+func writeDeadlineNote(page *strings.Builder, value Report) {
+	reached := make([]Mutant, 0)
+	for _, mutant := range value.Mutants {
+		if mutant.DeadlineReached {
+			reached = append(reached, mutant)
+		}
+	}
+
+	if len(reached) == 0 {
+		return
+	}
+
+	fmt.Fprintf(page, "> **Deadline reached:** %d test(s) consumed their whole budget before finishing; "+
+		"the verdicts of the runs that finished first stand.\n\n", len(reached))
+
+	for _, mutant := range reached {
+		fmt.Fprintf(page, "- %s at %s — %s\n",
+			markdownCode(mutant.Operator), markdownCode(location(mutant.Range)), markdownText(string(mutant.State)))
+	}
+
+	page.WriteString("\n")
 }
 
 // writeSuggestionSummary lists the outcome table in the job step summary. It

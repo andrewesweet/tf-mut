@@ -181,9 +181,9 @@ this repository contract.
 | `internal/tfexec` | The Terraform CLI: `version`, `init`, `validate`, `providers schema`, `fmt`, and the `test -json` stream |
 | `internal/report` | The report value, its state, diagnosis and metric definitions, and the terminal, JSON and SARIF renderings |
 
-The JSON reporter's contract is published at `docs/schema/report-2.8.0.json` and validated in
-the suite; `report-2.7.0.json`, `report-2.6.0.json`, `report-2.5.0.json`, `report-2.4.0.json`,
-`report-2.3.0.json`,
+The JSON reporter's contract is published at `docs/schema/report-2.9.0.json` and validated in
+the suite; `report-2.8.0.json`, `report-2.7.0.json`, `report-2.6.0.json`, `report-2.5.0.json`,
+`report-2.4.0.json`, `report-2.3.0.json`,
 `report-2.2.0.json`, `report-2.1.0.json`,
 `report-2.0.0.json` and
 `report-1.0.0.json` remain published for earlier consumers. The characterisation block's
@@ -262,8 +262,9 @@ named.
 - Safety gates (`--allow-real-infrastructure`, `--allow-unsandboxed-effects`) are
   load-bearing product decisions, not defaults to soften.
 - Engine fixtures live in `internal/engine/testdata/`. They are `terraform_data`-based and
-  offline unless the name says otherwise; `mocked-null`, `mocked-aliases`, `unmocked` and
-  `untested-aliases` need the provider mirror (`just tools-install`) and skip without it, and
+  offline unless the name says otherwise; `mocked-null`, `mocked-aliases`, `unmocked`,
+  `unmocked-timeout` and `untested-aliases` need the provider mirror (`just tools-install`)
+  and skip without it, and
   the other `untested-*` fixtures — the modules characterisation is exercised against — are
   `terraform_data`-based and offline like the rest. `aws-mocked` is
   network-gated behind the `integration` tag. Every fixture is in the Terraform format manifest

@@ -119,7 +119,6 @@ func characteriseModule(
 	}
 
 	warnings = append(warnings, prepared.warnings...)
-
 	result := shell(configuration, settings, version.Terraform,
 		configuration.ModuleDir, prepared, warnings)
 	result.Command = report.CommandCharacterise
@@ -135,9 +134,7 @@ func characteriseModule(
 
 	events := dispatcher{}
 	projectSuite(&events, &result)
-
 	var block report.Characterisation
-
 	pins, files, err := scaffoldSuite(ctx, runner, stage, scaffold, &block)
 	if err != nil {
 		return report.Report{}, err
@@ -174,6 +171,10 @@ func characteriseModule(
 
 		files = closed
 		block.Files = entriesOf(files)
+	}
+
+	if err := ctx.Err(); err != nil {
+		return report.Report{}, err
 	}
 
 	if err := commit(stage, &block, files, &result); err != nil {

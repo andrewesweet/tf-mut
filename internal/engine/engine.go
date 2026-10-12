@@ -611,6 +611,10 @@ func finish(
 	shell report.Report,
 	evaluated evaluatedPopulation,
 ) (report.Report, oracle.Population, error) {
+	if err := ctx.Err(); err != nil {
+		return report.Report{}, oracle.Population{}, err
+	}
+
 	population := classifyRun(shell, evaluated.classified, evaluated.failures)
 	projection := &gradingProjection{plan: plan, moduleDir: moduleDir, shell: shell, evaluated: evaluated}
 
@@ -623,13 +627,28 @@ func finish(
 		})
 	}
 
-	plan.events.populationClassified.subscribe(projection.accept)
+	plan.events.populationClassified.subscribe(func(event PopulationClassified) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		return projection.accept(event)
+	})
 
 	if err := plan.events.populationClassified.publish(PopulationClassified{population: population}); err != nil {
 		return report.Report{}, oracle.Population{}, err
 	}
 
-	return projection.project(), population, nil
+	result := projection.project()
+	if plan.settings.mode == suggestMode {
+		applySuggestions(plan.settings, &result, applyContext{
+			moduleDir:   plan.configuration.ModuleDir,
+			closureRoot: plan.configuration.ClosureRoot,
+			testDirs:    []string{plan.configuration.Tests.Dir, plan.configuration.ModuleDir},
+		})
+	}
+
+	return result, population, nil
 }
 
 // gradingProjection is the report projection's subscriber state: what each
@@ -716,14 +735,6 @@ func (p *gradingProjection) project() report.Report {
 	result.Gates = p.completed.gates
 	result.Suggestions = p.suggestions
 
-	if p.plan.settings.mode == suggestMode {
-		applySuggestions(p.plan.settings, &result, applyContext{
-			moduleDir:   p.plan.configuration.ModuleDir,
-			closureRoot: p.plan.configuration.ClosureRoot,
-			testDirs:    []string{p.plan.configuration.Tests.Dir, p.plan.configuration.ModuleDir},
-		})
-	}
-
 	for index, label := range p.labels {
 		if label != "" {
 			labelFinding(&result.Mutants[index], label)
@@ -754,6 +765,10 @@ func executeWithCache(
 
 	evaluated, err := execute(ctx, plan)
 	if err != nil {
+		return evaluatedPopulation{}, err
+	}
+
+	if err := ctx.Err(); err != nil {
 		return evaluatedPopulation{}, err
 	}
 
