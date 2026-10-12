@@ -18,7 +18,7 @@ as detailed below:
 | Event | Payload | Raised by | Subscribers, in delivery order |
 | --- | --- | --- | --- |
 | `MutantEvaluated` | the row (with its telemetry record), `oracle.Classified`, the operational failure | each execution worker | the per-mutant report projection; the progress line |
-| `PopulationClassified` | `oracle.Population` | `finish` | the report projection's aggregates; the suggestion leg (suggest only); the acceptance gate |
+| `PopulationClassified` | `oracle.Population` | `finishReport` | the report projection's aggregates; the suggestion leg (suggest only); the acceptance gate |
 | `SuggestionProposed` | `suggest.Candidate` | the suggestion leg, dry run | the report projection |
 | `SuggestionVerified`, `SuggestionRefuted`, `SuggestionSkipped` | `suggest.Suggestion` | the suggestion leg | the report projection |
 | `VerificationCosted` | the verification cost ledger | the suggestion leg, once, last | the report projection |
@@ -45,7 +45,7 @@ ADR-0003 named three costs of a dispatcher. This design settles each one:
   contract. A subscriber may publish, and the nested events are delivered in full
   before the outer delivery continues: the suggestion leg's outcomes reach the
   projection in survivor order before the acceptance gate sees the population.
-  For `PopulationClassified`, the order is the one `finish` called its steps in:
+  For `PopulationClassified`, `finishReport` subscribes consumers in this order:
   aggregates, then suggestions, then the baseline gate. So no reviewed verdict and
   no side effect moves.
 - **Failure modes.** The first subscriber error stops delivery and is returned to
