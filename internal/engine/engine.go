@@ -1,7 +1,3 @@
-// Package engine is the single seam of the tool: configuration in, report out.
-//
-// Everything the command line does is a thin shell over Run, and every test of
-// product behaviour drives this entry point against the real Terraform binary.
 package engine
 
 import (
