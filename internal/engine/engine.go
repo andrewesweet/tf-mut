@@ -12,12 +12,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"runtime/pprof"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/andrewesweet/tf-mut/internal/buildinfo"
 	tfconfig "github.com/andrewesweet/tf-mut/internal/config"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
@@ -229,8 +227,6 @@ var seedGenerationDefect = func(settings) mutation.Defect { return mutation.Defe
 // Operational failures. Every one of them aborts the run: none of them can be
 // reported as a mutant verdict without misleading the reader.
 var (
-	errCPUProfileInModule = errors.New("CPU profile destination is inside the module directory")
-
 	// ErrTerraformVersion reports a Terraform release the tool cannot drive.
 	ErrTerraformVersion = errors.New("unsupported Terraform version")
 	// ErrRealInfrastructure reports an unmocked provider.
@@ -246,8 +242,6 @@ var (
 // traceFlushTimeout caps the deferred OTLP flush, so a run whose collector
 // died never hangs on the way out.
 const traceFlushTimeout = 5 * time.Second
-
-const cpuProfileFileMode = 0o600
 
 // Run performs a complete mutation run and returns the report.
 func Run(ctx context.Context, request Request) (result report.Report, err error) {
@@ -401,84 +395,6 @@ func finishRunReport(
 	return result, err
 }
 
-func startCPUProfile(moduleDir, destination string, warnings io.Writer) (func(), error) {
-	profilePath, profileErr := cpuProfilePath(moduleDir, destination)
-	if profileErr != nil {
-		return nil, profileErr
-	}
-
-	//nolint:gosec // caller-selected diagnostic file; O_EXCL refuses existing files and final symlinks.
-	profileFile, profileErr := os.OpenFile(profilePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, cpuProfileFileMode)
-	if profileErr != nil {
-		return nil, fmt.Errorf("opening the CPU profile file: %w", profileErr)
-	}
-
-	writer := &cpuProfileWriter{Writer: profileFile}
-	if startErr := pprof.StartCPUProfile(writer); startErr != nil {
-		_ = profileFile.Close()
-		return nil, fmt.Errorf("starting the CPU profile: %w", startErr)
-	}
-
-	return func() {
-		pprof.StopCPUProfile()
-		if profileErr := errors.Join(writer.err, profileFile.Close()); profileErr != nil && warnings != nil {
-			_, _ = fmt.Fprintf(warnings, "tf-mut: CPU profile may be incomplete: %s\n",
-				strings.ReplaceAll(profileErr.Error(), "\n", "; "))
-		}
-	}, nil
-}
-
-func cpuProfilePath(moduleDir, destination string) (string, error) {
-	module, err := filepath.Abs(moduleDir)
-	if err != nil {
-		return "", fmt.Errorf("resolving module directory for the CPU profile: %w", err)
-	}
-
-	module, err = filepath.EvalSymlinks(module)
-	if err != nil {
-		return "", fmt.Errorf("resolving module directory for the CPU profile: %w", err)
-	}
-
-	path, err := filepath.Abs(destination)
-	if err != nil {
-		return "", fmt.Errorf("resolving the CPU profile destination: %w", err)
-	}
-
-	parent, err := filepath.EvalSymlinks(filepath.Dir(path))
-	if err != nil {
-		return "", fmt.Errorf("resolving the CPU profile parent directory: %w", err)
-	}
-
-	path = filepath.Join(parent, filepath.Base(path))
-
-	if within(module, path) {
-		return "", fmt.Errorf("%w: %q", errCPUProfileInModule, destination)
-	}
-
-	return path, nil
-}
-
-type cpuProfileWriter struct {
-	io.Writer
-
-	err error
-}
-
-// Write forwards the profile bytes to the wrapped writer and remembers the
-// first error, so the caller can report it once after the run completes.
-func (w *cpuProfileWriter) Write(data []byte) (int, error) {
-	n, err := w.Writer.Write(data)
-	if err == nil && n != len(data) {
-		err = io.ErrShortWrite
-	}
-
-	if w.err == nil {
-		w.err = err
-	}
-
-	return n, err
-}
-
 // applyGates runs the static safety gates and the JSON floor's static half.
 // A run is refused at a gate; a preview executes nothing and cannot be
 // refused, so it carries the gates' verdict in the warnings instead: a pass
@@ -579,9 +495,7 @@ func mutate(
 
 	if settings.mode == previewMode {
 		result.Mutants = selected.mutants
-		result.Metrics = projectMetrics(
-			oracle.ComputeMetrics(oracle.NewPopulation(nil, oracle.Provenance{})),
-		)
+		result.Metrics = emptyMetrics()
 
 		return result, oracle.Population{}, nil
 	}
@@ -707,99 +621,6 @@ func finishReport(
 	}
 
 	return result, population, ctx.Err()
-}
-
-// gradingProjection is the report projection's subscriber state: what each
-// published conclusion contributes to the report, held until the report is
-// projected once, last.
-type gradingProjection struct {
-	plan        executionPlan
-	moduleDir   string
-	shell       report.Report
-	evaluated   evaluatedPopulation
-	completed   completedRun
-	suggestions []report.Suggestion
-	cost        string
-	labels      map[int]string
-}
-
-// completeReport computes the aggregates over the classified population.
-func (p *gradingProjection) completeReport(event PopulationClassified) error {
-	finalisePhase := p.plan.collector.phase(phaseFinalise)
-	p.completed = completeReport(p.plan.configuration, p.plan.settings, p.plan.populationDescribed, p.shell,
-		p.evaluated.rows, event.population)
-	finalisePhase()
-
-	return nil
-}
-
-// accept applies the baseline gate to the classified population.
-func (p *gradingProjection) accept(event PopulationClassified) error {
-	labels, err := applyBaselineGate(p.plan.settings, p.moduleDir, p.shell, p.evaluated.rows,
-		event.population, p.completed.gates)
-	p.labels = labels
-
-	return err
-}
-
-// subscribeSuggestions projects each suggestion outcome in publication order,
-// which is survivor order, and the verification cost statement.
-func (p *gradingProjection) subscribeSuggestions(events *dispatcher) {
-	p.suggestions = []report.Suggestion{}
-
-	events.suggestionProposed.subscribe(func(event SuggestionProposed) error {
-		p.suggestions = append(p.suggestions, projectCandidate(event.candidate))
-
-		return nil
-	})
-	events.suggestionVerified.subscribe(func(event SuggestionVerified) error {
-		p.suggestions = append(p.suggestions, projectSuggestion(event.suggestion))
-
-		return nil
-	})
-	events.suggestionRefuted.subscribe(func(event SuggestionRefuted) error {
-		p.suggestions = append(p.suggestions, projectSuggestion(event.suggestion))
-
-		return nil
-	})
-	events.suggestionSkipped.subscribe(func(event SuggestionSkipped) error {
-		p.suggestions = append(p.suggestions, projectSuggestion(event.suggestion))
-
-		return nil
-	})
-	events.verificationCosted.subscribe(func(event VerificationCosted) error {
-		p.cost = event.costs.Statement()
-
-		return nil
-	})
-}
-
-// project attaches the aggregate results computed over the population fact.
-// Per-mutant projections already accompany their classified rows; the shell's
-// selection, sampling, population split and suppressions pass through without
-// becoming inputs to the outcome arithmetic.
-func (p *gradingProjection) project() report.Report {
-	result := p.shell
-	result.Mutants = p.evaluated.rows
-	result.Errors = p.evaluated.failures
-	result.Metrics = p.completed.metrics
-	result.OperatorErrors = p.completed.operatorErrors
-	result.Findings = p.completed.findings
-	result.Warnings = append(result.Warnings, p.completed.warnings...)
-	if p.cost != "" {
-		result.Warnings = append(result.Warnings, p.cost)
-	}
-
-	result.Gates = p.completed.gates
-	result.Suggestions = p.suggestions
-
-	for index, label := range p.labels {
-		if label != "" {
-			labelFinding(&result.Mutants[index], label)
-		}
-	}
-
-	return result
 }
 
 // executeWithCache replays cached verdicts under the coarse correct key
@@ -1136,212 +957,6 @@ func countAssertions(configuration discovery.Configuration) int {
 	return total
 }
 
-// conditionallyNoCoverageClaim is the finding a pre-classified mutant
-// carries: the reason the oracle's NoCoverage constructor states for it. The
-// fact itself — that the block is never instantiated — is published by
-// discovery's ConditionalMultiplicity.
-const conditionallyNoCoverageClaim = "the mutated block's multiplicity expression is statically zero under every " +
-	"relevant run, so no run instantiates the block and nothing can execute the mutation"
-
-// describeMutants converts generated mutants into report values, assigning the
-// statically decidable states before anything executes: module-level
-// NoCoverage first — the structural precedence and the M2 behaviour — then
-// the guarded static Unobservable shortcut (M3a.2).
-//
-// Every described row leaves with the outcome classified for it, so the
-// population fact the run reports is built at the classification sites
-// themselves and never re-parsed from the published values.
-func describeMutants(
-	configuration discovery.Configuration,
-	graph *discovery.Graph,
-	settings settings,
-	generated []mutation.Mutant,
-) ([]report.Mutant, []oracle.Classified) {
-	exercised := configuration.ExercisedModules()
-	described := make([]report.Mutant, 0, len(generated))
-	classified := make([]oracle.Classified, 0, len(generated))
-	shortcutsDisabled := settings.staticShortcutsDisabled || disableStaticShortcuts(settings)
-
-	for _, mutant := range generated {
-		entry := report.Mutant{
-			ID:       mutant.ID,
-			Operator: string(mutant.Operator),
-			Tier:     string(mutation.TierOf(mutant.Operator)),
-			Module:   mutant.ModuleRel,
-			Site:     mutant.Site,
-			Resource: mutant.Resource,
-			Range: report.Range{
-				File:  mutant.File,
-				Start: report.Position{Line: mutant.Range.Start.Line, Column: mutant.Range.Start.Column},
-				End:   report.Position{Line: mutant.Range.End.Line, Column: mutant.Range.End.Column},
-			},
-			Diff:    mutant.Diff,
-			Runs:    []report.RunOutcome{},
-			Origins: projectOrigins(mutant.Origins),
-		}
-
-		var outcome oracle.Outcome
-
-		switch {
-		case !exercised[mutant.ModuleRel]:
-			// Module-level NoCoverage: the report states the absence as a
-			// count and no finding, so the outcome carries the state and
-			// nothing else.
-			outcome = oracle.NoCoverage("")
-		case settings.mode != previewMode && !shortcutsDisabled &&
-			configuration.ConditionalMultiplicity(graph, settings.Env, discovery.Site{
-				ModuleRel: mutant.ModuleRel,
-				File:      mutant.File,
-				Address:   mutant.Site,
-				Resource:  mutant.Resource,
-				Mutated:   mutant.Mutated,
-			}):
-			// The finer conditional-instantiation claim (M3a.3): the mutated
-			// multiplicity expression is statically zero under every relevant
-			// run. Module-level NoCoverage above remains the strict subset.
-			outcome = oracle.NoCoverage(conditionallyNoCoverageClaim)
-		case settings.mode != previewMode && !shortcutsDisabled &&
-			staticallyUnobservable(graph, mutant):
-			// A preview keeps Pending — the documented preview contract — so
-			// the shortcut fires only where execution would otherwise run.
-			outcome = oracle.StaticallyUnobservable()
-		default:
-			// Pending stands: the state every executable mutant carries until
-			// something decides otherwise, and the only state a preview
-			// reports.
-			outcome = oracle.Pending()
-		}
-
-		described = append(described, project(entry, outcome))
-		classified = append(classified, oracle.Classified{Operator: mutant.Operator, Outcome: outcome})
-	}
-
-	return described, classified
-}
-
-// projectOrigins projects the generator's origins onto the published DTO:
-// present exactly when at least one pack entry contributed, never empty.
-func projectOrigins(origins []mutation.Origin) []report.Origin {
-	if len(origins) == 0 {
-		return nil
-	}
-
-	projected := make([]report.Origin, 0, len(origins))
-	for _, origin := range origins {
-		projected = append(projected, report.Origin{
-			Operator: string(origin.Operator), Pack: origin.Pack, Entry: origin.Entry,
-		})
-	}
-
-	return projected
-}
-
-// describeUnmatched renders preview's pack summary, one line per entry that
-// produced nothing.
-func describeUnmatched(unmatched []mutation.Origin) []string {
-	described := make([]string, 0, len(unmatched))
-	for _, origin := range unmatched {
-		described = append(described, fmt.Sprintf("pack %q: entry %q (%s) matched no site: no top-level "+
-			"resource argument of its type and attribute holds its literal, or the schema does not "+
-			"describe the attribute at the entry's type", origin.Pack, origin.Entry, origin.Operator))
-	}
-
-	return described
-}
-
-// staticallyUnobservable applies the guarded static shortcut (M3a.2, review
-// C2). The structural precedence comes first: a non-projecting operator —
-// every contract and ordering operator — is never statically classified, and
-// execution decides its state. The shortcut then fires only where the site
-// maps into the graph (unmapped fails closed to execution) and its forward
-// cone reaches nothing observable: no resource, data source, output, check or
-// contract construct.
-func staticallyUnobservable(graph *discovery.Graph, mutant mutation.Mutant) bool {
-	if !mutation.Projects(mutant.Operator) {
-		return false
-	}
-
-	cone, ok := graph.SiteCone(mutant.ModuleRel, mutant.Site)
-	if !ok {
-		return false
-	}
-
-	return !cone.ContainsObservable()
-}
-
-// Exclude is the site exclusion policy the run was given.
-func (s settings) Exclude() tfconfig.Exclude {
-	return tfconfig.Exclude{Paths: s.ExcludePaths, Resources: s.ExcludeResources}
-}
-
-// toolVersion is what a generated file's header records: this binary's own
-// version, never Terraform's. The two were confused once, which put a
-// Terraform version in a line reading "Generated by tf-mut characterise".
-func (s settings) toolVersion() string {
-	return buildinfo.Resolve(s.ToolVersion)
-}
-
-func (s settings) withDefaults() settings {
-	if s.TestDirectory == "" {
-		s.TestDirectory = DefaultTestDirectory
-	}
-
-	if s.Jobs <= 0 {
-		s.Jobs = defaultJobs()
-	}
-
-	if s.TimeoutFactor <= 0 {
-		s.TimeoutFactor = DefaultTimeoutFactor
-	}
-
-	if s.TimeoutFloor <= 0 {
-		s.TimeoutFloor = DefaultTimeoutFloor
-	}
-
-	if s.TerraformBinary == "" {
-		s.TerraformBinary = DefaultTerraformBinary
-	}
-
-	if s.FailureTripThreshold <= 0 {
-		s.FailureTripThreshold = DefaultFailureTripThreshold
-	}
-
-	return s
-}
-
-// initCap bounds terraform init: the caller's cap when set, else the
-// ten-minute default for the network phase.
-func (s settings) initCap() time.Duration {
-	if s.PreflightTimeout > 0 {
-		return s.PreflightTimeout
-	}
-
-	return DefaultInitTimeout
-}
-
-// preflightCap bounds non-init preflight, baseline and staged invocations:
-// the caller's cap when set, else the one-minute default.
-func (s settings) preflightCap() time.Duration {
-	if s.PreflightTimeout > 0 {
-		return s.PreflightTimeout
-	}
-
-	return DefaultPreflightTimeout
-}
-
-// selection is the operator population the configuration asks for.
-func (s settings) selection() mutation.Selection {
-	tier := s.Tier
-	if !tier.Valid() {
-		tier = mutation.TierStandard
-	}
-
-	return mutation.Selection{
-		Tier: tier, Include: s.IncludeOperators, Exclude: s.ExcludeOperators,
-		GeneratedFamilies: s.GeneratedFunctions,
-	}
-}
-
 // baselineFingerprint composes the unmutated suite's masked fingerprint, which
 // is what every mutant is compared against.
 func baselineFingerprint(prepared warmWorkspace) string {
@@ -1353,20 +968,4 @@ func baselineFingerprint(prepared warmWorkspace) string {
 	}
 
 	return fingerprint.Fingerprint(masked)
-}
-
-// RuleDescriptions renders the operator catalogue for the reporters, so that a
-// SARIF rule carries the catalogue's own words rather than a paraphrase.
-func RuleDescriptions() map[string]report.RuleDescription {
-	descriptions := make(map[string]report.RuleDescription, len(mutation.Catalogue()))
-
-	for id, entry := range mutation.Descriptions() {
-		descriptions[id] = report.RuleDescription{
-			Tier:        string(entry.Tier),
-			Description: entry.Description,
-			Killer:      entry.Killer,
-		}
-	}
-
-	return descriptions
 }

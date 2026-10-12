@@ -9,7 +9,6 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
-	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
@@ -126,9 +125,7 @@ func listTodos(
 		warmWorkspace{}, []string{}) // nothing was prepared: this surface runs no Terraform.
 	result.Command = report.CommandTodos
 	result.Selection = report.Selection{Mode: scopeLabel(true), Ref: "", ForcedFull: ""}
-	result.Metrics = projectMetrics(
-		oracle.ComputeMetrics(oracle.NewPopulation(nil, oracle.Provenance{})),
-	)
+	result.Metrics = emptyMetrics()
 	block := &report.Characterisation{ // a listing carries no scaffold.
 		Rung: string(rung), Complete: false, Scenarios: projectScenarios(scenarios),
 		Pins: []report.Pin{}, Todos: projectTodos(todos),

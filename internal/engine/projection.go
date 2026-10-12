@@ -3,7 +3,9 @@ package engine
 import (
 	"fmt"
 
+	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
+	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
@@ -488,4 +490,230 @@ func projectSkipReason(reason suggest.SkipReason) report.SuggestionStatus {
 	}
 
 	return ""
+}
+
+// gradingProjection is the report projection's subscriber state: what each
+// published conclusion contributes to the report, held until the report is
+// projected once, last.
+type gradingProjection struct {
+	plan        executionPlan
+	moduleDir   string
+	shell       report.Report
+	evaluated   evaluatedPopulation
+	completed   completedRun
+	suggestions []report.Suggestion
+	cost        string
+	labels      map[int]string
+}
+
+// completeReport computes the aggregates over the classified population.
+func (p *gradingProjection) completeReport(event PopulationClassified) error {
+	finalisePhase := p.plan.collector.phase(phaseFinalise)
+	p.completed = completeReport(p.plan.configuration, p.plan.settings, p.plan.populationDescribed, p.shell,
+		p.evaluated.rows, event.population)
+	finalisePhase()
+
+	return nil
+}
+
+// accept applies the baseline gate to the classified population.
+func (p *gradingProjection) accept(event PopulationClassified) error {
+	labels, err := applyBaselineGate(p.plan.settings, p.moduleDir, p.shell, p.evaluated.rows,
+		event.population, p.completed.gates)
+	p.labels = labels
+
+	return err
+}
+
+// subscribeSuggestions projects each suggestion outcome in publication order,
+// which is survivor order, and the verification cost statement.
+func (p *gradingProjection) subscribeSuggestions(events *dispatcher) {
+	p.suggestions = []report.Suggestion{}
+
+	events.suggestionProposed.subscribe(func(event SuggestionProposed) error {
+		p.suggestions = append(p.suggestions, projectCandidate(event.candidate))
+
+		return nil
+	})
+	events.suggestionVerified.subscribe(func(event SuggestionVerified) error {
+		p.suggestions = append(p.suggestions, projectSuggestion(event.suggestion))
+
+		return nil
+	})
+	events.suggestionRefuted.subscribe(func(event SuggestionRefuted) error {
+		p.suggestions = append(p.suggestions, projectSuggestion(event.suggestion))
+
+		return nil
+	})
+	events.suggestionSkipped.subscribe(func(event SuggestionSkipped) error {
+		p.suggestions = append(p.suggestions, projectSuggestion(event.suggestion))
+
+		return nil
+	})
+	events.verificationCosted.subscribe(func(event VerificationCosted) error {
+		p.cost = event.costs.Statement()
+
+		return nil
+	})
+}
+
+// project attaches the aggregate results computed over the population fact.
+// Per-mutant projections already accompany their classified rows; the shell's
+// selection, sampling, population split and suppressions pass through without
+// becoming inputs to the outcome arithmetic.
+func (p *gradingProjection) project() report.Report {
+	result := p.shell
+	result.Mutants = p.evaluated.rows
+	result.Errors = p.evaluated.failures
+	result.Metrics = p.completed.metrics
+	result.OperatorErrors = p.completed.operatorErrors
+	result.Findings = p.completed.findings
+	result.Warnings = append(result.Warnings, p.completed.warnings...)
+	if p.cost != "" {
+		result.Warnings = append(result.Warnings, p.cost)
+	}
+
+	result.Gates = p.completed.gates
+	result.Suggestions = p.suggestions
+
+	for index, label := range p.labels {
+		if label != "" {
+			labelFinding(&result.Mutants[index], label)
+		}
+	}
+
+	return result
+}
+
+// conditionallyNoCoverageClaim is the finding a pre-classified mutant
+// carries: the reason the oracle's NoCoverage constructor states for it. The
+// fact itself — that the block is never instantiated — is published by
+// discovery's ConditionalMultiplicity.
+const conditionallyNoCoverageClaim = "the mutated block's multiplicity expression is statically zero under every " +
+	"relevant run, so no run instantiates the block and nothing can execute the mutation"
+
+// describeMutants converts generated mutants into report values, assigning the
+// statically decidable states before anything executes: module-level
+// NoCoverage first — the structural precedence and the M2 behaviour — then
+// the guarded static Unobservable shortcut (M3a.2).
+//
+// Every described row leaves with the outcome classified for it, so the
+// population fact the run reports is built at the classification sites
+// themselves and never re-parsed from the published values.
+func describeMutants(
+	configuration discovery.Configuration,
+	graph *discovery.Graph,
+	settings settings,
+	generated []mutation.Mutant,
+) ([]report.Mutant, []oracle.Classified) {
+	exercised := configuration.ExercisedModules()
+	described := make([]report.Mutant, 0, len(generated))
+	classified := make([]oracle.Classified, 0, len(generated))
+	shortcutsDisabled := settings.staticShortcutsDisabled || disableStaticShortcuts(settings)
+
+	for _, mutant := range generated {
+		entry := report.Mutant{
+			ID:       mutant.ID,
+			Operator: string(mutant.Operator),
+			Tier:     string(mutation.TierOf(mutant.Operator)),
+			Module:   mutant.ModuleRel,
+			Site:     mutant.Site,
+			Resource: mutant.Resource,
+			Range: report.Range{
+				File:  mutant.File,
+				Start: report.Position{Line: mutant.Range.Start.Line, Column: mutant.Range.Start.Column},
+				End:   report.Position{Line: mutant.Range.End.Line, Column: mutant.Range.End.Column},
+			},
+			Diff:    mutant.Diff,
+			Runs:    []report.RunOutcome{},
+			Origins: projectOrigins(mutant.Origins),
+		}
+
+		var outcome oracle.Outcome
+
+		switch {
+		case !exercised[mutant.ModuleRel]:
+			// Module-level NoCoverage: the report states the absence as a
+			// count and no finding, so the outcome carries the state and
+			// nothing else.
+			outcome = oracle.NoCoverage("")
+		case settings.mode != previewMode && !shortcutsDisabled &&
+			configuration.ConditionalMultiplicity(graph, settings.Env, discovery.Site{
+				ModuleRel: mutant.ModuleRel,
+				File:      mutant.File,
+				Address:   mutant.Site,
+				Resource:  mutant.Resource,
+				Mutated:   mutant.Mutated,
+			}):
+			// The finer conditional-instantiation claim (M3a.3): the mutated
+			// multiplicity expression is statically zero under every relevant
+			// run. Module-level NoCoverage above remains the strict subset.
+			outcome = oracle.NoCoverage(conditionallyNoCoverageClaim)
+		case settings.mode != previewMode && !shortcutsDisabled &&
+			staticallyUnobservable(graph, mutant):
+			// A preview keeps Pending — the documented preview contract — so
+			// the shortcut fires only where execution would otherwise run.
+			outcome = oracle.StaticallyUnobservable()
+		default:
+			// Pending stands: the state every executable mutant carries until
+			// something decides otherwise, and the only state a preview
+			// reports.
+			outcome = oracle.Pending()
+		}
+
+		described = append(described, project(entry, outcome))
+		classified = append(classified, oracle.Classified{Operator: mutant.Operator, Outcome: outcome})
+	}
+
+	return described, classified
+}
+
+// projectOrigins projects the generator's origins onto the published DTO:
+// present exactly when at least one pack entry contributed, never empty.
+func projectOrigins(origins []mutation.Origin) []report.Origin {
+	if len(origins) == 0 {
+		return nil
+	}
+
+	projected := make([]report.Origin, 0, len(origins))
+	for _, origin := range origins {
+		projected = append(projected, report.Origin{
+			Operator: string(origin.Operator), Pack: origin.Pack, Entry: origin.Entry,
+		})
+	}
+
+	return projected
+}
+
+// describeUnmatched renders preview's pack summary, one line per entry that
+// produced nothing.
+func describeUnmatched(unmatched []mutation.Origin) []string {
+	described := make([]string, 0, len(unmatched))
+	for _, origin := range unmatched {
+		described = append(described, fmt.Sprintf("pack %q: entry %q (%s) matched no site: no top-level "+
+			"resource argument of its type and attribute holds its literal, or the schema does not "+
+			"describe the attribute at the entry's type", origin.Pack, origin.Entry, origin.Operator))
+	}
+
+	return described
+}
+
+// staticallyUnobservable applies the guarded static shortcut (M3a.2, review
+// C2). The structural precedence comes first: a non-projecting operator —
+// every contract and ordering operator — is never statically classified, and
+// execution decides its state. The shortcut then fires only where the site
+// maps into the graph (unmapped fails closed to execution) and its forward
+// cone reaches nothing observable: no resource, data source, output, check or
+// contract construct.
+func staticallyUnobservable(graph *discovery.Graph, mutant mutation.Mutant) bool {
+	if !mutation.Projects(mutant.Operator) {
+		return false
+	}
+
+	cone, ok := graph.SiteCone(mutant.ModuleRel, mutant.Site)
+	if !ok {
+		return false
+	}
+
+	return !cone.ContainsObservable()
 }
