@@ -18,6 +18,15 @@ import (
 // supplemental, test-suite-only check, never a user-invocation dependency and
 // never evidence of attribute-level soundness (review M1, C3).
 
+const (
+	runCommand          = "run"
+	previewCommand      = "preview"
+	suggestCommand      = "suggest"
+	characteriseCommand = "characterise"
+	todosCommand        = "todos"
+	curateCommand       = "curate"
+)
+
 // discover parses a fixture the way the engine does, without executing it.
 func discover(t *testing.T, moduleDir string) discovery.Configuration {
 	t.Helper()
@@ -66,11 +75,15 @@ func TestEveryGenerationSiteMapsIntoTheGraph(t *testing.T) {
 		}
 	}
 
-	t.Run("tf.json", func(t *testing.T) {
-		t.Parallel()
+	t.Run("tf.json", testJSONBlockSitesMapIntoTheGraph)
+}
 
-		module := t.TempDir()
-		source := `{
+func testJSONBlockSitesMapIntoTheGraph(t *testing.T) {
+	t.Helper()
+	t.Parallel()
+
+	module := t.TempDir()
+	source := `{
   "variable": {"named": {"default": "value"}},
   "resource": {"terraform_data": {"named": {"input": "${var.named}"}}},
   "data": {"terraform_remote_state": {"named": {
@@ -84,43 +97,42 @@ func TestEveryGenerationSiteMapsIntoTheGraph(t *testing.T) {
   "module": {"named": {"source": "hashicorp/consul/aws"}},
   "provider": {"null": {"alias": "named"}}
 }`
-		writeFile(t, filepath.Join(module, "main.tf.json"), source)
+	writeFile(t, filepath.Join(module, "main.tf.json"), source)
 
-		graph := discover(t, module).BuildGraph()
+	graph := discover(t, module).BuildGraph()
 
-		for _, site := range []string{
-			"terraform_data.named", "terraform_data.named.input",
-			"data.terraform_remote_state.named", "data.terraform_remote_state.named.backend",
-			"output.named", "output.named.value",
-			"module.named", "module.named.source",
-			"var.named", "var.named.default",
-			"check.named", "check.named.assert",
-			"provider.null", "provider.null.alias",
-		} {
-			cone, ok := graph.SiteCone(".", site)
-			if !ok {
-				t.Fatalf("JSON block site %s does not map into the graph", site)
-			}
+	for _, site := range []string{
+		"terraform_data.named", "terraform_data.named.input",
+		"data.terraform_remote_state.named", "data.terraform_remote_state.named.backend",
+		"output.named", "output.named.value",
+		"module.named", "module.named.source",
+		"var.named", "var.named.default",
+		"check.named", "check.named.assert",
+		"provider.null", "provider.null.alias",
+	} {
+		cone, ok := graph.SiteCone(".", site)
+		if !ok {
+			t.Fatalf("JSON block site %s does not map into the graph", site)
+		}
 
-			if !cone.ContainsObservable() {
-				t.Errorf("JSON block site %s reaches no observable", site)
-			}
+		if !cone.ContainsObservable() {
+			t.Errorf("JSON block site %s reaches no observable", site)
+		}
 
-			if site == "var.named.default" || site == "terraform_data.named.input" {
-				if !cone.ContainsResource(".", "terraform_data.named") ||
-					!cone.ContainsPayloadAddress("output.named") ||
-					cone.ContainsResource(".", "data.terraform_remote_state.named") {
-					t.Errorf("JSON block site %s has incorrect resource ownership or reference edges", site)
-				}
-			}
-
-			if strings.HasPrefix(site, "provider.") || strings.HasPrefix(site, "module.") {
-				if !cone.ContainsResource(".", "data.terraform_remote_state.named") {
-					t.Errorf("JSON block site %s must have an unbounded cone", site)
-				}
+		if site == "var.named.default" || site == "terraform_data.named.input" {
+			if !cone.ContainsResource(".", "terraform_data.named") ||
+				!cone.ContainsPayloadAddress("output.named") ||
+				cone.ContainsResource(".", "data.terraform_remote_state.named") {
+				t.Errorf("JSON block site %s has incorrect resource ownership or reference edges", site)
 			}
 		}
-	})
+
+		if strings.HasPrefix(site, "provider.") || strings.HasPrefix(site, "module.") {
+			if !cone.ContainsResource(".", "data.terraform_remote_state.named") {
+				t.Errorf("JSON block site %s must have an unbounded cone", site)
+			}
+		}
+	}
 }
 
 // TestAnUnmappableSiteFallsBackClosed pins the site adapter's failure
@@ -256,7 +268,10 @@ func TestASeededMissingEdgeFailsTheSupplementalCheck(t *testing.T) {
 func TestNoUserInvocationExecutesTerraformGraph(t *testing.T) {
 	t.Parallel()
 
-	for _, command := range []string{"run", "preview", "suggest", "characterise", "todos", "curate"} {
+	for _, command := range []string{
+		runCommand, previewCommand, suggestCommand,
+		characteriseCommand, todosCommand, curateCommand,
+	} {
 		t.Run(command, func(t *testing.T) {
 			t.Parallel()
 
@@ -267,18 +282,20 @@ func TestNoUserInvocationExecutesTerraformGraph(t *testing.T) {
 			var request engine.Request
 
 			switch command {
-			case "run":
+			case runCommand:
 				request = engine.RunRequest{Common: common, NoCache: true}
-			case "preview":
+			case previewCommand:
 				request = engine.PreviewRequest{Common: common}
-			case "suggest":
+			case suggestCommand:
 				request = engine.SuggestRequest{Common: common, NoCache: true}
-			case "characterise":
+			case characteriseCommand:
 				request = engine.CharacteriseRequest{Common: common}
-			case "todos":
+			case todosCommand:
 				request = engine.TodosRequest{Common: common}
-			case "curate":
+			case curateCommand:
 				request = engine.CurateRequest{Common: common, NoCache: true}
+			default:
+				t.Fatalf("unsupported engine command %q", command)
 			}
 
 			result, err := engine.Run(t.Context(), request)
@@ -291,7 +308,7 @@ func TestNoUserInvocationExecutesTerraformGraph(t *testing.T) {
 			}
 
 			invocations := terraformInvocations(t, log)
-			if command != "todos" && len(invocations) == 0 {
+			if command != todosCommand && len(invocations) == 0 {
 				t.Fatal("the engine invoked no recorded Terraform command")
 			}
 
@@ -299,7 +316,7 @@ func TestNoUserInvocationExecutesTerraformGraph(t *testing.T) {
 				t.Fatalf("terraform graph ran during an engine invocation: %v", invocations)
 			}
 
-			if command == "run" && !slices.Contains(invocations, "test") {
+			if command == runCommand && !slices.Contains(invocations, "test") {
 				t.Fatalf("the run did not execute terraform test: %v", invocations)
 			}
 		})
