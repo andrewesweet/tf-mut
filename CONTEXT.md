@@ -89,10 +89,6 @@ Lint enforces nine boundaries, including test files:
   checked write primitive (since #91), is the exception, and its absence from
   the deny list is that exception's record.
 
-Core, supporting and boundary imports of `internal/skill`, and skill's own
-imports beyond its one documented sandbox exception, are enforced by the
-`skill-boundary` and `skill-leaf` rules above.
-
 ## Architecture decisions
 
 The rationale for these boundaries is recorded in
