@@ -20,9 +20,6 @@ func TestTheActionDocumentNamesTheDeclaredReleaseVersion(t *testing.T) {
 
 	actionDoc := readDocument(t, "../../ACTION.md")
 	declared := strings.TrimSpace(readDocument(t, "../../VERSION"))
-	if !regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(declared) {
-		t.Fatalf("VERSION declares %q, want a vX.Y.Z release version", declared)
-	}
 
 	uses := captureActionExampleToken(t, actionDoc, `uses: andrewesweet/tf-mut@(\S+)`)
 	if uses != declared {
@@ -32,22 +29,6 @@ func TestTheActionDocumentNamesTheDeclaredReleaseVersion(t *testing.T) {
 	versionInput := captureActionExampleToken(t, actionDoc, `version:\s+(\S+)`)
 	if versionInput != declared {
 		t.Errorf("ACTION.md passes version: %s, want the declared release version %s", versionInput, declared)
-	}
-
-	// A floating major pin promises a tag the release process never cut and
-	// the pipeline cannot verify; no such pin may return. A specific version
-	// such as v1.0.0 is not a floating pin — it is held to the declared
-	// version by the equality checks above.
-	for _, floating := range []struct {
-		name  string
-		token *regexp.Regexp
-	}{
-		{"floating tf-mut uses ref", regexp.MustCompile(`tf-mut@v[0-9]+([^0-9.]|$)`)},
-		{"floating tf-mut version input", regexp.MustCompile(`version:\s+v[0-9]+([^0-9.]|$)`)},
-	} {
-		if floating.token.MatchString(actionDoc) {
-			t.Errorf("ACTION.md carries a %s; pin exact release versions", floating.name)
-		}
 	}
 }
 

@@ -24,18 +24,24 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0     # --since needs the base ref's history
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
       - uses: andrewesweet/tf-mut@v0.1.0
         with:
           version: v0.1.0    # always a pinned release; "latest" is refused
 ```
 
-1. **Choose the version to pin.** The `uses:` ref and the `version:` input name the same
+1. **Install Terraform.** Terraform is a prerequisite: the Action installs tf-mut only.
+   Run `hashicorp/setup-terraform` before tf-mut with `terraform_wrapper: false` so tf-mut
+   invokes the Terraform binary directly.
+2. **Choose the version to pin.** The `uses:` ref and the `version:` input name the same
    released `v*` tag of this repository. `latest` is refused: an unpinned tool in CI is an
    unverified tool.
-2. **Grant the two permissions.** The job needs `contents: read` for checkout and `--since`
+3. **Grant the two permissions.** The job needs `contents: read` for checkout and `--since`
    history, and `security-events: write` for the SARIF upload; the step summary needs no
    permission at all.
-3. **Read the result.** The markdown summary lands in the job step summary. The check's
+4. **Read the result.** The markdown summary lands in the job step summary. The check's
    outcome is tf-mut's own exit code, captured before any upload ran: `1` means findings —
    mutants survived — and fails the check; `2` is an operational failure. The reporting
    steps always run first, so a red check still carries its annotations and summary.
