@@ -773,7 +773,16 @@ module inventory with remote payloads, the relevant environment, the Terraform i
 cache version ([invalidation policy](../../internal/engine/cache.go)) and the masked baseline
 fingerprint — any doubt is a miss, and cache reads and writes are disabled under
 `--allow-real-infrastructure` and `--allow-unsandboxed-effects`, whose external state cannot
-be keyed soundly. **Cached evidence may embed plan values and source text.** Sharing a cache
+be keyed soundly.
+
+Each entry stores the oracle's own record, including its full delta, alongside the run
+observations. Replay rebuilds the outcome through `oracle.ParseRecord` and uses the same
+forward report projection as fresh evaluation; it never reconstructs a verdict from report
+DTOs. Entries under an older cache format are misses, not errors: tf-mut recomputes their
+verdicts as they are selected after an upgrade. You do not need to delete the cache.
+
+**Cached evidence may include sensitive plan values and source text, even though the report
+projection withholds sensitive values.** Sharing a cache
 across repositories, or restoring it through a broad CI cache key, is a documented risk;
 `--no-cache` is the mitigation. Finer graph-derived invalidation waits for a measurement
 proving the coarse key insufficient.

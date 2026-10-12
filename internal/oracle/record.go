@@ -29,32 +29,32 @@ var ErrIllegalRecord = errors.New("oracle: not a record this context stored")
 // stored record is data, not a construction.
 type Record struct {
 	// State is the aggregate verdict the stored outcome carried.
-	State State
+	State State `json:"state"`
 	// Diagnosis is why a stored survivor survived. It is empty for every
 	// other state — and for the provisional phase-one survivor, which no
 	// phase-two diagnosis was decided for.
-	Diagnosis Diagnosis
+	Diagnosis Diagnosis `json:"diagnosis"`
 	// Message and Fix are the stored finding, in the reader's terms.
-	Message string
-	Fix     string
+	Message string `json:"message"`
+	Fix     string `json:"fix"`
 	// The stored evidence, field for field. Which fields a classification may
 	// carry is the constructors' decision, and ParseRecord refuses a record
 	// carrying a field outside the subset its state and diagnosis record.
-	Delta              []fingerprint.Change
-	UnknownPaths       []string
-	VolatileComponents []string
-	UnstableAttributes []string
-	Assertion          string
-	ClosureVerdict     string
-	DefeatedBy         string
+	Delta              []fingerprint.Change `json:"delta"`
+	UnknownPaths       []string             `json:"unknown_paths"`
+	VolatileComponents []string             `json:"volatile_components"`
+	UnstableAttributes []string             `json:"unstable_attributes"`
+	Assertion          string               `json:"assertion"`
+	ClosureVerdict     string               `json:"closure_verdict"`
+	DefeatedBy         string               `json:"defeated_by"`
 	// Diagnostics are the evaluation failures a KilledByError or Invalid
 	// claim is made from. The runs' other diagnostics are observations on the
 	// mutant, not outcome evidence, and stay on the mutant.
-	Diagnostics []Diagnostic
+	Diagnostics []Diagnostic `json:"diagnostics"`
 	// Suppression is the decision an Ignored outcome records.
-	Suppression *Suppression
+	Suppression *Suppression `json:"suppression"`
 	// Budget is the execution budget a Timeout was measured against.
-	Budget time.Duration
+	Budget time.Duration `json:"budget"`
 }
 
 // ParseRecord rebuilds an Outcome from a stored record, refusing any record

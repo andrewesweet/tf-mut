@@ -82,6 +82,173 @@ func TestASecondUnchangedRunIsAllCacheHits(t *testing.T) {
 	assertVerdictInvariance(t, first, second)
 }
 
+// TestACachedReplayIsByteIdenticalToTheFreshRun is the control for the
+// silent-wrong-verdict class: whatever the cache stores, the report a reader
+// gets from a replay must be the report the fresh run would have published.
+// The matrix covers the outcome shapes a record carries: the killed majority,
+// a survivor with its evidence, an Invalid row whose diagnostics are the
+// stored claim's evidence, and the suppressed rows a policy removes — the
+// diagnostics and the suppression being exactly what the deleted lifting
+// helpers used to rebuild from published DTOs.
+func TestACachedReplayIsByteIdenticalToTheFreshRun(t *testing.T) {
+	t.Parallel()
+
+	matrix := []struct {
+		name    string
+		fixture string
+		request func(t *testing.T, module string) engine.RunRequest
+		// coverage refuses a vacuous case: a fixture drift that silenced the
+		// shape the case exists to compare must fail here, not pass silently.
+		coverage func(t *testing.T, fresh report.Report)
+	}{
+		{
+			name:    "killed majority",
+			fixture: "all-killed",
+			request: baseConfig,
+		},
+		{
+			name:    "survivor with evidence",
+			fixture: "skeleton",
+			request: func(t *testing.T, module string) engine.RunRequest {
+				t.Helper()
+
+				request := baseConfig(t, module)
+				request.IncludeOperators = []string{string(mutation.StrCase)}
+
+				return request
+			},
+			coverage: func(t *testing.T, fresh report.Report) {
+				t.Helper()
+
+				if fresh.Count(report.Survived) == 0 {
+					t.Fatal("fixture drift: the survivor case produced no survivor")
+				}
+			},
+		},
+		{
+			name:    "invalid with diagnostics",
+			fixture: "all-invalid",
+			request: func(t *testing.T, module string) engine.RunRequest {
+				t.Helper()
+
+				request := baseConfig(t, module)
+				request.IncludeOperators = []string{string(mutation.ModuleInputDelete)}
+
+				return request
+			},
+			coverage: func(t *testing.T, fresh report.Report) {
+				t.Helper()
+
+				if fresh.Count(report.Invalid) == 0 {
+					t.Fatal("fixture drift: the diagnostics case produced no Invalid row")
+				}
+			},
+		},
+		{
+			name:    "suppressed by policy",
+			fixture: "policy",
+			request: baseConfig,
+			coverage: func(t *testing.T, fresh report.Report) {
+				t.Helper()
+
+				if fresh.Count(report.Ignored) == 0 {
+					t.Fatal("fixture drift: the suppression case produced no Ignored row")
+				}
+			},
+		},
+	}
+
+	for _, entry := range matrix {
+		t.Run(entry.name, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, entry.fixture)
+			config := entry.request(t, module)
+
+			fresh := cachedRun(t, config)
+			replayed := cachedRun(t, config)
+
+			if replayed.Population.Cached == 0 {
+				t.Fatalf("the second run replayed nothing, so the comparison is vacuous: %+v",
+					replayed.Population)
+			}
+
+			if entry.coverage != nil {
+				entry.coverage(t, fresh)
+			}
+
+			assertCachedAndFreshReportsByteIdentical(t, fresh, replayed)
+		})
+	}
+}
+
+// previousCacheFormatVersion is the format one step behind the one this build
+// writes: an entry carrying it is a miss, never a parse error.
+const previousCacheFormatVersion = "tf-mut-cache-4"
+
+// TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError is the symmetric
+// half of the format boundary: the first run after an upgrade finds every
+// entry one format behind, recomputes each verdict once, and the run still
+// publishes a well-formed report.
+func TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+	config := baseConfig(t, module)
+
+	first := cachedRun(t, config)
+	if first.Population.Cached != 0 {
+		t.Fatalf("the first run reported %d cached verdicts from an empty cache",
+			first.Population.Cached)
+	}
+
+	legacy := 0
+
+	entries, err := os.ReadDir(cacheDir(module))
+	if err != nil {
+		t.Fatalf("reading cache: %v", err)
+	}
+
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		path := filepath.Join(cacheDir(module), entry.Name())
+		document := map[string]any{}
+		if err := json.Unmarshal([]byte(readFile(t, path)), &document); err != nil {
+			t.Fatalf("decoding a fresh entry: %v", err)
+		}
+
+		document["format_version"] = previousCacheFormatVersion
+		encoded, err := json.Marshal(document)
+		if err != nil {
+			t.Fatalf("encoding legacy entry: %v", err)
+		}
+
+		testsupport.WriteFile(t, path, string(encoded))
+		legacy++
+	}
+
+	if legacy == 0 {
+		t.Fatal("the first run wrote no entries to rewind")
+	}
+
+	second := cachedRun(t, config)
+	if second.Population.Cached != 0 || second.Population.Fresh == 0 {
+		t.Fatalf("previous-format entries were not freshly executed: %+v", second.Population)
+	}
+
+	assertVerdictInvariance(t, first, second)
+
+	third := cachedRun(t, config)
+	if third.Population.Cached == 0 || third.Population.Fresh != 0 {
+		t.Fatalf("the recomputed verdicts were not cached under the new format: %+v", third.Population)
+	}
+
+	assertCachedAndFreshReportsByteIdentical(t, second, third)
+}
+
 func TestPreDeadlineSurvivorVerdictsAreNotReplayed(t *testing.T) {
 	t.Parallel()
 

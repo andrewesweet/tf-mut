@@ -655,7 +655,7 @@ func executeWithCache(
 
 	storePhase := plan.collector.phase(phaseCacheStore)
 	if cache != nil {
-		cache.store(evaluated.rows)
+		cache.store(evaluated.rows, evaluated.classified)
 	}
 
 	storePhase()

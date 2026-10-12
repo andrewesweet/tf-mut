@@ -149,12 +149,15 @@ func (o executionOracle) rerunForVolatility(
 }
 
 // observation assembles what the engine measured for the oracle to judge:
-// the phase-one measurements, plus the fail-closed adapters over the graph
-// cone, the output and local closure, the provider schemas and the mutant's
-// own volatility scan. The engine keeps every I/O duty; the oracle judges.
+// the phase-one measurements — the runs' diagnostics already lifted into the
+// context's shape, so the observation judges what the report will show — plus
+// the fail-closed adapters over the graph cone, the output and local closure,
+// the provider schemas and the mutant's own volatility scan. The engine keeps
+// every I/O duty; the oracle judges.
 func (o executionOracle) observation(
 	index int,
 	verdict report.Mutant,
+	observed []oracle.Diagnostic,
 	result tfexec.TestResult,
 	budget time.Duration,
 ) oracle.Observation {
@@ -164,7 +167,7 @@ func (o executionOracle) observation(
 		verdict.ExecutedRuns,
 		result.TimedOut,
 		budget,
-		oracleDiagnostics(verdict.Diagnostics),
+		observed,
 	).
 		WithCone(o.coneOf(verdict)).
 		WithClosure(o.plan.closure.Reads).
