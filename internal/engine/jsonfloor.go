@@ -10,6 +10,11 @@ import (
 
 // The two safety gates, named so that the floor can say which one an unread
 // file's class could have informed.
+//
+// These two keep their command-line spelling while every other engine refusal
+// is reason-only with the flag spelled by cmd/tf-mut: the floor's refusal is
+// also published verbatim in the report's warnings, so the wording is the
+// published safety verdict itself and moving it would change the report.
 const (
 	// FlagAllowRealInfrastructure is the opt-in that authorises execution
 	// against a provider no `mock_provider` block covers.
