@@ -36,6 +36,8 @@ const noCacheFlag = "--no-cache"
 // dryRunFlag is the suggest flag the wiring cases exercise most.
 const dryRunFlag = "--dry-run"
 
+const writeBaselineFlag = "--write-baseline"
+
 // untilDryFlag and sampleFlag are the loop flag the characterisation commands
 // own and the population control whose refusal the relocated cases assert.
 const (
@@ -66,6 +68,7 @@ func TestRunReportsPseudoTestedResourcesAndExitsWithFindings(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // Owns the process environment for the wrapper and its sequential subtests.
 func TestAnAuthorityRefusalPrintsTheTripAndFirstFailure(t *testing.T) {
 	realTerraform, err := exec.LookPath("terraform")
 	if err != nil {
@@ -95,9 +98,9 @@ exec "$TF_MUT_REAL_TERRAFORM" "$@"
 		source  string
 		refusal error
 	}{
-		{"run-baseline", runCommand, "--write-baseline", fixtureSource, engine.ErrBaselineUnobserved},
-		{"suggest-baseline", suggestCommand, "--write-baseline", fixtureSource, engine.ErrBaselineUnobserved},
-		{"curate-baseline", curateCommand, "--write-baseline", fixtureSource, engine.ErrBaselineUnobserved},
+		{"run-baseline", runCommand, writeBaselineFlag, fixtureSource, engine.ErrBaselineUnobserved},
+		{"suggest-baseline", suggestCommand, writeBaselineFlag, fixtureSource, engine.ErrBaselineUnobserved},
+		{"curate-baseline", curateCommand, writeBaselineFlag, fixtureSource, engine.ErrBaselineUnobserved},
 		{"curate", curateCommand, noCacheFlag, fixtureSource, engine.ErrCuratePopulation},
 		{
 			"characterise-until-dry", characteriseCommand, untilDryFlag,

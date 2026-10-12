@@ -249,21 +249,7 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	started := time.Now()
 	var collector *runCollector
 	defer func() {
-		if collector != nil && collector.trip != nil {
-			if err != nil {
-				err = fmt.Errorf("%w\nwarning: %s", err, strings.Join(tripWarnings(collector.trip), "\n"))
-			} else {
-				result.Warnings = append(result.Warnings, tripWarnings(collector.trip)...)
-			}
-		}
-
-		if err != nil || collector == nil ||
-			result.Command == report.CommandCharacterise || result.Command == report.CommandTodos {
-			return
-		}
-
-		result.Telemetry = collector.finish()
-		result.Telemetry.WallMS = time.Since(started).Milliseconds()
+		result, err = finishRunReport(collector, started, result, err)
 	}()
 
 	s, err := settingsFor(request)
@@ -371,6 +357,28 @@ func prepareRunOutput(s *settings) (func(), error) {
 	}
 
 	return startCPUProfile(s.ModuleDir, s.CPUProfile, s.Progress)
+}
+
+func finishRunReport(
+	collector *runCollector, started time.Time, result report.Report, err error,
+) (report.Report, error) {
+	if collector != nil && collector.trip != nil {
+		if err != nil {
+			err = fmt.Errorf("%w\nwarning: %s", err, strings.Join(tripWarnings(collector.trip), "\n"))
+		} else {
+			result.Warnings = append(result.Warnings, tripWarnings(collector.trip)...)
+		}
+	}
+
+	if err != nil || collector == nil ||
+		result.Command == report.CommandCharacterise || result.Command == report.CommandTodos {
+		return result, err
+	}
+
+	result.Telemetry = collector.finish()
+	result.Telemetry.WallMS = time.Since(started).Milliseconds()
+
+	return result, err
 }
 
 func startCPUProfile(moduleDir, destination string, warnings io.Writer) (func(), error) {

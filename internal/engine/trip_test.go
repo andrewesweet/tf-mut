@@ -18,6 +18,14 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
+const (
+	reporterTerminal   = "terminal"
+	reporterHTML       = "html"
+	failureModeTrip    = "trip"
+	failureModeTimeout = "timeout"
+	tripFirstFailure   = "First failure: terraform validate could not be executed"
+)
+
 // dyingTerraform wraps the real binary and makes it die for the mutant
 // sandboxes whose described index matches one of the markers — and, with no
 // markers, for every mutant sandbox. Death covers both `test` and `validate`
@@ -144,6 +152,8 @@ func TestATripPreservesSelectionAndExecutionProvenance(t *testing.T) {
 				config.HasSample = true
 				config.SamplePercent = 80
 				config.SampleSeed = 17
+			default:
+				// Full selection uses the configuration unchanged.
 			}
 
 			result := runWith(t, config)
@@ -243,9 +253,9 @@ func TestATripWithEveryMutantDispatchedStillMarksTheScoreIncomplete(t *testing.T
 	assertTripProvenance(t, result, report.SelectionFull)
 
 	for name, write := range map[string]func(io.Writer, report.Report) error{
-		"terminal": report.WriteTerminal,
-		"html":     report.WriteHTML,
-		"markdown": report.WriteMarkdown,
+		reporterTerminal: report.WriteTerminal,
+		reporterHTML:     report.WriteHTML,
+		reporterMarkdown: report.WriteMarkdown,
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -284,13 +294,15 @@ func TestABaselineCheckReportsUnobservedMutantsWithoutStaleness(t *testing.T) {
 		t.Fatalf("want ten accepted survivors, got %v", ids)
 	}
 
-	for _, mode := range []string{"trip", "timeout"} {
+	for _, mode := range []string{failureModeTrip, failureModeTimeout} {
 		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+
 			config := adopt
 			config.WriteBaseline = false
 			config.FailOnNew = true
 			config.Jobs = 1
-			if mode == "trip" {
+			if mode == failureModeTrip {
 				config.TerraformBinary = dyingTerraform(t)
 			} else {
 				config.TimeoutFactor = 0.0001
@@ -298,29 +310,35 @@ func TestABaselineCheckReportsUnobservedMutantsWithoutStaleness(t *testing.T) {
 			}
 
 			result := runWith(t, config)
-			if mode == "trip" {
+			if mode == failureModeTrip {
 				assertTripWarning(t, result)
 			} else if result.Count(report.Timeout) == 0 {
 				t.Fatal("the run observed no timeout")
 			}
 
-			baseline := result.Gates.Baseline
-			if baseline == nil || baseline.StalenessReported || len(baseline.Stale) != 0 {
-				t.Fatalf("an unobserved population reported staleness: %+v", baseline)
-			}
-			if !slices.Equal(baseline.Unobserved, ids) {
-				t.Fatalf("unobserved = %v, want %v", baseline.Unobserved, ids)
-			}
-			if !result.Gates.FailOnNew.Partial || result.Gates.FailOnNew.Scope != "selected" {
-				t.Fatalf("an unobserved population claims a full gate: %+v", result.Gates.FailOnNew)
-			}
-
-			for _, mutant := range result.Mutants {
-				if mutant.Provenance == nil || mutant.Provenance.BaselineStatus != "unobserved" {
-					t.Fatalf("mutant %s is not labelled unobserved: %+v", mutant.ID, mutant.Provenance)
-				}
-			}
+			assertUnobservedBaseline(t, result, ids)
 		})
+	}
+}
+
+func assertUnobservedBaseline(t *testing.T, result report.Report, ids []string) {
+	t.Helper()
+
+	baseline := result.Gates.Baseline
+	if baseline == nil || baseline.StalenessReported || len(baseline.Stale) != 0 {
+		t.Fatalf("an unobserved population reported staleness: %+v", baseline)
+	}
+	if !slices.Equal(baseline.Unobserved, ids) {
+		t.Fatalf("unobserved = %v, want %v", baseline.Unobserved, ids)
+	}
+	if !result.Gates.FailOnNew.Partial || result.Gates.FailOnNew.Scope != gateScopeSelected {
+		t.Fatalf("an unobserved population claims a full gate: %+v", result.Gates.FailOnNew)
+	}
+
+	for _, mutant := range result.Mutants {
+		if mutant.Provenance == nil || mutant.Provenance.BaselineStatus != "unobserved" {
+			t.Fatalf("mutant %s is not labelled unobserved: %+v", mutant.ID, mutant.Provenance)
+		}
 	}
 }
 
@@ -534,12 +552,12 @@ func TestATrippedRunWritesNoBaseline(t *testing.T) {
 			config.TerraformBinary = binary
 
 			var request engine.Request = config
-			switch command {
-			case report.CommandSuggest:
+			if command == report.CommandSuggest {
 				request = engine.SuggestRequest{
 					Common: config.Common, Population: config.Population, Gate: config.Gate,
 				}
-			case report.CommandCurate:
+			}
+			if command == report.CommandCurate {
 				request = engine.CurateRequest{Common: config.Common, Gate: config.Gate}
 			}
 
@@ -551,7 +569,7 @@ func TestATrippedRunWritesNoBaseline(t *testing.T) {
 			for _, evidence := range []string{
 				"warning: run tripped after 5 consecutive operational failures",
 				"mutant(s) were left unexecuted and the mutation score is marked incomplete",
-				"First failure: terraform validate could not be executed",
+				tripFirstFailure,
 			} {
 				if !strings.Contains(err.Error(), evidence) {
 					t.Fatalf("the refusal lost trip evidence %q: %v", evidence, err)
@@ -599,7 +617,7 @@ func TestPostFinishAuthorityRefusalsRetainTheTripDiagnostic(t *testing.T) {
 				"warning: run tripped after",
 				"consecutive operational failures",
 				"the mutation score is marked incomplete",
-				"First failure: terraform validate could not be executed",
+				tripFirstFailure,
 			} {
 				if strings.Count(err.Error(), evidence) != 1 {
 					t.Fatalf("the refusal must carry trip evidence %q once: %v", evidence, err)
@@ -642,7 +660,7 @@ func TestATrippedSurvivorSelectionRefusalRetainsTheTripDiagnostic(t *testing.T) 
 		"the report it came from is stale, so re-run before selecting again",
 		"warning: run tripped after 5 consecutive operational failures",
 		"the mutation score is marked incomplete",
-		"First failure: terraform validate could not be executed",
+		tripFirstFailure,
 	} {
 		if strings.Count(err.Error(), evidence) != 1 {
 			t.Fatalf("the refusal must carry evidence %q once: %v", evidence, err)
@@ -669,7 +687,7 @@ func assertTripWarning(t *testing.T, result report.Report) {
 
 	for _, warning := range result.Warnings {
 		if strings.Contains(warning, "consecutive operational failures") &&
-			strings.Contains(warning, "First failure: terraform validate could not be executed") {
+			strings.Contains(warning, tripFirstFailure) {
 			if !strings.Contains(warning, fmt.Sprintf("%d mutant(s) were left unexecuted", unexecuted)) ||
 				!strings.Contains(warning, "the mutation score is marked incomplete") ||
 				strings.Contains(warning, "cached") {
