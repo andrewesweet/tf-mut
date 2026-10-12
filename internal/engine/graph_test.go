@@ -17,6 +17,15 @@ import (
 // supplemental, test-suite-only check, never a user-invocation dependency and
 // never evidence of attribute-level soundness (review M1, C3).
 
+const (
+	runCommand          = "run"
+	previewCommand      = "preview"
+	suggestCommand      = "suggest"
+	characteriseCommand = "characterise"
+	todosCommand        = "todos"
+	curateCommand       = "curate"
+)
+
 // discover parses a fixture the way the engine does, without executing it.
 func discover(t *testing.T, moduleDir string) discovery.Configuration {
 	t.Helper()

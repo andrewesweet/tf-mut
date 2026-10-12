@@ -18,14 +18,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
-const (
-	preflightFixture    = "skeleton"
-	runCommand          = "run"
-	previewCommand      = "preview"
-	suggestCommand      = "suggest"
-	curateCommand       = "curate"
-	characteriseCommand = "characterise"
-)
+const preflightFixture = "skeleton"
 
 // The deadlines every outbound call carries. Each test here wraps the real
 // Terraform binary — or git — in a script that sleeps exactly where the
