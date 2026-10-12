@@ -348,7 +348,11 @@ func evaluate(
 
 	verdict.Runs = runOutcomes(result)
 	verdict.ExecutedRuns = result.ExecutedRuns()
-	verdict.Diagnostics = diagnostics(result.Diagnostics)
+	// The runs' diagnostics are lifted once, into the Oracle context's shape.
+	// The published diagnostics are the projection of that value, so the
+	// observation judges the same set the report shows.
+	observed := diagnostics(result.Diagnostics)
+	verdict.Diagnostics = projectDiagnostics(observed)
 	// The deadline is an evaluation fact, not a verdict: when the invocation
 	// was cut short the finished runs still stand, and whatever verdict they
 	// earned keeps its precedence — the deadline is recorded beside it so the
@@ -356,11 +360,11 @@ func evaluate(
 	verdict.DeadlineReached = result.TimedOut
 
 	judge := executionOracle{plan: plan}
-	observation := judge.observation(index, verdict, result, budget)
+	observation := judge.observation(index, verdict, observed, result, budget)
 
 	if observation.NeedsValidate() {
 		var failure *report.ExecutionError
-		verdict, observation, failure = judge.validate(ctx, built, verdict, observation, telemetry)
+		verdict, observation, failure = judge.validate(ctx, built, verdict, observed, observation, telemetry)
 		if failure != nil {
 			return verdict, plan.classified[index].Outcome, failure
 		}
@@ -393,11 +397,15 @@ func evaluate(
 // validate records the terraform validate verdict into the observation where
 // the precedence table needs it: validate is the sole discriminator between
 // Invalid and KilledByError after a run-level error, and the merged, ordered
-// diagnostics are the evidence an Invalid claim is made from.
+// diagnostics are the evidence an Invalid claim is made from. The merge
+// happens in the Oracle context's shape — the runs' diagnostics already
+// lifted, validate's lifted beside them — and the published mutant carries
+// its projection.
 func (o executionOracle) validate(
 	ctx context.Context,
 	built sandbox.Sandbox,
 	verdict report.Mutant,
+	observed []oracle.Diagnostic,
 	observation oracle.Observation,
 	telemetry *mutantCollector,
 ) (report.Mutant, oracle.Observation, *report.ExecutionError) {
@@ -423,11 +431,11 @@ func (o executionOracle) validate(
 		return verdict, observation.WithValidateVerdict(true, nil), nil
 	}
 
-	verdict.Diagnostics = append(verdict.Diagnostics, diagnostics(validation.Diagnostics)...)
-	slices.SortFunc(verdict.Diagnostics, compareDiagnostics)
+	merged := append(slices.Clone(observed), diagnostics(validation.Diagnostics)...)
+	slices.SortFunc(merged, compareDiagnostics)
+	verdict.Diagnostics = projectDiagnostics(merged)
 
-	return verdict,
-		observation.WithValidateVerdict(false, oracleDiagnostics(verdict.Diagnostics)), nil
+	return verdict, observation.WithValidateVerdict(false, merged), nil
 }
 
 func runOutcomes(result tfexec.TestResult) []report.RunOutcome {
@@ -445,11 +453,13 @@ func runOutcomes(result tfexec.TestResult) []report.RunOutcome {
 	return outcomes
 }
 
-func diagnostics(source []tfexec.Diagnostic) []report.Diagnostic {
-	converted := make([]report.Diagnostic, 0, len(source))
+// diagnostics lifts the runs' diagnostics into the Oracle context's shape,
+// in the canonical order.
+func diagnostics(source []tfexec.Diagnostic) []oracle.Diagnostic {
+	converted := make([]oracle.Diagnostic, 0, len(source))
 
 	for _, diagnostic := range source {
-		entry := report.Diagnostic{
+		entry := oracle.Diagnostic{
 			Severity: diagnostic.Severity,
 			Summary:  diagnostic.Summary,
 			Detail:   diagnostic.Detail,
@@ -459,10 +469,10 @@ func diagnostics(source []tfexec.Diagnostic) []report.Diagnostic {
 		}
 
 		if diagnostic.Range != nil {
-			entry.Range = &report.Range{
+			entry.Range = &oracle.Range{
 				File:  filepath.ToSlash(diagnostic.Range.Filename),
-				Start: report.Position{Line: diagnostic.Range.Start.Line, Column: diagnostic.Range.Start.Column},
-				End:   report.Position{Line: diagnostic.Range.End.Line, Column: diagnostic.Range.End.Column},
+				Start: oracle.Position{Line: diagnostic.Range.Start.Line, Column: diagnostic.Range.Start.Column},
+				End:   oracle.Position{Line: diagnostic.Range.End.Line, Column: diagnostic.Range.End.Column},
 			}
 		}
 
@@ -479,7 +489,7 @@ func diagnostics(source []tfexec.Diagnostic) []report.Diagnostic {
 	return converted
 }
 
-func compareDiagnostics(left, right report.Diagnostic) int {
+func compareDiagnostics(left, right oracle.Diagnostic) int {
 	return cmp.Or(
 		cmp.Compare(left.TestFile, right.TestFile),
 		cmp.Compare(left.TestRun, right.TestRun),
@@ -490,7 +500,7 @@ func compareDiagnostics(left, right report.Diagnostic) int {
 	)
 }
 
-func compareDiagnosticRanges(left, right *report.Range) int {
+func compareDiagnosticRanges(left, right *oracle.Range) int {
 	switch {
 	case left == nil && right == nil:
 		return 0

@@ -114,3 +114,27 @@ func (o Outcome) Diagnostics() []Diagnostic { return o.diagnostics }
 // Suppression returns the directive or exclusion the outcome was decided
 // from, where it carries one.
 func (o Outcome) Suppression() *Suppression { return o.suppression }
+
+// Record is the outcome as a stored record carries it: the writer paired with
+// ParseRecord, so the verdict cache stores what this context stored and the
+// round trip ParseRecord(Outcome.Record()) is exact by construction. A record
+// whose outcome the constructors could not have produced cannot be written,
+// because the fields are read from what a constructor wrote.
+func (o Outcome) Record() Record {
+	return Record{
+		State:              o.state,
+		Diagnosis:          o.diagnosis,
+		Message:            o.message,
+		Fix:                o.fix,
+		Delta:              o.evidence.delta,
+		UnknownPaths:       o.evidence.unknownPaths,
+		VolatileComponents: o.evidence.volatileComponents,
+		UnstableAttributes: o.evidence.unstableAttributes,
+		Assertion:          o.evidence.assertion,
+		ClosureVerdict:     o.evidence.closureVerdict,
+		DefeatedBy:         o.evidence.defeatedBy,
+		Diagnostics:        o.diagnostics,
+		Suppression:        o.suppression,
+		Budget:             o.evidence.budget,
+	}
+}

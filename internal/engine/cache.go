@@ -33,9 +33,12 @@ import (
 // cacheFormatVersion invalidates every entry when verdict semantics, the
 // stored shape, or key derivation changes. Sandbox changes that affect
 // verdicts also require a bump. TestPreSandboxFixInvalidVerdictsAreNotReplayed
-// protects this upgrade boundary. 2.9.0's deadline flag is stored beside the
-// verdict, so a pre-2.9.0 entry — which cannot carry one — is a miss.
-const cacheFormatVersion = "tf-mut-cache-4"
+// protects this upgrade boundary. The entry now stores the Oracle context's
+// own record — the document oracle.ParseRecord rebuilds outcomes from — so a
+// pre-bump entry, whose verdict was stored as published report DTOs, is a
+// miss, and the first run after upgrading recomputes every verdict once
+// (TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError).
+const cacheFormatVersion = "tf-mut-cache-5"
 
 // The cache is private by construction: evidence may embed plan values and
 // source text.
@@ -58,14 +61,23 @@ type verdictCache struct {
 	key string
 }
 
-// cacheEntry is the persisted verdict of one mutant under one key.
+// cacheEntry is the persisted verdict of one mutant under one key: the
+// Oracle context's own record — the document oracle.ParseRecord rebuilds the
+// outcome from — and, beside it, what the run itself observed. The record is
+// the whole verdict; the observation fields are rehydrated as stored and are
+// never verdict content, so replay projects the record once, forward, through
+// the same projection a fresh verdict went through.
 type cacheEntry struct {
-	FormatVersion   string              `json:"format_version"`
-	RunKey          string              `json:"run_key"`
-	MutantID        string              `json:"mutant_id"`
-	State           report.State        `json:"state"`
-	Verdict         *report.Verdict     `json:"verdict,omitempty"`
-	Runs            []report.RunOutcome `json:"runs"`
+	FormatVersion string        `json:"format_version"`
+	RunKey        string        `json:"run_key"`
+	MutantID      string        `json:"mutant_id"`
+	Record        oracle.Record `json:"record"`
+
+	Runs []report.RunOutcome `json:"runs"`
+	// Diagnostics are the runs' own observations. Where the outcome carries
+	// its diagnostics as evidence — a KilledByError or Invalid claim — the
+	// store stands these down, because the record is their only carrier and
+	// the replay's projection must have one writer per field.
 	Diagnostics     []report.Diagnostic `json:"diagnostics,omitempty"`
 	ExecutedRuns    int                 `json:"executed_runs"`
 	Validated       bool                `json:"validated"`
@@ -514,34 +526,35 @@ func (c *verdictCache) load(mutants []report.Mutant, classified []oracle.Classif
 // rehydrated replays one stored entry onto its mutant and reports whether
 // the entry was replayed; false is a miss, and the mutant executes again.
 //
-// The verdict travels through the Oracle context: the stored document is
-// projected onto an oracle.Record, rebuilt by oracle.ParseRecord — the
-// parsing constructor, which refuses any document the constructors could not
-// have produced, a Killed entry carrying a diagnosis being the canonical
-// case — and re-projected onto the published DTO. Only then does the
-// replayed verdict reach a reader. The runs, diagnostics and execution
-// counts are the run's own observations, rehydrated as stored; the outcome
-// carries only the classification, and is classified onto the population
+// The verdict travels through the Oracle context in one direction only: the
+// stored record — what this context wrote — is rebuilt by oracle.ParseRecord,
+// the parsing constructor, which refuses any document the constructors could
+// not have produced, a Killed entry carrying a diagnosis being the canonical
+// case. The rebuilt outcome is then projected once, forward, through the same
+// projection a fresh verdict went through, and only then does the replayed
+// verdict reach a reader. Nothing is lifted back out of published DTOs. The
+// runs, diagnostics and execution counts are the run's own observations,
+// rehydrated as stored; where the record itself carries the diagnostics as
+// evidence, the projection below is their only writer and the stored
+// observation stands down. The outcome is classified onto the population
 // fact beside the published projection.
 func rehydrated(mutant *report.Mutant, classified *oracle.Classified, entry cacheEntry) bool {
-	record, err := storedRecord(oracleState(entry.State), entry.Verdict)
+	outcome, err := oracle.ParseRecord(entry.Record)
 	if err != nil {
 		return false
 	}
 
-	outcome, err := oracle.ParseRecord(record)
-	if err != nil {
-		return false
+	if len(entry.Diagnostics) > 0 {
+		mutant.Diagnostics = slices.Clone(entry.Diagnostics)
 	}
 
-	*mutant = project(*mutant, outcome)
-	*classified = oracle.Classified{Operator: classified.Operator, Outcome: outcome}
 	mutant.Runs = entry.Runs
-	mutant.Diagnostics = slices.Clone(entry.Diagnostics)
-	slices.SortFunc(mutant.Diagnostics, compareDiagnostics)
 	mutant.ExecutedRuns = entry.ExecutedRuns
 	mutant.Validated = entry.Validated
 	mutant.DeadlineReached = entry.DeadlineReached
+
+	*mutant = project(*mutant, outcome)
+	*classified = oracle.Classified{Operator: classified.Operator, Outcome: outcome}
 
 	return true
 }
@@ -575,7 +588,13 @@ func (c *verdictCache) read(mutantID string) (cacheEntry, bool) {
 
 // store persists the fresh executed verdicts, then evicts deterministically.
 // A Timeout is never stored: a budget overrun is not a fact about the module.
-func (c *verdictCache) store(mutants []report.Mutant) {
+// Each verdict is stored as the Oracle context's own record, taken from the
+// classified outcome — never from the published projection — so what the
+// cache holds is what the context stored, and ParseRecord can rebuild it
+// exactly. Where the outcome carries its diagnostics as evidence, the run's
+// own observations stand down: the record is their only carrier, and replay
+// must have one writer per field.
+func (c *verdictCache) store(mutants []report.Mutant, classified []oracle.Classified) {
 	unlock, err := c.lock()
 	if err != nil {
 		return
@@ -583,19 +602,25 @@ func (c *verdictCache) store(mutants []report.Mutant) {
 
 	defer unlock()
 
-	for _, mutant := range mutants {
+	for index, mutant := range mutants {
 		if !cacheable(mutant) {
 			continue
+		}
+
+		outcome := classified[index].Outcome
+
+		diagnostics := mutant.Diagnostics
+		if len(outcome.Diagnostics()) > 0 {
+			diagnostics = nil
 		}
 
 		entry := cacheEntry{
 			FormatVersion:   cacheFormatVersion,
 			RunKey:          c.key,
 			MutantID:        mutant.ID,
-			State:           mutant.State,
-			Verdict:         mutant.Verdict,
+			Record:          outcome.Record(),
 			Runs:            mutant.Runs,
-			Diagnostics:     mutant.Diagnostics,
+			Diagnostics:     diagnostics,
 			ExecutedRuns:    mutant.ExecutedRuns,
 			Validated:       mutant.Validated,
 			DeadlineReached: mutant.DeadlineReached,

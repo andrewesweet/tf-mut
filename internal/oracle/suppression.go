@@ -7,17 +7,17 @@ package oracle
 // records the suppression.
 type Suppression struct {
 	// Kind is comment, config-operator, config-path or config-resource.
-	Kind string
+	Kind string `json:"kind"`
 	// Operators lists the operator identifiers the directive named.
-	Operators []string
+	Operators []string `json:"operators"`
 	// Reason is the mandatory justification; empty on a rejected directive.
-	Reason string
+	Reason string `json:"reason"`
 	// Accepted reports whether the directive suppressed anything.
-	Accepted bool
+	Accepted bool `json:"accepted"`
 	// Range locates the directive, where it is an inline comment.
-	Range *Range
+	Range *Range `json:"range"`
 	// Mutants lists the identifiers the suppression applied to.
-	Mutants []string
+	Mutants []string `json:"mutants"`
 	// Rejection explains why a directive did not suppress.
-	Rejection string
+	Rejection string `json:"rejection"`
 }

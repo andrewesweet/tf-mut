@@ -113,13 +113,16 @@ func suppress(
 	classified []oracle.Classified,
 ) ([]report.Mutant, []report.Suppression, []string) {
 	directives := collectDirectives(configuration)
-	applied := map[int]*report.Suppression{}
+	applied := map[int]*oracle.Suppression{}
+	// decided is keyed by mutant index: an inline directive's record is keyed
+	// by its own position, and several mutants can share one record.
+	decided := map[int]*oracle.Suppression{}
 	ignored := map[int]bool{}
 	warnings := []string{}
 
 	for index, mutant := range described {
 		if reason, kind, excluded := excludedBy(exclude, mutant); excluded {
-			described[index].Suppression = &report.Suppression{
+			decided[index] = &oracle.Suppression{
 				Kind: kind, Operators: nil, Reason: reason, Accepted: true,
 				Range: nil, Mutants: []string{mutant.ID}, Rejection: "",
 			}
@@ -128,16 +131,17 @@ func suppress(
 			continue
 		}
 
-		attachDirective(directives, applied, ignored, described, index)
+		attachDirective(directives, applied, decided, ignored, described, index)
 	}
 
 	// The Ignored outcomes are constructed in a second pass: an inline
 	// directive's record accumulates the identifiers it covers, and the
 	// outcome must carry the finished record, not the half-finished one the
-	// first matching mutant would have seen. The suppression is classified
-	// onto the population fact beside the published projection.
+	// first matching mutant would have seen. The record is born in the Oracle
+	// context's shape, the outcome carries it, and the projection — forward,
+	// once — writes the published suppression beside the classification.
 	for index := range ignored {
-		outcome := oracle.Ignored(oracleSuppression(described[index].Suppression))
+		outcome := oracle.Ignored(*decided[index])
 		described[index] = project(described[index], outcome)
 		classified[index] = oracle.Classified{Operator: classified[index].Operator, Outcome: outcome}
 	}
@@ -151,7 +155,7 @@ func suppress(
 			record = &created
 		}
 
-		suppressions = append(suppressions, *record)
+		suppressions = append(suppressions, *projectSuppression(record))
 
 		// A rejected directive is warned about whether or not it matched a
 		// site: the point of the warning is that somebody wrote a suppression
@@ -176,11 +180,12 @@ func suppress(
 // mutant's identifier joins the directive's record whether or not the
 // directive is valid — that is what lets the report show which finding a
 // rejected directive tried to hide — but only a valid one suppresses. The
-// outcome itself is constructed once every directive has matched, in
-// suppress's second pass.
+// record stays in the Oracle context's shape; the outcome is constructed once
+// every directive has matched, in suppress's second pass.
 func attachDirective(
 	directives []tfconfig.Directive,
-	applied map[int]*report.Suppression,
+	applied map[int]*oracle.Suppression,
+	decided map[int]*oracle.Suppression,
 	ignored map[int]bool,
 	described []report.Mutant,
 	index int,
@@ -209,22 +214,22 @@ func attachDirective(
 		}
 
 		ignored[index] = true
-		described[index].Suppression = record
+		decided[index] = record
 
 		return
 	}
 }
 
-func describeDirective(directive tfconfig.Directive) report.Suppression {
-	return report.Suppression{
+func describeDirective(directive tfconfig.Directive) oracle.Suppression {
+	return oracle.Suppression{
 		Kind:      "comment",
 		Operators: directive.Operators,
 		Reason:    directive.Reason,
 		Accepted:  directive.Valid(),
-		Range: &report.Range{
+		Range: &oracle.Range{
 			File:  directive.File,
-			Start: report.Position{Line: directive.Line, Column: directive.Column},
-			End:   report.Position{Line: directive.Line, Column: directive.Column},
+			Start: oracle.Position{Line: directive.Line, Column: directive.Column},
+			End:   oracle.Position{Line: directive.Line, Column: directive.Column},
 		},
 		Mutants:   []string{},
 		Rejection: directive.Rejection,

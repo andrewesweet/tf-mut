@@ -8,15 +8,15 @@ import (
 // Change is one observable difference between the baseline and a mutant.
 type Change struct {
 	// Run identifies the run block the difference appeared in.
-	Run string
+	Run string `json:"run"`
 	// Path is the canonical payload path.
-	Path string
+	Path string `json:"path"`
 	// Address is the Terraform address a reader would recognise, when the path
 	// names one.
-	Address string
+	Address string `json:"address"`
 	// Baseline and Mutant are the canonical renderings, with "" for absent.
-	Baseline string
-	Mutant   string
+	Baseline string `json:"baseline"`
+	Mutant   string `json:"mutant"`
 	// Sensitive reports that either payload — baseline or mutant — marks the
 	// value at this path, or an ancestor of it, sensitive; or that either
 	// rendering is a value some payload marks sensitive anywhere in the run
@@ -24,7 +24,7 @@ type Change struct {
 	// baseline value was public, and the mutant payload is where Terraform
 	// marks that. Decided over the unmasked payloads, because the mask is
 	// about volatility and says nothing about what may be rendered.
-	Sensitive bool
+	Sensitive bool `json:"sensitive"`
 }
 
 // Delta is the masked observable difference a mutant produced.
