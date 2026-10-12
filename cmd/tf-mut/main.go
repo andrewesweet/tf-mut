@@ -59,6 +59,17 @@ const (
 	generatedFunctionsFlag = "generated-functions"
 	packFlag               = "pack"
 
+	// The overridable settings, named because the declaration, the override
+	// mapping and the scoping tables all spell them: a misspelling in one
+	// place would silently stop the flag overriding its configured scalar.
+	testDirectoryFlag    = "test-directory"
+	jobsFlag             = "jobs"
+	timeoutFactorFlag    = "timeout-factor"
+	preflightTimeoutFlag = "preflight-timeout"
+	minScoreFlag         = "min-score"
+	allowIncompleteFlag  = "allow-incomplete-score"
+	reporterFlagName     = "reporter"
+
 	reporterTerminal = "terminal"
 	reporterJSON     = "json"
 	reporterSARIF    = "sarif"
@@ -241,6 +252,7 @@ type flagValues struct {
 	buildVersion      string
 	moduleDir         string
 	given             []string
+	overrides         engine.Overrides
 	minScoreRequested bool
 	sampleRequested   bool
 	progress          io.Writer
@@ -262,24 +274,24 @@ func (a *answerFlag) Set(value string) error {
 
 func declareFlags(set *flag.FlagSet) flagValues {
 	return flagValues{
-		testDirectory: set.String("test-directory", engine.DefaultTestDirectory,
+		testDirectory: set.String(testDirectoryFlag, engine.DefaultTestDirectory,
 			"test directory relative to the module"),
-		jobs: set.Int("jobs", 0, "mutants to execute concurrently"),
-		timeoutFactor: set.Float64("timeout-factor", engine.DefaultTimeoutFactor,
+		jobs: set.Int(jobsFlag, 0, "mutants to execute concurrently"),
+		timeoutFactor: set.Float64(timeoutFactorFlag, engine.DefaultTimeoutFactor,
 			"multiple of the baseline run time"),
 		failureTrip: set.Int("failure-trip", engine.DefaultFailureTripThreshold,
 			"stop the run after this many consecutive operational failures"),
-		preflightTimeout: set.Duration("preflight-timeout", 0,
+		preflightTimeout: set.Duration(preflightTimeoutFlag, 0,
 			"absolute cap on preflight terraform calls: version, init, providers schema, fmt, "+
 				"validate and the baseline runs (default: 10m for init, 1m for the rest)"),
-		minScore: set.Float64("min-score", 0, "fail below this mutation score percentage"),
-		allowIncomplete: set.Bool("allow-incomplete-score", false,
+		minScore: set.Float64(minScoreFlag, 0, "fail below this mutation score percentage"),
+		allowIncomplete: set.Bool(allowIncompleteFlag, false,
 			"let an untrustworthy score satisfy --min-score (timeout, nothing scored, Invalid-dominated)"),
 		allowReal: set.Bool("allow-real-infrastructure", false,
 			"permit execution against unmocked providers"),
 		allowEffects: set.Bool("allow-unsandboxed-effects", false,
 			"permit apply-mode provisioners and unsevered data sources"),
-		reporter: set.String("reporter", reporterTerminal,
+		reporter: set.String(reporterFlagName, reporterTerminal,
 			"output format: terminal, json, sarif, mte, html, junit or markdown"),
 		sarifPath:        set.String("sarif-path", "", "where to write the SARIF document"),
 		tier:             set.String(tierFlag, "", "operator breadth: smoke, standard or deep"),
@@ -338,6 +350,22 @@ func declareOutputFlag(set *flag.FlagSet) *outputFlag {
 	return outputs
 }
 
+// overrideOf maps a flag onto the engine setting its explicit value
+// overrides. It is the whole translation between the command line's vocabulary
+// and the engine's setting names: the engine sees the setting, never the flag.
+//
+//nolint:gochecknoglobals // an immutable table.
+var overrideOf = map[string]engine.Setting{
+	testDirectoryFlag:    engine.SettingTestDirectory,
+	jobsFlag:             engine.SettingJobs,
+	timeoutFactorFlag:    engine.SettingTimeoutFactor,
+	preflightTimeoutFlag: engine.SettingPreflightTimeout,
+	minScoreFlag:         engine.SettingMinScore,
+	allowIncompleteFlag:  engine.SettingAllowIncompleteScore,
+	tierFlag:             engine.SettingTier,
+	reporterFlagName:     engine.SettingReporter,
+}
+
 func parse(command, buildVersion string, args []string, stderr io.Writer) (options, error) {
 	set := flag.NewFlagSet("tf-mut "+command, flag.ContinueOnError)
 	set.SetOutput(stderr)
@@ -365,11 +393,16 @@ func parse(command, buildVersion string, args []string, stderr io.Writer) (optio
 	requested := false
 	sampled := false
 	given := []string{}
+	overrides := engine.Overrides{}
 
 	set.Visit(func(flagged *flag.Flag) {
 		given = append(given, flagged.Name)
 
-		if flagged.Name == engine.FlagMinScore {
+		if setting, overridden := overrideOf[flagged.Name]; overridden {
+			overrides[setting] = true
+		}
+
+		if flagged.Name == minScoreFlag {
 			requested = true
 		}
 
@@ -389,6 +422,7 @@ func parse(command, buildVersion string, args []string, stderr io.Writer) (optio
 	values.buildVersion = buildVersion
 	values.moduleDir = moduleDir
 	values.given = given
+	values.overrides = overrides
 	values.minScoreRequested = requested
 	values.sampleRequested = sampled
 	values.progress = stderr
@@ -424,7 +458,7 @@ var errUncarryingReporter = errors.New(
 //
 //nolint:gochecknoglobals // an immutable list.
 var gateFlags = []string{
-	"min-score", "allow-incomplete-score", "allow-sampled-gate",
+	minScoreFlag, allowIncompleteFlag, "allow-sampled-gate",
 	"fail-on-new", "write-baseline", "baseline",
 }
 
@@ -649,7 +683,7 @@ func (values flagValues) common() engine.Common {
 		Env:                     nil,
 		WorkDir:                 "",
 		ToolVersion:             buildinfo.Resolve(values.buildVersion),
-		SetFlags:                values.given,
+		Overrides:               values.overrides,
 		CPUProfile:              *values.cpuProfile,
 		OTLPEndpoint:            *values.otlpEndpoint,
 		Progress:                values.progress,
@@ -786,7 +820,7 @@ func execute(command, buildVersion string, args []string, stdout, stderr io.Writ
 	}
 	stop()
 	if err != nil {
-		return fail(stderr, "tf-mut: "+err.Error())
+		return fail(stderr, "tf-mut: "+renderError(err))
 	}
 
 	if err := render(stdout, parsed, result); err != nil {
@@ -864,4 +898,23 @@ func fail(stderr io.Writer, message string) int {
 	}
 
 	return report.ExitOperational
+}
+
+// renderError spells the command-line vocabulary an engine refusal's reason
+// leaves implicit. The engine reports the failure; the flag that selects the
+// mode or remedies it is this package's to name, so every dashed spelling a
+// refusal prints is assembled here and nowhere else.
+func renderError(err error) string {
+	switch {
+	case errors.Is(err, engine.ErrSinceRef),
+		errors.Is(err, engine.ErrSinceRepository),
+		errors.Is(err, engine.ErrSinceConflict):
+		return "--since " + err.Error()
+	case errors.Is(err, engine.ErrSampleRange):
+		return "--sample " + err.Error()
+	case errors.Is(err, engine.ErrSampledGate):
+		return "a sampled run is non-authoritative and cannot satisfy a gate without --allow-sampled-gate"
+	default:
+		return err.Error()
+	}
 }

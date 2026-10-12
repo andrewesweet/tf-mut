@@ -80,7 +80,7 @@ func baseConfig(t *testing.T, moduleDir string) engine.RunRequest {
 			Env:                     terraformEnv(t),
 			WorkDir:                 t.TempDir(),
 			ToolVersion:             "",
-			SetFlags:                nil,
+			Overrides:               nil,
 		},
 		Population: engine.Population{
 			TestSelection:      nil,

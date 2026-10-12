@@ -64,7 +64,7 @@ func TestACommandLineFlagOverridesOneConfiguredScalarAndNoOthers(t *testing.T) {
 
 	overridden := baseConfig(t, module)
 	overridden.Tier = "smoke"
-	overridden.SetFlags = []string{engine.FlagTier}
+	overridden.Overrides = engine.Overrides{engine.SettingTier: true}
 
 	result, err := engine.Run(t.Context(), overridden)
 	if err != nil {
