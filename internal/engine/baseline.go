@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -139,6 +140,11 @@ func warmUp(
 	fmtPhase := collector.phase(phaseWarmFmt)
 	unformatted, fmtResult, fmtErr := runner.FmtCheck(ctx, prepared.moduleDir, settings.preflightCap())
 	fmtPhase(collector.child("fmt", fmtResult.Usage, fmtResult.Started)...)
+	if errors.Is(fmtErr, context.Canceled) || errors.Is(fmtErr, context.DeadlineExceeded) ||
+		errors.Is(fmtErr, tfexec.ErrNotExecuted) {
+		return warmWorkspace{}, fmtErr
+	}
+
 	if fmtErr == nil && len(unformatted) > 0 {
 		prepared.warnings = append(prepared.warnings, fmt.Sprintf(
 			"%d file(s) are not canonically formatted; mutant diffs may span more than one line: %s",

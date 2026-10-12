@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -43,6 +44,104 @@ exec terraform "$@"
 	}
 
 	return path
+}
+
+func TestAFmtDeadlineFailsEveryWarmUpCommand(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{"run", "preview", "suggest", "curate", "characterise"} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			fixture := "skeleton"
+			if command == "characterise" {
+				fixture = "untested-zero-output"
+			}
+
+			common := commonRequest(t, copyFixture(t, fixture))
+			common.TerraformBinary = sleepingTerraform(t, `[ "$2" = fmt ]`, 300)
+			common.PreflightTimeout = 2 * time.Second
+
+			requests := map[string]engine.Request{
+				"run":          engine.RunRequest{Common: common},
+				"preview":      engine.PreviewRequest{Common: common},
+				"suggest":      engine.SuggestRequest{Common: common},
+				"curate":       engine.CurateRequest{Common: common},
+				"characterise": engine.CharacteriseRequest{Common: common},
+			}
+
+			started := time.Now()
+			_, err := engine.Run(t.Context(), requests[command])
+			if !errors.Is(err, tfexec.ErrNotExecuted) {
+				t.Fatalf("error = %v, want an operational terraform failure", err)
+			}
+
+			if !strings.Contains(err.Error(), "fmt") || !strings.Contains(err.Error(), "did not finish within") {
+				t.Fatalf("the failure does not name fmt and its cap: %v", err)
+			}
+
+			if elapsed := time.Since(started); elapsed > 30*time.Second {
+				t.Fatalf("the cap was not honoured: the run took %s", elapsed)
+			}
+
+			entries, readErr := os.ReadDir(common.WorkDir)
+			if readErr != nil || len(entries) != 0 {
+				t.Fatalf("work directory was not cleaned: %v, %v", entries, readErr)
+			}
+		})
+	}
+}
+
+func TestCancellationDuringFmtFailsPreview(t *testing.T) {
+	t.Parallel()
+
+	request := previewRequest(t, copyFixture(t, "skeleton"))
+	request.TerraformBinary = sleepingTerraform(t, `[ "$2" = fmt ] && touch "$0.started"`, 300)
+	request.PreflightTimeout = time.Minute
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	finished := make(chan error, 1)
+	go func() {
+		_, err := engine.Run(ctx, request)
+		finished <- err
+	}()
+
+	deadline := time.NewTimer(30 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	waiting := true
+	for waiting {
+		select {
+		case err := <-finished:
+			t.Fatalf("preview ended before fmt started: %v", err)
+		case <-deadline.C:
+			t.Fatal("preview never reached fmt")
+		case <-ticker.C:
+			if _, err := os.Stat(request.TerraformBinary + ".started"); err == nil {
+				waiting = false
+			}
+		}
+	}
+
+	cancel()
+
+	select {
+	case err := <-finished:
+		if !errors.Is(err, context.Canceled) || !errors.Is(err, tfexec.ErrNotExecuted) {
+			t.Fatalf("error = %v, want an operational cancellation", err)
+		}
+	case <-deadline.C:
+		t.Fatal("preview did not stop after cancellation during fmt")
+	}
+
+	entries, err := os.ReadDir(request.WorkDir)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("work directory was not cleaned: %v, %v", entries, err)
+	}
 }
 
 // TestAnInitThatOutlivesItsPreflightCapFailsOperationallyNamingThePhase holds

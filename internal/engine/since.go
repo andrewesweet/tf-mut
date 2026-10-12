@@ -179,7 +179,7 @@ func changedPaths(ctx context.Context, closureRoot, ref string) ([]change, error
 // checkWorkTree refuses the three repository facts that stop selection before
 // any diff runs: not a work tree, an unknown ref, unresolved conflicts.
 func checkWorkTree(ctx context.Context, closureRoot, ref string) error {
-	if _, err := gitOrDeadline(ctx, closureRoot, "rev-parse", "--is-inside-work-tree"); err != nil {
+	if _, err := gitRun(ctx, closureRoot, "rev-parse", "--is-inside-work-tree"); err != nil {
 		if errors.Is(err, errGitDeadline) {
 			return err
 		}
@@ -187,7 +187,7 @@ func checkWorkTree(ctx context.Context, closureRoot, ref string) error {
 		return fmt.Errorf("%w: %s is not inside a git work tree", ErrSinceRepository, closureRoot)
 	}
 
-	if _, err := gitOrDeadline(ctx, closureRoot, "rev-parse", "--verify", "--quiet", ref+"^{commit}"); err != nil {
+	if _, err := gitRun(ctx, closureRoot, "rev-parse", "--verify", "--quiet", ref+"^{commit}"); err != nil {
 		if errors.Is(err, errGitDeadline) {
 			return err
 		}
@@ -195,7 +195,7 @@ func checkWorkTree(ctx context.Context, closureRoot, ref string) error {
 		return fmt.Errorf("%w: %q (unknown ref, or a shallow clone that lacks it)", ErrSinceRef, ref)
 	}
 
-	conflicted, err := gitOrDeadline(ctx, closureRoot, "ls-files", "-u")
+	conflicted, err := gitRun(ctx, closureRoot, "ls-files", "-u")
 	if err != nil {
 		if errors.Is(err, errGitDeadline) {
 			return err
@@ -216,7 +216,7 @@ func collectTracked(ctx context.Context, closureRoot, ref string) ([]change, err
 	changes := []change{}
 
 	// The committed range needs a merge base; its absence is an error too.
-	committed, err := gitOrDeadline(ctx, closureRoot,
+	committed, err := gitRun(ctx, closureRoot,
 		gitDiff, "--name-status", "--find-renames", "--relative", "-z", ref+"...HEAD")
 	if err != nil {
 		if errors.Is(err, errGitDeadline) {
@@ -232,7 +232,7 @@ func collectTracked(ctx context.Context, closureRoot, ref string) ([]change, err
 		{gitDiff, "--name-status", "--find-renames", "--relative", "-z", "--cached"},
 		{gitDiff, "--name-status", "--find-renames", "--relative", "-z"},
 	} {
-		output, diffErr := gitOrDeadline(ctx, closureRoot, args...)
+		output, diffErr := gitRun(ctx, closureRoot, args...)
 		if diffErr != nil {
 			if errors.Is(diffErr, errGitDeadline) {
 				return nil, diffErr
@@ -254,13 +254,13 @@ func collectUntracked(ctx context.Context, closureRoot string) ([]change, error)
 	// execution (review of #45). Tool-owned and Terraform-owned directories
 	// are excluded by name; everything is NUL-separated so no filename shape
 	// can hide.
-	untracked, err := gitOrDeadline(ctx, closureRoot,
+	untracked, err := gitRun(ctx, closureRoot,
 		"ls-files", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		return nil, err
 	}
 
-	ignored, err := gitOrDeadline(ctx, closureRoot,
+	ignored, err := gitRun(ctx, closureRoot,
 		"ls-files", "--others", "--ignored", "--exclude-standard", "-z")
 	if err != nil {
 		return nil, err
@@ -277,18 +277,6 @@ func collectUntracked(ctx context.Context, closureRoot string) ([]change, error)
 	}
 
 	return changes, nil
-}
-
-// gitOrDeadline runs one selection command. A cap expiry is final and already
-// self-describing, so it passes through unchanged; a listing failure inside
-// the untracked collection has no repository-specific diagnosis to add.
-func gitOrDeadline(ctx context.Context, closureRoot string, args ...string) (string, error) {
-	output, err := gitRun(ctx, closureRoot, args...)
-	if errors.Is(err, errGitDeadline) {
-		return "", err
-	}
-
-	return output, err
 }
 
 // splitNul splits NUL-separated git output.
