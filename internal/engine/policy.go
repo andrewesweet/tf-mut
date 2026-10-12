@@ -21,6 +21,7 @@ const (
 	FlagTestDirectory        = "test-directory"
 	FlagJobs                 = "jobs"
 	FlagTimeoutFactor        = "timeout-factor"
+	FlagPreflightTimeout     = "preflight-timeout"
 	FlagMinScore             = "min-score"
 	FlagAllowIncompleteScore = "allow-incomplete-score"
 	FlagTier                 = "tier"
@@ -62,6 +63,10 @@ func (s settings) withConfiguration(moduleDir string) (settings, tfconfig.File, 
 
 	if settings.TimeoutFactor != nil && !s.overridden(FlagTimeoutFactor) {
 		s.TimeoutFactor = *settings.TimeoutFactor
+	}
+
+	if settings.PreflightTimeout != nil && !s.overridden(FlagPreflightTimeout) {
+		s.PreflightTimeout = *settings.PreflightTimeout
 	}
 
 	if settings.MinScore != nil && !s.overridden(FlagMinScore) {

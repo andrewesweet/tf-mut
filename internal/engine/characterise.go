@@ -108,7 +108,7 @@ func characteriseModule(
 
 	// Characterisation drops the collector's report record, but shares its tracer
 	// with warm-up and any staged grading rounds.
-	prepared, err := warmUp(ctx, runner, configuration, workRoot, collector)
+	prepared, err := warmUp(ctx, runner, configuration, workRoot, collector, settings)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -336,7 +336,10 @@ func closeTheGap(
 		return nil, []string{err.Error()}, nil
 	}
 
-	promoted, refusals := promoteScaffolds(ctx, runner, stage, block, scaffold, answers, scaffolds)
+	promoted, refusals, err := promoteScaffolds(ctx, runner, stage, block, scaffold, answers, scaffolds)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// The final leg's evidence is not carried further: the judgement points
 	// and scaffolds were promoted on the legs above, and this leg re-proves
@@ -778,6 +781,12 @@ func verifyScaffold(
 
 // stagedRun executes the suite with the staged overlay in place: the generated
 // files exist in the sandbox and in no source tree.
+//
+// Staged runs are infrastructure, not mutants under judgement, and at harvest
+// time no baseline exists to scale a measured budget from — so they carry the
+// absolute preflight cap. A staged run that outlives it ends the command:
+// whatever the harvest or the verification round caught before the deadline
+// is not evidence a pin may be made from.
 func stagedRun(
 	ctx context.Context,
 	runner tfexec.Runner,
@@ -800,12 +809,21 @@ func stagedRun(
 		return tfexec.TestResult{}, err // nothing ran.
 	}
 
-	return runner.Test(ctx, built.ModuleDir, tfexec.TestOptions{
+	budget := stage.settings.preflightCap()
+
+	result, err := runner.Test(ctx, built.ModuleDir, tfexec.TestOptions{
 		TestDirectory: stage.configuration.TestDirRelative(),
 		Filters:       nil,
 		Verbose:       true,
-		Timeout:       0,
+		Timeout:       budget,
 	})
+	if result.TimedOut {
+		return tfexec.TestResult{}, // the run did not complete.
+			fmt.Errorf("%w: the staged run %s did not finish within %s: %w",
+				tfexec.ErrNotExecuted, name, budget, context.DeadlineExceeded)
+	}
+
+	return result, err
 }
 
 // stagedPath converts a module-relative generated path into the

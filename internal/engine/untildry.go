@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -176,7 +177,7 @@ func promoteScaffolds(
 	scaffold characterise.SuitePlan,
 	answers map[string]string,
 	scaffolds *scaffoldSet,
-) ([]writtenFile, []string) {
+) ([]writtenFile, []string, error) {
 	promoted := []writtenFile{}
 	warnings := []string{}
 
@@ -186,8 +187,12 @@ func promoteScaffolds(
 			continue
 		}
 
-		file, refusal := verifyScaffoldAnswer(ctx, runner, stage, scaffold, entry, answer,
+		file, refusal, err := verifyScaffoldAnswer(ctx, runner, stage, scaffold, entry, answer,
 			filepath.Join(stage.workRoot, "scaffold-"+entry.ID()))
+		if err != nil {
+			return nil, nil, err
+		}
+
 		if refusal != "" {
 			warnings = append(warnings, "scaffold "+entry.ID()+" was not promoted: "+refusal)
 
@@ -200,7 +205,7 @@ func promoteScaffolds(
 
 	block.Scaffolds = projectScaffolds(scaffolds.all())
 
-	return promoted, warnings
+	return promoted, warnings, nil
 }
 
 // verifyScaffoldAnswer stages one answered scaffold and executes it.
@@ -211,18 +216,18 @@ func verifyScaffoldAnswer(
 	scaffold characterise.SuitePlan,
 	entry characterise.Scaffold,
 	answer, target string,
-) (writtenFile, string) {
+) (writtenFile, string, error) {
 	empty := writtenFile{} // the not-promoted sentinel.
 
 	checkable, addressable := characterise.Checkable(entry.Address())
 	if !addressable {
-		return empty, entry.Address() + " names no object expect_failures can accept"
+		return empty, entry.Address() + " names no object expect_failures can accept", nil
 	}
 
 	variables, parsed := characterise.AnsweredVariables(answer)
 	if !parsed {
 		return empty, "the answer is not an object of constant assignments to legal " +
-			"variable names"
+			"variable names", nil
 	}
 
 	// Every name has to be an input the module declares. A legal identifier is
@@ -231,7 +236,7 @@ func verifyScaffoldAnswer(
 	// of checking here is that the refusal names the answer rather than the
 	// generated file.
 	if undeclared := undeclaredInputs(stage.configuration, variables); undeclared != "" {
-		return empty, "the answer names " + undeclared + ", which the module does not declare"
+		return empty, "the answer names " + undeclared + ", which the module does not declare", nil
 	}
 
 	content := characterise.RenderExpectFailures(scaffold, entry, checkable, variables)
@@ -243,14 +248,18 @@ func verifyScaffoldAnswer(
 	result, err := stagedRun(ctx, runner, scoped,
 		map[string][]byte{stagedPath(stage.configuration, path): content}, "verify")
 	if err != nil {
-		return empty, err.Error()
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return empty, "", err
+		}
+
+		return empty, err.Error(), nil
 	}
 
 	if failures := result.FailedRuns(); len(failures) > 0 || result.ExitCode != 0 {
-		return empty, "the expected failure did not happen, so the check proves nothing"
+		return empty, "the expected failure did not happen, so the check proves nothing", nil
 	}
 
-	return generatedFile(path, content, content, true), ""
+	return generatedFile(path, content, content, true), "", nil
 }
 
 // scaffoldSet is the context-side record of the scaffolds the loop discovers,

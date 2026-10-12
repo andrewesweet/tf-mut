@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -62,9 +63,12 @@ type File struct {
 // that "not configured" and "configured to the zero value" stay distinct, which
 // is what makes per-scalar CLI precedence expressible.
 type Settings struct {
-	TestDirectory        *string
-	Jobs                 *int
-	TimeoutFactor        *float64
+	TestDirectory *string
+	Jobs          *int
+	TimeoutFactor *float64
+	// PreflightTimeout is the parsed preflight_timeout duration from the
+	// tf-mut block; nil distinguishes omission from an explicit zero.
+	PreflightTimeout     *time.Duration
 	MinScore             *float64
 	AllowIncompleteScore *bool
 }
@@ -217,6 +221,21 @@ func assignSetting(name string, value cty.Value, settings *Settings) error {
 		settings.TimeoutFactor = &number
 
 		return err
+	case "preflight_timeout":
+		text, err := asString(name, value)
+		if err != nil {
+			return err
+		}
+
+		duration, parseErr := time.ParseDuration(text)
+		if parseErr != nil {
+			return fmt.Errorf("%w: %s must be a duration (\"90s\", \"10m\"): %w",
+				ErrConfig, name, parseErr)
+		}
+
+		settings.PreflightTimeout = &duration
+
+		return nil
 	case "min_score":
 		number, err := asFloat(name, value)
 		settings.MinScore = &number

@@ -23,8 +23,8 @@ import (
 )
 
 // ErrNotExecuted reports an operational failure to start or complete a Terraform
-// invocation. It includes context cancellation; an expired deadline is recorded
-// in Result.TimedOut instead.
+// invocation. It includes context cancellation and preflight deadline expiry.
+// Raw Run and Test calls record deadline expiry in their TimedOut fields instead.
 var ErrNotExecuted = errors.New("terraform could not be executed")
 
 // ErrCommandFailed reports a Terraform subcommand that exited non-zero where a
@@ -150,9 +150,10 @@ type Version struct {
 	Started bool  `json:"-"`
 }
 
-// Version reports the Terraform version of the configured binary.
-func (r Runner) Version(ctx context.Context, dir string) (Version, error) {
-	result, err := r.Run(ctx, dir, "version", "-json")
+// Version reports the Terraform version of the configured binary. The limit
+// bounds the invocation; an expired limit is an operational failure.
+func (r Runner) Version(ctx context.Context, dir string, limit time.Duration) (Version, error) {
+	result, err := r.runLimited(ctx, dir, limit, "version", "version", "-json")
 	version := Version{Usage: result.Usage, Started: result.Started}
 	if err != nil {
 		return version, err
@@ -211,8 +212,9 @@ type InitOptions struct {
 
 // Init installs providers and modules for the module in dir. The returned
 // Result carries the invocation's child-process usage for the run's
-// telemetry; callers that want nothing from it discard it.
-func (r Runner) Init(ctx context.Context, dir string, options InitOptions) (Result, error) {
+// telemetry; callers that want nothing from it discard it. The limit bounds
+// the invocation; an expired limit is an operational failure.
+func (r Runner) Init(ctx context.Context, dir string, options InitOptions, limit time.Duration) (Result, error) {
 	args := []string{"init", "-backend=false", "-input=false", "-no-color"}
 	if options.TestDirectory != "" {
 		args = append(args, "-test-directory="+options.TestDirectory)
@@ -222,7 +224,7 @@ func (r Runner) Init(ctx context.Context, dir string, options InitOptions) (Resu
 		args = append(args, "-lockfile=readonly")
 	}
 
-	result, err := r.Run(ctx, dir, args...)
+	result, err := r.runLimited(ctx, dir, limit, "init", args...)
 	if err != nil {
 		return result, err
 	}
@@ -283,9 +285,10 @@ type ValidateResult struct {
 	Started bool  `json:"-"`
 }
 
-// Validate statically checks the configuration in dir.
-func (r Runner) Validate(ctx context.Context, dir string) (ValidateResult, error) {
-	result, err := r.Run(ctx, dir, "validate", "-json", "-no-color")
+// Validate statically checks the configuration in dir. The limit bounds the
+// invocation; an expired limit is an operational failure.
+func (r Runner) Validate(ctx context.Context, dir string, limit time.Duration) (ValidateResult, error) {
+	result, err := r.runLimited(ctx, dir, limit, "validate", "validate", "-json", "-no-color")
 	validation := ValidateResult{Usage: result.Usage, Started: result.Started}
 	if err != nil {
 		return validation, err
@@ -300,9 +303,10 @@ func (r Runner) Validate(ctx context.Context, dir string) (ValidateResult, error
 
 // FmtCheck reports the files under dir that are not canonically formatted.
 // The returned Result carries the invocation's child-process usage for the
-// run's telemetry.
-func (r Runner) FmtCheck(ctx context.Context, dir string) ([]string, Result, error) {
-	result, err := r.Run(ctx, dir, "fmt", "-check", "-recursive", "-list=true", "-no-color")
+// run's telemetry. The limit bounds the invocation; an expired limit is an
+// operational failure.
+func (r Runner) FmtCheck(ctx context.Context, dir string, limit time.Duration) ([]string, Result, error) {
+	result, err := r.runLimited(ctx, dir, limit, "fmt", "fmt", "-check", "-recursive", "-list=true", "-no-color")
 	if err != nil {
 		return nil, result, err
 	}
@@ -317,6 +321,37 @@ func (r Runner) FmtCheck(ctx context.Context, dir string) ([]string, Result, err
 	}
 
 	return unformatted, result, nil
+}
+
+// runLimited bounds one invocation at limit and reports an expired deadline
+// as an operational failure naming the subcommand. In particular, validate
+// supplies verdict evidence, so its overrun must not be treated as a mutant
+// timeout or as a completed validation result. A non-positive limit leaves
+// the invocation bounded only by ctx.
+//
+// The deadline is enforced through the context, so the same process-group
+// stop that bounds a test run kills this command and everything it started.
+func (r Runner) runLimited(
+	ctx context.Context,
+	dir string,
+	limit time.Duration,
+	subcommand string,
+	args ...string,
+) (Result, error) {
+	if limit <= 0 {
+		return r.Run(ctx, dir, args...)
+	}
+
+	limited, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+
+	result, err := r.Run(limited, dir, args...)
+	if result.TimedOut {
+		return result, fmt.Errorf("%w: terraform %s did not finish within %s",
+			ErrNotExecuted, subcommand, limit)
+	}
+
+	return result, err
 }
 
 // waitDelay bounds how long a stopped command's I/O may keep Wait waiting:

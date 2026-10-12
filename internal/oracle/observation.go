@@ -71,6 +71,18 @@ func NewObservation(
 	}
 }
 
+// WithPhaseTwoDeadline records a phase-two fingerprint run that outlived its
+// budget: the comparison it owed the oracle never arrived, and the precedence
+// table's deadline row decides instead. A survivor's phase one guarantees no
+// failed or errored run, so the deadline is reached with the table otherwise
+// clean — the overrun lands as a Timeout counted in the score's denominator.
+func (o Observation) WithPhaseTwoDeadline(budget time.Duration) Observation {
+	o.timedOut = true
+	o.budget = budget
+
+	return o
+}
+
 // WithValidateVerdict records the terraform validate verdict. The engine runs
 // validate exactly where NeedsValidate says the table needs it and records
 // the result here before calling Judge: the diagnostics are the merged,
@@ -145,6 +157,14 @@ func (o Observation) WithSecondRun(delta fingerprint.Delta, mask fingerprint.Mas
 	o.unstable = unstable
 
 	return o
+}
+
+// DeadlineExceeded reports whether a deadline recorded anywhere in the
+// observation — phase one's budget or a survivor-side run's — has fired. The
+// engine records the fact on the verdict so the report shows the deadline
+// behind whatever verdict the precedence table earned.
+func (o Observation) DeadlineExceeded() bool {
+	return o.timedOut
 }
 
 // NeedsValidate reports whether the precedence table needs the validate

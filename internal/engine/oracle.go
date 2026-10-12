@@ -39,6 +39,19 @@ func (o executionOracle) observe(
 	fingerprintPhase := telemetry.phase(phaseFingerprint)
 	run, err := o.fingerprintRun(ctx, built)
 	fingerprintPhase(telemetry.child("test", run.result.Usage, run.result.Started)...)
+	verdict.Runs = append(verdict.Runs, run.outcomes...)
+
+	budget := timeoutBudget(o.plan.settings, o.plan.prepared.baselineDuration)
+
+	if run.result.TimedOut {
+		verdict.DeadlineReached = true
+		oraclePhase := telemetry.phase(phaseOracle)
+		outcome := oracle.Judge(observation.WithPhaseTwoDeadline(budget))
+		oraclePhase()
+
+		return project(verdict, outcome), outcome, nil
+	}
+
 	if err != nil {
 		return verdict, phaseOne, &report.ExecutionError{
 			MutantID: verdict.ID,
@@ -46,8 +59,6 @@ func (o executionOracle) observe(
 			Message:  "the fingerprint run could not be evaluated: " + err.Error(),
 		}
 	}
-
-	verdict.Runs = append(verdict.Runs, run.outcomes...)
 
 	mask := o.plan.prepared.mask
 	delta := fingerprint.Compare(mask, o.plan.prepared.payloads, run.payloads)
@@ -67,6 +78,10 @@ func (o executionOracle) observe(
 		if rerunErr != nil {
 			return verdict, phaseOne, rerunErr
 		}
+	}
+
+	if observation.DeadlineExceeded() {
+		verdict.DeadlineReached = true
 	}
 
 	oraclePhase := telemetry.phase(phaseOracle)
@@ -95,6 +110,9 @@ func missingRuns(verdict report.Mutant, delta fingerprint.Delta) *report.Executi
 
 // rerunForVolatility runs the mutant once more and re-compares under the
 // mutant's own volatility: the attributes that differed across its two runs.
+// A re-run that outlives the budget records the deadline on the observation
+// instead of a comparison: a decomposable volatility the run never delivered
+// is judged as the overrun it is, not as an equality it did not prove.
 func (o executionOracle) rerunForVolatility(
 	ctx context.Context,
 	built sandbox.Sandbox,
@@ -106,6 +124,12 @@ func (o executionOracle) rerunForVolatility(
 	rerunPhase := telemetry.phase(phaseVolatilityRerun)
 	second, err := o.fingerprintRun(ctx, built)
 	defer rerunPhase(telemetry.child("test", second.result.Usage, second.result.Started)...)
+	if second.result.TimedOut {
+		return observation.WithPhaseTwoDeadline(
+			timeoutBudget(o.plan.settings, o.plan.prepared.baselineDuration),
+		), nil
+	}
+
 	if err != nil {
 		return observation, &report.ExecutionError{
 			MutantID: verdict.ID,
@@ -196,7 +220,7 @@ func (o executionOracle) fingerprintRun(
 		TestDirectory: o.plan.configuration.TestDirRelative(),
 		Filters:       o.plan.settings.TestSelection,
 		Verbose:       true,
-		Timeout:       0,
+		Timeout:       timeoutBudget(o.plan.settings, o.plan.prepared.baselineDuration),
 	})
 	if err != nil {
 		return fingerprintSnapshot{result: result}, err

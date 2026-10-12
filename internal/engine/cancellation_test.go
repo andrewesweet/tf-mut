@@ -88,6 +88,33 @@ func TestADeadlineAfterAFailedRunKeepsItsKilledVerdict(t *testing.T) {
 	}
 }
 
+func TestCancellationDuringTraceFlushFailsReadOnlyCommands(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []report.Command{report.CommandPreview, report.CommandTodos, report.CommandCurate} {
+		t.Run(string(command), func(t *testing.T) {
+			t.Parallel()
+
+			ctx, endpoint := cancelDuringTraceFlush(t)
+			common := commonRequest(t, copyFixture(t, "skeleton"))
+			common.OTLPEndpoint = endpoint
+			requests := map[report.Command]engine.Request{
+				report.CommandPreview: engine.PreviewRequest{Common: common},
+				report.CommandTodos:   engine.TodosRequest{Common: common},
+				report.CommandCurate:  engine.CurateRequest{Common: common},
+			}
+
+			_, err := engine.Run(ctx, requests[command])
+			assertTraceCancellationPreservesResult(ctx, t, err)
+
+			entries, readErr := os.ReadDir(common.WorkDir)
+			if readErr != nil || len(entries) != 0 {
+				t.Fatalf("work directory was not cleaned: %v, %v", entries, readErr)
+			}
+		})
+	}
+}
+
 func TestCancellationDuringTraceFlushPreservesBaselineReport(t *testing.T) {
 	t.Parallel()
 
@@ -195,8 +222,8 @@ func assertTraceCancellationPreservesResult(ctx context.Context, t *testing.T, e
 	if !errors.Is(ctx.Err(), context.Canceled) {
 		t.Fatalf("trace flush never canceled the run: %v", ctx.Err())
 	}
-	if err != nil {
-		t.Fatalf("late cancellation discarded the write report: %v", err)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("run error = %v, want cancellation", err)
 	}
 }
 

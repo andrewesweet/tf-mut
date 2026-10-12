@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -470,6 +471,12 @@ func verifyAgainstMutant(
 	return suggest.NewLeg(killed, runRecords(result), detail), nil
 }
 
+// errVerificationDeadline marks a verification suite that outlived its
+// budget. The legs it fed are evidence, and a truncated run is evidence about
+// the machine, not the suggestion — so the verification fails closed instead
+// of grading a half-run suite.
+var errVerificationDeadline = errors.New("the verification suite did not finish within its budget")
+
 // runVerification materialises one throwaway sandbox and runs the whole suite
 // in it. No filter is applied: the contract is the full suite, once.
 func runVerification(
@@ -502,11 +509,17 @@ func runVerification(
 		TestDirectory: plan.configuration.TestDirRelative(),
 		Filters:       nil,
 		Verbose:       false,
-		Timeout:       0,
+		Timeout:       timeoutBudget(plan.settings, plan.prepared.baselineDuration),
 	})
 	verificationPhase(plan.collector.child("test", result.Usage, result.Started)...)
 	if result.Started {
 		*executions++
+	}
+
+	if result.TimedOut {
+		return tfexec.TestResult{}, // the run did not complete.
+			fmt.Errorf("%w (%s)", errVerificationDeadline,
+				timeoutBudget(plan.settings, plan.prepared.baselineDuration))
 	}
 
 	if err != nil {

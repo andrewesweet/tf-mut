@@ -45,6 +45,11 @@ const (
 	DefaultTimeoutFactor = 10.0
 	// DefaultTimeoutFloor is the lower bound on a mutant's execution budget.
 	DefaultTimeoutFloor = 30 * time.Second
+	// DefaultInitTimeout gives provider and module downloads a longer cap
+	// than the other preflight calls while still bounding a stalled download.
+	DefaultInitTimeout = 10 * time.Minute
+	// DefaultPreflightTimeout bounds preflight invocations other than init.
+	DefaultPreflightTimeout = time.Minute
 	// DefaultTerraformBinary is the executable looked up on PATH.
 	DefaultTerraformBinary = "terraform"
 	// DefaultFailureTripThreshold is the number of consecutive operational
@@ -80,6 +85,9 @@ type settings struct {
 	TimeoutFactor float64
 	// TimeoutFloor is the lower bound on that budget.
 	TimeoutFloor time.Duration
+	// PreflightTimeout uses zero to preserve the distinct init and non-init
+	// defaults. Finalisation rejects negative values before any command runs.
+	PreflightTimeout time.Duration
 	// MinScore is the mutation score percentage the run must reach.
 	MinScore float64
 	// HasMinScore reports whether MinScore was requested.
@@ -247,6 +255,9 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	var collector *runCollector
 	defer func() {
 		result, err = finishRunReport(collector, started, result, err)
+		if err == nil {
+			err = ctx.Err()
+		}
 	}()
 
 	s, err := settingsFor(request)
@@ -299,10 +310,13 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	// absent or broken would break the loop over a check it never needed.
 	switch request.(type) {
 	case TodosRequest, *TodosRequest:
-		listed, listErr := discovery.DiscoverWith(moduleDir, s.TestDirectory,
-			discovery.Options{SkipJSON: disableJSONReading(s), CheckoutRoot: checkoutRoot(ctx, moduleDir)})
+		listed, listErr := discoverConfiguration(ctx, moduleDir, s)
 		if listErr != nil {
 			return report.Report{}, listErr
+		}
+
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			return report.Report{}, cancelErr
 		}
 
 		return listTodos(listed, s, "")
@@ -311,15 +325,14 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	runner := tfexec.Runner{Binary: s.TerraformBinary, Env: s.Env}
 
 	versionPhase := collector.phase(phaseVersion)
-	version, err := checkVersion(ctx, runner, moduleDir)
+	version, err := checkVersion(ctx, runner, moduleDir, s.preflightCap())
 	versionPhase(collector.child("version", version.Usage, version.Started)...)
 	if err != nil {
 		return report.Report{}, err
 	}
 
 	discoveryPhase := collector.phase(phaseDiscovery)
-	configuration, err := discovery.DiscoverWith(moduleDir, s.TestDirectory,
-		discovery.Options{SkipJSON: disableJSONReading(s), CheckoutRoot: checkoutRoot(ctx, moduleDir)})
+	configuration, err := discoverConfiguration(ctx, moduleDir, s)
 	discoveryPhase()
 	if err != nil {
 		return report.Report{}, err
@@ -341,6 +354,16 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 
 		return result, err
 	}
+}
+
+func discoverConfiguration(ctx context.Context, moduleDir string, s settings) (discovery.Configuration, error) {
+	root, err := checkoutRoot(ctx, moduleDir)
+	if err != nil {
+		return discovery.Configuration{}, err
+	}
+
+	return discovery.DiscoverWith(moduleDir, s.TestDirectory,
+		discovery.Options{SkipJSON: disableJSONReading(s), CheckoutRoot: root})
 }
 
 func prepareRunOutput(s *settings) (func(), error) {
@@ -683,7 +706,7 @@ func finishReport(
 		})
 	}
 
-	return result, population, nil
+	return result, population, ctx.Err()
 }
 
 // gradingProjection is the report projection's subscriber state: what each
@@ -827,6 +850,10 @@ func finalise(s settings, configured tfconfig.File) (settings, error) {
 	s = s.withDefaults()
 	s.ExcludePaths = append(slices.Clone(s.ExcludePaths), configured.Exclude.Paths...)
 	s.ExcludeResources = append(slices.Clone(s.ExcludeResources), configured.Exclude.Resources...)
+
+	if s.PreflightTimeout < 0 {
+		return settings{}, fmt.Errorf("%w: the preflight timeout %s is negative", tfconfig.ErrConfig, s.PreflightTimeout)
+	}
 
 	// The gate truth table's sampled and write rows: refused before any work
 	// is done.
@@ -1082,8 +1109,9 @@ func checkVersion(
 	ctx context.Context,
 	runner tfexec.Runner,
 	dir string,
+	limit time.Duration,
 ) (tfexec.Version, error) {
-	version, err := runner.Version(ctx, dir)
+	version, err := runner.Version(ctx, dir, limit)
 	if err != nil {
 		return version, err
 	}
@@ -1279,6 +1307,26 @@ func (s settings) withDefaults() settings {
 	}
 
 	return s
+}
+
+// initCap bounds terraform init: the caller's cap when set, else the
+// ten-minute default for the network phase.
+func (s settings) initCap() time.Duration {
+	if s.PreflightTimeout > 0 {
+		return s.PreflightTimeout
+	}
+
+	return DefaultInitTimeout
+}
+
+// preflightCap bounds non-init preflight, baseline and staged invocations:
+// the caller's cap when set, else the one-minute default.
+func (s settings) preflightCap() time.Duration {
+	if s.PreflightTimeout > 0 {
+		return s.PreflightTimeout
+	}
+
+	return DefaultPreflightTimeout
 }
 
 // selection is the operator population the configuration asks for.
