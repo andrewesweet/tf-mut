@@ -249,7 +249,7 @@ func assertBlockOf(block *hclsyntax.Block, source []byte) AssertBlock {
 // counts towards the multiplicity gate exactly as module references do.
 func collectTestReferences(suite *TestSuite, path string, body *hclsyntax.Body) {
 	holder := Module{References: suite.References}
-	WalkExpressions(body, func(expr hclsyntax.Expression) {
+	walkExpressions(body, func(expr hclsyntax.Expression) {
 		recordReference(&holder, path, expr)
 	})
 }

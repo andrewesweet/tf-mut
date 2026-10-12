@@ -53,8 +53,11 @@ Lint enforces seven boundaries, including test files:
   supporting and Terraform Boundary packages.
 - `hclsyntax-boundary` permits `hclsyntax` imports only in `internal/discovery`,
   `internal/mutation`, `internal/characterise` and `internal/config`. Those
-  packages retain native parsing and walking, including characterisation's own
-  artefacts; other consumers read expression facts through discovery.
+  packages retain native parsing and walking — of the module's own bodies
+  (`discovery`, `mutation`) and of characterisation's own artefacts; a module's
+  expressions are also reachable as `Module.WalkExpressions`, with native
+  syntax asked for at the point of use (`NativeExpression`). Other consumers
+  read expression facts through discovery.
 - `application-boundary` denies `internal/engine` and `cmd/` imports from all
   core, supporting and Terraform Boundary packages.
 - `terraform-boundary` denies core and supporting context imports
