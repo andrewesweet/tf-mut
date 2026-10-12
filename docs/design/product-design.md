@@ -107,7 +107,8 @@ paths and vendored modules.
 When Git supplies a checkout root, a run block's local module source must resolve inside
 that work tree. Sibling modules reached through `..` remain allowed within it. A refusal
 names the declaring test file, run block, source string and resolved target. If the Git
-lookup fails, this run-block boundary check is disabled.
+lookup fails for an ordinary reason, this run-block boundary check is disabled. For
+deadline failures, see [deadline behavior](../../README.md#using-it).
 
 ### Baseline
 

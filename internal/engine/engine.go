@@ -324,8 +324,8 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 			return report.Report{}, listErr
 		}
 
-		if err := ctx.Err(); err != nil {
-			return report.Report{}, err
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			return report.Report{}, cancelErr
 		}
 
 		return listTodos(listed, s, "")

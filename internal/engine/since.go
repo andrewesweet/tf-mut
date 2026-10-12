@@ -345,8 +345,8 @@ const gitDiff = "diff"
 // runs. A pack is data that decides the population, as `.tf-mut.hcl` does,
 // and it is registered by a path the closure does not bound, so each pack is
 // diffed on its own, from its own directory, rather than looked for in the
-// closure's diff; a pack git cannot account for fails closed to the full
-// population.
+// closure's diff; an ordinary lookup failure forces the full population.
+// Deadline handling is owned by gitRun and its callers below.
 func changedPack(ctx context.Context, settings settings) (string, error) {
 	for _, pack := range settings.loadedPacks {
 		// A shipped pack's bytes are in the binary: there is no file to diff,
@@ -393,6 +393,7 @@ func packChanged(ctx context.Context, path, ref string) (bool, error) {
 		}
 
 		if err != nil || strings.TrimSpace(output) != "" {
+			//nolint:nilerr // ordinary Git failures force full selection; deadlines were returned above.
 			return true, nil
 		}
 	}
@@ -528,10 +529,9 @@ func sampleRank(seed int64, id string) uint64 {
 	return binary.BigEndian.Uint64(digest[:8])
 }
 
-// gitTimeout bounds every git invocation behind --since: a hung git would
-// otherwise hang the whole selection. The cap is short and fixed — these are
-// local metadata reads, not network operations — and an expired cap ends the
-// run operationally.
+// gitTimeout bounds checkout-root discovery and --since selection. The cap
+// is short and fixed because these are local metadata reads, not network
+// operations. An expired cap ends the run operationally.
 //
 //nolint:gochecknoglobals // test seam: fixed for every caller, shortened only by the deadline test.
 var gitTimeout = 30 * time.Second
@@ -598,6 +598,7 @@ func checkoutRoot(ctx context.Context, dir string) (string, error) {
 	}
 
 	if err != nil {
+		//nolint:nilerr // ordinary lookup failures disable the checkout boundary; deadlines were returned above.
 		return "", nil
 	}
 

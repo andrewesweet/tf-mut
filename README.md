@@ -75,7 +75,8 @@ deadline appears beside the mutant's verdict. The `--preflight-timeout` cap appl
 each call separately, including validation during mutant execution. Zero retains the
 defaults; negative durations are refused. For a persistent cap,
 see [configuration](docs/design/product-design.md#configuration--tf-muthcl).
-Git calls for `--since` have a fixed 30-second cap; an overrun is an operational failure.
+Git calls, including checkout-root discovery and `--since`, have a fixed 30-second cap;
+an overrun is an operational failure.
 
 Survivor-side fingerprint, volatility and suggestion-verification runs use the mutant budget.
 Fingerprint and volatility overruns produce a `Timeout` verdict counted in the score's
