@@ -113,7 +113,7 @@ func TestPreDeadlineSurvivorVerdictsAreNotReplayed(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		writeFile(t, path, string(encoded))
+		testsupport.WriteFile(t, path, string(encoded))
 		legacy++
 	}
 	if legacy == 0 {
