@@ -112,6 +112,58 @@ linters:
               desc: "The engine is the application layer; a context never imports it. See CONTEXT.md's dependency direction."
             - pkg: github.com/andrewesweet/tf-mut/cmd
               desc: "The CLI is an outer adapter; a context never imports it. See CONTEXT.md's dependency direction."
+        # #89, fourth rule: the Terraform Boundary is the value-type floor of
+        # the map. Its packages hand canonical facts upward and import no core
+        # or supporting context. Boundary-to-boundary imports stay allowed;
+        # only the five packages below fail lint.
+        terraform-boundary:
+          list-mode: lax
+          files:
+            - "**/internal/discovery/**"
+            - "**/internal/tfexec/**"
+            - "**/internal/sandbox/**"
+          deny:
+            - pkg: github.com/andrewesweet/tf-mut/internal/fingerprint
+              desc: "The Terraform Boundary imports no core context. See CONTEXT.md's dependency direction."
+            - pkg: github.com/andrewesweet/tf-mut/internal/oracle
+              desc: "The Terraform Boundary imports no core context. See CONTEXT.md's dependency direction."
+            - pkg: github.com/andrewesweet/tf-mut/internal/mutation
+              desc: "The Terraform Boundary imports no supporting context. See CONTEXT.md's dependency direction."
+            - pkg: github.com/andrewesweet/tf-mut/internal/suggest
+              desc: "The Terraform Boundary imports no supporting context. See CONTEXT.md's dependency direction."
+            - pkg: github.com/andrewesweet/tf-mut/internal/characterise
+              desc: "The Terraform Boundary imports no supporting context. See CONTEXT.md's dependency direction."
+        # #89, fifth rule: report DTOs flow outward — the application layer
+        # projects into them and the CLI renders them — so every package
+        # except those two denies the publication. This generalises the #89
+        # context-boundary rule above from the six contexts to the whole
+        # module; the overlap is deliberate, because each rule records a
+        # different edge of the same policy. internal/report's own files are
+        # governed by report-leaf below, which is the only rule that may admit
+        # the package's own external test files.
+        publication-boundary:
+          list-mode: lax
+          files:
+            - $all
+            - "!**/internal/engine/**"
+            - "!**/cmd/tf-mut/**"
+            - "!**/internal/report/**"
+          deny:
+            - pkg: github.com/andrewesweet/tf-mut/internal/report
+              desc: "Only the application layer and the CLI read the publication. See CONTEXT.md's dependency direction."
+        # #89, sixth rule: internal/report is the stdlib-only publication leaf.
+        # Its external tests may import the exact package under test; the $
+        # suffix prevents that allowance from admitting report subpackages.
+        report-leaf:
+          list-mode: strict
+          files:
+            - "**/internal/report/**"
+          allow:
+            - $gostd
+            - github.com/andrewesweet/tf-mut/internal/report$
+          deny:
+            - pkg: github.com/andrewesweet/tf-mut
+              desc: "internal/report is the stdlib-only publication leaf; it imports nothing from this module. See CONTEXT.md's dependency direction."
     cyclop:
       # Matched to revive's cyclomatic setting below. A complete dispatch over
       # Terraform's grammar — every top-level block kind, every reference form,

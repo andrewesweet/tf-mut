@@ -46,7 +46,7 @@ exception, not a dependency from the report DTO leaf. Publication otherwise
 does not import a domain context. The application layer performs the projections
 between context values and report DTOs.
 
-Lint enforces three boundaries, including test files:
+Lint enforces six boundaries, including test files:
 
 - The pre-existing [#89](https://github.com/andrewesweet/tf-mut/issues/89)
   `context-boundary` rule denies `internal/report` imports from all core,
@@ -57,10 +57,21 @@ Lint enforces three boundaries, including test files:
   artefacts; other consumers read expression facts through discovery.
 - `application-boundary` denies `internal/engine` and `cmd/` imports from all
   core, supporting and Terraform Boundary packages.
+- `terraform-boundary` denies core and supporting context imports
+  (`internal/fingerprint`, `internal/oracle`, `internal/mutation`,
+  `internal/suggest`, `internal/characterise`) from `internal/discovery`,
+  `internal/tfexec` and `internal/sandbox`; boundary-to-boundary imports stay
+  allowed.
+- `publication-boundary` denies `internal/report` imports from every package
+  outside `internal/report` except `internal/engine` and `cmd/tf-mut` — the
+  application layer and the CLI, the only readers of the publication.
+- `report-leaf` allows only standard-library imports from `internal/report`,
+  with one exception: its external test files may import the exact package
+  they test.
 
-Boundary imports of core or supporting contexts, imports of `internal/skill`,
-Publication's own dependency direction and report's stdlib-only constraint remain
-policy; these lint rules do not enforce them.
+Core, supporting and boundary imports of `internal/skill`, and skill's own
+imports beyond its one documented sandbox exception, remain policy; these lint
+rules do not enforce them.
 
 ## Architecture decisions
 
