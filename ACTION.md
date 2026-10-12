@@ -3,7 +3,12 @@
 Mutation testing for `terraform test` on every pull request: SARIF annotations on the exact
 changed lines, the markdown summary — score and new-versus-accepted findings — in the job
 step summary, and a check whose outcome is tf-mut's own exit code. (Adoption's permission
-ask is minimal: the step summary needs no token at all.)
+ask is minimal: the step summary needs no token at all. The maintained PR comment this
+summary replaced was removed in M4 —
+[issue #64](https://github.com/andrewesweet/tf-mut/issues/64) records the change.)
+
+Add the workflow below to `.github/workflows/tf-mut.yml` of the repository whose Terraform
+modules it should mutate:
 
 ```yaml
 name: tf-mut
@@ -19,10 +24,21 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0     # --since needs the base ref's history
-      - uses: andrewesweet/tf-mut@v1
+      - uses: andrewesweet/tf-mut@v0.1.0
         with:
-          version: v1.0.0    # always a pinned release; "latest" is refused
+          version: v0.1.0    # always a pinned release; "latest" is refused
 ```
+
+1. **Choose the version to pin.** The `uses:` ref and the `version:` input name the same
+   released `v*` tag of this repository. `latest` is refused: an unpinned tool in CI is an
+   unverified tool.
+2. **Grant the two permissions.** The job needs `contents: read` for checkout and `--since`
+   history, and `security-events: write` for the SARIF upload; the step summary needs no
+   permission at all.
+3. **Read the result.** The markdown summary lands in the job step summary. The check's
+   outcome is tf-mut's own exit code, captured before any upload ran: `1` means findings —
+   mutants survived — and fails the check; `2` is an operational failure. The reporting
+   steps always run first, so a red check still carries its annotations and summary.
 
 ## The trust and failure-order contract
 

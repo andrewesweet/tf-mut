@@ -1,0 +1,153 @@
+# The tag-driven release pipeline (release-it review ticket T4): a pushed v*
+# tag runs the same gate ci.yml runs for pull requests, packages the release
+# layout with `just package-test-release`, and publishes the two archives and
+# checksums.txt as a GitHub release. Jobs after the publication re-verify it
+# from outside the build: the published checksums must verify, and a rebuild
+# must be byte-identical with the published archives. A failed job anywhere
+# before publish leaves no release.
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+concurrency:
+  # The prefix must not collide with the concurrency group the called gate
+  # workflow computes for the same ref, or the gate would queue behind this
+  # workflow while this workflow waits on the gate.
+  group: release-pipeline-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  GOTOOLCHAIN: local
+  MISE_LOCKED: "1"
+  MISE_CONFIG_DIR: ${{ github.workspace }}/.artifacts/mise-config
+  MISE_CACHE_DIR: ${{ github.workspace }}/.artifacts/cache/mise
+jobs:
+  gate:
+    name: Pull-request gate
+    uses: ./.github/workflows/ci.yml
+  package:
+    name: Package the release layout
+    needs: gate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # No cache: a release pipeline does not trust a cached toolchain.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          version: 2026.8.6
+          install: false
+          cache: false
+      - name: Install exact locked tools
+        run: |
+          mise install --yes
+          mise exec -- just tools-install
+      - name: The tag names the declared release version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          declared=$(tr -d '[:space:]' <VERSION)
+          test "$declared" = "$TAG"
+      - name: Package the release assets
+        env:
+          TAG: ${{ github.ref_name }}
+        run: mise exec -- just package-test-release "$TAG" "$PWD/release"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ github.run_id }}
+          path: release/
+          retention-days: 1
+  publish:
+    name: Publish the GitHub release
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # The release itself — the pipeline's only write.
+      id-token: write # The build-provenance attestation's OIDC token.
+      attestations: write # The attestation record.
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-${{ github.run_id }}
+          path: release
+      - name: Attest the build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release/**/*.tar.gz
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "tf-mut $TAG" \
+            --generate-notes \
+            "release/$TAG/"*
+  verify-checksums:
+    name: The published checksums verify
+    needs: publish
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download the published assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir download
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern '*.tar.gz' --pattern 'checksums.txt' \
+            --dir download
+          test "$(find download -name '*.tar.gz' | wc -l)" -eq 2
+      - name: Verify the published archives against the published checksums
+        run: |
+          set -euo pipefail
+          cd download
+          sha256sum --check --strict checksums.txt
+  verify-rebuild:
+    name: The rebuild is byte-identical
+    needs: publish
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # No cache: a release pipeline does not trust a cached toolchain.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
+        with:
+          version: 2026.8.6
+          install: false
+          cache: false
+      - name: Install exact locked tools
+        run: |
+          mise install --yes
+          mise exec -- just tools-install
+      - name: Rebuild the release assets
+        env:
+          TAG: ${{ github.ref_name }}
+        run: mise exec -- just package-test-release "$TAG" "$PWD/rebuild"
+      - name: Download the published archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir published
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern '*.tar.gz' \
+            --dir published
+      - name: The rebuilt archives are byte-identical with the publication
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cmp "rebuild/$TAG/tf-mut_${TAG}_linux_amd64.tar.gz" "published/tf-mut_${TAG}_linux_amd64.tar.gz"
+          cmp "rebuild/$TAG/tf-mut_${TAG}_linux_arm64.tar.gz" "published/tf-mut_${TAG}_linux_arm64.tar.gz"
