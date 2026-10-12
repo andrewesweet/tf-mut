@@ -173,17 +173,17 @@ func (b *graphBuilder) buildJSON() {
 func (b *graphBuilder) buildJSONBlock(block *hcl.Block) {
 	switch block.Type {
 	case resourceBlock, dataBlock:
-		address := block.Labels[0] + "." + block.Labels[1]
-		if block.Type == dataBlock {
-			address = dataBlock + "." + address
+		address, ok := BlockAddr(block.Type, block.Labels)
+		if !ok {
+			return
 		}
 
 		owner := b.declare(address)
 		b.walkJSONBody(block.Body, address, owner, owner)
 	case outputBlock, moduleBlock, variableBlock, checkBlock:
-		address := block.Type + "." + block.Labels[0]
-		if block.Type == variableBlock {
-			address = "var." + block.Labels[0]
+		address, ok := BlockAddr(block.Type, block.Labels)
+		if !ok {
+			return
 		}
 
 		owner := b.declare(address)
@@ -206,9 +206,14 @@ func (b *graphBuilder) buildJSONBlock(block *hcl.Block) {
 			}
 		}
 	case providerBlock:
-		owner := b.declare(providerBlock + "." + block.Labels[0])
+		address, ok := BlockAddr(block.Type, block.Labels)
+		if !ok {
+			return
+		}
+
+		owner := b.declare(address)
 		b.graph.unbounded[owner] = true
-		b.walkJSONBody(block.Body, providerBlock+"."+block.Labels[0], owner, nodeID{})
+		b.walkJSONBody(block.Body, address, owner, nodeID{})
 	default:
 	}
 }

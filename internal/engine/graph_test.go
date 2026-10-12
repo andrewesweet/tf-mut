@@ -38,7 +38,7 @@ func discover(t *testing.T, moduleDir string) discovery.Configuration {
 func TestEveryGenerationSiteMapsIntoTheGraph(t *testing.T) {
 	t.Parallel()
 
-	for _, fixture := range []string{operatorsFixture, "dynamic"} {
+	for _, fixture := range []string{operatorsFixture, "dynamic", jsonMixedFixture} {
 		module := copyFixture(t, fixture)
 		configuration := discover(t, module)
 		graph := configuration.BuildGraph()
@@ -51,6 +51,62 @@ func TestEveryGenerationSiteMapsIntoTheGraph(t *testing.T) {
 			}
 		}
 	}
+
+	t.Run("tf.json", func(t *testing.T) {
+		t.Parallel()
+
+		module := t.TempDir()
+		source := `{
+  "variable": {"named": {"default": "value"}},
+  "resource": {"terraform_data": {"named": {"input": "${var.named}"}}},
+  "data": {"terraform_remote_state": {"named": {
+    "backend": "local", "config": {"path": "unused.tfstate"}
+  }}},
+  "output": {"named": {"value": "${terraform_data.named.output}"}},
+  "check": {"named": {"assert": [{
+    "condition": "${terraform_data.named.input == var.named}",
+    "error_message": "input must match"
+  }]}},
+  "module": {"named": {"source": "hashicorp/consul/aws"}},
+  "provider": {"null": {"alias": "named"}}
+}`
+		writeFile(t, filepath.Join(module, "main.tf.json"), source)
+
+		graph := discover(t, module).BuildGraph()
+
+		for _, site := range []string{
+			"terraform_data.named", "terraform_data.named.input",
+			"data.terraform_remote_state.named", "data.terraform_remote_state.named.backend",
+			"output.named", "output.named.value",
+			"module.named", "module.named.source",
+			"var.named", "var.named.default",
+			"check.named", "check.named.assert",
+			"provider.null", "provider.null.alias",
+		} {
+			cone, ok := graph.SiteCone(".", site)
+			if !ok {
+				t.Fatalf("JSON block site %s does not map into the graph", site)
+			}
+
+			if !cone.ContainsObservable() {
+				t.Errorf("JSON block site %s reaches no observable", site)
+			}
+
+			if site == "var.named.default" || site == "terraform_data.named.input" {
+				if !cone.ContainsResource(".", "terraform_data.named") ||
+					!cone.ContainsPayloadAddress("output.named") ||
+					cone.ContainsResource(".", "data.terraform_remote_state.named") {
+					t.Errorf("JSON block site %s has incorrect resource ownership or reference edges", site)
+				}
+			}
+
+			if strings.HasPrefix(site, "provider.") || strings.HasPrefix(site, "module.") {
+				if !cone.ContainsResource(".", "data.terraform_remote_state.named") {
+					t.Errorf("JSON block site %s must have an unbounded cone", site)
+				}
+			}
+		}
+	})
 }
 
 // TestAnUnmappableSiteFallsBackClosed pins the site adapter's failure
