@@ -153,7 +153,7 @@ func comparePayload(
 		changes = append(changes, Change{
 			Run:      key,
 			Path:     path,
-			Address:  Address(path),
+			Address:  ParsePath(path).Address(),
 			Baseline: value,
 			Mutant:   other,
 			Sensitive: unmaskedBaseline.Sensitive(path) || unmaskedMutant.Sensitive(path) ||
@@ -169,7 +169,7 @@ func comparePayload(
 		changes = append(changes, Change{
 			Run:      key,
 			Path:     path,
-			Address:  Address(path),
+			Address:  ParsePath(path).Address(),
 			Baseline: "",
 			Mutant:   value,
 			Sensitive: unmaskedBaseline.Sensitive(path) || unmaskedMutant.Sensitive(path) ||

@@ -53,7 +53,7 @@ func (r render) equality(
 	// schema- or grammar-justified segment at a time. Every form below uses
 	// that spelling; the provisional dotted join the address adapter emitted
 	// is never asserted on its own.
-	continued := strings.HasPrefix(attribute, "[") || len(fingerprint.AttributeSegments(attribute)) > 1 ||
+	continued := strings.HasPrefix(attribute, "[") || len(parts.source.Segments()) > 1 ||
 		(strings.HasPrefix(resource, "output.") && strings.Contains(attribute, "["))
 
 	normalize := func() (string, error) {
@@ -61,7 +61,7 @@ func (r render) equality(
 			return expression, nil
 		}
 
-		return r.spellContinuation(resource, attribute, evidence.OutputTypes[resource])
+		return r.spellContinuation(parts.source, resource, attribute, evidence.OutputTypes[resource])
 	}
 
 	// A mutant that nulls the value is answered by an inequality, whatever the
@@ -113,7 +113,7 @@ func (r render) equality(
 		return "length(" + spelled + ") == 0", nil
 	}
 
-	segments := fingerprint.AttributeSegments(attribute)
+	segments := parts.source.Segments()
 
 	switch {
 	case continued:
@@ -164,13 +164,15 @@ func countEquality(resource, mutant string, evidence Evidence) (string, bool, er
 // entry. The walk starts from the resource address and consumes one path
 // segment at a time, so every spelling it emits is one the segment in front of
 // it justifies.
-func (r render) spellContinuation(resource, attribute string, outputType cty.Type) (string, error) {
+func (r render) spellContinuation(p fingerprint.Path, resource, attribute string, outputType cty.Type) (string, error) {
+	segments := p.Segments()
+
 	kind, resourceType, ok := schemaCoordinates(resource)
 	if !ok {
 		// No provider schema types an output. The walk uses the baseline's
 		// published output type to justify each index, and a
 		// further segment is a traversal only if it is an identifier.
-		suffix, err := walkIndicesAndNames(attribute, outputType)
+		suffix, err := walkIndicesAndNames(attribute, segments, outputType)
 		if err != nil {
 			return "", err
 		}
@@ -189,7 +191,7 @@ func (r render) spellContinuation(resource, attribute string, outputType cty.Typ
 	}
 
 	builder := &strings.Builder{}
-	if err := walkBlockSteps(root, fingerprint.AttributeSegments(attribute), builder); err != nil {
+	if err := walkBlockSteps(root, segments, builder); err != nil {
 		return "", err
 	}
 
@@ -598,11 +600,11 @@ func notDotted(expression string) error {
 // name and the index consumed separately. Each index needs published type
 // evidence. The walk accepts at most one member name; deeper continuations
 // remain refused.
-func walkIndicesAndNames(attribute string, declared cty.Type) (string, error) {
+func walkIndicesAndNames(attribute string, segments []string, declared cty.Type) (string, error) {
 	builder := strings.Builder{}
 	names := 0
 
-	for _, segment := range fingerprint.AttributeSegments(attribute) {
+	for _, segment := range segments {
 		if strings.HasPrefix(segment, "[") {
 			name, key, indexed := cutIndex(segment)
 			if name != "" || !indexed || !digitsOnly(key) {

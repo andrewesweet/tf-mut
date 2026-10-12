@@ -36,7 +36,7 @@ func payloadPaths(payloads []fingerprint.Payload, address, attribute string) []s
 
 	for _, payload := range payloads {
 		for path := range payload.Values {
-			if fingerprint.AttributePath(path, address, attribute) {
+			if fingerprint.ParsePath(path).Attribute(address, attribute) {
 				found = append(found, path)
 			}
 		}

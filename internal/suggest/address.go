@@ -23,12 +23,15 @@ var ErrUnaddressable = errors.New("no legal assertion expression addresses this 
 
 // traversalParts is what the address adapter hands the rendering contract:
 // the legal expression, the resource address and attribute path the type
-// lookup is keyed by, and the canonical payload path the evidence is keyed by.
+// lookup is keyed by, the canonical payload path the evidence is keyed by,
+// and that path's parsed value, so the renderer reads the grammar instead of
+// re-splitting the attribute strings.
 type traversalParts struct {
 	expression string
 	resource   string
 	attribute  string
 	path       string
+	source     fingerprint.Path
 }
 
 // traversal is the assertion-expression adapter: it joins two address spaces
@@ -43,7 +46,9 @@ type traversalParts struct {
 func traversal(path string) (traversalParts, error) {
 	empty := traversalParts{expression: "", resource: "", attribute: ""}
 
-	resource, attribute, ok := fingerprint.Split(path)
+	parsed := fingerprint.ParsePath(path)
+
+	resource, attribute, ok := parsed.Split()
 	if !ok {
 		return empty, fmt.Errorf(
 			"%w: %s names no value a `terraform test` assertion could read", ErrUnaddressable, path,
@@ -81,8 +86,8 @@ func traversal(path string) (traversalParts, error) {
 	// A path that continues past its first segment is rendered by the walk,
 	// which owns the parse floor for the expression it builds; the dotted
 	// spelling above is only provisional there.
-	if strings.HasPrefix(attribute, "[") || len(fingerprint.AttributeSegments(attribute)) > 1 {
-		return traversalParts{expression: expression, resource: resource, attribute: attribute, path: path}, nil
+	if strings.HasPrefix(attribute, "[") || len(parsed.Segments()) > 1 {
+		return traversalParts{expression: expression, resource: resource, attribute: attribute, path: path, source: parsed}, nil
 	}
 
 	if err := parseTraversal(expression); err != nil {
@@ -99,7 +104,7 @@ func traversal(path string) (traversalParts, error) {
 		return empty, err
 	}
 
-	return traversalParts{expression: expression, resource: resource, attribute: attribute, path: path}, nil
+	return traversalParts{expression: expression, resource: resource, attribute: attribute, path: path, source: parsed}, nil
 }
 
 // parseTraversal proves the generated text is a traversal HCL accepts.
