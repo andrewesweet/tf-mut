@@ -57,7 +57,7 @@ tf-mut version                   # print the build version
 | `--allow-incomplete-score` | Let an [incomplete score](docs/design/product-design.md#5-metrics) satisfy `--min-score` |
 | `--allow-real-infrastructure` | Required when any provider is unmocked |
 | `--allow-unsandboxed-effects` | Required for apply-mode provisioners and unsevered data sources |
-| `--reporter terminal\|json\|sarif\|mte\|html\|junit\|markdown` | Output format (`mte` is Mutation Testing Elements) |
+| `--reporter terminal\|json\|sarif\|mte\|html\|junit\|markdown` | Output format (`mte` is Mutation Testing Elements); see [reporter presentation](docs/design/product-design.md#9-reporters) |
 | `--cpu-profile PATH` | Write a CPU profile of tf-mut itself |
 | `--otlp-endpoint URL` | Export run, mutant and phase spans over OTLP/HTTP |
 

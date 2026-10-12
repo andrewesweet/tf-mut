@@ -679,6 +679,27 @@ depends_on = [aws_iam_role_policy.attach]
 | `markdown` | PR comment summary |
 | `mutation-testing-elements` | The Stryker JSON schema, so existing dashboards and the Stryker HTML viewer work unchanged |
 
+Every reporter preserves the report's warnings. Terminal and Markdown use warnings sections;
+HTML shows warnings above the viewer. SARIF carries warning-level tool execution notifications,
+JUnit carries suite standard output, and Mutation Testing Elements includes warnings alongside
+tf-mut's authoritative metrics in its tool configuration. JSON retains the full report value.
+For preview's safety-gate advisories and refusals, see [preview usage](../../README.md#using-it).
+
+Terminal and Markdown group survivors diagnosed as `indeterminate-unknown-values` by matching
+sets of unknown-at-plan paths. Each group states its paths and fix once, then lists every
+member's operator, file and line. Paths are sorted; groups follow their first appearance in
+report order. Members retain report order within their groups or Markdown site subgroups.
+Terminal retains each member's diff. Grouping changes presentation; counts and verdicts remain
+per mutant.
+
+Markdown groups findings by module and mutation site, with file and line in each heading and
+member line. Indeterminate path groups contain the same module-and-site subgroups. The first
+25 ordinary site groups render in full; later sites retain their names and finding counts, with
+the JSON report carrying their individual findings and locations. Indeterminate site subgroups
+are uncapped. Gate and suggestion tables appear only when they have rows. Locations and warning
+text preserve literal Markdown punctuation and HTML characters; inline code preserves backticks
+in site names and unknown paths.
+
 A `csv` reporter was once sketched here as "analysis and research; matches Oasis's column set".
 It is retired: no consumer exists — every analysis consumer, including the M5d benchmark, reads
 the `json` report or the published measurement files — and a row without a consumer is not a

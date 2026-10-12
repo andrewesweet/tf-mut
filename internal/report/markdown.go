@@ -133,14 +133,14 @@ func writeIndeterminateGroups(page *strings.Builder, groups []indeterminateGroup
 	}
 }
 
-// siteGroup is the findings at one mutation site, in report order.
+// siteGroup is the findings at one module-local mutation site, in report order.
 type siteGroup struct {
 	site    string
 	members []Mutant
 }
 
-// groupBySite partitions the findings by their mutation site, preserving
-// report order within a site.
+// groupBySite partitions findings by module and mutation site, preserving
+// first appearance in report order for groups and members.
 func groupBySite(findings []Mutant) []siteGroup {
 	groups := []siteGroup{}
 	index := map[[2]string]int{}
@@ -160,10 +160,9 @@ func groupBySite(findings []Mutant) []siteGroup {
 	return groups
 }
 
-// writeSiteGroups renders one heading per mutation site with the findings
-// beneath it, each finding carrying the file and line a reader acts on.
-// Sites beyond the cap are named with their finding counts: the overflow
-// hides nothing, because every site it omits is still listed.
+// writeSiteGroups renders module-local sites in full up to markdownSiteCap.
+// Overflow names and counts point readers to JSON for individual findings
+// and locations.
 func writeSiteGroups(page *strings.Builder, groups []siteGroup) {
 	for shown, group := range groups {
 		if shown >= markdownSiteCap {
@@ -223,19 +222,13 @@ func findingCountLabel(count int) string {
 	return fmt.Sprintf("%d findings", count)
 }
 
-// M3d.1 (#51): the markdown reporter — the PR summary. Scores with the
-// killed and killed-by-error split, the gate-table outcome, the new-versus-
-// accepted survivor split, and a capped finding list.
+// M3d.1 (#51): the PR summary reporter. Its presentation contract is in
+// docs/design/product-design.md, section 9.
 
 // markdownFindingCap bounds the suggestion table a comment carries.
 const markdownFindingCap = 10
 
 // markdownSiteCap bounds the site groups the summary renders in full.
-// Grouping by site collapses a finding list to roughly one heading per
-// mutated construct, so 25 headings cover realistic failure lists without
-// truncation. Sites beyond the cap are named with their finding counts, so
-// the overflow hides nothing — the flat finding cap this replaces dropped
-// findings from the summary entirely.
 const markdownSiteCap = 25
 
 // baselineNew is the provenance label the baseline gate assigns.
