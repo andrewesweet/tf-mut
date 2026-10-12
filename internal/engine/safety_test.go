@@ -384,16 +384,24 @@ func TestPreviewMarkdownEscapesSafetyWarningLocations(t *testing.T) {
 				t.Fatalf("rendering: %v", err)
 			}
 
-			for _, warning := range result.Warnings {
-				if !strings.Contains(markdownTextContent(rendered.String()), warning) {
-					t.Fatalf("the markdown preview lost the literal safety warning %q:\n%s", warning, rendered.String())
-				}
-			}
+			assertMarkdownSafetyWarnings(t, rendered.String(), result.Warnings)
 
 			if !strings.Contains(rendered.String(), entry.escaped) || strings.Contains(rendered.String(), entry.file) {
 				t.Fatalf("the preview renders a filename as markup:\n%s", rendered.String())
 			}
 		})
+	}
+}
+
+func assertMarkdownSafetyWarnings(t *testing.T, page string, warnings []string) {
+	t.Helper()
+
+	text := markdownTextContent(page)
+
+	for _, warning := range warnings {
+		if !strings.Contains(text, warning) {
+			t.Fatalf("the markdown preview lost the literal safety warning %q:\n%s", warning, page)
+		}
 	}
 }
 

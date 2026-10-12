@@ -865,6 +865,13 @@ func TestMarkdownEscapesAllTextPunctuation(t *testing.T) {
 func TestMarkdownEscapesFindingLocations(t *testing.T) {
 	t.Parallel()
 
+	const (
+		htmlFile            = "main<env>.tf"
+		markdownFile        = "main*env*.tf"
+		escapedHTMLFile     = "main&lt;env&gt;\\.tf"
+		escapedMarkdownFile = "main\\*env\\*\\.tf"
+	)
+
 	for _, entry := range []struct {
 		name      string
 		state     report.State
@@ -872,12 +879,12 @@ func TestMarkdownEscapesFindingLocations(t *testing.T) {
 		file      string
 		escaped   string
 	}{
-		{"ordinary-html", report.Survived, report.WeakAssertion, "main<env>.tf", "main&lt;env&gt;\\.tf"},
-		{"ordinary-markdown", report.Survived, report.WeakAssertion, "main*env*.tf", "main\\*env\\*\\.tf"},
-		{"unassertable-html", report.StructurallyUnassertable, "", "main<env>.tf", "main&lt;env&gt;\\.tf"},
-		{"unassertable-markdown", report.StructurallyUnassertable, "", "main*env*.tf", "main\\*env\\*\\.tf"},
-		{"indeterminate-html", report.Survived, report.IndeterminateUnknownValues, "main<env>.tf", "main&lt;env&gt;\\.tf"},
-		{"indeterminate-markdown", report.Survived, report.IndeterminateUnknownValues, "main*env*.tf", "main\\*env\\*\\.tf"},
+		{"ordinary-html", report.Survived, report.WeakAssertion, htmlFile, escapedHTMLFile},
+		{"ordinary-markdown", report.Survived, report.WeakAssertion, markdownFile, escapedMarkdownFile},
+		{"unassertable-html", report.StructurallyUnassertable, "", htmlFile, escapedHTMLFile},
+		{"unassertable-markdown", report.StructurallyUnassertable, "", markdownFile, escapedMarkdownFile},
+		{"indeterminate-html", report.Survived, report.IndeterminateUnknownValues, htmlFile, escapedHTMLFile},
+		{"indeterminate-markdown", report.Survived, report.IndeterminateUnknownValues, markdownFile, escapedMarkdownFile},
 	} {
 		t.Run(entry.name, func(t *testing.T) {
 			t.Parallel()
