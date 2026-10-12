@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"go/importer"
+	"go/parser"
 	"go/token"
 	"go/types"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -70,6 +72,52 @@ func TestExportedEngineTypesDeclareNoSeamControls(t *testing.T) {
 	t.Parallel()
 
 	auditExportedEngineTypes(t, compiledEnginePackage(t))
+}
+
+// TestThePackageCommentMapsEveryEngineFile holds doc.go's package comment
+// honest about the package's own layout: every non-test Go file in the
+// package directory has to be named in the map, so a file that moves, and a
+// new one that arrives, forces the map to change with it. Without this the
+// map would rot the way an unenforced document does — green while naming a
+// layout that no longer exists.
+func TestThePackageCommentMapsEveryEngineFile(t *testing.T) {
+	t.Parallel()
+
+	parsed, err := parser.ParseFile(token.NewFileSet(), "doc.go", nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parsing doc.go: %v", err)
+	}
+	if parsed.Doc == nil {
+		t.Fatal("doc.go carries no package comment to audit")
+	}
+	comment := parsed.Doc.Text()
+
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("reading the package directory: %v", err)
+	}
+
+	var unnamed []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+
+		// Word boundaries, so naming characteriseprojection.go does not
+		// silently satisfy projection.go: between two identifier characters
+		// there is no boundary.
+		named := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`)
+		if !named.MatchString(comment) {
+			unnamed = append(unnamed, name)
+		}
+	}
+
+	if len(unnamed) > 0 {
+		slices.Sort(unnamed)
+		t.Fatalf("the package comment in doc.go fails to name %d of the package's non-test files: %s",
+			len(unnamed), strings.Join(unnamed, ", "))
+	}
 }
 
 func compiledEnginePackage(t *testing.T) *types.Package {
