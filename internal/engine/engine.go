@@ -254,19 +254,12 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 		return report.Report{}, err
 	}
 
-	if s.Progress != nil {
-		s.Progress = &synchronizedWriter{writer: s.Progress}
+	stopProfile, profileErr := prepareRunOutput(&s)
+	if profileErr != nil {
+		return report.Report{}, profileErr
 	}
 
-	// The CPU profile writes only to the file the user explicitly requested.
-	if s.CPUProfile != "" {
-		stopProfile, profileErr := startCPUProfile(s.ModuleDir, s.CPUProfile, s.Progress)
-		if profileErr != nil {
-			return report.Report{}, profileErr
-		}
-
-		defer stopProfile()
-	}
+	defer stopProfile()
 
 	// The flush outlives request cancellation so recorded spans can still reach the collector.
 	// Tracing and CPU-profile warnings share the request's progress writer —
@@ -348,6 +341,19 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 
 		return result, err
 	}
+}
+
+func prepareRunOutput(s *settings) (func(), error) {
+	if s.Progress != nil {
+		s.Progress = &synchronizedWriter{writer: s.Progress}
+	}
+
+	// The CPU profile writes only to the file the user explicitly requested.
+	if s.CPUProfile == "" {
+		return func() {}, nil
+	}
+
+	return startCPUProfile(s.ModuleDir, s.CPUProfile, s.Progress)
 }
 
 func startCPUProfile(moduleDir, destination string, warnings io.Writer) (func(), error) {

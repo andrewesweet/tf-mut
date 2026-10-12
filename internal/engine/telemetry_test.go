@@ -44,6 +44,7 @@ const (
 	parentSymlinkExistingKind = "parent-symlink-existing"
 	parentSymlinkNewKind      = "parent-symlink-new"
 	fileExistsError           = "file exists"
+	traceWriterCase           = "writer"
 )
 
 // phaseNames projects a phase list onto its names, in the recorded order.
@@ -518,7 +519,7 @@ func TestTraceExportWarningsAndProgressShareTheWriter(t *testing.T) {
 	warning := "tf-mut: trace export failed"
 	progress := regexp.MustCompile(`^tf-mut: \d+/\d+ mutants, .* elapsed, ETA .*`)
 	warnings, lines := 0, 0
-	for _, line := range strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSuffix(output.String(), "\n"), "\n") {
 		switch {
 		case line == warning:
 			warnings++
@@ -552,6 +553,7 @@ func TestTraceExportWarningsStopWhenRunReturns(t *testing.T) {
 			}
 		case 2:
 			close(drained)
+		default:
 		}
 
 		w.WriteHeader(http.StatusUnauthorized)
@@ -591,78 +593,85 @@ func TestTraceExportWarningsStopWhenRunReturns(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // Subtests share the process-wide OTel environment set by their parent.
 func TestTraceExportWarningsStayWithTheirRun(t *testing.T) {
 	t.Setenv("OTEL_BSP_SCHEDULE_DELAY", "60000")
 
-	for _, secondWriter := range []string{"writer", "nil"} {
+	for _, secondWriter := range []string{traceWriterCase, "nil"} {
 		t.Run(secondWriter, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
-			defer cancel()
-
-			exporting, release := make(chan struct{}), make(chan struct{})
-			var received, released sync.Once
-			firstSink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				received.Do(func() { close(exporting) })
-				select {
-				case <-release:
-					w.WriteHeader(http.StatusUnauthorized)
-				case <-r.Context().Done():
-				}
-			}))
-			t.Cleanup(firstSink.Close)
-			t.Cleanup(func() { released.Do(func() { close(release) }) })
-
-			secondSink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(http.StatusUnauthorized)
-			}))
-			t.Cleanup(secondSink.Close)
-
-			var firstOutput, secondOutput bytes.Buffer
-			first := baseConfig(t, copyFixture(t, "skeleton"))
-			first.NoCache = true
-			first.OTLPEndpoint = firstSink.URL
-			first.Progress = &firstOutput
-			first.ProgressIntervalForTesting = time.Hour
-			second := baseConfig(t, copyFixture(t, "skeleton"))
-			second.NoCache = true
-			second.OTLPEndpoint = secondSink.URL
-			second.ProgressIntervalForTesting = time.Hour
-			if secondWriter == "writer" {
-				second.Progress = &secondOutput
-			}
-
-			finished := make(chan error, 1)
-			go func() {
-				_, err := engine.Run(ctx, first)
-				finished <- err
-			}()
-
-			select {
-			case <-exporting:
-			case <-ctx.Done():
-				t.Fatal("the first run never reached its trace export")
-			}
-
-			if _, err := engine.Run(ctx, second); err != nil {
-				t.Fatal(err)
-			}
-			released.Do(func() { close(release) })
-			if err := <-finished; err != nil {
-				t.Fatal(err)
-			}
-
-			warning := "tf-mut: trace export failed\n"
-			if firstOutput.String() != warning {
-				t.Fatalf("first run warning = %q, want %q", firstOutput.String(), warning)
-			}
-			wanted := ""
-			if secondWriter == "writer" {
-				wanted = warning
-			}
-			if secondOutput.String() != wanted {
-				t.Fatalf("second run warning = %q, want %q", secondOutput.String(), wanted)
-			}
+			assertTraceExportWarningsStayWithTheirRun(t, secondWriter)
 		})
+	}
+}
+
+func assertTraceExportWarningsStayWithTheirRun(t *testing.T, secondWriter string) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+
+	exporting, release := make(chan struct{}), make(chan struct{})
+	var received, released sync.Once
+	firstSink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received.Do(func() { close(exporting) })
+		select {
+		case <-release:
+			w.WriteHeader(http.StatusUnauthorized)
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(firstSink.Close)
+	t.Cleanup(func() { released.Do(func() { close(release) }) })
+
+	secondSink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(secondSink.Close)
+
+	var firstOutput, secondOutput bytes.Buffer
+	first := baseConfig(t, copyFixture(t, "skeleton"))
+	first.NoCache = true
+	first.OTLPEndpoint = firstSink.URL
+	first.Progress = &firstOutput
+	first.ProgressIntervalForTesting = time.Hour
+	second := baseConfig(t, copyFixture(t, "skeleton"))
+	second.NoCache = true
+	second.OTLPEndpoint = secondSink.URL
+	second.ProgressIntervalForTesting = time.Hour
+	if secondWriter == traceWriterCase {
+		second.Progress = &secondOutput
+	}
+
+	finished := make(chan error, 1)
+	go func() {
+		_, err := engine.Run(ctx, first)
+		finished <- err
+	}()
+
+	select {
+	case <-exporting:
+	case <-ctx.Done():
+		t.Fatal("the first run never reached its trace export")
+	}
+
+	if _, err := engine.Run(ctx, second); err != nil {
+		t.Fatal(err)
+	}
+	released.Do(func() { close(release) })
+	if err := <-finished; err != nil {
+		t.Fatal(err)
+	}
+
+	warning := "tf-mut: trace export failed\n"
+	if firstOutput.String() != warning {
+		t.Fatalf("first run warning = %q, want %q", firstOutput.String(), warning)
+	}
+	wanted := ""
+	if secondWriter == traceWriterCase {
+		wanted = warning
+	}
+	if secondOutput.String() != wanted {
+		t.Fatalf("second run warning = %q, want %q", secondOutput.String(), wanted)
 	}
 }
 

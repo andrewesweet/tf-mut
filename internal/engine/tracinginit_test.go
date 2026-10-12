@@ -13,16 +13,23 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 )
 
-const traceInitializationChild = "TF_MUT_TRACE_INITIALIZATION_CHILD"
+const (
+	traceInitializationChild    = "TF_MUT_TRACE_INITIALIZATION_CHILD"
+	traceResourceAttributes     = "tf-mut.test=kept"
+	traceRatioSampler           = "traceidratio"
+	traceParentRatioSampler     = "parentbased_traceidratio"
+	traceInitializationEnabled  = "true"
+	traceInitializationDisabled = "false"
+)
 
 func TestTraceInitializationDiagnosticsUseTheRunWriter(t *testing.T) {
+	t.Parallel()
+
 	if os.Getenv(traceInitializationChild) == "1" {
 		assertTraceInitialization(t)
 
 		return
 	}
-
-	t.Parallel()
 
 	for _, scenario := range []struct {
 		name       string
@@ -32,26 +39,26 @@ func TestTraceInitializationDiagnosticsUseTheRunWriter(t *testing.T) {
 		warning    bool
 		spans      bool
 	}{
-		{"default", "tf-mut.test=kept", "", "", false, true},
+		{"default", traceResourceAttributes, "", "", false, true},
 		{"missing-resource-value", "tf-mut.test=kept,private-token", "", "", true, true},
 		{"invalid-resource-escape", "tf-mut.test=%private-token", "", "", true, true},
-		{"unsupported-sampler", "tf-mut.test=kept", "private-sampler-token", "", true, true},
-		{"invalid-ratio", "tf-mut.test=kept", "traceidratio", "private-argument-token", true, true},
-		{"negative-ratio", "tf-mut.test=kept", "traceidratio", "-1", true, true},
-		{"large-ratio", "tf-mut.test=kept", "traceidratio", "2", true, true},
-		{"invalid-parent-ratio", "tf-mut.test=kept", "parentbased_traceidratio", "private-argument-token", true, true},
-		{"negative-parent-ratio", "tf-mut.test=kept", "parentbased_traceidratio", "-1", true, true},
-		{"large-parent-ratio", "tf-mut.test=kept", "parentbased_traceidratio", "2", true, true},
-		{"always-on", "tf-mut.test=kept", "always_on", "", false, true},
-		{"always-off", "tf-mut.test=kept", "always_off", "", false, false},
-		{"parent-always-on", "tf-mut.test=kept", "parentbased_always_on", "", false, true},
-		{"parent-always-off", "tf-mut.test=kept", "parentbased_always_off", "", false, false},
-		{"ratio-zero", "tf-mut.test=kept", "traceidratio", "0", false, false},
-		{"ratio-one", "tf-mut.test=kept", "traceidratio", "1", false, true},
-		{"parent-ratio-zero", "tf-mut.test=kept", "parentbased_traceidratio", "0", false, false},
-		{"parent-ratio-one", "tf-mut.test=kept", "parentbased_traceidratio", "1", false, true},
+		{"unsupported-sampler", traceResourceAttributes, "private-sampler-token", "", true, true},
+		{"invalid-ratio", traceResourceAttributes, traceRatioSampler, "private-argument-token", true, true},
+		{"negative-ratio", traceResourceAttributes, traceRatioSampler, "-1", true, true},
+		{"large-ratio", traceResourceAttributes, traceRatioSampler, "2", true, true},
+		{"invalid-parent-ratio", traceResourceAttributes, traceParentRatioSampler, "private-argument-token", true, true},
+		{"negative-parent-ratio", traceResourceAttributes, traceParentRatioSampler, "-1", true, true},
+		{"large-parent-ratio", traceResourceAttributes, traceParentRatioSampler, "2", true, true},
+		{"always-on", traceResourceAttributes, "always_on", "", false, true},
+		{"always-off", traceResourceAttributes, "always_off", "", false, false},
+		{"parent-always-on", traceResourceAttributes, "parentbased_always_on", "", false, true},
+		{"parent-always-off", traceResourceAttributes, "parentbased_always_off", "", false, false},
+		{"ratio-zero", traceResourceAttributes, traceRatioSampler, "0", false, false},
+		{"ratio-one", traceResourceAttributes, traceRatioSampler, "1", false, true},
+		{"parent-ratio-zero", traceResourceAttributes, traceParentRatioSampler, "0", false, false},
+		{"parent-ratio-one", traceResourceAttributes, traceParentRatioSampler, "1", false, true},
 	} {
-		for _, writer := range []string{"writer", "nil"} {
+		for _, writer := range []string{traceWriterCase, "nil"} {
 			t.Run(scenario.name+"/"+writer, func(t *testing.T) {
 				t.Parallel()
 
@@ -88,47 +95,54 @@ func traceInitializationEnvironment() []string {
 	})
 }
 
+//nolint:paralleltest // Subtests share the process-wide OTel environment set by their parent.
 func TestConcurrentTraceInitializationDiagnosticsKeepTheirWriters(t *testing.T) {
 	t.Setenv("OTEL_TRACES_SAMPLER", "private-sampler-token")
 	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "")
 
 	for _, secondWriter := range []bool{true, false} {
 		t.Run(strconv.FormatBool(secondWriter), func(t *testing.T) {
-			var firstOutput, secondOutput bytes.Buffer
-			first := baseConfig(t, copyFixture(t, "skeleton"))
-			first.OTLPEndpoint = newSpanCollector(t, 0).server.URL
-			first.Progress = &firstOutput
-			second := baseConfig(t, copyFixture(t, "skeleton"))
-			second.OTLPEndpoint = newSpanCollector(t, 0).server.URL
-			if secondWriter {
-				second.Progress = &secondOutput
-			}
-
-			finished := make(chan error, 2)
-			for _, request := range []engine.RunRequest{first, second} {
-				go func() {
-					_, err := engine.Run(t.Context(), request)
-					finished <- err
-				}()
-			}
-			for range 2 {
-				if err := <-finished; err != nil {
-					t.Fatal(err)
-				}
-			}
-
-			warning := "tf-mut: tracing initialization warning\n"
-			if got := firstOutput.String(); got != warning {
-				t.Fatalf("first run warning = %q, want %q", got, warning)
-			}
-			wanted := ""
-			if secondWriter {
-				wanted = warning
-			}
-			if got := secondOutput.String(); got != wanted {
-				t.Fatalf("second run warning = %q, want %q", got, wanted)
-			}
+			assertConcurrentTraceInitializationWriters(t, secondWriter)
 		})
+	}
+}
+
+func assertConcurrentTraceInitializationWriters(t *testing.T, secondWriter bool) {
+	t.Helper()
+
+	var firstOutput, secondOutput bytes.Buffer
+	first := baseConfig(t, copyFixture(t, "skeleton"))
+	first.OTLPEndpoint = newSpanCollector(t, 0).server.URL
+	first.Progress = &firstOutput
+	second := baseConfig(t, copyFixture(t, "skeleton"))
+	second.OTLPEndpoint = newSpanCollector(t, 0).server.URL
+	if secondWriter {
+		second.Progress = &secondOutput
+	}
+
+	finished := make(chan error, 2)
+	for _, request := range []engine.RunRequest{first, second} {
+		go func() {
+			_, err := engine.Run(t.Context(), request)
+			finished <- err
+		}()
+	}
+	for range 2 {
+		if err := <-finished; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	warning := "tf-mut: tracing initialization warning\n"
+	if got := firstOutput.String(); got != warning {
+		t.Fatalf("first run warning = %q, want %q", got, warning)
+	}
+	wanted := ""
+	if secondWriter {
+		wanted = warning
+	}
+	if got := secondOutput.String(); got != wanted {
+		t.Fatalf("second run warning = %q, want %q", got, wanted)
 	}
 }
 
@@ -141,7 +155,7 @@ func assertTraceInitialization(t *testing.T) {
 	request.OTLPEndpoint = sink.server.URL
 	request.ProgressIntervalForTesting = time.Hour
 	var warnings bytes.Buffer
-	if os.Getenv("TF_MUT_TRACE_INITIALIZATION_WRITER") == "writer" {
+	if os.Getenv("TF_MUT_TRACE_INITIALIZATION_WRITER") == traceWriterCase {
 		request.Progress = &warnings
 	}
 
@@ -149,7 +163,7 @@ func assertTraceInitialization(t *testing.T) {
 		t.Fatal(err)
 	}
 	wanted := ""
-	if request.Progress != nil && os.Getenv("TF_MUT_TRACE_INITIALIZATION_WARNING") == "true" {
+	if request.Progress != nil && os.Getenv("TF_MUT_TRACE_INITIALIZATION_WARNING") == traceInitializationEnabled {
 		wanted = "tf-mut: tracing initialization warning\n"
 	}
 	if got := warnings.String(); got != wanted {
@@ -157,7 +171,7 @@ func assertTraceInitialization(t *testing.T) {
 	}
 
 	names := sink.spanNames(t)
-	if os.Getenv("TF_MUT_TRACE_INITIALIZATION_SPANS") == "false" {
+	if os.Getenv("TF_MUT_TRACE_INITIALIZATION_SPANS") == traceInitializationDisabled {
 		if len(names) != 0 {
 			t.Fatalf("a valid never-sample configuration exported spans: %v", names)
 		}
