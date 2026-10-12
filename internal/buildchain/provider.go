@@ -8,11 +8,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
-
-	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
 const (
@@ -206,8 +205,11 @@ func SyncGoToolchains(ctx context.Context, root, goVersion string) error {
 	for _, module := range []string{".", "tools/gopls", "tools/goimports", "tools/govulncheck"} {
 		// The executable and arguments are repository-controlled; only a validated semantic
 		// version is interpolated into the go command.
-		command := tfexec.GroupCommand(ctx, "go",
-			"mod", "edit",
+		command := exec.CommandContext( //nolint:gosec // See the repository-controlled invariant above.
+			ctx,
+			"go",
+			"mod",
+			"edit",
 			"-go="+versions.Language,
 			"-toolchain="+versions.Exact,
 		)
