@@ -59,7 +59,10 @@ Lint enforces nine boundaries, including test files:
   syntax asked for at the point of use (`NativeExpression`). Other consumers
   read expression facts through discovery.
 - `application-boundary` denies `internal/engine` and `cmd/` imports from all
-  core, supporting and Terraform Boundary packages.
+  core, supporting and Terraform Boundary packages, and from `internal/skill`,
+  `internal/config`, `internal/buildinfo`, `internal/buildchain` and
+  `internal/tracing`. Their external test files may still import the exact
+  package they test; only the CLI imports the application layer.
 - `terraform-boundary` denies core and supporting context imports
   (`internal/fingerprint`, `internal/oracle`, `internal/mutation`,
   `internal/suggest`, `internal/characterise`) from `internal/discovery`,

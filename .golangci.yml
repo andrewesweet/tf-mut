@@ -95,7 +95,9 @@ linters:
         # #89, third rule: core, supporting and Terraform Boundary packages
         # cannot import the application layer or CLI. The engine coordinates
         # these contexts and the CLI coordinates the engine; reverse imports
-        # from the packages below fail lint.
+        # from the packages below fail lint. The rule also covers skill and
+        # infrastructure packages: only the CLI imports the engine. External
+        # tests may still import their exact package under test.
         application-boundary:
           list-mode: lax
           files:
@@ -107,6 +109,11 @@ linters:
             - "**/internal/sandbox/**"
             - "**/internal/suggest/**"
             - "**/internal/characterise/**"
+            - "**/internal/skill/**"
+            - "**/internal/config/**"
+            - "**/internal/buildinfo/**"
+            - "**/internal/buildchain/**"
+            - "**/internal/tracing/**"
           deny:
             - pkg: github.com/andrewesweet/tf-mut/internal/engine
               desc: "The engine is the application layer; a context never imports it. See CONTEXT.md's dependency direction."
