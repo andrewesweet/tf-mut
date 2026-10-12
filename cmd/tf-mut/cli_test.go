@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -60,6 +62,56 @@ func TestRunReportsPseudoTestedResourcesAndExitsWithFindings(t *testing.T) {
 
 	if !strings.Contains(rendered, "SURVIVED") {
 		t.Fatalf("terminal report has no survivors:\n%s", rendered)
+	}
+}
+
+func TestABaselineRefusalPrintsTheTripAndFirstFailure(t *testing.T) {
+	realTerraform, err := exec.LookPath("terraform")
+	if err != nil {
+		t.Fatalf("finding real Terraform on PATH: %v", err)
+	}
+
+	directory := t.TempDir()
+	path := filepath.Join(directory, "terraform")
+	script := `#!/usr/bin/env bash
+if [ "$2" = "test" ] || [ "$2" = "validate" ]; then
+  case "$1" in
+    */m[0-9][0-9][0-9][0-9]-*) exit 137 ;;
+  esac
+fi
+exec "$TF_MUT_REAL_TERRAFORM" "$@"
+`
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec // the wrapper must run.
+		t.Fatalf("writing Terraform wrapper: %v", err)
+	}
+	t.Setenv("TF_MUT_REAL_TERRAFORM", realTerraform)
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	for _, command := range []string{runCommand, suggestCommand, curateCommand} {
+		t.Run(command, func(t *testing.T) {
+			module := fixture(t)
+			var stdout, stderr bytes.Buffer
+			code := run([]string{command, "--write-baseline", noCacheFlag, "--jobs", "1", module},
+				"dev", &stdout, &stderr)
+			if code != report.ExitOperational {
+				t.Fatalf("exit = %d, want operational: %s", code, stderr.String())
+			}
+
+			for _, evidence := range []string{
+				"a baseline write requires a fully observed run",
+				"warning: run tripped after 5 consecutive operational failures",
+				"the mutation score is marked incomplete",
+				"First failure: terraform validate could not be executed",
+			} {
+				if !strings.Contains(stderr.String(), evidence) {
+					t.Fatalf("stderr lost trip evidence %q: %s", evidence, stderr.String())
+				}
+			}
+
+			if _, err := os.Stat(filepath.Join(module, ".tf-mut-baseline.json")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("the refused run wrote a baseline: %v", err)
+			}
+		})
 	}
 }
 

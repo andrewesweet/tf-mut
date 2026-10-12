@@ -658,6 +658,10 @@ func finishReport(
 	})
 
 	if err := plan.events.populationClassified.publish(PopulationClassified{population: population}); err != nil {
+		if evaluated.trip != nil {
+			err = fmt.Errorf("%w\nwarning: %s", err, strings.Join(tripWarnings(evaluated.trip), "\n"))
+		}
+
 		return report.Report{}, oracle.Population{}, err
 	}
 

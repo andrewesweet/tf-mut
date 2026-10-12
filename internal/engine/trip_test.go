@@ -521,24 +521,45 @@ func TestInterleavedFailuresAndVerdictsNeverTrip(t *testing.T) {
 func TestATrippedRunWritesNoBaseline(t *testing.T) {
 	t.Parallel()
 
-	module := copyFixture(t, "skeleton")
+	for _, command := range []report.Command{report.CommandRun, report.CommandSuggest, report.CommandCurate} {
+		t.Run(string(command), func(t *testing.T) {
+			t.Parallel()
 
-	config := baseConfig(t, module)
-	config.Jobs = testJobs
-	config.WriteBaseline = true
-	config.TerraformBinary = dyingTerraform(t)
+			module := copyFixture(t, "skeleton")
+			config := baseConfig(t, module)
+			config.Jobs = testJobs
+			config.WriteBaseline = true
+			config.TerraformBinary = dyingTerraform(t)
 
-	_, err := engine.Run(t.Context(), config)
-	if err == nil {
-		t.Fatal("the tripped run wrote a baseline")
-	}
+			var request engine.Request = config
+			switch command {
+			case report.CommandSuggest:
+				request = engine.SuggestRequest{
+					Common: config.Common, Population: config.Population, Gate: config.Gate,
+				}
+			case report.CommandCurate:
+				request = engine.CurateRequest{Common: config.Common, Gate: config.Gate}
+			}
 
-	if !errors.Is(err, engine.ErrBaselineUnobserved) {
-		t.Fatalf("run error = %v, want %v", err, engine.ErrBaselineUnobserved)
-	}
+			_, err := engine.Run(t.Context(), request)
+			if !errors.Is(err, engine.ErrBaselineUnobserved) {
+				t.Fatalf("run error = %v, want %v", err, engine.ErrBaselineUnobserved)
+			}
 
-	if _, statErr := os.Stat(filepath.Join(module, engine.DefaultBaselineName)); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("the tripped run wrote a baseline: %v", statErr)
+			for _, evidence := range []string{
+				"warning: run tripped after 5 consecutive operational failures",
+				"mutant(s) were left unexecuted and the mutation score is marked incomplete",
+				"First failure: terraform validate could not be executed",
+			} {
+				if !strings.Contains(err.Error(), evidence) {
+					t.Fatalf("the refusal lost trip evidence %q: %v", evidence, err)
+				}
+			}
+
+			if _, statErr := os.Stat(filepath.Join(module, engine.DefaultBaselineName)); !errors.Is(statErr, os.ErrNotExist) {
+				t.Fatalf("the tripped run wrote a baseline: %v", statErr)
+			}
+		})
 	}
 }
 
