@@ -279,3 +279,13 @@ func seedOneFalsePin(marker string) func([]characterise.Pin) []characterise.Pin 
 		))
 	}
 }
+
+// ErrGitDeadline and ErrCPUProfileInModule expose two unexported sentinels to
+// the external suite, so its assertions can name which failure happened with
+// errors.Is instead of matching the failure's message text. The message
+// wording stays user-facing text asserted — where it matters — as text; the
+// identity of the failure is the sentinel.
+var (
+	ErrGitDeadline        = errGitDeadline
+	ErrCPUProfileInModule = errCPUProfileInModule
+)

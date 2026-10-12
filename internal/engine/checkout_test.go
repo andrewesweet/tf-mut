@@ -1,9 +1,11 @@
 package engine_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/engine"
 )
 
@@ -18,8 +20,8 @@ func TestARunBlockSourceLeavingTheCheckoutIsRefusedWithTheRunNamed(t *testing.T)
 	module := gitFixture(t, "runblock-outside")
 
 	_, err := engine.Run(t.Context(), baseConfig(t, module))
-	if err == nil {
-		t.Fatal("a run block whose source leaves the checkout must be refused")
+	if !errors.Is(err, discovery.ErrParse) {
+		t.Fatal("a run block whose source leaves the checkout must be refused as a discovery failure")
 	}
 
 	for _, fragment := range []string{

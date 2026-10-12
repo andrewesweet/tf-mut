@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -403,7 +404,10 @@ func standardReport(t *testing.T, binary, module string) map[string]any {
 	command.Env = subprocessEnvironment()
 
 	output, err := command.Output()
-	if err != nil && !strings.Contains(err.Error(), "exit status 1") {
+	// The finding signal is the binary's exit status, and identity is the
+	// *exec.ExitError type, not its message text.
+	var exitErr *exec.ExitError
+	if err != nil && (!errors.As(err, &exitErr) || exitErr.ExitCode() != 1) {
 		t.Fatalf("running the standard leg: %v\n%s", err, output)
 	}
 

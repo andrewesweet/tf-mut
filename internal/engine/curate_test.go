@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -421,8 +422,15 @@ func assertScaffoldPromotion(t *testing.T, result report.Report, identifier stri
 		t.Fatalf("executable check present = %v, want %v", executable, promoted)
 	}
 
-	if !promoted && len(result.Warnings) == 0 {
-		t.Fatal("a refused promotion says nothing about why")
+	if !promoted {
+		// The refusal reason is published wording: the warning the report
+		// carries after the scaffold's identifier, quoted by the agent skills.
+		wanted := "scaffold " + identifier + " was not promoted: " +
+			"the expected failure did not happen, so the check proves nothing"
+		if !slices.Contains(result.Warnings, wanted) {
+			t.Fatalf("the refused promotion does not carry the reason:\n%q\nwant %q",
+				result.Warnings, wanted)
+		}
 	}
 }
 
