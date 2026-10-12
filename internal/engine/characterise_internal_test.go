@@ -82,6 +82,7 @@ func stagedRequest(t *testing.T, moduleDir string) CharacteriseRequest {
 // preparation in characteriseModule changes, this constructor changes with it.
 func newStagedCharacterisation(
 	ctx context.Context, t *testing.T, request CharacteriseRequest,
+	seedInitialPinDefect, seedFinalPinDefect func([]characterise.Pin) []characterise.Pin,
 ) (characteriseStage, error) {
 	t.Helper()
 
@@ -156,7 +157,9 @@ func newStagedCharacterisation(
 		configuration: configuration, settings: s,
 		prepared: prepared, workRoot: workRoot, terraform: version, collector: collector,
 		runner: runner, scaffold: scaffold, answers: answers,
-		scaffolds: newScaffoldSet(),
+		scaffolds:            newScaffoldSet(),
+		seedInitialPinDefect: seedInitialPinDefect,
+		seedFinalPinDefect:   seedFinalPinDefect,
 	}, nil
 }
 
@@ -194,12 +197,11 @@ func TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten(t *testing.T) 
 	request := stagedRequest(t, module)
 	request.Write = true
 
-	stage, err := newStagedCharacterisation(t.Context(), t, request)
+	stage, err := newStagedCharacterisation(t.Context(), t, request,
+		seedOneFalsePin("tf-mut-seeded-initial-pin-defect"), nil)
 	if err != nil {
 		t.Fatalf("staging the characterisation: %v", err)
 	}
-
-	stage.seedInitialPinDefect = seedOneFalsePin("tf-mut-seeded-initial-pin-defect")
 
 	var block report.Characterisation
 	if _, _, err := scaffoldSuite(t.Context(), stage, &block); !errors.Is(err, ErrScaffoldRed) {
@@ -241,12 +243,11 @@ func TestTheFinalPinSetIsVerifiedBeforeAnyWrite(t *testing.T) {
 	request.Write = true
 	SetUntilDryRounds(t, module, 1)
 
-	stage, err := newStagedCharacterisation(t.Context(), t, request)
+	stage, err := newStagedCharacterisation(t.Context(), t, request,
+		nil, seedOneFalsePin("tf-mut-seeded-final-pin-defect"))
 	if err != nil {
 		t.Fatalf("staging the characterisation: %v", err)
 	}
-
-	stage.seedFinalPinDefect = seedOneFalsePin("tf-mut-seeded-final-pin-defect")
 
 	var block report.Characterisation
 	pins, _, err := scaffoldSuite(t.Context(), stage, &block)
