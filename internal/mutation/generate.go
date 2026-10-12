@@ -399,8 +399,8 @@ func (g Generator) optionalArguments(block discovery.Block) []discovery.Attribut
 			continue
 		}
 
-		isOptional, known := g.Schemas.Optionality(block.Kind, block.Type, attribute.Name)
-		if !known || !isOptional {
+		described, known := g.Schemas.Attribute(block.Kind, block.Type, []string{attribute.Name})
+		if !known || !described.Optional {
 			continue
 		}
 

@@ -67,7 +67,7 @@ func TestAWireSchemaServesTheRenderingWalk(t *testing.T) {
 		{
 			name:     "a single-nested block's attribute, decoded from the wire",
 			path:     statePrefix + "example_thing.app].values.timeouts.create",
-			baseline: `"5m"`,
+			baseline: timeoutBaseline,
 			schemas:  schemas,
 			want:     `example_thing.app.timeouts.create == "5m"`,
 			refused:  nil,
@@ -84,6 +84,115 @@ func TestAWireSchemaServesTheRenderingWalk(t *testing.T) {
 			)
 
 			assertAdapter(t, expression, err, testCase.want, testCase.refused)
+		})
+	}
+}
+
+func TestNestedSchemaPathsPreserveRendering(t *testing.T) {
+	t.Parallel()
+
+	schemas := schemaBlock(nil, map[string]tfexec.SchemaBlockType{
+		connectionBlock: {NestingMode: tfexec.NestingList, Block: tfexec.SchemaBlock{
+			BlockTypes: map[string]tfexec.SchemaBlockType{
+				"timeouts": {NestingMode: tfexec.NestingGroup, Block: tfexec.SchemaBlock{
+					Attributes: map[string]tfexec.SchemaAttribute{
+						"create": {Optional: true, Type: json.RawMessage(`"string"`)},
+					},
+				}},
+				mountsBlock: {NestingMode: tfexec.NestingMap, Block: tfexec.SchemaBlock{
+					Attributes: map[string]tfexec.SchemaAttribute{
+						"sources": {Optional: true, Type: json.RawMessage(`["list","string"]`)},
+					},
+				}},
+			},
+		}},
+	})
+	for _, provider := range schemas.ProviderSchemas {
+		provider.DataSourceSchemas["example_lookup"] = provider.ResourceSchemas["example_thing"]
+	}
+
+	for _, resource := range []string{exampleResource, "data.example_lookup.app"} {
+		for _, testCase := range []struct {
+			path     string
+			baseline string
+			want     string
+		}{
+			{
+				path:     "connection[0].timeouts.create",
+				baseline: timeoutBaseline,
+				want:     `.connection[0].timeouts.create == "5m"`,
+			},
+			{
+				path:     "connection[0].mounts.shared.sources[0]",
+				baseline: secondValue,
+				want:     `.connection[0].mounts["shared"].sources[0] == "second"`,
+			},
+		} {
+			t.Run(resource+"/"+testCase.path, func(t *testing.T) {
+				t.Parallel()
+
+				change := changeAt(statePrefix+resource+"].values."+testCase.path, testCase.baseline)
+				expression, err := suggest.Express(schemas, suggest.Evidence{}, change)
+
+				assertAdapter(t, expression, err, resource+testCase.want, nil)
+			})
+		}
+	}
+}
+
+func TestOverlappingProviderSchemasPreserveRendering(t *testing.T) {
+	t.Parallel()
+
+	provider := func(hasLabels bool) tfexec.ProviderSchema {
+		attributes := map[string]tfexec.SchemaAttribute{}
+		if hasLabels {
+			attributes["resource_labels"] = tfexec.SchemaAttribute{
+				Optional: true, Type: json.RawMessage(`["map","string"]`),
+			}
+		}
+
+		schema := tfexec.Schema{Block: tfexec.SchemaBlock{
+			BlockTypes: map[string]tfexec.SchemaBlockType{
+				"node_config": {NestingMode: tfexec.NestingList, Block: tfexec.SchemaBlock{
+					Attributes: attributes,
+				}},
+			},
+		}}
+
+		return tfexec.ProviderSchema{
+			ResourceSchemas:   map[string]tfexec.Schema{"example_thing": schema},
+			DataSourceSchemas: map[string]tfexec.Schema{"example_lookup": schema},
+		}
+	}
+
+	for _, testCase := range []struct {
+		name              string
+		selectedHasLabels bool
+		refused           error
+	}{
+		{name: "selected provider describes the attribute", selectedHasLabels: true, refused: nil},
+		{name: "only the other provider describes the attribute", selectedHasLabels: false, refused: suggest.ErrUnrenderable},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			schemas := tfexec.Schemas{ProviderSchemas: map[string]tfexec.ProviderSchema{
+				"registry.terraform.io/example/a": provider(testCase.selectedHasLabels),
+				"registry.terraform.io/example/z": provider(!testCase.selectedHasLabels),
+			}}
+
+			for _, resource := range []string{exampleResource, "data.example_lookup.app"} {
+				want := ""
+				if testCase.selectedHasLabels {
+					want = resource + `.node_config[0].resource_labels.env == "steady"`
+				}
+
+				change := changeAt(statePrefix+resource+"].values.node_config[0].resource_labels.env", steadyBaseline)
+				for range 128 {
+					expression, err := suggest.Express(schemas, suggest.Evidence{}, change)
+					assertAdapter(t, expression, err, want, testCase.refused)
+				}
+			}
 		})
 	}
 }

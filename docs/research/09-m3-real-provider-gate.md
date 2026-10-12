@@ -71,8 +71,8 @@ The refutation, measured against `hashicorp/aws` v6.60.0 in apply mode:
 
 Both horns are pinned by `TestTheMockMaskedRefutationHolds` on the network-gated
 `aws-applied` fixture: the near-miss mutant survives with an *actionable closure diagnosis*,
-attributed to the module. The `Schemas.Computed` machinery stays: it feeds the mutant
-volatility re-run rule, which is unaffected.
+attributed to the module. The volatility re-run still uses
+[computed-only schema evidence](../../internal/tfexec/schema.go).
 
 ## Debt two: `DYNAMIC-ZERO`, classified end-to-end
 

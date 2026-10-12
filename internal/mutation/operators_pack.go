@@ -107,8 +107,13 @@ func widenCIDRSite(value cty.Value) bool {
 // schemaAdmits is the evidence rule: the attribute is described on the
 // resource type, and `to` is of the declared type.
 func (g Generator) schemaAdmits(where site, entry PackEntry) bool {
-	declared, described := g.Schemas.Describes(where.kind, where.blockType, where.attributeName)
-	if !described {
+	described, known := g.Schemas.Attribute(where.kind, where.blockType, []string{where.attributeName})
+	if !known {
+		return false
+	}
+
+	declared, typed := described.DeclaredType()
+	if !typed {
 		return false
 	}
 

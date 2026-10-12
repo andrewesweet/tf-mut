@@ -36,7 +36,8 @@ const (
 	// for, in both fixtures that declare one.
 	secondaryConfiguration = "null.secondary"
 
-	rungOutputs = "outputs"
+	rungOutputs    = "outputs"
+	rungConfigured = "configured"
 )
 
 func TestPinAddressesMatchListAndScalarOutputAssertions(t *testing.T) {
@@ -549,7 +550,7 @@ func TestTheConfiguredRungPinsOnlyWhatTheConfigurationDetermined(t *testing.T) {
 	module := copyFixture(t, untestedAliasesFixture)
 
 	config := characteriseRequest(t, module)
-	config.PinRung = "configured"
+	config.PinRung = rungConfigured
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {
@@ -580,6 +581,61 @@ func TestTheConfiguredRungPinsOnlyWhatTheConfigurationDetermined(t *testing.T) {
 	if !strings.Contains(block.Files[0].Content, `terraform_data.anchor.input == "steady-dev"`) {
 		t.Fatalf("the configured rung did not pin the value the configuration determined:\n%s",
 			block.Files[0].Content)
+	}
+}
+
+func TestConfiguredCollectionPinsPreserveUnrenderableStatus(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedZeroOutputFixture)
+	const source = `resource "terraform_data" "scalar" {
+  input = "steady"
+}
+
+resource "terraform_data" "list" {
+  input = ["steady"]
+}
+
+resource "terraform_data" "object" {
+  input = { value = "steady" }
+}
+`
+	if err := os.WriteFile(filepath.Join(module, mainFile), []byte(source), 0o600); err != nil {
+		t.Fatalf("writing configured collections: %v", err)
+	}
+
+	request := characteriseRequest(t, module)
+	request.PinRung = rungConfigured
+	result, err := engine.Run(t.Context(), request)
+	if err != nil {
+		t.Fatalf("characterise: %v", err)
+	}
+
+	block := result.Characterisation
+	if block == nil || !block.Complete {
+		t.Fatal("no complete characterisation was returned")
+	}
+
+	assertPinnedOutputAssertions(t, block.Pins, map[string]string{
+		"terraform_data.scalar.input": `terraform_data.scalar.input == "steady"`,
+	})
+
+	for _, address := range []string{"terraform_data.list.input[0]", "terraform_data.object.input.value"} {
+		found := false
+		for _, pin := range block.Pins {
+			if pin.Address != address {
+				continue
+			}
+
+			found = true
+			if pin.Status != report.PinSkippedUnrenderable || pin.Expression != "" || pin.Reason == "" {
+				t.Fatalf("configured collection leaf was not skipped as unrenderable: %+v", pin)
+			}
+		}
+
+		if !found {
+			t.Fatalf("no pin publishes address %q: %+v", address, block.Pins)
+		}
 	}
 }
 
@@ -652,7 +708,7 @@ func TestARealCharacterisationReportValidatesAgainstThePublishedSchema(t *testin
 			return request
 		},
 		"skipped": func(request engine.CharacteriseRequest) engine.CharacteriseRequest {
-			request.PinRung = "configured"
+			request.PinRung = rungConfigured
 
 			return request
 		},

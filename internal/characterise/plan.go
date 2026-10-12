@@ -399,8 +399,8 @@ func pinnedDefaults(
 	resources, data = map[string]map[string]string{}, map[string]map[string]string{}
 
 	for _, reference := range configuration.ReferencedAttributes() {
-		computed, known := schemas.Computed(reference.Kind, reference.Type, reference.Attribute)
-		if !known || !computed {
+		described, known := schemas.Attribute(reference.Kind, reference.Type, []string{reference.Attribute})
+		if !known || !described.Computed {
 			continue
 		}
 
@@ -435,7 +435,8 @@ const dataKind = "data"
 // here would need the type-correctness contract the M4 review settled cannot
 // be met from a payload alone.
 func pinnedLiteral(schemas tfexec.Schemas, reference discovery.AttributeRef) (string, bool) {
-	declared, typed := schemas.AttributeType(reference.Kind, reference.Type, reference.Attribute)
+	described, _ := schemas.Attribute(reference.Kind, reference.Type, []string{reference.Attribute})
+	declared, typed := described.ValueType()
 	if !typed {
 		return "", false
 	}
