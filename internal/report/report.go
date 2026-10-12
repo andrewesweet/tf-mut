@@ -50,7 +50,12 @@ package report
 // documented in docs/schema/report-2.8.0.json.
 // 2.9.0 adds the per-mutant DeadlineReached flag. Its presence and compatibility
 // contract is documented in docs/schema/report-2.9.0.json.
-const SchemaVersion = "2.9.0"
+// 2.10.0 widens Metrics.Incomplete to include a consecutive-failure trip,
+// even when every selected mutant was dispatched before the trip fired.
+// Execution provenance adds unexecuted for selected mutants never dispatched.
+// No field was added, removed or renamed; the wire contract is documented
+// in docs/schema/report-2.10.0.json.
+const SchemaVersion = "2.10.0"
 
 // Command names what produced a report.
 type Command string
@@ -310,7 +315,7 @@ type Origin struct {
 
 // The selection modes a mutant's provenance can name.
 const (
-	// SelectionFull marks a mutant selected because the whole population ran.
+	// SelectionFull marks a mutant selected as part of the whole population.
 	SelectionFull = "full"
 	// SelectionSince marks a mutant selected by `--since`.
 	SelectionSince = "since"
@@ -325,6 +330,8 @@ const (
 	// ExecutionCached marks a verdict replayed from the incremental cache,
 	// with evidence rehydrated against the current tree.
 	ExecutionCached = "cached"
+	// ExecutionUnexecuted marks a selected mutant never dispatched.
+	ExecutionUnexecuted = "unexecuted"
 )
 
 // Provenance records why a mutant is in this run and how its verdict was
@@ -335,7 +342,7 @@ type Provenance struct {
 	// Reason states, in the reader's terms, why the selection chose this
 	// mutant.
 	Reason string `json:"reason,omitempty"`
-	// Execution is fresh or cached.
+	// Execution is fresh, cached or unexecuted.
 	Execution string `json:"execution"`
 	// CacheKey is the cache key basis hash for a cached verdict.
 	CacheKey string `json:"cache_key,omitempty"`
@@ -387,7 +394,8 @@ type GateOutcome struct {
 	Evaluated bool `json:"evaluated"`
 	// Scope is full or selected — the population the gate was evaluated over.
 	Scope string `json:"scope,omitempty"`
-	// Partial marks an evaluation over less than the full population.
+	// Partial marks an evaluation under the partial-population rules in
+	// docs/design/product-design.md, section 10.
 	Partial bool `json:"partial,omitempty"`
 	// Passed is the outcome where the gate was evaluated.
 	Passed bool `json:"passed,omitempty"`
@@ -409,10 +417,10 @@ type BaselineGate struct {
 	// Stale lists accepted identifiers with no current finding — only a full
 	// population may report these.
 	Stale []string `json:"stale,omitempty"`
-	// Unobserved lists accepted identifiers outside a scoped population,
+	// Unobserved lists accepted identifiers outside the observed population,
 	// which are not stale: this run says nothing about them.
 	Unobserved []string `json:"unobserved,omitempty"`
-	// StalenessReported is true only on a full population.
+	// StalenessReported is true only on a full, fully observed population.
 	StalenessReported bool `json:"staleness_reported"`
 	// Write records whether a baseline write was permitted or refused, where
 	// one was requested.
@@ -464,7 +472,7 @@ type Metrics struct {
 	MutationScore  float64 `json:"mutation_score"`
 	AssertionScore float64 `json:"assertion_score"`
 	Reachability   float64 `json:"reachability"`
-	// Incomplete marks an untrustworthy score: a timeout, a non-empty unscored
+	// Incomplete marks an untrustworthy score: a trip, a timeout, a non-empty unscored
 	// population, or a high share of judged mutants rejected by terraform validate.
 	Incomplete bool `json:"incomplete"`
 	// Counts holds the number of mutants in each state.

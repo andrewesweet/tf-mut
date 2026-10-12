@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/skill"
 )
@@ -32,6 +35,8 @@ const noCacheFlag = "--no-cache"
 
 // dryRunFlag is the suggest flag the wiring cases exercise most.
 const dryRunFlag = "--dry-run"
+
+const writeBaselineFlag = "--write-baseline"
 
 // untilDryFlag and sampleFlag are the loop flag the characterisation commands
 // own and the population control whose refusal the relocated cases assert.
@@ -60,6 +65,77 @@ func TestRunReportsPseudoTestedResourcesAndExitsWithFindings(t *testing.T) {
 
 	if !strings.Contains(rendered, "SURVIVED") {
 		t.Fatalf("terminal report has no survivors:\n%s", rendered)
+	}
+}
+
+//nolint:paralleltest // Owns the process environment for the wrapper and its sequential subtests.
+func TestAnAuthorityRefusalPrintsTheTripAndFirstFailure(t *testing.T) {
+	realTerraform, err := exec.LookPath("terraform")
+	if err != nil {
+		t.Fatalf("finding real Terraform on PATH: %v", err)
+	}
+
+	directory := t.TempDir()
+	path := filepath.Join(directory, "terraform")
+	script := `#!/usr/bin/env bash
+if [ "$2" = "test" ] || [ "$2" = "validate" ]; then
+  case "$1" in
+    */m[0-9][0-9][0-9][0-9]-*) exit 137 ;;
+  esac
+fi
+exec "$TF_MUT_REAL_TERRAFORM" "$@"
+`
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec // the wrapper must run.
+		t.Fatalf("writing Terraform wrapper: %v", err)
+	}
+	t.Setenv("TF_MUT_REAL_TERRAFORM", realTerraform)
+	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	for _, scenario := range []struct {
+		name    string
+		command string
+		flag    string
+		source  string
+		refusal error
+	}{
+		{"run-baseline", runCommand, writeBaselineFlag, fixtureSource, engine.ErrBaselineUnobserved},
+		{"suggest-baseline", suggestCommand, writeBaselineFlag, fixtureSource, engine.ErrBaselineUnobserved},
+		{"curate-baseline", curateCommand, writeBaselineFlag, fixtureSource, engine.ErrBaselineUnobserved},
+		{"curate", curateCommand, noCacheFlag, fixtureSource, engine.ErrCuratePopulation},
+		{
+			"characterise-until-dry", characteriseCommand, untilDryFlag,
+			"../../internal/engine/testdata/untested-branches", engine.ErrUntilDryPopulation,
+		},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			module := t.TempDir()
+			if err := os.CopyFS(module, os.DirFS(scenario.source)); err != nil {
+				t.Fatalf("copying fixture: %v", err)
+			}
+			var stdout, stderr bytes.Buffer
+			args := []string{scenario.command, scenario.flag, "--jobs", "1", module}
+			code := run(args,
+				"dev", &stdout, &stderr)
+			if code != report.ExitOperational {
+				t.Fatalf("exit = %d, want operational: %s", code, stderr.String())
+			}
+
+			for _, evidence := range []string{
+				scenario.refusal.Error(),
+				"warning: run tripped after",
+				"consecutive operational failures",
+				"the mutation score is marked incomplete",
+				"First failure: terraform validate could not be executed",
+			} {
+				if strings.Count(stderr.String(), evidence) != 1 {
+					t.Fatalf("stderr lost trip evidence %q: %s", evidence, stderr.String())
+				}
+			}
+
+			if _, err := os.Stat(filepath.Join(module, ".tf-mut-baseline.json")); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("the refused run wrote a baseline: %v", err)
+			}
+		})
 	}
 }
 

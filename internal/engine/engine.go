@@ -47,6 +47,9 @@ const (
 	DefaultTimeoutFloor = 30 * time.Second
 	// DefaultTerraformBinary is the executable looked up on PATH.
 	DefaultTerraformBinary = "terraform"
+	// DefaultFailureTripThreshold is the number of consecutive operational
+	// failures after which a run stops dispatching.
+	DefaultFailureTripThreshold = 5
 	// jobsNumerator and jobsDenominator set the default share of the machine.
 	jobsNumerator   = 3
 	jobsDenominator = 4
@@ -88,6 +91,12 @@ type settings struct {
 	// AllowUnsandboxedEffects permits apply-mode execution of provisioners and
 	// the data sources mocking does not sever.
 	AllowUnsandboxedEffects bool
+	// FailureTripThreshold is the number of consecutive operational failures
+	// after which the run stops dispatching: a dependency failing for every
+	// mutant is reported after a few failures instead of after the whole
+	// population. The trip fires at this threshold or the pending population,
+	// whichever is smaller.
+	FailureTripThreshold int
 	// TerraformBinary is the Terraform executable to drive.
 	TerraformBinary string
 	// Env adds environment entries to every Terraform invocation.
@@ -240,13 +249,7 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	started := time.Now()
 	var collector *runCollector
 	defer func() {
-		if err != nil || collector == nil ||
-			result.Command == report.CommandCharacterise || result.Command == report.CommandTodos {
-			return
-		}
-
-		result.Telemetry = collector.finish()
-		result.Telemetry.WallMS = time.Since(started).Milliseconds()
+		result, err = finishRunReport(collector, started, result, err)
 	}()
 
 	s, err := settingsFor(request)
@@ -354,6 +357,28 @@ func prepareRunOutput(s *settings) (func(), error) {
 	}
 
 	return startCPUProfile(s.ModuleDir, s.CPUProfile, s.Progress)
+}
+
+func finishRunReport(
+	collector *runCollector, started time.Time, result report.Report, err error,
+) (report.Report, error) {
+	if collector != nil && collector.trip != nil {
+		if err != nil {
+			err = fmt.Errorf("%w\nwarning: %s", err, strings.Join(tripWarnings(collector.trip), "\n"))
+		} else {
+			result.Warnings = append(result.Warnings, tripWarnings(collector.trip)...)
+		}
+	}
+
+	if err != nil || collector == nil ||
+		result.Command == report.CommandCharacterise || result.Command == report.CommandTodos {
+		return result, err
+	}
+
+	result.Telemetry = collector.finish()
+	result.Telemetry.WallMS = time.Since(started).Milliseconds()
+
+	return result, err
 }
 
 func startCPUProfile(moduleDir, destination string, warnings io.Writer) (func(), error) {
@@ -628,7 +653,7 @@ func finishReport(
 		return report.Report{}, oracle.Population{}, err
 	}
 
-	population := classifyRun(shell, evaluated.classified, evaluated.failures)
+	population := classifyRun(shell, evaluated)
 	projection := &gradingProjection{plan: plan, moduleDir: moduleDir, shell: shell, evaluated: evaluated}
 
 	plan.events.populationClassified.subscribe(projection.completeReport)
@@ -781,6 +806,10 @@ func executeWithCache(
 		return evaluatedPopulation{}, err
 	}
 
+	if evaluated.trip != nil {
+		result.Population.Fresh -= evaluated.trip.unexecuted
+	}
+
 	if err := ctx.Err(); err != nil {
 		return evaluatedPopulation{}, err
 	}
@@ -907,7 +936,7 @@ func completeReport(
 		findings:       findingsOf(configuration, executed, population),
 		warnings: append(unanswerableResources(configuration, populationDescribed),
 			unscoredWarnings(population, metrics)...),
-		gates: gateOutcomes(settings, shell, metrics),
+		gates: gateOutcomes(settings, shell, metrics, population),
 	}
 }
 
@@ -925,28 +954,34 @@ type completedRun struct {
 // classifyRun mints the run's population fact: the classified rows the
 // classification sites produced, with the provenance the gates judge them by.
 //
-// The counts are the run's own published provenance split, plus the two
+// The counts are the run's own published provenance split, plus the
 // observation counts the observation proof refuses on. Timed-out rows are
 // counted from the fact's own members, so the proof can never disagree with
 // the population it judges. Execution failures are counted separately:
 // affected rows retain their last outcome without proving full observation.
 func classifyRun(
 	shell report.Report,
-	classified []oracle.Classified,
-	failures []report.ExecutionError,
+	evaluated evaluatedPopulation,
 ) oracle.Population {
 	timedOut := 0
 
-	for _, row := range classified {
+	for _, row := range evaluated.classified {
 		if row.Outcome.State() == oracle.StateTimeout {
 			timedOut++
 		}
 	}
 
-	return oracle.NewPopulation(classified, oracle.Provenance{
-		Cached:   shell.Population.Cached,
-		TimedOut: timedOut,
-		Errored:  len(failures),
+	unexecuted := 0
+	if evaluated.trip != nil {
+		unexecuted = evaluated.trip.unexecuted
+	}
+
+	return oracle.NewPopulation(evaluated.classified, oracle.Provenance{
+		Cached:     shell.Population.Cached,
+		TimedOut:   timedOut,
+		Errored:    len(evaluated.failures),
+		Unexecuted: unexecuted,
+		Tripped:    evaluated.trip != nil,
 	})
 }
 
@@ -961,13 +996,18 @@ func scopeLabel(full bool) string {
 
 // gateOutcomes records the gate table's outcomes for this run (2.1.0). The
 // fail-on-new and baseline rows arrive with the baseline file (M3b.3); the
-// min-score row is recorded here, labelled partial over any scoped or sampled
-// population.
-func gateOutcomes(settings settings, shell report.Report, metrics report.Metrics) *report.Gates {
-	// The gate table's non-Full rows: scoped, sampled, or served even partly
-	// from the cache — each evaluated over what actually ran, labelled
-	// partial.
-	partial := shell.Sampling != nil ||
+// min-score row is recorded here, under the population authority and count-lever
+// rules documented in docs/design/product-design.md, section 10.
+func gateOutcomes(
+	settings settings,
+	shell report.Report,
+	metrics report.Metrics,
+	population oracle.Population,
+) *report.Gates {
+	// Full selection alone does not prove full observation; the oracle must
+	// establish authority before the gate can claim the Full row.
+	_, authErr := population.Authoritative(ErrBaselineUnobserved, "")
+	partial := authErr != nil || shell.Sampling != nil ||
 		shell.Population.Cached > 0 ||
 		(shell.Selection.Mode == report.SelectionSince && shell.Selection.ForcedFull == "")
 	scope := scopeLabel(!partial)
@@ -1235,6 +1275,10 @@ func (s settings) withDefaults() settings {
 
 	if s.TerraformBinary == "" {
 		s.TerraformBinary = DefaultTerraformBinary
+	}
+
+	if s.FailureTripThreshold <= 0 {
+		s.FailureTripThreshold = DefaultFailureTripThreshold
 	}
 
 	return s

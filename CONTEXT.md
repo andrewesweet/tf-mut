@@ -120,15 +120,16 @@ declared by `internal/report`; they are not invitations to add aliases.
   report.
 - **Selection provenance:** `full` means the whole population was selected, `since`
   means `--since` selected it, and `sample` means `--sample` selected it.
-- **Execution provenance:** `fresh` means this run computed the verdict; `cached`
-  means the verdict was replayed from the incremental cache with evidence rehydrated.
+- **Execution provenance:** how this run obtained a selected mutant's outcome or left it
+  unobserved.
+  The [report schema](docs/schema/report-2.10.0.json) owns the wire vocabulary and counts.
 - **Classified population:** outcomes paired with their mutation operators, together
-  with counts of cached verdicts, timeouts and execution errors.
+  with execution provenance, including undispatched mutants and whether execution tripped.
 - **Scored population:** the selected population whose outcomes contribute to the
   reported metrics under the gate rules.
 - **Authoritative population:** a classified population every member of which was
-  observed: no mutant timed out and none failed to evaluate. The oracle constructs
-  this proof. Curation findings and the until-dry convergence claim require it.
+  observed: no mutant timed out, failed to evaluate or remained undispatched. The oracle
+  constructs this proof. Curation findings and the until-dry convergence claim require it.
 - **Fresh population:** an authoritative population in which no verdict was
   replayed from the cache. The oracle constructs this refinement. The baseline
   writer accepts only one.

@@ -11,7 +11,15 @@ import (
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
+	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
+)
+
+const (
+	gateScopeSelected       = "selected"
+	failureModeEarlyTrip    = "early-trip"
+	failureModeTerminalTrip = "terminal-trip"
+	failureModeIsolated     = "isolated-failure"
 )
 
 // M3b.3 (#49): the baseline file under the normative gate truth table (C8).
@@ -482,7 +490,7 @@ func TestTheCachedRowOfTheGateTable(t *testing.T) {
 		t.Fatalf("a cached population reported staleness: %+v", baseline)
 	}
 
-	if !replayed.Gates.FailOnNew.Partial || replayed.Gates.FailOnNew.Scope != "selected" {
+	if !replayed.Gates.FailOnNew.Partial || replayed.Gates.FailOnNew.Scope != gateScopeSelected {
 		t.Fatalf("a cached population's gate is not labelled partial over selected: %+v",
 			replayed.Gates.FailOnNew)
 	}
@@ -510,8 +518,113 @@ func TestScopedMinScoreIsLabelledPartial(t *testing.T) {
 	result := runWith(t, config)
 
 	if !result.Gates.MinScore.Evaluated || !result.Gates.MinScore.Partial ||
-		result.Gates.MinScore.Scope != "selected" {
+		result.Gates.MinScore.Scope != gateScopeSelected {
 		t.Fatalf("a scoped --min-score outcome is not labelled partial over selected: %+v",
 			result.Gates.MinScore)
+	}
+}
+
+func TestScoreGateScopeRequiresAnObservedPopulation(t *testing.T) {
+	t.Parallel()
+
+	for _, mode := range []string{
+		"complete", failureModeEarlyTrip, failureModeTerminalTrip, failureModeIsolated, failureModeTimeout,
+	} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+
+			count := 10
+			if mode == failureModeTerminalTrip {
+				count = 6
+			}
+
+			config := baseConfig(t, tripModule(t, count))
+			config.Jobs = 1
+			config.NoCache = true
+			config.IncludeOperators = []string{string(mutation.BoolLiteralFlip)}
+			config.HasMinScore = true
+			config.MinScore = 80
+			config.AllowIncompleteScore = true
+			config.FailOnNew = true
+
+			switch mode {
+			case failureModeEarlyTrip, failureModeTerminalTrip:
+				config.TerraformBinary = dyingTerraform(t, "m000[1-9]-")
+			case failureModeIsolated:
+				config.TerraformBinary = dyingTerraform(t, "m0001-")
+			case failureModeTimeout:
+				config.TimeoutFactor = 0.0001
+				config.TimeoutFloor = time.Millisecond
+			default:
+				// The complete run uses the real binary without a timeout override.
+			}
+
+			result := runWith(t, config)
+			if strings.HasSuffix(mode, "-trip") {
+				assertScoreGateTrip(t, mode, result)
+			} else {
+				assertNoTripWarning(t, result)
+			}
+			if mode == failureModeTimeout && result.Count(report.Timeout) == 0 {
+				t.Fatal("the run observed no timeout")
+			}
+			if mode == failureModeIsolated && len(result.Errors) != 1 {
+				t.Fatalf("operational failures = %d, want one", len(result.Errors))
+			}
+
+			assertScoreGateScope(t, mode, result)
+			assertTripProvenance(t, result, report.SelectionFull)
+		})
+	}
+}
+
+func assertScoreGateTrip(t *testing.T, mode string, result report.Report) {
+	t.Helper()
+
+	assertTripWarning(t, result)
+	if result.Count(report.Killed) != 1 || len(result.Errors) < engine.DefaultFailureTripThreshold {
+		t.Fatalf("want one kill followed by operational failures: %+v", result.Metrics)
+	}
+	if mode == failureModeEarlyTrip && result.Population.Fresh >= result.Population.Selected {
+		t.Fatal("the trip left no mutants undispatched")
+	}
+	if mode == failureModeTerminalTrip && result.Population.Fresh != result.Population.Selected {
+		t.Fatal("the terminal trip left mutants undispatched")
+	}
+	if code := result.ExitCode(failOnNewGate()); code != report.ExitOperational {
+		t.Fatalf("exit = %d, want operational", code)
+	}
+}
+
+func assertScoreGateScope(t *testing.T, mode string, result report.Report) {
+	t.Helper()
+
+	partial := mode != "complete"
+	scope := "full"
+	if partial {
+		scope = gateScopeSelected
+	}
+	gate := result.Gates.MinScore
+	if !gate.Evaluated || gate.Partial != partial || gate.Scope != scope || gate.Passed != (mode != failureModeTimeout) {
+		t.Fatalf("score gate has incorrect observation scope or result: %+v", gate)
+	}
+	if gate.Partial != result.Gates.FailOnNew.Partial || gate.Scope != result.Gates.FailOnNew.Scope {
+		t.Fatalf("score and baseline gates disagree about observation: %+v", result.Gates)
+	}
+
+	var markdown strings.Builder
+	if err := report.WriteMarkdown(&markdown, result); err != nil {
+		t.Fatalf("rendering Markdown: %v", err)
+	}
+	outcome := "**passed**"
+	if mode == failureModeTimeout {
+		outcome = "**failed**"
+	}
+	expected := "| `--min-score` | " + outcome + " over the " + scope + " population"
+	if partial {
+		expected += ", labelled partial"
+	}
+	if !strings.Contains(markdown.String(), expected+" |") {
+		t.Fatal("Markdown reports incorrect score gate scope")
 	}
 }

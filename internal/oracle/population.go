@@ -31,6 +31,10 @@ type Provenance struct {
 	TimedOut int
 	// Errored is the number of mutants that could not be evaluated at all.
 	Errored int
+	// Unexecuted is the number of selected mutants the run stopped before
+	// dispatching: the consecutive-failure trip left them unobserved.
+	Unexecuted int
+	Tripped    bool
 }
 
 // Population is the classified population of one run: every outcome the
@@ -62,8 +66,8 @@ func NewPopulation(classified []Classified, provenance Provenance) Population {
 func (p Population) Classified() []Classified { return p.classified }
 
 // Authoritative is a classified population every member of which was
-// observed: no mutant timed out and none failed to evaluate. Both leave
-// mutants unobserved, and an unobserved mutant is not an absent one — an
+// observed: no mutant timed out, failed to evaluate or remained undispatched.
+// These leave mutants unobserved, and an unobserved mutant is not an absent one — an
 // empty kill set drawn over mutants that never ran is a false finding of
 // exactly the kind this value exists to make unconstructible.
 //
@@ -92,6 +96,11 @@ func (p Population) Authoritative(refused error, rationale string) (Authoritativ
 	if p.provenance.Errored > 0 {
 		reasons = append(reasons,
 			strconv.Itoa(p.provenance.Errored)+" mutant(s) could not be evaluated at all")
+	}
+
+	if p.provenance.Unexecuted > 0 {
+		reasons = append(reasons,
+			strconv.Itoa(p.provenance.Unexecuted)+" mutant(s) were left unexecuted, so they were never observed")
 	}
 
 	if len(reasons) != 0 {

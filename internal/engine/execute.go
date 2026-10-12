@@ -54,6 +54,10 @@ type evaluatedPopulation struct {
 	rows       []report.Mutant
 	classified []oracle.Classified
 	failures   []report.ExecutionError
+	// trip is the consecutive-failure trip's record, present when its threshold
+	// was reached, even if no mutants remained to dispatch. Both the trip warning
+	// and the population provenance's unexecuted count come from this record.
+	trip *tripOutcome
 }
 
 func (p *evaluatedPopulation) observe(event MutantEvaluated) error {
@@ -74,13 +78,12 @@ func (p *evaluatedPopulation) observe(event MutantEvaluated) error {
 	return nil
 }
 
-// execute runs every executable mutant, bounded by the configured job count,
-// and publishes each one's result.
+// execute evaluates pending mutants until exhaustion or a consecutive-failure
+// trip, bounded by the configured job count, and publishes each dispatched result.
 //
-// Verdicts do not depend on the parallelism level: each mutant gets its own
-// sandbox, results are written back to their own slot, and a failure in one
-// worker cannot reach another. Workers publish under one lock, so subscribers
-// see one result at a time, in the order workers acquire the lock.
+// Each evaluated mutant gets its own sandbox and result slot. Workers publish
+// under one lock, so subscribers see one result at a time, in the order workers
+// acquire the lock. The failure streak follows this publication order.
 func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, error) {
 	population := evaluatedPopulation{
 		rows:       make([]report.Mutant, len(plan.described)),
@@ -92,9 +95,9 @@ func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, erro
 
 	budget := timeoutBudget(plan.settings, plan.prepared.baselineDuration)
 
-	queue := make(chan int)
 	mutex := sync.Mutex{}
 	group := sync.WaitGroup{}
+	next := 0
 
 	var delivery error
 
@@ -104,6 +107,10 @@ func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, erro
 			pending++
 		}
 	}
+
+	// The consecutive-failure trip: a dependency failing for every mutant is
+	// reported after a few failures instead of after the whole population.
+	trip := newTripCounter(plan.settings.FailureTripThreshold, pending)
 
 	// The long-run line goes only where the caller pointed a writer; nowhere
 	// is the default.
@@ -118,10 +125,24 @@ func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, erro
 
 	for range workers {
 		group.Go(func() {
-			for index := range queue {
+			for {
+				mutex.Lock()
+				for next < len(plan.described) && plan.described[next].State != report.Pending {
+					next++
+				}
+				if trip.tripped || next == len(plan.described) {
+					mutex.Unlock()
+
+					return
+				}
+				index := next
+				next++
+				mutex.Unlock()
+
 				verdict, outcome, failure := evaluateSafely(ctx, plan, index, budget)
 
 				mutex.Lock()
+				trip.record(failure)
 				err := plan.events.mutantEvaluated.publish(MutantEvaluated{
 					index: index,
 					row:   verdict,
@@ -139,19 +160,10 @@ func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, erro
 		})
 	}
 
-	for index, mutant := range plan.described {
-		if mutant.State != report.Pending {
-			// Statically classified, suppressed, or replayed from the cache:
-			// nothing left to execute, and the row's outcome is already in
-			// plan.classified.
-			continue
-		}
-
-		queue <- index
-	}
-
-	close(queue)
 	group.Wait()
+
+	population.trip = trip.outcome(population.rows, population.failures)
+	plan.collector.trip = population.trip
 
 	if delivery != nil {
 		return evaluatedPopulation{}, delivery
@@ -162,6 +174,88 @@ func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, erro
 	})
 
 	return population, nil
+}
+
+// tripOutcome records what the run observed when the failure threshold was
+// reached: the streak that tripped it, the failure that started the streak, and the
+// selected mutants never dispatched. It is execution's own fact — the report
+// names the trip from it and the population provenance counts it.
+type tripOutcome struct {
+	consecutiveFailures int
+	firstFailure        string
+	unexecuted          int
+}
+
+// tripCounter counts consecutive operational failures across workers. Any
+// verdict resets the count: the trip answers "is the dependency dead", and a
+// mutant that produced a verdict proves it was alive for that mutant.
+type tripCounter struct {
+	// threshold is the consecutive-failure count the trip fires at, already
+	// capped at the pending population so the trip stays reachable on a run
+	// smaller than the default.
+	threshold int
+
+	consecutive  int
+	firstFailure string
+	tripped      bool
+}
+
+func newTripCounter(threshold, pending int) *tripCounter {
+	if pending < threshold {
+		threshold = pending
+	}
+
+	return &tripCounter{threshold: threshold}
+}
+
+// record folds one published result into the consecutive count: a verdict
+// resets it, a failure extends it.
+func (t *tripCounter) record(failure *report.ExecutionError) {
+	if t.tripped {
+		return
+	}
+
+	if failure == nil {
+		t.consecutive = 0
+
+		return
+	}
+
+	if t.consecutive == 0 {
+		t.firstFailure = failure.Message
+	}
+
+	t.consecutive++
+	t.tripped = t.consecutive >= t.threshold
+}
+
+// outcome is the trip's published record, or nil when the run never tripped.
+// The unexecuted count is the pending rows minus the failures: every
+// dispatched mutant either published a verdict or a failure, so what is left
+// pending and unfailed is exactly what was never dispatched.
+func (t *tripCounter) outcome(rows []report.Mutant, failures []report.ExecutionError) *tripOutcome {
+	if !t.tripped {
+		return nil
+	}
+
+	failed := make(map[string]struct{}, len(failures))
+	for _, failure := range failures {
+		failed[failure.MutantID] = struct{}{}
+	}
+
+	unexecuted := 0
+	for index, row := range rows {
+		if _, isFailed := failed[row.ID]; row.State == report.Pending && !isFailed {
+			rows[index].Provenance.Execution = report.ExecutionUnexecuted
+			unexecuted++
+		}
+	}
+
+	return &tripOutcome{
+		consecutiveFailures: t.threshold,
+		firstFailure:        t.firstFailure,
+		unexecuted:          unexecuted,
+	}
 }
 
 // timeoutBudget is max(factor × baseline, floor), per the milestone spec.

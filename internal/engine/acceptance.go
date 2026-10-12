@@ -110,12 +110,16 @@ func applyBaselineGate(
 		return nil, err
 	}
 
+	authoritative, authErr := population.Authoritative(ErrBaselineUnobserved,
+		"  The accepted list records what a run observed, and a mutant that never ran\n"+
+			"  was not observed")
+
 	// The truth table's run shapes: a population that is scoped, sampled or
 	// served even partly from the cache is not the Full row. Staleness and a
 	// baseline write both require a full, unsampled, freshly executed
 	// population.
 	full := shell.Population.Omitted == 0 && shell.Sampling == nil &&
-		shell.Population.Cached == 0
+		shell.Population.Cached == 0 && authErr == nil
 	gate, labels := judgeFindings(accepted, executed, population, full)
 	gate.Path = filepath.Base(path)
 
@@ -125,9 +129,6 @@ func applyBaselineGate(
 		// list is the record of what a full, unsampled, freshly executed run
 		// observed, and this is where that claim is earned rather than
 		// assumed from the configuration.
-		authoritative, authErr := population.Authoritative(ErrBaselineUnobserved,
-			"  The accepted list records what a run observed, and a mutant that never ran\n"+
-				"  was not observed")
 		if authErr != nil {
 			return nil, authErr
 		}
@@ -170,7 +171,7 @@ func judgeFindings(
 		acceptedByID[entry.ID] = entry
 	}
 
-	selected := map[string]bool{}
+	observed := map[string]bool{}
 	matched := map[string]bool{}
 	labels := map[int]string{}
 
@@ -184,7 +185,16 @@ func judgeFindings(
 
 	for index := range executed {
 		mutant := &executed[index]
-		selected[mutant.ID] = true
+		state := rows[index].Outcome.State()
+		if state == oracle.StatePending || state == oracle.StateTimeout {
+			if _, accepted := acceptedByID[mutant.ID]; accepted {
+				labels[index] = "unobserved"
+			}
+
+			continue
+		}
+
+		observed[mutant.ID] = true
 
 		if !isFinding(rows[index]) {
 			continue
@@ -216,8 +226,8 @@ func judgeFindings(
 			// The whole population ran and nothing matched: the entry is
 			// stale, and only a full population may say so.
 			gate.Stale = append(gate.Stale, entry.ID)
-		case !selected[entry.ID]:
-			// A scoped population says nothing about an unselected entry.
+		case !observed[entry.ID]:
+			// A partial population says nothing about an unobserved entry.
 			gate.Unobserved = append(gate.Unobserved, entry.ID)
 		default:
 			// Selected but resolved: observed, not stale — the truth table

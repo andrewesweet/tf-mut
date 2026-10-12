@@ -93,6 +93,9 @@ Flags for run, preview, suggest, characterise, todos and curate:
 
 Flags for run, suggest and curate:
   --min-score N                Fail below this mutation score percentage
+  --failure-trip N             Stop the run after N consecutive operational failures
+                               (default 5); the report names the trip and the first
+                               failure, and the score is marked incomplete
   --allow-incomplete-score     Let an untrustworthy score satisfy --min-score
                                (timeout, nothing scored, Invalid-dominated)
   --allow-sampled-gate         Let a sampled run satisfy --min-score (unsafe)
@@ -209,6 +212,7 @@ type flagValues struct {
 	jobs                                     *int
 	timeoutFactor, minScore, sample          *float64
 	seed                                     *int64
+	failureTrip                              *int
 	allowIncomplete, allowReal, allowEffects *bool
 	allowSampledGate, noCache                *bool
 	failOnNew, writeBaseline                 *bool
@@ -245,6 +249,8 @@ func declareFlags(set *flag.FlagSet) flagValues {
 		jobs: set.Int("jobs", 0, "mutants to execute concurrently"),
 		timeoutFactor: set.Float64("timeout-factor", engine.DefaultTimeoutFactor,
 			"multiple of the baseline run time"),
+		failureTrip: set.Int("failure-trip", engine.DefaultFailureTripThreshold,
+			"stop the run after this many consecutive operational failures"),
 		minScore: set.Float64("min-score", 0, "fail below this mutation score percentage"),
 		allowIncomplete: set.Bool("allow-incomplete-score", false,
 			"let an untrustworthy score satisfy --min-score (timeout, nothing scored, Invalid-dominated)"),
@@ -619,6 +625,7 @@ func commonFlags(
 		TestDirectory:           *values.testDirectory,
 		Jobs:                    *values.jobs,
 		TimeoutFactor:           *values.timeoutFactor,
+		FailureTripThreshold:    *values.failureTrip,
 		TimeoutFloor:            0,
 		AllowRealInfrastructure: *values.allowReal,
 		AllowUnsandboxedEffects: *values.allowEffects,
