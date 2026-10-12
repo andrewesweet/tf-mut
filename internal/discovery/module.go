@@ -543,7 +543,7 @@ func sortedKeys(set map[string]bool) []string {
 
 // collectReferences records every consumption of a resource address in the file.
 func collectReferences(module *Module, path string, body *hclsyntax.Body) {
-	WalkExpressions(body, func(expr hclsyntax.Expression) {
+	walkExpressions(body, func(expr hclsyntax.Expression) {
 		recordReference(module, path, expr)
 	})
 }
@@ -646,14 +646,34 @@ func classifyTraversal(traversal hcl.Traversal) (string, ReferenceForm, bool) {
 	}
 }
 
-// WalkExpressions visits every expression in a body, including nested blocks.
-func WalkExpressions(body *hclsyntax.Body, visit func(hclsyntax.Expression)) {
+// WalkExpressions visits every expression in the module's own bodies, each
+// nested block included, in file order. The visitor receives each expression
+// through the representation-neutral contract; a consumer that needs the
+// concrete nodes asks NativeExpression at its point of use. JSON-declared
+// files are not walked.
+func (m Module) WalkExpressions(visit func(hcl.Expression)) {
+	for _, path := range m.Files {
+		body, parsed := m.Bodies[path]
+		if !parsed {
+			continue
+		}
+
+		walkExpressions(body, func(expr hclsyntax.Expression) {
+			visit(expr)
+		})
+	}
+}
+
+// walkExpressions visits every expression in a body, nested blocks included,
+// recursing into each block's body. Module.WalkExpressions applies it to the
+// module's own bodies.
+func walkExpressions(body *hclsyntax.Body, visit func(hclsyntax.Expression)) {
 	for _, attribute := range body.Attributes {
 		walkExpression(attribute.Expr, visit)
 	}
 
 	for _, block := range body.Blocks {
-		WalkExpressions(block.Body, visit)
+		walkExpressions(block.Body, visit)
 	}
 }
 

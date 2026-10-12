@@ -571,19 +571,22 @@ func branchFlips(root discovery.Module, base []Input, options Options) []flip {
 	seen := map[string]bool{}
 	flips := []flip{}
 
-	for _, body := range root.Bodies {
-		discovery.WalkExpressions(body, func(expr hclsyntax.Expression) {
-			for _, candidate := range flipsIn(expr, byName, base, options) {
-				key := candidate.variable + "\x00" + candidate.expression
-				if seen[key] {
-					continue
-				}
+	root.WalkExpressions(func(expr hcl.Expression) {
+		native, ok := discovery.NativeExpression(expr)
+		if !ok {
+			return
+		}
 
-				seen[key] = true
-				flips = append(flips, candidate)
+		for _, candidate := range flipsIn(native, byName, base, options) {
+			key := candidate.variable + "\x00" + candidate.expression
+			if seen[key] {
+				continue
 			}
-		})
-	}
+
+			seen[key] = true
+			flips = append(flips, candidate)
+		}
+	})
 
 	slices.SortFunc(flips, func(left, right flip) int {
 		if order := strings.Compare(left.variable, right.variable); order != 0 {
