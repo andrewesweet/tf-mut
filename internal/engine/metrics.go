@@ -15,6 +15,13 @@ import (
 // projections below, which spell it onto the published report; the published
 // mutant is never an input to the arithmetic.
 
+// emptyMetrics is the metrics of an empty mutation population: the zero
+// score a surface that executes no mutants — a preview, a todos listing, a
+// characterisation — publishes instead of leaving the field unset.
+func emptyMetrics() report.Metrics {
+	return projectMetrics(oracle.ComputeMetrics(oracle.NewPopulation(nil, oracle.Provenance{})))
+}
+
 // projectMetrics spells the arithmetic's result onto the published report.
 func projectMetrics(metrics oracle.Metrics) report.Metrics {
 	counts := make(map[report.State]int, len(metrics.Counts))

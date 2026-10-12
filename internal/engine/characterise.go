@@ -13,7 +13,6 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
-	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
@@ -231,9 +230,7 @@ func characteriseModule(
 func projectSuite(events *dispatcher, result *report.Report) {
 	events.suiteCharacterised.subscribe(func(event SuiteCharacterised) error {
 		result.Characterisation = &event.suite
-		result.Metrics = projectMetrics(
-			oracle.ComputeMetrics(oracle.NewPopulation(nil, oracle.Provenance{})),
-		)
+		result.Metrics = emptyMetrics()
 
 		return nil
 	})
