@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -58,22 +59,87 @@ func assertDocumentAvoidsTheBannedPhrases(t *testing.T, document string) {
 		t.Fatalf("reading %s: %v", document, err)
 	}
 
+	lines := strings.Split(string(content), "\n")
+	for _, number := range bannedPhraseLines(lines) {
+		t.Errorf("%s:%d names a banned temporal phrase: %q",
+			document, number, strings.TrimSpace(lines[number-1]))
+	}
+}
+
+func bannedPhraseLines(lines []string) []int {
 	// Whole words only, so "concurrently" and "nowhere" pass; any case, so a
 	// sentence-initial "Not yet" cannot hide.
 	banned := regexp.MustCompile(`(?i)\b(currently|now|soon|not yet)\b`)
 
+	var hits []int
+	var paragraph []string
+	var startLine int
+	checkParagraph := func() {
+		matches := banned.FindAllStringIndex(strings.Join(paragraph, " "), -1)
+		offset := 0
+		for index, line := range paragraph {
+			end := offset + len(line)
+			if len(matches) > 0 && matches[0][0] < end {
+				hits = append(hits, startLine+index)
+			}
+			for len(matches) > 0 && matches[0][0] < end {
+				matches = matches[1:]
+			}
+			offset = end + 1
+		}
+		paragraph = paragraph[:0]
+	}
+
 	inFence := false
-	for number, line := range strings.Split(string(content), "\n") {
+	for number, line := range lines {
 		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			checkParagraph()
 			inFence = !inFence
 			continue
 		}
 		if inFence {
 			continue
 		}
-		if banned.MatchString(line) {
-			t.Errorf("%s:%d names a banned temporal phrase: %q",
-				document, number+1, strings.TrimSpace(line))
+		normalized := strings.Join(strings.Fields(line), " ")
+		if normalized == "" {
+			checkParagraph()
+			continue
 		}
+		if len(paragraph) == 0 {
+			startLine = number + 1
+		}
+		paragraph = append(paragraph, normalized)
+	}
+	checkParagraph()
+	return hits
+}
+
+func TestTheTimelessLanguageGuardNormalizesParagraphWhitespace(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name    string
+		content string
+		lines   []int
+	}{
+		{name: "ordinary prose", content: "No licence is specified.\nConcurrently, nowhere.", lines: nil},
+		{name: "all phrases", content: "Currently.\nNow.\nSoon.\nNot yet.", lines: []int{1, 2, 3, 4}},
+		{name: "spaces", content: "It is not  yet supported.", lines: []int{1}},
+		{name: "tabs", content: "It is not\t yet supported.", lines: []int{1}},
+		{name: "unicode whitespace", content: "It is not\u00a0yet supported.", lines: []int{1}},
+		{name: "wrapped", content: "A heading\n\nIt is not\nyet supported.", lines: []int{3}},
+		{name: "CRLF wrapped", content: "A heading\r\n\r\nIt is not\r\nyet supported.", lines: []int{3}},
+		{name: "multiple hits per line", content: "Currently, not\nyet available now or soon.\nNot  yet supported.", lines: []int{1, 2, 3}},
+		{name: "paragraph boundary", content: "It is not\n \t\nyet supported.", lines: nil},
+		{name: "fence boundary", content: "It is not\n```text\ncurrently now soon not yet\n```\nyet supported.", lines: nil},
+		{name: "after fence", content: "```text\nnot yet\n```\nIt is not\nyet supported.", lines: []int{4}},
+		{name: "before fence", content: "It is not\nyet supported.\n```text\nnot yet\n```", lines: []int{1}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			hits := bannedPhraseLines(strings.Split(test.content, "\n"))
+			if !slices.Equal(hits, test.lines) {
+				t.Fatalf("banned phrase source lines = %v, want %v", hits, test.lines)
+			}
+		})
 	}
 }
