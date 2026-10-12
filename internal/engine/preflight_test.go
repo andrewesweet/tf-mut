@@ -3,6 +3,7 @@ package engine_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -335,5 +336,71 @@ exec ` + realGit + ` "$@"
 
 	if elapsed > 30*time.Second {
 		t.Fatalf("the cap was not honoured: the run took %s", elapsed)
+	}
+}
+
+func TestGitDeadlinesAreFatalThroughLookupFallbacks(t *testing.T) {
+	cases := []struct {
+		name      string
+		condition string
+		todos     bool
+		pack      bool
+	}{
+		{name: "checkout-preview", condition: `[ "$4" = --show-toplevel ]`},
+		{name: "checkout-todos", condition: `[ "$4" = --show-toplevel ]`, todos: true},
+		{name: "pack-repository", condition: `[[ "$2" == */packs/ ]] && [ "$4" = --is-inside-work-tree ]`, pack: true},
+		{name: "pack-committed", condition: `[[ "$2" == */packs/ ]] && [ "$3" = diff ] && [[ "$6" == *...HEAD ]]`, pack: true},
+		{name: "pack-working-tree", condition: `[[ "$2" == */packs/ ]] && [ "$3" = diff ] && [ "$6" = HEAD ]`, pack: true},
+		{name: "pack-untracked", condition: `[[ "$2" == */packs/ ]] && [ "$3" = ls-files ]`, pack: true},
+	}
+	for _, testCase := range cases {
+		for _, deadline := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/deadline=%t", testCase.name, deadline), func(t *testing.T) {
+				fixture := "skeleton"
+				if testCase.pack {
+					fixture = packsFixture
+				}
+				module := gitFixture(t, fixture)
+				request := previewRequest(t, module)
+				if testCase.pack {
+					request.Packs = []string{acmePack}
+					request.Since = sinceHead
+				}
+
+				realGit, err := exec.LookPath("git")
+				if err != nil {
+					t.Fatal(err)
+				}
+				shimDir := t.TempDir()
+				action := "exit 1"
+				if deadline {
+					action = "sleep 60"
+				}
+				shim := filepath.Join(shimDir, "git")
+				writeFile(t, shim, "#!/usr/bin/env bash\nif "+testCase.condition+"; then "+action+
+					"; fi\nexec \"$TF_MUT_REAL_GIT\" \"$@\"\n")
+				if err := os.Chmod(shim, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				t.Setenv("TF_MUT_REAL_GIT", realGit)
+				t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+				engine.SetGitTimeout(t, 500*time.Millisecond)
+
+				var command engine.Request = request
+				if testCase.todos {
+					command = engine.TodosRequest{Common: request.Common}
+				}
+				result, err := engine.Run(t.Context(), command)
+				if deadline {
+					if err == nil || !strings.Contains(err.Error(), "did not finish within") {
+						t.Fatalf("error = %v, want a git deadline failure", err)
+					}
+				} else if err != nil {
+					t.Fatalf("an ordinary lookup failure stopped the command: %v", err)
+				} else if testCase.pack && result.Selection.ForcedFull == "" {
+					t.Fatal("an ordinary pack lookup failure did not force the full population")
+				}
+			})
+		}
 	}
 }

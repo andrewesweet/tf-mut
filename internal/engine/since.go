@@ -107,7 +107,11 @@ func applySince(
 		Mode: report.SelectionSince, Ref: settings.Since, ForcedFull: "",
 	}
 
-	forced := changedPack(ctx, settings)
+	forced, err := changedPack(ctx, settings)
+	if err != nil {
+		return err
+	}
+
 	if forced == "" {
 		forced = fullPopulationTrigger(changes)
 	}
@@ -343,7 +347,7 @@ const gitDiff = "diff"
 // diffed on its own, from its own directory, rather than looked for in the
 // closure's diff; a pack git cannot account for fails closed to the full
 // population.
-func changedPack(ctx context.Context, settings settings) string {
+func changedPack(ctx context.Context, settings settings) (string, error) {
 	for _, pack := range settings.loadedPacks {
 		// A shipped pack's bytes are in the binary: there is no file to diff,
 		// and it cannot change between the ref and HEAD.
@@ -351,22 +355,31 @@ func changedPack(ctx context.Context, settings settings) string {
 			continue
 		}
 
-		if packChanged(ctx, pack.Path, settings.Since) {
-			return pack.Path + " (pack file)"
+		changed, err := packChanged(ctx, pack.Path, settings.Since)
+		if err != nil {
+			return "", err
+		}
+
+		if changed {
+			return pack.Path + " (pack file)", nil
 		}
 	}
 
-	return ""
+	return "", nil
 }
 
-func packChanged(ctx context.Context, path, ref string) bool {
+func packChanged(ctx context.Context, path, ref string) (bool, error) {
 	dir, base := filepath.Split(path)
 	if dir == "" {
 		dir = "."
 	}
 
 	if _, err := gitRun(ctx, dir, "rev-parse", "--is-inside-work-tree"); err != nil {
-		return true
+		if errors.Is(err, errGitDeadline) {
+			return false, err
+		}
+
+		return true, nil
 	}
 
 	for _, args := range [][]string{
@@ -375,12 +388,16 @@ func packChanged(ctx context.Context, path, ref string) bool {
 		{"ls-files", "--others", "-z", "--", base},
 	} {
 		output, err := gitRun(ctx, dir, args...)
+		if errors.Is(err, errGitDeadline) {
+			return false, err
+		}
+
 		if err != nil || strings.TrimSpace(output) != "" {
-			return true
+			return true, nil
 		}
 	}
 
-	return false
+	return false, nil
 }
 
 // fullPopulationTrigger returns the changed file class that forces the full
@@ -572,15 +589,19 @@ func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 }
 
 // checkoutRoot returns the git work tree containing dir, or the empty string
-// when the git lookup fails. Without a root, discovery leaves the run-block
-// checkout check disabled. A failed lookup does not fail the invocation.
-func checkoutRoot(ctx context.Context, dir string) string {
+// when an ordinary git lookup fails. Without a root, discovery leaves the run-block
+// checkout check disabled.
+func checkoutRoot(ctx context.Context, dir string) (string, error) {
 	root, err := gitRun(ctx, dir, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return ""
+	if errors.Is(err, errGitDeadline) {
+		return "", err
 	}
 
-	return strings.TrimSpace(root)
+	if err != nil {
+		return "", nil
+	}
+
+	return strings.TrimSpace(root), nil
 }
 
 // apply reduces the described population to the selected one, keeps the

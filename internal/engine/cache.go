@@ -35,7 +35,7 @@ import (
 // verdicts also require a bump. TestPreSandboxFixInvalidVerdictsAreNotReplayed
 // protects this upgrade boundary. 2.9.0's deadline flag is stored beside the
 // verdict, so a pre-2.9.0 entry — which cannot carry one — is a miss.
-const cacheFormatVersion = "tf-mut-cache-3"
+const cacheFormatVersion = "tf-mut-cache-4"
 
 // The cache is private by construction: evidence may embed plan values and
 // source text.

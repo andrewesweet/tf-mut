@@ -774,6 +774,9 @@ func execute(command, buildVersion string, args []string, stdout, stderr io.Writ
 	}()
 
 	result, err := engine.Run(ctx, parsed.config)
+	if err == nil {
+		err = ctx.Err()
+	}
 	stop()
 	if err != nil {
 		return fail(stderr, "tf-mut: "+err.Error())

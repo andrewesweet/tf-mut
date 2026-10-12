@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
+	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 )
@@ -77,6 +78,51 @@ func TestASecondUnchangedRunIsAllCacheHits(t *testing.T) {
 		}
 	}
 
+	assertVerdictInvariance(t, first, second)
+}
+
+func TestPreDeadlineSurvivorVerdictsAreNotReplayed(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "skeleton")
+	request := baseConfig(t, module)
+	request.IncludeOperators = []string{string(mutation.StrCase)}
+	first := cachedRun(t, request)
+	if first.Count(report.Survived) == 0 {
+		t.Fatal("the fixture produced no survivors to cache")
+	}
+
+	entries, err := os.ReadDir(cacheDir(module))
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := 0
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		path := filepath.Join(cacheDir(module), entry.Name())
+		document := map[string]any{}
+		if err := json.Unmarshal([]byte(readFile(t, path)), &document); err != nil {
+			t.Fatal(err)
+		}
+		document["format_version"] = "tf-mut-cache-3"
+		encoded, err := json.Marshal(document)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, path, string(encoded))
+		legacy++
+	}
+	if legacy == 0 {
+		t.Fatal("the first run wrote no survivor cache entries")
+	}
+
+	second := cachedRun(t, request)
+	if second.Population.Cached != 0 || second.Population.Fresh == 0 {
+		t.Fatalf("pre-deadline survivors were not freshly executed: %+v", second.Population)
+	}
 	assertVerdictInvariance(t, first, second)
 }
 

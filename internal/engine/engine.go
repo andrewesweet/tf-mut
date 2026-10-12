@@ -258,6 +258,9 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	var collector *runCollector
 	defer func() {
 		result, err = finishRunReport(collector, started, result, err)
+		if err == nil {
+			err = ctx.Err()
+		}
 	}()
 
 	s, err := settingsFor(request)
@@ -310,10 +313,19 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	// absent or broken would break the loop over a check it never needed.
 	switch request.(type) {
 	case TodosRequest, *TodosRequest:
+		root, rootErr := checkoutRoot(ctx, moduleDir)
+		if rootErr != nil {
+			return report.Report{}, rootErr
+		}
+
 		listed, listErr := discovery.DiscoverWith(moduleDir, s.TestDirectory,
-			discovery.Options{SkipJSON: disableJSONReading(s), CheckoutRoot: checkoutRoot(ctx, moduleDir)})
+			discovery.Options{SkipJSON: disableJSONReading(s), CheckoutRoot: root})
 		if listErr != nil {
 			return report.Report{}, listErr
+		}
+
+		if err := ctx.Err(); err != nil {
+			return report.Report{}, err
 		}
 
 		return listTodos(listed, s, "")
@@ -329,8 +341,15 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	}
 
 	discoveryPhase := collector.phase(phaseDiscovery)
+	root, err := checkoutRoot(ctx, moduleDir)
+	if err != nil {
+		discoveryPhase()
+
+		return report.Report{}, err
+	}
+
 	configuration, err := discovery.DiscoverWith(moduleDir, s.TestDirectory,
-		discovery.Options{SkipJSON: disableJSONReading(s), CheckoutRoot: checkoutRoot(ctx, moduleDir)})
+		discovery.Options{SkipJSON: disableJSONReading(s), CheckoutRoot: root})
 	discoveryPhase()
 	if err != nil {
 		return report.Report{}, err
@@ -694,7 +713,7 @@ func finishReport(
 		})
 	}
 
-	return result, population, nil
+	return result, population, ctx.Err()
 }
 
 // gradingProjection is the report projection's subscriber state: what each
