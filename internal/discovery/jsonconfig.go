@@ -244,10 +244,7 @@ func collectJSONResource(
 	path, relative string,
 	block *hcl.Block,
 ) error {
-	address := block.Labels[0] + "." + block.Labels[1]
-	if block.Type == dataBlock {
-		address = dataBlock + "." + address
-	}
+	address, _ := BlockAddr(block.Type, block.Labels)
 
 	discovered := Block{
 		Kind: block.Type, Type: block.Labels[0], Name: block.Labels[1], Address: address,
@@ -562,7 +559,7 @@ func collectJSONExpansion(module *Module, path string, block *hcl.Block) error {
 				continue
 			}
 
-			address = outputBlock + "." + block.Labels[0]
+			address, _ = BlockAddr(block.Type, block.Labels)
 		}
 
 		module.JSONExpansions[address] = append(module.JSONExpansions[address],

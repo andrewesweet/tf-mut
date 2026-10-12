@@ -71,7 +71,7 @@ func (c Configuration) BuildClosure() Closure {
 
 	for _, module := range c.Modules {
 		for _, output := range module.Outputs {
-			closure.record("output."+output.Name, output.Attributes, "value")
+			closure.record(output.Address, output.Attributes, "value")
 		}
 
 		for _, local := range module.Locals {

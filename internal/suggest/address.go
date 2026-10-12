@@ -58,10 +58,12 @@ func traversal(path string) (traversalParts, error) {
 	}
 
 	if parsed := discovery.ParseAddr(resource); len(parsed.ModulePath) > 0 {
+		moduleAddress := discovery.Addr{ModulePath: parsed.ModulePath}.String()
+
 		return empty, fmt.Errorf(
 			"%w: %s is inside %s, and a run rooted at this module can observe a child "+
 				"module only through its outputs, never through its internals",
-			ErrUnaddressable, resource, "module."+strings.Join(parsed.ModulePath, ".module."),
+			ErrUnaddressable, resource, moduleAddress,
 		)
 	}
 

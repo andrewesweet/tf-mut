@@ -109,13 +109,9 @@ func scanBody(body *hclsyntax.Body, mocked map[string]bool, scan *VolatilityScan
 			continue
 		}
 
-		if len(block.Labels) != resourceLabelCount {
+		address, ok := BlockAddr(block.Type, block.Labels)
+		if !ok {
 			continue
-		}
-
-		address := block.Labels[0] + "." + block.Labels[1]
-		if block.Type == dataBlock {
-			address = dataBlock + "." + address
 		}
 
 		if unmockedVolatileProvider(block.Labels[0], mocked) {

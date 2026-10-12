@@ -168,7 +168,8 @@ func (a Addr) String() string {
 	rendered := make([]string, 0, len(a.ModulePath)*addressParts+len(a.Parts))
 
 	for _, name := range a.ModulePath {
-		rendered = append(rendered, moduleBlock, name)
+		address, _ := BlockAddr(moduleBlock, []string{name})
+		rendered = append(rendered, address)
 	}
 
 	rendered = append(rendered, a.Parts...)

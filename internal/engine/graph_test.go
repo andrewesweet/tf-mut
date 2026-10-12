@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
+	"github.com/andrewesweet/tf-mut/internal/engine"
+	"github.com/andrewesweet/tf-mut/internal/mutation"
 )
 
 // The attribute-level reference graph (M3a.1, issue #44) is proven here in the
@@ -38,16 +40,29 @@ func discover(t *testing.T, moduleDir string) discovery.Configuration {
 func TestEveryGenerationSiteMapsIntoTheGraph(t *testing.T) {
 	t.Parallel()
 
-	for _, fixture := range []string{operatorsFixture, "dynamic", jsonMixedFixture} {
+	for _, fixture := range []string{operatorsFixture, "dynamic", jsonMixedFixture, "packs"} {
 		module := copyFixture(t, fixture)
 		configuration := discover(t, module)
 		graph := configuration.BuildGraph()
 
-		for _, mutant := range preview(t, module, nil).Mutants {
-			if _, ok := graph.SiteCone(mutant.Module, mutant.Site); !ok {
-				t.Errorf("fixture %s: operator %s site %s (module %q) does not map into the graph; "+
-					"the mutant falls back to the whole-payload unknown rule, which loses the "+
-					"path-scoped oracle for it", fixture, mutant.Operator, mutant.Site, mutant.Module)
+		for _, tier := range []mutation.Tier{mutation.TierSmoke, mutation.TierStandard, mutation.TierDeep} {
+			config := previewRequest(t, module)
+			config.Tier = tier
+			if fixture == "packs" {
+				config.Packs = []string{"acme"}
+			}
+
+			result, err := engine.Run(t.Context(), config)
+			if err != nil {
+				t.Fatalf("fixture %s tier %s: preview: %v", fixture, tier, err)
+			}
+
+			for _, mutant := range result.Mutants {
+				if _, ok := graph.SiteCone(mutant.Module, mutant.Site); !ok {
+					t.Errorf("fixture %s tier %s: operator %s site %s (module %q) does not map into the graph; "+
+						"the mutant falls back to the whole-payload unknown rule, which loses the "+
+						"path-scoped oracle for it", fixture, tier, mutant.Operator, mutant.Site, mutant.Module)
+				}
 			}
 		}
 	}

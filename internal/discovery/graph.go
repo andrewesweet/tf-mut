@@ -396,8 +396,9 @@ func (b *graphBuilder) wireCall(name string, callNode nodeID) {
 	}
 
 	for _, input := range call.Inputs {
-		inputNode := nodeID{module: b.module.Rel, address: moduleBlock + "." + name + "." + input.Name}
-		childVar := nodeID{module: childRel, address: "var." + input.Name}
+		inputNode := nodeID{module: b.module.Rel, address: callNode.address + "." + input.Name}
+		variableAddress, _ := BlockAddr(variableBlock, []string{input.Name})
+		childVar := nodeID{module: childRel, address: variableAddress}
 		b.graph.dependents[inputNode] = append(b.graph.dependents[inputNode], childVar)
 		b.graph.sources[childVar] = append(b.graph.sources[childVar], inputNode)
 	}
@@ -489,7 +490,8 @@ func (b *graphBuilder) resolveCallRef(parsed Addr) (nodeID, bool) {
 		return nodeID{}, false
 	}
 
-	callNode := nodeID{module: b.module.Rel, address: moduleBlock + "." + parsed.ModulePath[0]}
+	callAddress, _ := BlockAddr(moduleBlock, parsed.ModulePath[:1])
+	callNode := nodeID{module: b.module.Rel, address: callAddress}
 	if !b.graph.nodes[callNode] {
 		return nodeID{}, false
 	}
@@ -508,7 +510,8 @@ func (b *graphBuilder) resolveCallRef(parsed Addr) (nodeID, bool) {
 		return callNode, true
 	}
 
-	node := nodeID{module: childRel, address: outputBlock + "." + parsed.Parts[0]}
+	outputAddress, _ := BlockAddr(outputBlock, parsed.Parts[:1])
+	node := nodeID{module: childRel, address: outputAddress}
 	if b.graph.nodes[node] {
 		return node, true
 	}
