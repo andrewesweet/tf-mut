@@ -16,6 +16,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
@@ -29,11 +30,15 @@ import (
 // collector endpoint. An explicit flag value wins over it.
 const EndpointEnv = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
+const exportFailureWarning = "tf-mut: trace export failed\n"
+
 // Tracer hands out spans, or no-ops when disabled.
 type Tracer struct {
-	disabled bool
-	tracer   oteltrace.Tracer
-	provider *sdktrace.TracerProvider
+	disabled     bool
+	tracer       oteltrace.Tracer
+	provider     *sdktrace.TracerProvider
+	warningMutex sync.Mutex
+	warnings     io.Writer
 }
 
 // Span is one span in progress, or an inert placeholder when the tracer is
@@ -90,16 +95,14 @@ func keyValues(attributes []Attribute) []attribute.KeyValue {
 // never a report sink; a nil writer drops the warning. With no endpoint
 // configured, tracing is disabled silently.
 func New(ctx context.Context, endpoint string, warnings io.Writer) *Tracer {
-	if warnings == nil {
-		warnings = io.Discard
-	}
+	tracer := &Tracer{disabled: true, warnings: warnings}
 
 	if endpoint == "" {
 		endpoint = os.Getenv(EndpointEnv)
 	}
 
 	if strings.TrimSpace(endpoint) == "" {
-		return &Tracer{disabled: true}
+		return tracer
 	}
 
 	// The exporter defers URL problems to export time, where they would die
@@ -107,9 +110,9 @@ func New(ctx context.Context, endpoint string, warnings io.Writer) *Tracer {
 	parsed, err := url.Parse(endpoint)
 	if err != nil || parsed.Host == "" ||
 		(parsed.Scheme != "http" && parsed.Scheme != "https") {
-		warn(warnings, parsed)
+		tracer.warnEndpoint(parsed)
 
-		return &Tracer{disabled: true}
+		return tracer
 	}
 
 	if !strings.HasSuffix(parsed.Path, "/v1/traces") {
@@ -121,42 +124,50 @@ func New(ctx context.Context, endpoint string, warnings io.Writer) *Tracer {
 
 	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(parsed.String()))
 	if err != nil {
-		warn(warnings, parsed)
+		tracer.warnEndpoint(parsed)
 
-		return &Tracer{disabled: true}
+		return tracer
 	}
 
-	provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(&warningExporter{
+	tracer.provider = sdktrace.NewTracerProvider(sdktrace.WithBatcher(&warningExporter{
 		SpanExporter: exporter,
-		warnings:     warnings,
+		tracer:       tracer,
 	}))
+	tracer.tracer = tracer.provider.Tracer("tf-mut")
+	tracer.disabled = false
 
-	return &Tracer{
-		tracer:   provider.Tracer("tf-mut"),
-		provider: provider,
-	}
+	return tracer
 }
 
 type warningExporter struct {
 	sdktrace.SpanExporter
-	warnings io.Writer
+	tracer *Tracer
 }
 
 func (e *warningExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadOnlySpan) error {
 	if err := e.SpanExporter.ExportSpans(ctx, spans); err != nil {
-		_, _ = fmt.Fprintln(e.warnings, "tf-mut: trace export failed")
+		e.tracer.writeWarning(exportFailureWarning)
 	}
 
 	return nil
 }
 
-func warn(warnings io.Writer, endpoint *url.URL) {
+func (t *Tracer) warnEndpoint(endpoint *url.URL) {
 	target := ""
 	if endpoint != nil && endpoint.Scheme != "" && endpoint.Host != "" {
 		target = " " + (&url.URL{Scheme: endpoint.Scheme, Host: endpoint.Host}).Redacted()
 	}
 
-	_, _ = fmt.Fprintf(warnings, "tf-mut: tracing disabled: an unusable OTLP endpoint%s\n", target)
+	t.writeWarning("tf-mut: tracing disabled: an unusable OTLP endpoint%s\n", target)
+}
+
+func (t *Tracer) writeWarning(format string, args ...any) {
+	t.warningMutex.Lock()
+	defer t.warningMutex.Unlock()
+
+	if t.warnings != nil {
+		_, _ = fmt.Fprintf(t.warnings, format, args...)
+	}
 }
 
 // Enabled reports whether spans are being recorded.
@@ -189,9 +200,24 @@ func (s *Span) End(attributes ...Attribute) {
 // to give the call a context that outlives any request cancellation — a
 // Ctrl-C killed run should still ship the spans it managed to record.
 func (t *Tracer) Shutdown(ctx context.Context) error {
+	if t == nil {
+		return nil
+	}
+
+	defer func() {
+		t.warningMutex.Lock()
+		t.warnings = nil
+		t.warningMutex.Unlock()
+	}()
+
 	if !t.Enabled() {
 		return nil
 	}
 
-	return t.provider.Shutdown(ctx)
+	err := t.provider.Shutdown(ctx)
+	if err != nil {
+		t.writeWarning(exportFailureWarning)
+	}
+
+	return err
 }

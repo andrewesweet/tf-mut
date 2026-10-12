@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -530,6 +531,63 @@ func TestTraceExportWarningsAndProgressShareTheWriter(t *testing.T) {
 
 	if warnings == 0 || lines == 0 {
 		t.Fatalf("warnings = %d, progress lines = %d; want both", warnings, lines)
+	}
+}
+
+func TestTraceExportWarningsStopWhenRunReturns(t *testing.T) {
+	t.Setenv("OTEL_BSP_MAX_EXPORT_BATCH_SIZE", "1")
+	t.Setenv("OTEL_BSP_EXPORT_TIMEOUT", "30000")
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_TIMEOUT", "30000")
+
+	release, drained := make(chan struct{}), make(chan struct{})
+	var requests atomic.Int32
+	var released sync.Once
+	sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch requests.Add(1) {
+		case 1:
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
+		case 2:
+			close(drained)
+		}
+
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(sink.Close)
+	t.Cleanup(func() { released.Do(func() { close(release) }) })
+
+	var output bytes.Buffer
+	request := baseConfig(t, copyFixture(t, "skeleton"))
+	request.NoCache = true
+	request.OTLPEndpoint = sink.URL
+	request.Progress = &output
+	request.ProgressIntervalForTesting = time.Hour
+
+	if _, err := engine.Run(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("export requests before return = %d, want one still pending", got)
+	}
+	warning := output.String()
+
+	output.Reset()
+	_, _ = output.WriteString("caller owns this buffer\n")
+	released.Do(func() { close(release) })
+	select {
+	case <-drained:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the timed-out exporter did not finish its pending batch")
+	}
+
+	if got := output.String(); got != "caller owns this buffer\n" {
+		t.Fatalf("an export wrote to the caller's buffer after return: %q", got)
+	}
+	if warning != "tf-mut: trace export failed\n" {
+		t.Fatalf("shutdown warning = %q", warning)
 	}
 }
 
