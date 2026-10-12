@@ -337,17 +337,17 @@ const waitDelay = 5 * time.Second
 // the child in a process group of its own and makes the context's
 // cancellation signal the whole group, so no descendant outlives the command.
 //
-// The signal is SIGKILL because cancellation here is a deadline: the budget
-// is already spent, and a graceful stop would spend more of it on processes
-// the caller has stopped waiting for. exec invokes Cancel only after the
-// process has started, so Process is always set when it runs. Setpgid and the
+// The signal is SIGKILL so cancellation, including an expired deadline, does
+// not spend more time gracefully stopping processes the caller has stopped
+// waiting for. exec invokes Cancel only after the process has started, so
+// Process is always set when it runs. Setpgid and the
 // group signal are Unix interfaces, shared by every platform the project
 // builds for; the package does not build on Windows today in any case.
 func GroupCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
 	command := exec.CommandContext(ctx, name, args...) //nolint:gosec // tool-controlled values.
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	// A killed descendant can hold a pipe open past its death; without the
-	// delay, Wait would block on the pipe instead of returning the verdict.
+	// Bound Wait's I/O cleanup if an inherited pipe remains open after the
+	// command exits.
 	command.WaitDelay = waitDelay
 	command.Cancel = func() error {
 		return syscall.Kill(-command.Process.Pid, syscall.SIGKILL)

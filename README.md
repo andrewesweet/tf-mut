@@ -66,6 +66,10 @@ the modules called by those tests. Mocked suites can run in roots with a `backen
 including a remote backend, without initializing that backend. An effective `cloud`
 declaration still causes provider schema retrieval to fail.
 
+When a Terraform command reaches its deadline, tf-mut stops the command and its provider
+plugins. See [mutant states](docs/design/product-design.md#4-mutant-states) for how a test
+deadline appears beside the mutant's verdict.
+
 Preview records safety-gate advisories and refusals in the report's warnings while still
 listing the mutant population. It executes no test run blocks. For run blocks targeting
 local modules, see the [checkout boundary](docs/design/product-design.md#discover).
