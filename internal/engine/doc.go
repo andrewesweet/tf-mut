@@ -21,14 +21,17 @@
 //
 // # The grading pipeline, in order
 //
-// Run (engine.go) checks the Terraform version, discovers the configuration
-// and dispatches by request type. The grading commands share mutate
-// (engine.go), whose stages are owned file by file:
+// Run (engine.go) discovers the configuration and dispatches by request
+// type. Except for todos, it checks the Terraform version before discovery.
+// The grading commands share mutate (engine.go), whose stages are owned
+// file by file; preview stops after the count levers:
 //
-//   - The safety gates, decided statically before any Terraform runs:
+//   - The safety gates, decided statically before init, schema retrieval
+//     or test execution, after the version probe:
 //     safety.go refuses real infrastructure and unsandboxed effects;
-//     jsonfloor.go withdraws the static shortcuts while an unread JSON
-//     file in the closure leaves the run blind.
+//     preview carries refusals as warnings. jsonfloor.go withdraws the
+//     static shortcuts while an unread JSON file in the closure leaves
+//     the run blind.
 //
 //   - Warm-up: baseline.go materialises and initialises the sandbox, then
 //     reads the provider schemas (prepare, warmWorkspace); backend.go
