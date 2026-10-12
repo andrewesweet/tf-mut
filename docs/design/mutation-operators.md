@@ -168,7 +168,7 @@ never asserted on.
 Sequencing note (M2 spec review, M2): the **hard-coded high-signal pairs and forms in this
 table ship in M2**; the general, `metadata functions -json`-driven catalogue that derives
 substitutions from arity and type compatibility remains M3. Two deliberately different
-deliverables — a curated list now, a generated one later — and the M2 applicability matrix
+deliverables — a curated list in M2, a generated one later — and the M2 applicability matrix
 covers only the curated list.
 
 | ID | Original | Mutated | Fault modelled |

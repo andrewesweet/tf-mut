@@ -1,7 +1,7 @@
 # tf-mut — agent instructions
 
 Mutation testing and characterisation-test scaffolding for `terraform test`, optimised for
-fully-mocked unit tests. Milestones M1–M4.5 are implemented: `tf-mut run` and `tf-mut
+fully-mocked unit tests. `tf-mut run` and `tf-mut
 preview` drive Tiers 0–3 end to end against real Terraform, every survivor carries one
 diagnosis from the fingerprint oracle, the attribute-level reference graph sharpens the
 oracle behind fail-closed adapters, `--since`, the verdict cache and the baseline gate table
@@ -16,8 +16,7 @@ none, with the safety gates judged against the effective staged suite; `tf-mut t
 `--answer` and `--resume` drain the judgement points it refuses to guess at, through a
 non-executable artefact class that `terraform test` never reads; `--until-dry` closes the
 gap over a staged overlay that writes nothing; and `tf-mut curate` reports redundancy from
-authoritative populations only. Later milestones are still specified in GitHub issues
-labelled `ready-for-agent`.
+authoritative populations only. For the shipped milestone status, see [README.md](README.md).
 
 ## Reading order
 

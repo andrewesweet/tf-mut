@@ -2,9 +2,8 @@
 
 Mutation testing for `terraform test` on every pull request: SARIF annotations on the exact
 changed lines, the markdown summary — score and new-versus-accepted findings — in the job
-step summary, and a check whose outcome is tf-mut's own exit code. (The maintained PR
-comment was removed in M4, issue #64, so adoption's permission ask is minimal: the step
-summary needs no token at all.)
+step summary, and a check whose outcome is tf-mut's own exit code. (Adoption's permission
+ask is minimal: the step summary needs no token at all.)
 
 ```yaml
 name: tf-mut

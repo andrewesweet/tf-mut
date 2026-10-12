@@ -2,7 +2,8 @@
 
 Mutation testing for `terraform test`, designed for fully-mocked unit tests.
 
-> **Status: M4.5 complete — the MVP scope.** `tf-mut run` and `tf-mut preview` drive Tiers 0–3
+> **Status: M5 complete — the witnessed lifecycle operators, the pack mechanism and the public
+> benchmark.** `tf-mut run` and `tf-mut preview` drive Tiers 0–3
 > against real Terraform, and every surviving mutant carries exactly one diagnosis: whether the
 > fix is an assertion, a mock default, a different input, or acceptance. The oracle never claims
 > an equality it cannot prove: an unknown value in the mutation's forward cone — judged under the
@@ -235,4 +236,4 @@ See [Reporters](docs/design/product-design.md#9-reporters) for the rendering con
 
 ## Licence
 
-Not yet chosen.
+No licence is specified.
