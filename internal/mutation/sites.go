@@ -3,6 +3,8 @@ package mutation
 import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+
+	"github.com/andrewesweet/tf-mut/internal/discovery"
 )
 
 // site is one attribute assignment in the context that gives it meaning.
@@ -79,13 +81,9 @@ func contextOf(block *hclsyntax.Block) (site, bool) {
 
 	switch block.Type {
 	case resourceKind, dataKind:
-		if len(block.Labels) != resourceLabels {
+		address, ok := discovery.BlockAddr(block.Type, block.Labels)
+		if !ok {
 			return site{}, false
-		}
-
-		address := block.Labels[0] + "." + block.Labels[1]
-		if block.Type == dataKind {
-			address = dataKind + "." + address
 		}
 
 		base.address = address
@@ -95,19 +93,15 @@ func contextOf(block *hclsyntax.Block) (site, bool) {
 			base.resource = address
 		}
 	case outputKind, moduleKind, variableKind, checkKind:
-		if len(block.Labels) != 1 {
+		address, ok := discovery.BlockAddr(block.Type, block.Labels)
+		if !ok {
 			return site{}, false
 		}
 
-		base.address = block.Type + "." + block.Labels[0]
-
-		if block.Type == moduleKind {
-			base.address = moduleKind + "." + block.Labels[0]
-		}
+		base.address = address
 
 		if block.Type == variableKind {
 			base.variable = block.Labels[0]
-			base.address = "var." + block.Labels[0]
 		}
 	case "locals":
 		base.kind = localKind
@@ -118,9 +112,6 @@ func contextOf(block *hclsyntax.Block) (site, bool) {
 
 	return base, true
 }
-
-// resourceLabels is the label count of a resource or data block.
-const resourceLabels = 2
 
 func walkBlock(where site, block *hclsyntax.Block, attributes visitor, blocks blockVisitor) {
 	blocks(where, block)

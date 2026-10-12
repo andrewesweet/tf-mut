@@ -251,10 +251,10 @@ func (b *graphBuilder) linkJSON(expr hcl.Expression, reader nodeID) {
 	}
 }
 
-// buildBlock mirrors the mutation walker's address scheme exactly: the site an
-// operator writes and the node the graph declares must be the same string, and
-// the adapter sweep over every generation site is what holds the two walkers
-// together.
+// buildBlock declares the mutation walker's address scheme: walker and graph
+// both name a block through BlockAddr, so the site an operator writes and the
+// node the graph declares are the same string by construction, and the adapter
+// sweep over every generation site audits that construction.
 func (b *graphBuilder) buildBlock(block *hclsyntax.Block) {
 	switch block.Type {
 	case resourceBlock, dataBlock:
