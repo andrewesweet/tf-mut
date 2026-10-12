@@ -94,6 +94,9 @@ local modules, see the [checkout boundary](docs/design/product-design.md#discove
 For supported suggestion forms and skip rules, see the
 [suggestion contract](docs/design/product-design.md#7-the-differentiator--suggested-assertions).
 
+For verdict-cache storage, reuse and upgrades, see the
+[cache contract](docs/design/product-design.md#10-ci-integration).
+
 With `--reporter json`, `run`, `preview`, `suggest` and `curate` include performance telemetry.
 The emitted contract is linked in the [document map](#documents). Mutants evaluated in this
 invocation carry phase timings and child-process CPU and peak memory measurements. Cached,
