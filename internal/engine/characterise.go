@@ -176,6 +176,10 @@ func characteriseModule(
 		block.Files = entriesOf(files)
 	}
 
+	if err := ctx.Err(); err != nil {
+		return report.Report{}, err
+	}
+
 	if err := commit(stage, &block, files, &result); err != nil {
 		return report.Report{}, err
 	}

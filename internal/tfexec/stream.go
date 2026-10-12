@@ -93,6 +93,10 @@ func completed(ctx context.Context, command *exec.Cmd, started time.Time, stderr
 		Usage:    childUsage(command.ProcessState),
 	}
 
+	if err := ctx.Err(); err != nil && !result.TimedOut {
+		return outcome{Result: result, Err: fmt.Errorf("%w: %w", ErrNotExecuted, err)}
+	}
+
 	if waitErr == nil {
 		result.ExitCode = 0
 
