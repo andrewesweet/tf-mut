@@ -206,6 +206,10 @@ func TestABaselineThatOutlivesItsPreflightCapFailsOperationallyNamingThePhase(t 
 		t.Fatal("a baseline that never returned produced no error")
 	}
 
+	if !errors.Is(err, tfexec.ErrNotExecuted) {
+		t.Fatalf("error = %v, want an operational terraform failure", err)
+	}
+
 	if !strings.Contains(err.Error(), "baseline") || !strings.Contains(err.Error(), "did not finish within") {
 		t.Fatalf("the failure does not name the phase and the cap: %v", err)
 	}
@@ -287,6 +291,10 @@ func TestACharacterisationStagedRunThatOutlivesTheBudgetFailsTheRun(t *testing.T
 	_, err := engine.Run(t.Context(), &config)
 	if err == nil {
 		t.Fatal("a staged run that never returned produced no error")
+	}
+
+	if !errors.Is(err, tfexec.ErrNotExecuted) {
+		t.Fatalf("error = %v, want an operational terraform failure", err)
 	}
 
 	if !strings.Contains(err.Error(), "harvest") || !strings.Contains(err.Error(), "did not finish within") {
@@ -383,6 +391,10 @@ exec ` + realGit + ` "$@"
 		t.Fatal("a git call that never returned produced no error")
 	}
 
+	if !errors.Is(runErr, engine.ErrGitDeadline) {
+		t.Fatalf("error = %v, want a git deadline failure", runErr)
+	}
+
 	if !strings.Contains(runErr.Error(), "did not finish within") {
 		t.Fatalf("the failure does not name the cap: %v", runErr)
 	}
@@ -462,8 +474,14 @@ func runGitLookupFallbackCase(t *testing.T, testCase gitLookupFallbackCase, dead
 	result, err := engine.Run(t.Context(), command)
 	switch {
 	case deadline:
-		if err == nil || !strings.Contains(err.Error(), "did not finish within") {
+		if err == nil || !errors.Is(err, engine.ErrGitDeadline) {
 			t.Fatalf("error = %v, want a git deadline failure", err)
+		}
+
+		// The deadline's wording is published stderr text; the sentinel
+		// identifies which failure happened.
+		if !strings.Contains(err.Error(), "did not finish within") {
+			t.Fatalf("the failure does not name the cap: %v", err)
 		}
 	case err != nil:
 		t.Fatalf("an ordinary lookup failure stopped the command: %v", err)

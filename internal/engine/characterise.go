@@ -318,6 +318,29 @@ func characteriseInputs(
 	return rung, answers, nil
 }
 
+// refusalOrFailure separates the until-dry loop's reported refusal from its
+// operational failures, and owns the refusal's whole downgrade: the report is
+// kept, marked incomplete, and the failure travels as a warning on it.
+//
+// A refused loop is a *reported* outcome and not a swallowed error: the
+// stop reason it records is one of three published values, so the report
+// carrying it has to reach a reporter.
+//
+// Only a refusal, though. A staged suite that went red is a statement
+// about the program under characterisation and belongs on the report; a
+// Terraform crash, a staging failure or a mutation-engine failure is an
+// operational failure, and turning one into a warning plus an incomplete
+// report exits 1 where the published contract says 2.
+func refusalOrFailure(block *report.Characterisation, err error) ([]string, error) {
+	if !errors.Is(err, ErrBaselineRed) {
+		return nil, err
+	}
+
+	block.Complete = false
+
+	return []string{err.Error()}, nil
+}
+
 // closeTheGap runs the until-dry loop, promotes what the answers earned, and
 // proves the pin set the loop ended with before any of it can be written.
 //
@@ -333,25 +356,14 @@ func closeTheGap(
 	block *report.Characterisation,
 	pins []characterise.Pin,
 ) ([]writtenFile, []string, error) {
-	// A refused loop is a *reported* outcome and not a swallowed error: the
-	// stop reason it records is one of three published values, so the report
-	// carrying it has to reach a reporter. The failure travels as a warning on
-	// a report the caller keeps.
-	//
-	// Only a refusal, though. A staged suite that went red is a statement
-	// about the program under characterisation and belongs on the report; a
-	// Terraform crash, a staging failure or a mutation-engine failure is an
-	// operational failure, and turning one into a warning plus an incomplete
-	// report exits 1 where the published contract says 2.
 	updated, err := untilDry(ctx, stage, block, pins)
 	if err != nil {
-		if !errors.Is(err, ErrBaselineRed) {
-			return nil, nil, err
+		warnings, failure := refusalOrFailure(block, err)
+		if failure != nil {
+			return nil, nil, failure
 		}
 
-		block.Complete = false
-
-		return nil, []string{err.Error()}, nil
+		return nil, warnings, nil
 	}
 
 	promoted, refusals, err := promoteScaffolds(ctx, stage, block)
@@ -409,10 +421,14 @@ func scaffoldSuite(
 
 	harvest, err := harvestScaffold(ctx, stage)
 	if err != nil {
-		rejected, refused, failure := rejectAnswers(*block, scaffold, err)
-		*block = rejected
+		rejected, failure := rejectAnswers(*block, scaffold, err)
+		if failure != nil {
+			return nil, nil, failure
+		}
 
-		return nil, refused, failure
+		*block = rejected.block
+
+		return nil, rejected.files, nil
 	}
 
 	// The pins the context harvested are what everything downstream consumes:
@@ -428,10 +444,14 @@ func scaffoldSuite(
 
 	verification, err := verifyScaffold(ctx, stage, pins, "verify")
 	if err != nil {
-		rejected, refused, failure := rejectAnswers(*block, scaffold, err)
-		*block = rejected
+		rejected, failure := rejectAnswers(*block, scaffold, err)
+		if failure != nil {
+			return nil, nil, failure
+		}
 
-		return nil, refused, failure
+		*block = rejected.block
+
+		return nil, rejected.files, nil
 	}
 
 	// Promotion is what verification earns, and nothing else: an answer is
@@ -487,6 +507,15 @@ func pinnedCount(pins []report.Pin) int {
 	return count
 }
 
+// rejectedAnswers is the outcome of an answer that did not survive: the
+// report block rewritten with the judgement point rejected, and the artefact
+// files that carry it. The zero value, with its error, is the "nothing was
+// produced" outcome.
+type rejectedAnswers struct {
+	block report.Characterisation
+	files []writtenFile
+}
+
 // rejectAnswers turns a failed harvest or verification into a rejected answer
 // where one was supplied, and into an operational failure where none was.
 //
@@ -509,7 +538,7 @@ func rejectAnswers(
 	block report.Characterisation,
 	scaffold characterise.SuitePlan,
 	failure error,
-) (report.Characterisation, []writtenFile, error) {
+) (rejectedAnswers, error) {
 	// Only a red suite is evidence about an answer. `harvestScaffold` and
 	// `verifyScaffold` also propagate staging errors, runner errors and
 	// canonicalisation errors, and none of those says anything about the value
@@ -518,7 +547,7 @@ func rejectAnswers(
 	// play, and reporting it as "your answer was refuted" both misattributes
 	// the cause and swallows an exit-2 condition into an exit-1 report.
 	if !errors.Is(failure, ErrScaffoldRed) {
-		return report.Characterisation{}, nil, failure // nothing was produced.
+		return rejectedAnswers{}, failure // nothing was produced.
 	}
 
 	reason := "the suite did not pass with this answer in play, so it could not be promoted; " +
@@ -542,7 +571,7 @@ func rejectAnswers(
 	}
 
 	if !rejected {
-		return report.Characterisation{}, nil, failure // nothing was produced.
+		return rejectedAnswers{}, failure // nothing was produced.
 	}
 
 	block.Todos = projectTodos(todos)
@@ -551,7 +580,7 @@ func rejectAnswers(
 	block.Files = entriesOf(files)
 	block.Complete = false
 
-	return block, files, nil
+	return rejectedAnswers{block: block, files: files}, nil
 }
 
 // artefactFiles renders the non-executable artefact for every scenario whose

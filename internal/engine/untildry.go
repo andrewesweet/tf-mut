@@ -182,13 +182,14 @@ func promoteScaffolds(
 		scoped := stage
 		scoped.workRoot = filepath.Join(stage.workRoot, "scaffold-"+entry.ID())
 
-		file, refusal, err := verifyScaffoldAnswer(ctx, scoped, entry, answer)
+		file, err := verifyScaffoldAnswer(ctx, scoped, entry, answer)
 		if err != nil {
-			return nil, nil, err
-		}
+			var refusal *scaffoldRefusalError
+			if !errors.As(err, &refusal) {
+				return nil, nil, err
+			}
 
-		if refusal != "" {
-			warnings = append(warnings, "scaffold "+entry.ID()+" was not promoted: "+refusal)
+			warnings = append(warnings, "scaffold "+entry.ID()+" was not promoted: "+refusal.reason)
 
 			continue
 		}
@@ -202,26 +203,43 @@ func promoteScaffolds(
 	return promoted, warnings, nil
 }
 
+// scaffoldRefusalError reports an answered scaffold the tool declined to promote:
+// answer validation or staged verification did not establish the expected
+// failure. The reason is published wording — the
+// warning the report carries after the scaffold's identifier — so it changes
+// only with its consumers, never as a side effect of a refactor.
+type scaffoldRefusalError struct {
+	reason string
+}
+
+func (e *scaffoldRefusalError) Error() string { return e.reason }
+
 // verifyScaffoldAnswer stages one answered scaffold and executes it. The
 // stage it receives carries the working root the run stages under; its caller
 // scopes a copy per scaffold, the way the until-dry loop scopes one per round.
+// A scaffoldRefusalError reports an answer that did not earn promotion; every other
+// error is operational and aborts the command.
 func verifyScaffoldAnswer(
 	ctx context.Context,
 	stage characteriseStage,
 	entry characterise.Scaffold,
 	answer string,
-) (writtenFile, string, error) {
+) (writtenFile, error) {
 	empty := writtenFile{} // the not-promoted sentinel.
 
 	checkable, addressable := characterise.Checkable(entry.Address())
 	if !addressable {
-		return empty, entry.Address() + " names no object expect_failures can accept", nil
+		return empty, &scaffoldRefusalError{
+			reason: entry.Address() + " names no object expect_failures can accept",
+		}
 	}
 
 	variables, parsed := characterise.AnsweredVariables(answer)
 	if !parsed {
-		return empty, "the answer is not an object of constant assignments to legal " +
-			"variable names", nil
+		return empty, &scaffoldRefusalError{
+			reason: "the answer is not an object of constant assignments to legal " +
+				"variable names",
+		}
 	}
 
 	// Every name has to be an input the module declares. A legal identifier is
@@ -230,7 +248,9 @@ func verifyScaffoldAnswer(
 	// of checking here is that the refusal names the answer rather than the
 	// generated file.
 	if undeclared := undeclaredInputs(stage.configuration, variables); undeclared != "" {
-		return empty, "the answer names " + undeclared + ", which the module does not declare", nil
+		return empty, &scaffoldRefusalError{
+			reason: "the answer names " + undeclared + ", which the module does not declare",
+		}
 	}
 
 	content := characterise.RenderExpectFailures(stage.scaffold, entry, checkable, variables)
@@ -240,17 +260,19 @@ func verifyScaffoldAnswer(
 		map[string][]byte{stagedPath(stage.configuration, path): content}, "verify")
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			return empty, "", err
+			return empty, err
 		}
 
-		return empty, err.Error(), nil
+		return empty, &scaffoldRefusalError{reason: err.Error()}
 	}
 
 	if failures := result.FailedRuns(); len(failures) > 0 || result.ExitCode != 0 {
-		return empty, "the expected failure did not happen, so the check proves nothing", nil
+		return empty, &scaffoldRefusalError{
+			reason: "the expected failure did not happen, so the check proves nothing",
+		}
 	}
 
-	return generatedFile(path, content, content, true), "", nil
+	return generatedFile(path, content, content, true), nil
 }
 
 // scaffoldSet is the context-side record of the scaffolds the loop discovers,

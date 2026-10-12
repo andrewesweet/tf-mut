@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,10 +54,12 @@ func TestAStaleVerifiedDigestAbortsThePreflightNamingBothDigests(t *testing.T) {
 	_, err := preflight(applyContext{
 		moduleDir: module, closureRoot: module, testDirs: []string{testsDir, module},
 	}, []report.Suggestion{stale})
-	if err == nil {
-		t.Fatal("a stale digest passed the preflight")
+	if !errors.Is(err, ErrApply) {
+		t.Fatalf("error = %v, want an apply refusal", err)
 	}
 
+	// The per-refusal wording has no sentinel of its own — ErrApply wraps every
+	// preflight refusal — so which refusal happened stays a text contract.
 	for _, expected := range []string{"changed since", stale.ID, "000000000000"} {
 		if !strings.Contains(err.Error(), expected) {
 			t.Fatalf("the refusal does not carry %q: %v", expected, err)
@@ -95,7 +98,11 @@ func TestAnOutOfClosureTargetAbortsThePreflight(t *testing.T) {
 	_, err := preflight(applyContext{
 		moduleDir: module, closureRoot: module, testDirs: []string{module},
 	}, []report.Suggestion{escaping})
-	if err == nil || !strings.Contains(err.Error(), "outside the module's closure") {
+	if !errors.Is(err, ErrApply) {
+		t.Fatalf("error = %v, want an apply refusal", err)
+	}
+
+	if !strings.Contains(err.Error(), "outside the module's closure") {
 		t.Fatalf("an escaping target was not refused as out of closure: %v", err)
 	}
 }
@@ -128,7 +135,11 @@ func TestAnUnparseableTargetAbortsThePreflight(t *testing.T) {
 	_, err := preflight(applyContext{
 		moduleDir: module, closureRoot: module, testDirs: []string{testsDir, module},
 	}, []report.Suggestion{stale})
-	if err == nil || !strings.Contains(err.Error(), "no longer parses") {
+	if !errors.Is(err, ErrApply) {
+		t.Fatalf("error = %v, want an apply refusal", err)
+	}
+
+	if !strings.Contains(err.Error(), "no longer parses") {
 		t.Fatalf("an unparseable target was not refused before the digest check: %v", err)
 	}
 }

@@ -197,8 +197,8 @@ func TestUnmockedProviderRefusalNamesTheOffendingBlock(t *testing.T) {
 	module := copyFixture(t, "unmocked")
 
 	_, err := engine.Run(t.Context(), baseConfig(t, module))
-	if err == nil {
-		t.Fatal("expected a refusal")
+	if !errors.Is(err, engine.ErrRealInfrastructure) {
+		t.Fatalf("error = %v, want a real-infrastructure refusal", err)
 	}
 
 	if !strings.Contains(err.Error(), "null_resource.app") {

@@ -3,6 +3,7 @@ package engine_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -44,7 +45,6 @@ const (
 	moduleSymlinkKind         = "module-symlink"
 	parentSymlinkExistingKind = "parent-symlink-existing"
 	parentSymlinkNewKind      = "parent-symlink-new"
-	fileExistsError           = "file exists"
 	traceWriterCase           = "writer"
 )
 
@@ -1048,7 +1048,7 @@ func TestCPUProfileRefusesModuleDestinations(t *testing.T) {
 
 			module := copyFixture(t, discriminateFixture)
 			before := treeDigest(t, module)
-			common, wantError := profileRefusalRequest(t, module, kind)
+			common, wantText, wantIs := profileRefusalRequest(t, module, kind)
 
 			for _, request := range []engine.Request{
 				engine.RunRequest{Common: common},
@@ -1058,8 +1058,13 @@ func TestCPUProfileRefusesModuleDestinations(t *testing.T) {
 				engine.TodosRequest{Common: common},
 				engine.CurateRequest{Common: common},
 			} {
-				if _, err := engine.Run(t.Context(), request); err == nil || !strings.Contains(err.Error(), wantError) {
-					t.Fatalf("%T returned %v, want a profile refusal containing %q", request, err, wantError)
+				_, err := engine.Run(t.Context(), request)
+				switch {
+				case wantIs != nil && !errors.Is(err, wantIs):
+					t.Fatalf("%T returned %v, want the CPU-profile refusal", request, err)
+				case wantIs == nil && (err == nil || !strings.Contains(err.Error(), wantText)):
+					t.Fatalf("%T returned %v, want a profile refusal containing %q", request, err, wantText)
+				default:
 				}
 
 				assertTreeUnchanged(t, module, before)
@@ -1068,12 +1073,15 @@ func TestCPUProfileRefusesModuleDestinations(t *testing.T) {
 	}
 }
 
-func profileRefusalRequest(t *testing.T, module, kind string) (engine.Common, string) {
+func profileRefusalRequest(t *testing.T, module, kind string) (engine.Common, string, error) {
 	t.Helper()
 
 	common := commonRequest(t, module)
 	common.CPUProfile = filepath.Join(module, mainFile)
-	wantError := "inside the module directory"
+	// Two of the three refusal kinds have sentinels: which failure happened is
+	// identity, asserted with errors.Is. The parent-directory refusal has no
+	// sentinel today, so its wording stays the contract there.
+	wantIs, wantText := engine.ErrCPUProfileInModule, ""
 
 	switch kind {
 	case "new":
@@ -1106,7 +1114,7 @@ func profileRefusalRequest(t *testing.T, module, kind string) (engine.Common, st
 		switch kind {
 		case fileSymlinkKind:
 			common.CPUProfile = alias
-			wantError = fileExistsError
+			wantIs, wantText = os.ErrExist, ""
 		case parentSymlinkExistingKind:
 			common.CPUProfile = filepath.Join(alias, mainFile)
 		case parentSymlinkNewKind:
@@ -1118,7 +1126,7 @@ func profileRefusalRequest(t *testing.T, module, kind string) (engine.Common, st
 		}
 	case "missing-parent":
 		common.CPUProfile = filepath.Join(t.TempDir(), "missing", "tf-mut.pprof")
-		wantError = "CPU profile parent directory"
+		wantIs, wantText = nil, "CPU profile parent directory"
 	case "hardlink":
 		alias := filepath.Join(t.TempDir(), "profile")
 		if err := os.Link(common.CPUProfile, alias); err != nil {
@@ -1126,7 +1134,7 @@ func profileRefusalRequest(t *testing.T, module, kind string) (engine.Common, st
 		}
 
 		common.CPUProfile = alias
-		wantError = fileExistsError
+		wantIs, wantText = os.ErrExist, ""
 	case "dangling-symlink":
 		alias := filepath.Join(t.TempDir(), "profile")
 		if err := os.Symlink(filepath.Join(filepath.Dir(alias), "missing"), alias); err != nil {
@@ -1134,12 +1142,12 @@ func profileRefusalRequest(t *testing.T, module, kind string) (engine.Common, st
 		}
 
 		common.CPUProfile = alias
-		wantError = fileExistsError
+		wantIs, wantText = os.ErrExist, ""
 	default:
 		// The existing-file case retains the original module and destination.
 	}
 
-	return common, wantError
+	return common, wantText, wantIs
 }
 
 func TestCPUProfileNeverOverwritesExistingFiles(t *testing.T) {
@@ -1172,8 +1180,10 @@ func TestCPUProfileNeverOverwritesExistingFiles(t *testing.T) {
 
 			config := baseConfig(t, module)
 			config.CPUProfile = target
-			if _, runErr := engine.Run(t.Context(), config); runErr == nil ||
-				!strings.Contains(runErr.Error(), fileExistsError) {
+			_, runErr := engine.Run(t.Context(), config)
+			// An existing destination is refused by O_EXCL; identity is the
+			// os.ErrExist behind the *os.PathError, not its message.
+			if !errors.Is(runErr, os.ErrExist) {
 				t.Fatalf("run = %v, want an existing-destination refusal", runErr)
 			}
 
