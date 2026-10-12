@@ -153,7 +153,7 @@ func assertTraceInitialization(t *testing.T) {
 	request := baseConfig(t, copyFixture(t, "skeleton"))
 	request.NoCache = true
 	request.OTLPEndpoint = sink.server.URL
-	request.ProgressIntervalForTesting = time.Hour
+	engine.SetProgressInterval(t, time.Hour)
 	var warnings bytes.Buffer
 	if os.Getenv("TF_MUT_TRACE_INITIALIZATION_WRITER") == traceWriterCase {
 		request.Progress = &warnings

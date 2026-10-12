@@ -152,7 +152,8 @@ func auditExportedEngineType(t *testing.T, fset *token.FileSet, typeSpec *ast.Ty
 }
 
 func isSeamControl(name string) bool {
-	return strings.HasPrefix(name, "Seed") || strings.HasPrefix(name, "Disable")
+	return strings.HasPrefix(name, "Seed") || strings.HasPrefix(name, "Disable") ||
+		strings.HasSuffix(name, "ForTesting")
 }
 
 func embeddedFieldName(expression ast.Expr) string {
