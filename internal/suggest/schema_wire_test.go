@@ -139,3 +139,60 @@ func TestNestedSchemaPathsPreserveRendering(t *testing.T) {
 		}
 	}
 }
+
+func TestOverlappingProviderSchemasPreserveRendering(t *testing.T) {
+	t.Parallel()
+
+	provider := func(hasLabels bool) tfexec.ProviderSchema {
+		attributes := map[string]tfexec.SchemaAttribute{}
+		if hasLabels {
+			attributes["resource_labels"] = tfexec.SchemaAttribute{
+				Optional: true, Type: json.RawMessage(`["map","string"]`),
+			}
+		}
+
+		schema := tfexec.Schema{Block: tfexec.SchemaBlock{
+			BlockTypes: map[string]tfexec.SchemaBlockType{
+				"node_config": {NestingMode: tfexec.NestingList, Block: tfexec.SchemaBlock{
+					Attributes: attributes,
+				}},
+			},
+		}}
+
+		return tfexec.ProviderSchema{
+			ResourceSchemas:   map[string]tfexec.Schema{"example_thing": schema},
+			DataSourceSchemas: map[string]tfexec.Schema{"example_lookup": schema},
+		}
+	}
+
+	for _, testCase := range []struct {
+		name              string
+		selectedHasLabels bool
+		refused           error
+	}{
+		{name: "selected provider describes the attribute", selectedHasLabels: true, refused: nil},
+		{name: "only the other provider describes the attribute", selectedHasLabels: false, refused: suggest.ErrUnrenderable},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			schemas := tfexec.Schemas{ProviderSchemas: map[string]tfexec.ProviderSchema{
+				"registry.terraform.io/example/a": provider(testCase.selectedHasLabels),
+				"registry.terraform.io/example/z": provider(!testCase.selectedHasLabels),
+			}}
+
+			for _, resource := range []string{"example_thing.app", "data.example_lookup.app"} {
+				want := ""
+				if testCase.selectedHasLabels {
+					want = resource + `.node_config[0].resource_labels.env == "steady"`
+				}
+
+				change := changeAt(statePrefix+resource+"].values.node_config[0].resource_labels.env", steadyBaseline)
+				for range 128 {
+					expression, err := suggest.Express(schemas, suggest.Evidence{}, change)
+					assertAdapter(t, expression, err, want, testCase.refused)
+				}
+			}
+		})
+	}
+}

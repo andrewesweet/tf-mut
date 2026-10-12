@@ -83,21 +83,29 @@ type SchemaAttribute struct {
 // attribute lookup can answer because a nested block is not an attribute.
 // Evidence about one argument is Attribute's question.
 func (s Schemas) Block(kind, resourceType string) (SchemaBlock, bool) {
-	for _, provider := range s.ProviderSchemas {
+	schema, known := s.schema(kind, resourceType)
+
+	return schema.Block, known
+}
+
+func (s Schemas) schema(kind, resourceType string) (Schema, bool) {
+	var selected Schema
+	var selectedProvider string
+	var known bool
+
+	for name, provider := range s.ProviderSchemas {
 		schemas := provider.ResourceSchemas
 		if kind == dataSourceKind {
 			schemas = provider.DataSourceSchemas
 		}
 
 		schema, found := schemas[resourceType]
-		if !found {
-			continue
+		if found && (!known || name < selectedProvider) {
+			selected, selectedProvider, known = schema, name, true
 		}
-
-		return schema.Block, true
 	}
 
-	return SchemaBlock{}, false // no provider describes the type.
+	return selected, known
 }
 
 // ProvidersSchema retrieves the provider schemas visible from dir. It suppresses
@@ -194,35 +202,26 @@ func (s Schemas) Attribute(kind, resourceType string, path []string) (Attribute,
 		return Attribute{}, false
 	}
 
-	for _, provider := range s.ProviderSchemas {
-		schemas := provider.ResourceSchemas
-		if kind == dataSourceKind {
-			schemas = provider.DataSourceSchemas
-		}
-
-		schema, known := schemas[resourceType]
-		if !known {
-			continue
-		}
-
-		block := schema.Block
-		for _, name := range path[:len(path)-1] {
-			nested, found := block.BlockTypes[name]
-			if !found {
-				return Attribute{}, true // no block was described at the path.
-			}
-
-			block = nested.Block
-		}
-
-		described := block.Attributes[path[len(path)-1]]
-
-		return Attribute{
-			Optional: described.Optional && !described.Required,
-			Computed: described.Computed && !described.Optional && !described.Required,
-			Type:     described.Type,
-		}, true
+	schema, known := s.schema(kind, resourceType)
+	if !known {
+		return Attribute{}, false // no provider describes it.
 	}
 
-	return Attribute{}, false // no provider describes it.
+	block := schema.Block
+	for _, name := range path[:len(path)-1] {
+		nested, found := block.BlockTypes[name]
+		if !found {
+			return Attribute{}, true // no block was described at the path.
+		}
+
+		block = nested.Block
+	}
+
+	described := block.Attributes[path[len(path)-1]]
+
+	return Attribute{
+		Optional: described.Optional && !described.Required,
+		Computed: described.Computed && !described.Optional && !described.Required,
+		Type:     described.Type,
+	}, true
 }
