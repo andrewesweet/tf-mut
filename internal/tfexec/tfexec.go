@@ -117,6 +117,8 @@ const (
 
 // Run executes Terraform in dir with the supplied arguments, buffering stdout.
 //
+// A non-zero exit status alone is not an error; inspect Result.ExitCode.
+//
 // It is StreamOutput with a consumer that keeps everything, rather than a second
 // implementation: the exit-status ladder and the environment stripping standing
 // process rule 5 requires are subtle enough that two copies would eventually

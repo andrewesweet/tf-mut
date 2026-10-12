@@ -55,8 +55,7 @@ const SchemaVersion = "2.9.0"
 // Command names what produced a report.
 type Command string
 
-// The commands that produce a report: run, preview, suggest,
-// characterise, curate and todos.
+// The commands that produce a report.
 const (
 	// CommandRun executed the mutant population.
 	CommandRun Command = "run"
@@ -501,8 +500,7 @@ type ExecutionError struct {
 // Report is the engine's complete result.
 type Report struct {
 	SchemaVersion string `json:"schema_version"`
-	// Command is the command that produced the report — one of run,
-	// preview, suggest, characterise, curate or todos.
+	// Command identifies the report-producing invocation; see the Command constants.
 	Command Command `json:"command"`
 	// Module is the absolute directory of the module under test.
 	Module string `json:"module"`

@@ -224,10 +224,12 @@ internal/fingerprint/  Canonical payloads, the volatile mask, and the masked del
 internal/config/     .tf-mut.hcl and the inline suppression directives
 internal/sandbox/    Sandbox materialisation, sharing rules, fresh-inode writes
 internal/tfexec/     The Terraform CLI and its machine-readable output
-internal/report/     The report value, and the terminal, JSON and SARIF renderings
+internal/report/     The report value and its renderings
 scripts/          Private helpers behind the Just control plane
 tools/            Source-tool and Terraform-provider lock domains
 ```
+
+See [Reporters](docs/design/product-design.md#9-reporters) for the rendering contracts.
 
 ## Licence
 
