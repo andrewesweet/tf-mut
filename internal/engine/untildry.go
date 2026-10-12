@@ -12,7 +12,6 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
-	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
 // The until-dry loop: scaffold, mutate, pin the survivors, repeat.
@@ -58,12 +57,9 @@ func roundLimit(settings settings) int {
 // the caller re-projects the result onto the report.
 func untilDry(
 	ctx context.Context,
-	runner tfexec.Runner,
 	stage characteriseStage,
 	block *report.Characterisation,
-	scaffold characterise.SuitePlan,
 	pins []characterise.Pin,
-	scaffolds *scaffoldSet,
 ) ([]characterise.Pin, error) {
 	convergence := &report.Convergence{
 		Rounds: 0, NewPinsPerRound: []int{}, StopReason: report.StopBounded,
@@ -75,8 +71,14 @@ func untilDry(
 		// once before the loop would mean round N+1 grading round N-1's suite,
 		// treating the assertions round N added as merely known, and declaring
 		// the run dry without ever having executed them.
-		updated, added, err := oneRound(ctx, runner, stage, block, scaffold, pins, scaffolds,
-			filepath.Join(stage.workRoot, stagingRoot+"-"+strconv.Itoa(round)))
+		//
+		// Each round also stages into its own directory under the work root, so
+		// round N's tree cannot be confused with round N+1's — the same
+		// stage-copy move verifyScaffoldAnswer's caller makes.
+		scoped := stage
+		scoped.workRoot = filepath.Join(stage.workRoot, stagingRoot+"-"+strconv.Itoa(round))
+
+		updated, added, err := oneRound(ctx, scoped, block, pins)
 		if err != nil {
 			// The stop reason is a published value of a closed vocabulary, so
 			// the report that carries it has to reach a reporter. The caller
@@ -105,15 +107,11 @@ func untilDry(
 // oneRound grades the staged suite and pins whatever the survivors yield.
 func oneRound(
 	ctx context.Context,
-	runner tfexec.Runner,
 	stage characteriseStage,
 	block *report.Characterisation,
-	scaffold characterise.SuitePlan,
 	pins []characterise.Pin,
-	scaffolds *scaffoldSet,
-	target string,
 ) ([]characterise.Pin, int, error) {
-	staged, err := stageSuite(stage, scaffold, pins, target)
+	staged, err := stageSuite(stage, pins)
 	if err != nil {
 		return pins, 0, err
 	}
@@ -136,13 +134,13 @@ func oneRound(
 		return pins, 0, err
 	}
 
-	result, population, err := mutate(ctx, runner, stagedConfiguration, graded,
+	result, population, err := mutate(ctx, stage.runner, stagedConfiguration, graded,
 		stage.terraform, staged.ModuleDir, stage.collector)
 	if err != nil {
 		return pins, 0, err
 	}
 
-	recordScaffolds(block, scaffolds, result)
+	recordScaffolds(block, stage.scaffolds, result)
 
 	// The round's survivors are evidence only where the round observed its
 	// whole population: a round that timed mutants out has not shown that the
@@ -171,24 +169,22 @@ func oneRound(
 // earned it — and the report carries the projection of the result.
 func promoteScaffolds(
 	ctx context.Context,
-	runner tfexec.Runner,
 	stage characteriseStage,
 	block *report.Characterisation,
-	scaffold characterise.SuitePlan,
-	answers map[string]string,
-	scaffolds *scaffoldSet,
 ) ([]writtenFile, []string, error) {
 	promoted := []writtenFile{}
 	warnings := []string{}
 
-	for _, entry := range scaffolds.all() {
-		answer, answered := answers[entry.ID()]
+	for _, entry := range stage.scaffolds.all() {
+		answer, answered := stage.answers[entry.ID()]
 		if !answered {
 			continue
 		}
 
-		file, refusal, err := verifyScaffoldAnswer(ctx, runner, stage, scaffold, entry, answer,
-			filepath.Join(stage.workRoot, "scaffold-"+entry.ID()))
+		scoped := stage
+		scoped.workRoot = filepath.Join(stage.workRoot, "scaffold-"+entry.ID())
+
+		file, refusal, err := verifyScaffoldAnswer(ctx, scoped, entry, answer)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -199,23 +195,23 @@ func promoteScaffolds(
 			continue
 		}
 
-		scaffolds.replace(characterise.Verified().PromoteScaffold(entry))
+		stage.scaffolds.replace(characterise.Verified().PromoteScaffold(entry))
 		promoted = append(promoted, file)
 	}
 
-	block.Scaffolds = projectScaffolds(scaffolds.all())
+	block.Scaffolds = projectScaffolds(stage.scaffolds.all())
 
 	return promoted, warnings, nil
 }
 
-// verifyScaffoldAnswer stages one answered scaffold and executes it.
+// verifyScaffoldAnswer stages one answered scaffold and executes it. The
+// stage it receives carries the working root the run stages under; its caller
+// scopes a copy per scaffold, the way the until-dry loop scopes one per round.
 func verifyScaffoldAnswer(
 	ctx context.Context,
-	runner tfexec.Runner,
 	stage characteriseStage,
-	scaffold characterise.SuitePlan,
 	entry characterise.Scaffold,
-	answer, target string,
+	answer string,
 ) (writtenFile, string, error) {
 	empty := writtenFile{} // the not-promoted sentinel.
 
@@ -239,13 +235,10 @@ func verifyScaffoldAnswer(
 		return empty, "the answer names " + undeclared + ", which the module does not declare", nil
 	}
 
-	content := characterise.RenderExpectFailures(scaffold, entry, checkable, variables)
-	path := characterise.ScaffoldFile(scaffold.Options.TestDirRel, entry.ID())
+	content := characterise.RenderExpectFailures(stage.scaffold, entry, checkable, variables)
+	path := characterise.ScaffoldFile(stage.scaffold.Options.TestDirRel, entry.ID())
 
-	scoped := stage
-	scoped.workRoot = target
-
-	result, err := stagedRun(ctx, runner, scoped,
+	result, err := stagedRun(ctx, stage,
 		map[string][]byte{stagedPath(stage.configuration, path): content}, "verify")
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
@@ -357,16 +350,14 @@ const scaffoldScenario = "scaffolds"
 // the shipped skill tells agents to call routinely.
 func stageSuite(
 	stage characteriseStage,
-	scaffold characterise.SuitePlan,
 	pins []characterise.Pin,
-	target string,
 ) (sandbox.Sandbox, error) {
 	// Re-rendered from the pins as they stand, not replayed from the report:
 	// the report's view of a generated file is redacted, and a suite staged
 	// from it would plan a redaction marker.
 	staged := map[string][]byte{}
 
-	for _, file := range pinnedFiles(scaffold, scaffold.Scenarios, pins) {
+	for _, file := range pinnedFiles(stage.scaffold, stage.scaffold.Scenarios, pins) {
 		if file.entry.Executable {
 			staged[stagedPath(stage.configuration, file.entry.Path)] = file.bytes
 		}
@@ -375,7 +366,7 @@ func stageSuite(
 	return sandbox.Materialise(sandbox.Spec{
 		SourceRoot: stage.configuration.ClosureRoot,
 		ModuleRel:  stage.configuration.RootRelative(),
-		Target:     target,
+		Target:     stage.workRoot,
 		Mutations:  nil,
 		Staged:     staged,
 		Share: &sandbox.Share{

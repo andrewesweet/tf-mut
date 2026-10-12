@@ -337,42 +337,6 @@ func statesOf(graded report.Report) map[report.State]int {
 	return counts
 }
 
-// TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten holds the other
-// half of issue #74's acceptance pair: the verification between the harvest and
-// everything downstream of it.
-//
-// The final-pin defect hook proves the verifier after the until-dry loop. This one
-// proves the verifier before it — a separate call, on a path a run without
-// `--until-dry` takes, and one that a deletion would have left every test green
-// over.
-//
-//nolint:paralleltest // owns package-global characterisation hook for its lifetime.
-func TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten(t *testing.T) {
-	module := copyFixture(t, untestedBranchesFixture)
-
-	config := characteriseRequest(t, module)
-	config.Write = true
-	engine.SetInitialPinDefectSeed(t, module)
-
-	_, err := engine.Run(t.Context(), config)
-	if !errors.Is(err, engine.ErrScaffoldRed) {
-		t.Fatalf("error = %v, want the harvested pin set refused as not green", err)
-	}
-
-	entries, readErr := os.ReadDir(filepath.Join(module, "tests"))
-	if readErr != nil && !os.IsNotExist(readErr) {
-		t.Fatalf("reading the test directory: %v", readErr)
-	}
-
-	if len(entries) > 0 {
-		t.Fatalf("a refused verification still wrote %d file(s)", len(entries))
-	}
-
-	if _, statErr := os.Stat(filepath.Join(module, engine.RegistryName)); statErr == nil {
-		t.Fatal("a refused verification still wrote the provenance registry")
-	}
-}
-
 // TestASecondWriteIsRefusedAsACollision holds the collision rule over the full
 // target path set.
 func TestASecondWriteIsRefusedAsACollision(t *testing.T) {

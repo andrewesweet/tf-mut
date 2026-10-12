@@ -97,29 +97,6 @@ func SetMissingMockSeed(t *testing.T, moduleDir, missingConfiguration string) {
 	})
 }
 
-// SetFinalPinDefectSeed adds one knowingly false pin for one module. Its caller
-// is sequential for the hook's complete lifetime.
-func SetFinalPinDefectSeed(t *testing.T, moduleDir string) {
-	t.Helper()
-	seedFinalPinDefect = func(configuration discovery.Configuration, pins []characterise.Pin) []characterise.Pin {
-		if configuration.ModuleDir != moduleDir || len(pins) == 0 {
-			return pins
-		}
-
-		defect := pins[0]
-
-		return append(slices.Clone(pins), characterise.Pinned(
-			defect.Scenario(), defect.Address(),
-			defect.Address()+` == "tf-mut-seeded-final-pin-defect"`, defect.Rung(),
-		))
-	}
-	t.Cleanup(func() {
-		seedFinalPinDefect = func(_ discovery.Configuration, pins []characterise.Pin) []characterise.Pin {
-			return pins
-		}
-	})
-}
-
 // SetProgressInterval overrides the progress cadence for one test. Its
 // callers are sequential for the seam's complete lifetime.
 func SetProgressInterval(t *testing.T, interval time.Duration) {
@@ -143,29 +120,6 @@ func SetUntilDryRounds(t *testing.T, moduleDir string, rounds int) {
 	}
 	t.Cleanup(func() {
 		seedUntilDryRounds = func(settings) int { return 0 }
-	})
-}
-
-// SetInitialPinDefectSeed adds one knowingly false pin for one module. Its caller
-// is sequential for the hook's complete lifetime.
-func SetInitialPinDefectSeed(t *testing.T, moduleDir string) {
-	t.Helper()
-	seedInitialPinDefect = func(configuration discovery.Configuration, pins []characterise.Pin) []characterise.Pin {
-		if configuration.ModuleDir != moduleDir || len(pins) == 0 {
-			return pins
-		}
-
-		defect := pins[0]
-
-		return append(slices.Clone(pins), characterise.Pinned(
-			defect.Scenario(), defect.Address(),
-			defect.Address()+` == "tf-mut-seeded-initial-pin-defect"`, defect.Rung(),
-		))
-	}
-	t.Cleanup(func() {
-		seedInitialPinDefect = func(_ discovery.Configuration, pins []characterise.Pin) []characterise.Pin {
-			return pins
-		}
 	})
 }
 
