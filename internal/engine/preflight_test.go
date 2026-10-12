@@ -18,6 +18,8 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
+const preflightFixture = "skeleton"
+
 // The deadlines every outbound call carries. Each test here wraps the real
 // Terraform binary — or git — in a script that sleeps exactly where the
 // deadline should fire, and asserts the run ends operationally, or lands the
@@ -54,7 +56,7 @@ func TestAFmtDeadlineFailsEveryWarmUpCommand(t *testing.T) {
 		t.Run(command, func(t *testing.T) {
 			t.Parallel()
 
-			fixture := "skeleton"
+			fixture := preflightFixture
 			if command == "characterise" {
 				fixture = "untested-zero-output"
 			}
@@ -96,7 +98,7 @@ func TestAFmtDeadlineFailsEveryWarmUpCommand(t *testing.T) {
 func TestCancellationDuringFmtFailsPreview(t *testing.T) {
 	t.Parallel()
 
-	request := previewRequest(t, copyFixture(t, "skeleton"))
+	request := previewRequest(t, copyFixture(t, preflightFixture))
 	request.TerraformBinary = sleepingTerraform(t, `[ "$2" = fmt ] && touch "$0.started"`, 300)
 	request.PreflightTimeout = time.Minute
 
@@ -153,7 +155,7 @@ func TestCancellationDuringFmtFailsPreview(t *testing.T) {
 func TestAnInitThatOutlivesItsPreflightCapFailsOperationallyNamingThePhase(t *testing.T) {
 	t.Parallel()
 
-	module := copyFixture(t, "skeleton")
+	module := copyFixture(t, preflightFixture)
 
 	config := baseConfig(t, module)
 	config.TerraformBinary = sleepingTerraform(t, `[ "$2" = init ]`, 300)
@@ -187,7 +189,7 @@ func TestAnInitThatOutlivesItsPreflightCapFailsOperationallyNamingThePhase(t *te
 func TestABaselineThatOutlivesItsPreflightCapFailsOperationallyNamingThePhase(t *testing.T) {
 	t.Parallel()
 
-	module := copyFixture(t, "skeleton")
+	module := copyFixture(t, preflightFixture)
 
 	config := baseConfig(t, module)
 	// The warm workspace is the baseline's sandbox; a mutant sandbox is
@@ -225,7 +227,7 @@ func TestABaselineThatOutlivesItsPreflightCapFailsOperationallyNamingThePhase(t 
 func TestAPhaseTwoRunThatOutlivesTheBudgetLandsInTheDenominator(t *testing.T) {
 	t.Parallel()
 
-	module := copyFixture(t, "skeleton")
+	module := copyFixture(t, preflightFixture)
 
 	config := baseConfig(t, module)
 	config.TerraformBinary = sleepingTerraform(t,
@@ -345,7 +347,7 @@ func TestAScaffoldAnswerVerificationDeadlineFailsBeforeWriting(t *testing.T) {
 // behind --since: a short fixed cap, and a run that ends operationally when
 // it fires, because a hung git hangs the whole selection otherwise.
 func TestAGitCallThatOutlivesItsCapFailsTheRun(t *testing.T) {
-	module := gitFixture(t, "skeleton")
+	module := gitFixture(t, preflightFixture)
 	writeFile(t, filepath.Join(module, "extra.tf"), extraResource)
 
 	realGit, lookupErr := exec.LookPath("git")
@@ -389,68 +391,84 @@ exec ` + realGit + ` "$@"
 	}
 }
 
+type gitLookupFallbackCase struct {
+	name      string
+	condition string
+	todos     bool
+	pack      bool
+}
+
+//nolint:paralleltest // Git shim changes the process PATH and package-global Git deadline.
 func TestGitDeadlinesAreFatalThroughLookupFallbacks(t *testing.T) {
-	cases := []struct {
-		name      string
-		condition string
-		todos     bool
-		pack      bool
-	}{
+	cases := []gitLookupFallbackCase{
 		{name: "checkout-preview", condition: `[ "$4" = --show-toplevel ]`},
 		{name: "checkout-todos", condition: `[ "$4" = --show-toplevel ]`, todos: true},
 		{name: "pack-repository", condition: `[[ "$2" == */packs/ ]] && [ "$4" = --is-inside-work-tree ]`, pack: true},
-		{name: "pack-committed", condition: `[[ "$2" == */packs/ ]] && [ "$3" = diff ] && [[ "$6" == *...HEAD ]]`, pack: true},
+		{
+			name:      "pack-committed",
+			condition: `[[ "$2" == */packs/ ]] && [ "$3" = diff ] && [[ "$6" == *...HEAD ]]`,
+			pack:      true,
+		},
 		{name: "pack-working-tree", condition: `[[ "$2" == */packs/ ]] && [ "$3" = diff ] && [ "$6" = HEAD ]`, pack: true},
 		{name: "pack-untracked", condition: `[[ "$2" == */packs/ ]] && [ "$3" = ls-files ]`, pack: true},
 	}
 	for _, testCase := range cases {
 		for _, deadline := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s/deadline=%t", testCase.name, deadline), func(t *testing.T) {
-				fixture := "skeleton"
-				if testCase.pack {
-					fixture = packsFixture
-				}
-				module := gitFixture(t, fixture)
-				request := previewRequest(t, module)
-				if testCase.pack {
-					request.Packs = []string{acmePack}
-					request.Since = sinceHead
-				}
-
-				realGit, err := exec.LookPath("git")
-				if err != nil {
-					t.Fatal(err)
-				}
-				shimDir := t.TempDir()
-				action := "exit 1"
-				if deadline {
-					action = "sleep 60"
-				}
-				shim := filepath.Join(shimDir, "git")
-				writeFile(t, shim, "#!/usr/bin/env bash\nif "+testCase.condition+"; then "+action+
-					"; fi\nexec \"$TF_MUT_REAL_GIT\" \"$@\"\n")
-				if err := os.Chmod(shim, 0o700); err != nil {
-					t.Fatal(err)
-				}
-				t.Setenv("TF_MUT_REAL_GIT", realGit)
-				t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-				engine.SetGitTimeout(t, 500*time.Millisecond)
-
-				var command engine.Request = request
-				if testCase.todos {
-					command = engine.TodosRequest{Common: request.Common}
-				}
-				result, err := engine.Run(t.Context(), command)
-				if deadline {
-					if err == nil || !strings.Contains(err.Error(), "did not finish within") {
-						t.Fatalf("error = %v, want a git deadline failure", err)
-					}
-				} else if err != nil {
-					t.Fatalf("an ordinary lookup failure stopped the command: %v", err)
-				} else if testCase.pack && result.Selection.ForcedFull == "" {
-					t.Fatal("an ordinary pack lookup failure did not force the full population")
-				}
+				runGitLookupFallbackCase(t, testCase, deadline)
 			})
+		}
+	}
+}
+
+func runGitLookupFallbackCase(t *testing.T, testCase gitLookupFallbackCase, deadline bool) {
+	t.Helper()
+
+	fixture := preflightFixture
+	if testCase.pack {
+		fixture = packsFixture
+	}
+	module := gitFixture(t, fixture)
+	request := previewRequest(t, module)
+	if testCase.pack {
+		request.Packs = []string{acmePack}
+		request.Since = sinceHead
+	}
+
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shimDir := t.TempDir()
+	action := "exit 1"
+	if deadline {
+		action = "sleep 60"
+	}
+	shim := filepath.Join(shimDir, "git")
+	writeFile(t, shim, "#!/usr/bin/env bash\nif "+testCase.condition+"; then "+action+
+		"; fi\nexec \"$TF_MUT_REAL_GIT\" \"$@\"\n")
+	if chmodErr := os.Chmod(shim, 0o700); chmodErr != nil { //nolint:gosec // fixed test-written Git shim must run.
+		t.Fatal(chmodErr)
+	}
+	t.Setenv("TF_MUT_REAL_GIT", realGit)
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	engine.SetGitTimeout(t, 500*time.Millisecond)
+
+	var command engine.Request = request
+	if testCase.todos {
+		command = engine.TodosRequest{Common: request.Common}
+	}
+	result, err := engine.Run(t.Context(), command)
+	switch {
+	case deadline:
+		if err == nil || !strings.Contains(err.Error(), "did not finish within") {
+			t.Fatalf("error = %v, want a git deadline failure", err)
+		}
+	case err != nil:
+		t.Fatalf("an ordinary lookup failure stopped the command: %v", err)
+	default:
+		if testCase.pack && result.Selection.ForcedFull == "" {
+			t.Fatal("an ordinary pack lookup failure did not force the full population")
 		}
 	}
 }

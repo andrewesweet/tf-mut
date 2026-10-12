@@ -78,19 +78,7 @@ exec ` + realTerraform + ` "$@"
 	if err := command.Start(); err != nil {
 		t.Fatalf("starting helper: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = command.Process.Signal(syscall.SIGINT)
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			_ = command.Process.Kill()
-			select {
-			case <-done:
-			case <-time.After(5 * time.Second):
-				t.Error("the helper was not reaped after SIGKILL")
-			}
-		}
-	})
+	registerSigintHelperCleanup(t, command, done)
 
 	go func() {
 		done <- command.Wait()
@@ -126,6 +114,24 @@ exec ` + realTerraform + ` "$@"
 	if len(entries) != 0 {
 		t.Fatalf("the run's work root outlived the cancelled run: %d entries", len(entries))
 	}
+}
+
+func registerSigintHelperCleanup(t *testing.T, command *exec.Cmd, done <-chan error) {
+	t.Helper()
+
+	t.Cleanup(func() {
+		_ = command.Process.Signal(syscall.SIGINT)
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			_ = command.Process.Kill()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Error("the helper was not reaped after SIGKILL")
+			}
+		}
+	})
 }
 
 // TestRunTheCommandLineForSigintHelper is the child half of the SIGINT

@@ -313,13 +313,7 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	// absent or broken would break the loop over a check it never needed.
 	switch request.(type) {
 	case TodosRequest, *TodosRequest:
-		root, rootErr := checkoutRoot(ctx, moduleDir)
-		if rootErr != nil {
-			return report.Report{}, rootErr
-		}
-
-		listed, listErr := discovery.DiscoverWith(moduleDir, s.TestDirectory,
-			discovery.Options{SkipJSON: disableJSONReading(s), CheckoutRoot: root})
+		listed, listErr := discoverConfiguration(ctx, moduleDir, s)
 		if listErr != nil {
 			return report.Report{}, listErr
 		}
@@ -341,15 +335,7 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	}
 
 	discoveryPhase := collector.phase(phaseDiscovery)
-	root, err := checkoutRoot(ctx, moduleDir)
-	if err != nil {
-		discoveryPhase()
-
-		return report.Report{}, err
-	}
-
-	configuration, err := discovery.DiscoverWith(moduleDir, s.TestDirectory,
-		discovery.Options{SkipJSON: disableJSONReading(s), CheckoutRoot: root})
+	configuration, err := discoverConfiguration(ctx, moduleDir, s)
 	discoveryPhase()
 	if err != nil {
 		return report.Report{}, err
@@ -371,6 +357,16 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 
 		return result, err
 	}
+}
+
+func discoverConfiguration(ctx context.Context, moduleDir string, s settings) (discovery.Configuration, error) {
+	root, err := checkoutRoot(ctx, moduleDir)
+	if err != nil {
+		return discovery.Configuration{}, err
+	}
+
+	return discovery.DiscoverWith(moduleDir, s.TestDirectory,
+		discovery.Options{SkipJSON: disableJSONReading(s), CheckoutRoot: root})
 }
 
 func prepareRunOutput(s *settings) (func(), error) {
