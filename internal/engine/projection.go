@@ -656,8 +656,8 @@ func describeMutants(
 			outcome = oracle.StaticallyUnobservable()
 		default:
 			// Pending stands: the state every executable mutant carries until
-			// something decides otherwise, and the only state a preview
-			// reports.
+			// something decides otherwise. A preview retains it after the
+			// module-level NoCoverage check above.
 			outcome = oracle.Pending()
 		}
 
@@ -699,9 +699,8 @@ func describeUnmatched(unmatched []mutation.Origin) []string {
 }
 
 // staticallyUnobservable applies the guarded static shortcut (M3a.2, review
-// C2). The structural precedence comes first: a non-projecting operator —
-// every contract and ordering operator — is never statically classified, and
-// execution decides its state. The shortcut then fires only where the site
+// C2). Non-projecting operators bypass this shortcut; describeMutants checks
+// NoCoverage first. The shortcut fires only where the site
 // maps into the graph (unmapped fails closed to execution) and its forward
 // cone reaches nothing observable: no resource, data source, output, check or
 // contract construct.
