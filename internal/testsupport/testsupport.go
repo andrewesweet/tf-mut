@@ -1,5 +1,5 @@
 // Package testsupport holds the file-writing helper shared by the engine
-// and CLI test suites, so the fixture-copy mode has exactly one definition.
+// and CLI test suites, so the file-creation mode has exactly one definition.
 package testsupport
 
 import (
@@ -7,12 +7,12 @@ import (
 	"testing"
 )
 
-// fixtureMode is the permission every test fixture copy gets: owner read and
-// write only, matching what the suites wrote before the helper was shared.
+// fixtureMode gives newly created fixture files owner read and write access only.
 const fixtureMode = 0o600
 
-// WriteFile writes content to path with the fixture-copy mode, failing the
-// test on error. Every caller passes a path under t.TempDir().
+// WriteFile writes content to path, failing the test on error. New files use
+// fixtureMode; existing files keep their permissions. Every caller passes a
+// path under t.TempDir().
 func WriteFile(tb testing.TB, path, content string) {
 	tb.Helper()
 

@@ -80,7 +80,7 @@ fmt-check:
 # Run every read-only language and workflow quality gate.
 lint: lint-go lint-shell lint-config lint-actions
 
-# Run the pinned aggressive Go linters without fixes, over both build tags.
+# Run the pinned aggressive Go linters over offline and integration/research configurations.
 lint-go:
     mise exec -- golangci-lint run ./...
     mise exec -- golangci-lint run --build-tags=integration,research ./...
@@ -105,9 +105,6 @@ lint-fix:
 fix: lint-fix fmt
 
 # Compile and vet production and test packages without executing tests.
-# The tag pairs mirror the combinations the recipes build: the research
-# instruments alone (gate-m5), and together with the integration-tagged
-# corpus tests whose files share helpers (every measure recipe).
 typecheck:
     mise exec -- go build -mod=readonly ./...
     mise exec -- go vet -tests=true ./...
@@ -148,10 +145,8 @@ gate-m45:
       --raw-command -- go test ./internal/engine/ ./internal/skill/ ./internal/sandbox/ ./internal/characterise/ ./cmd/tf-mut/ \
       -json -count=1 -run '^(TestACheckScopedDataSourceReachesTheProviderInventory|TestACheckScopedDataSourceReachesTheEffectInventory|TestARemovedBlockReachesTheProviderInventory|TestARemovedBlockProvisionerReachesTheEffectInventoryAndNeverExecutes|TestACheckScopedDataSourceInJSONReachesTheEffectInventory|TestACheckScopedDataSourceInJSONReachesTheProviderInventory|TestARemovedBlockInJSONReachesTheEffectInventory|TestARemovedBlockInJSONReachesTheProviderInventory|TestAMovedBlockRunsLikeAnyOtherModule|TestAnImportBlockIsRefusedInHCL|TestAMovedBlockInJSONIsReadRatherThanRefused|TestAnImportBlockInJSONIsRefusedByName|TestAnUntestedAliasedProviderModuleCharacterisesWithNoOptIn|TestAMissingAliasMockRefusesBeforeExecution|TestTheDefaultCharacterisationWritesNothing|TestAWrittenSuiteIsGreenAndRegistered|TestASecondWriteIsRefusedAsACollision|TestForceReplacesOnlyUnmodifiedGeneratedFiles|TestScenariosCarryDistinctStateKeys|TestAZeroOutputModuleEscalatesAndSaysSo|TestARungThatPinsNothingIsNeverComplete|TestTheConfiguredRungPinsOnlyWhatTheConfigurationDetermined|TestAnUnknownRungIsRefused|TestASensitiveValueReachesNoGeneratedArtefact|TestARealCharacterisationReportValidatesAgainstThePublishedSchema|TestBranchExpansionPinsBothSidesOfAConditional|TestScenarioPinsAreInvariantUnderFileOrder|TestUntilDryConvergesWithoutWritingAByte|TestUntilDryRespectsTheGranularityLadder|TestCurateRefusesAPartialPopulationAtConfigurationTime|TestCurateReportsAnEmptyKillSetWithItsEvidence|TestCurateWritesNothing|TestOneMutantFailingTwoAssertionsAttributesBoth|TestUnassertableConstructsBecomeNonExecutableScaffolds|TestAnUnsynthesizableInputBecomesANonExecutableArtefact|TestAnAnsweredTodoIsPromotedAndTheSuiteIsGreen|TestTodosListsTheOpenJudgementPointsWithTheirEvidence|TestASecretInAFailedAttemptReachesNoArtefact|TestCharacteriseIsWiredThroughTheCommandLine|TestCharacteriseRefusesArgumentsAfterTheModulePath|TestTheTodoSurfacesAreWiredInBothArgumentOrders|TestTodosRefusesArgumentsAfterTheModulePath|TestTheInstalledSkillsWalkthroughExecutes|TestASeededWrongFlagInTheSkillTurnsTheGateRed|TestARefutedAnswerIsRejectedRatherThanAnOperationalFailure|TestAClosureChangeAtTheProbeYieldsZeroWrites|TestNoTerraformRunPrecedesAStagedGateRefusal|TestCurateIsWiredThroughTheCommandLine|TestCurateRefusesArgumentsAfterTheModulePath|TestAMinedValidationResolvesAnInputWithNoDefault|TestASensitiveAnswerIsVerifiedAndStillWithheld|TestANewClosureFileAtTheProbeYieldsZeroWrites|TestAPartialCommitReportsWhatItWrote|TestAnAnsweredScaffoldIsVerifiedBeforeItIsPromoted|TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions|TestTheFinalPinSetIsVerifiedBeforeAnyWrite|TestEveryTestNameADocumentClaimsExists|TestAPartialSkillInstallReportsWhatLanded|TestAStagedPathCannotEscapeTheSandbox|TestAScaffoldAnswerCannotInjectConfiguration|TestAForeignRegistryIsNeverReplaced|TestARegistryFailureReportsThePartialState|TestAClosureChangeInsideTheRenameWindowIsCaught|TestConfigurationAliasesAreMockedAndGated|TestTheValidationFunctionTable|TestAMovedBlockRunsLikeAnyOtherModule|TestAMovedBlockInJSONIsReadRatherThanRefused|TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten|TestAJSONDeclaredVariableReachesTheScaffold|TestForEachKeysNeedingEscapesStillRenderAGreenSuite|TestAJSONDeclaredDirectiveConditionReachesTheScaffold|TestUntilDryRefusesANarrowedPopulation|TestARealCurateReportValidatesAgainstThePublishedSchema|TestCurateHonoursTheGateFlagsItAccepts|TestNoReportFieldVariesWithTheSensitiveAnswer|TestACharacterisationFlagIsRefusedByAGradingCommand|TestAReporterThatCannotCarryACharacterisationIsRefused|TestTheInstalledWalkthroughDrainsAJudgementPoint|TestASeededWrongFlagInTheJudgementPointWalkthroughTurnsItRed|TestTheGranularityFlagReachesTheEngine)$'
 
+# Research-tagged reproductions remain offline; corpus measurements require integration.
 # Run the M5 offline gates: the Tier 4 lifecycle witnesses (M5a), the pack mechanism and contract (M5c.1), and the shipped security-aws pack (M5c.2).
-# The research tag compiles the offline research instruments the named
-# reproductions live in; the anchored pattern runs none of the
-# integration-tagged corpus measurements the same tag set compiles.
 gate-m5:
     mkdir -p "{{ artifact_dir }}/test"
     mise exec -- gotestsum --format testname --junitfile "{{ artifact_dir }}/test/gate-m5.xml" \
@@ -162,15 +157,7 @@ gate-m5:
 # Run fixed-seed Go/property/corpus tests and offline real-Terraform fixtures.
 test: _test-go _test-terraform
 
-# Inner-loop suite: the same fixed-seed run with -short, which skips the
-# tests gated with testing.Short() (the real-Terraform runs measured over
-# nine seconds each) and the research instruments behind the research build
-# tag. The full suite stays the committed gate: `just test` and `just ci`
-# never pass -short, and CI keeps running it unchanged. Measured wall time
-# on the 12-core development host: 2m47s–3m00s under a concurrent corpus
-# run; the review's 30s estimate did not survive measurement, because the
-# engine package's critical path is the mass of 3–8s terraform-spawning
-# tests, not the gated tail.
+# Run the inner Go development loop; see docs/research/05-go-build-chain.md.
 test-fast:
     mkdir -p "{{ artifact_dir }}/test"
     RAPID_SEED=424242 RAPID_CHECKS=100 mise exec -- \

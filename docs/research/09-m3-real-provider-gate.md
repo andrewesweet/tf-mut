@@ -118,7 +118,7 @@ not taken here.
 
 ```bash
 TF_MUT_ALLOW_REAL_INFRASTRUCTURE=1 mise exec -- \
-  go test -tags=integration \
+  go test -tags=integration,research \
   -run 'TestInnerLoopGate|TestTheMockMaskedRefutation|TestAdmissionMeasurement' \
   -timeout 90m ./internal/engine/
 ```

@@ -234,16 +234,6 @@ linters:
   exclusions:
     generated: strict
     rules:
-      # gosec's G703 taint analysis activates for writeFile's fixture-copy
-      # path only under some build-tag sets, so the required //nolint:gosec is
-      # "used" under one tag set and "unused" under the other — the same
-      # machine-dependent activation that got call-to-gc its deterministic
-      # disable above. The suppression stays; nolintlint's unused-directive
-      # check is excluded for this one file, deterministically, with this as
-      # the recorded reason.
-      - path: internal/engine/harness_test\.go
-        linters:
-          - nolintlint
       # The validation-function table is a contract about expressions and is
       # tested package-internally, which is AGENTS.md's fifth recorded testing
       # exception. It needs the unexported evaluator it is a contract about;

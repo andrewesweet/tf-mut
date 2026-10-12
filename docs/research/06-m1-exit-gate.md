@@ -200,7 +200,7 @@ suite's largest fixture": demonstrated at 3.0× on the offline corpus, and hones
 
 ```bash
 TF_MUT_ALLOW_REAL_INFRASTRUCTURE=1 TF_MUT_MEASURE_SCALING=1 \
-  go test -tags=integration ./internal/engine/ \
+  go test -tags=integration,research ./internal/engine/ \
   -run TestPerformanceAgainstAMockedRealProvider -count=1 -timeout 40m
 ```
 
