@@ -210,8 +210,8 @@ func TestABaselineThatOutlivesItsPreflightCapFailsOperationallyNamingThePhase(t 
 		t.Fatalf("error = %v, want an operational terraform failure", err)
 	}
 
-	if !strings.Contains(err.Error(), "baseline") {
-		t.Fatalf("the failure does not name the phase: %v", err)
+	if !strings.Contains(err.Error(), "baseline") || !strings.Contains(err.Error(), "did not finish within") {
+		t.Fatalf("the failure does not name the phase and the cap: %v", err)
 	}
 
 	if elapsed > 30*time.Second {
@@ -297,8 +297,8 @@ func TestACharacterisationStagedRunThatOutlivesTheBudgetFailsTheRun(t *testing.T
 		t.Fatalf("error = %v, want an operational terraform failure", err)
 	}
 
-	if !strings.Contains(err.Error(), "harvest") {
-		t.Fatalf("the failure does not name the phase: %v", err)
+	if !strings.Contains(err.Error(), "harvest") || !strings.Contains(err.Error(), "did not finish within") {
+		t.Fatalf("the failure does not name the phase and the budget: %v", err)
 	}
 }
 
