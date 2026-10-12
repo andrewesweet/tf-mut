@@ -22,8 +22,9 @@ import (
 	"time"
 )
 
-// ErrNotExecuted reports a Terraform invocation that never produced output
-// because the binary could not be started.
+// ErrNotExecuted reports an operational failure to start or complete a Terraform
+// invocation. It includes context cancellation; an expired deadline is recorded
+// in Result.TimedOut instead.
 var ErrNotExecuted = errors.New("terraform could not be executed")
 
 // ErrCommandFailed reports a Terraform subcommand that exited non-zero where a

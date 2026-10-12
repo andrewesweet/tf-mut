@@ -70,6 +70,9 @@ When a Terraform command reaches its deadline, tf-mut stops the command and its 
 plugins. See [mutant states](docs/design/product-design.md#4-mutant-states) for how a test
 deadline appears beside the mutant's verdict.
 
+Interrupting evaluation with Ctrl-C or SIGTERM also stops Terraform and its provider
+plugins. The interrupted evaluation returns an operational failure (exit code `2`).
+
 Preview records safety-gate advisories and refusals in the report's warnings while still
 listing the mutant population. It executes no test run blocks. For run blocks targeting
 local modules, see the [checkout boundary](docs/design/product-design.md#discover).

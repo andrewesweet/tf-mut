@@ -45,14 +45,14 @@ func run(ctx context.Context, args []string) error {
 	case "verify-providers":
 		err = buildchain.VerifyProviderChain(root)
 	case "sync-go-toolchains":
-		ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+		signalCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 		defer stop()
 		go func() {
-			<-ctx.Done()
+			<-signalCtx.Done()
 			stop()
 		}()
 
-		err = buildchain.SyncGoToolchains(ctx, root, runtime.Version())
+		err = buildchain.SyncGoToolchains(signalCtx, root, runtime.Version())
 	default:
 		return fmt.Errorf("%w %q", errUnknownCommand, args[commandArgumentIndex])
 	}
