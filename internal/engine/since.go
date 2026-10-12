@@ -463,7 +463,8 @@ func sampleRank(seed int64, id string) uint64 {
 func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	// The shared constructor stops the whole process group when the command's
 	// context expires, so no git subprocess outlives the run either.
-	command := tfexec.GroupCommand(ctx, "git", append([]string{"-C", dir}, args...)...) //nolint:gosec // fixed binary; tool-controlled arguments.
+	arguments := append([]string{"-C", dir}, args...)
+	command := tfexec.GroupCommand(ctx, "git", arguments...)
 
 	environment := []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null"}
 

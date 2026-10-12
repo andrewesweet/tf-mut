@@ -37,7 +37,7 @@ func (r Runner) StreamOutput(
 	full := append([]string{"-chdir=" + dir}, args...)
 	// The shared constructor stops the whole process group at the deadline, so
 	// the provider plugins Terraform started cannot outlive the run.
-	command := GroupCommand(ctx, r.Binary, full...) //nolint:gosec // the binary and arguments are tool-controlled.
+	command := GroupCommand(ctx, r.Binary, full...)
 	command.Env = append(inheritedEnvironment(), r.Env...)
 
 	stderr := bytes.Buffer{}

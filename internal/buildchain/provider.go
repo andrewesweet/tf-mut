@@ -206,14 +206,11 @@ func SyncGoToolchains(ctx context.Context, root, goVersion string) error {
 	for _, module := range []string{".", "tools/gopls", "tools/goimports", "tools/govulncheck"} {
 		// The executable and arguments are repository-controlled; only a validated semantic
 		// version is interpolated into the go command.
-		command := tfexec.GroupCommand(
-			ctx,
-			"go",
-			"mod",
-			"edit",
+		command := tfexec.GroupCommand(ctx, "go",
+			"mod", "edit",
 			"-go="+versions.Language,
 			"-toolchain="+versions.Exact,
-		) //nolint:gosec // See the repository-controlled invariant above.
+		)
 		command.Dir = filepath.Join(root, module)
 		output, commandErr := command.CombinedOutput()
 		if commandErr != nil {

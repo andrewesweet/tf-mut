@@ -343,8 +343,8 @@ const waitDelay = 5 * time.Second
 // process has started, so Process is always set when it runs. Setpgid and the
 // group signal are Unix interfaces, shared by every platform the project
 // builds for; the package does not build on Windows today in any case.
-func GroupCommand(ctx context.Context, name string, args ...string) *exec.Cmd { //nolint:gosec // the binary and arguments are tool-controlled values.
-	command := exec.CommandContext(ctx, name, args...)
+func GroupCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
+	command := exec.CommandContext(ctx, name, args...) //nolint:gosec // tool-controlled values.
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	// A killed descendant can hold a pipe open past its death; without the
 	// delay, Wait would block on the pipe instead of returning the verdict.
