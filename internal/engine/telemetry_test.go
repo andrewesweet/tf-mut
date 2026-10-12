@@ -3,6 +3,7 @@ package engine_test
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -47,6 +48,11 @@ const (
 	parentSymlinkNewKind      = "parent-symlink-new"
 	traceWriterCase           = "writer"
 )
+
+// runIDShape is the identifier shape every run publishes: the OpenTelemetry
+// trace-ID shape — thirty-two lowercase hex characters — whether it came from
+// the run span's trace ID or from crypto/rand.
+var runIDShape = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 // phaseNames projects a phase list onto its names, in the recorded order.
 func phaseNames(phases []report.PhaseTiming) []string {
@@ -349,8 +355,11 @@ func (b *lockedBuffer) String() string {
 
 // TestProgressLinesReportTheLongRun pins F5: a run with a progress writer and
 // a short interval emits periodic n/N lines carrying elapsed time and an ETA,
-// on the writer given and nowhere else. A run with no writer — the default,
-// and every other test in this suite — stays silent.
+// on the writer given and nowhere else, each line carrying the run
+// identifier as a `[<run_id>] ` prefix — the same identifier the report's
+// telemetry block publishes, minted at random here because the run exports no
+// traces. A run with no writer — the default, and every other test in this
+// suite — stays silent.
 //
 //nolint:paralleltest // Swaps the package-level progress interval, which is not safe in parallel.
 func TestProgressLinesReportTheLongRun(t *testing.T) {
@@ -371,17 +380,33 @@ func TestProgressLinesReportTheLongRun(t *testing.T) {
 		t.Fatal("a run with a progress writer and a one-millisecond interval printed nothing")
 	}
 
+	// The run identifier exists even without tracing, in the trace-ID shape:
+	// thirty-two lowercase hex characters.
+	if result.Telemetry == nil || !runIDShape.MatchString(result.Telemetry.RunID) {
+		t.Fatalf("report run_id = %q, want the 32-hex trace-ID shape", result.Telemetry.RunID)
+	}
+
 	// The line names the executed population and the pace: n of N mutants,
-	// an elapsed time and an ETA, all on one stderr-shaped line.
+	// an elapsed time and an ETA, all on one stderr-shaped line under the
+	// run identifier this report publishes.
 	pattern := regexp.MustCompile(
-		`tf-mut: \d+/` + strconv.Itoa(result.Population.Selected) + ` mutants, \d+s elapsed, ETA `,
+		`\[` + result.Telemetry.RunID + `\] tf-mut: \d+/` + strconv.Itoa(result.Population.Selected) +
+			` mutants, \d+s elapsed, ETA `,
 	)
 	if !pattern.MatchString(text) {
-		t.Fatalf("progress output does not match the n/N, elapsed, ETA shape:\n%s", text)
+		t.Fatalf("progress output does not match the [run_id] n/N, elapsed, ETA shape:\n%s", text)
+	}
+
+	// Every line carries the prefix, not only the periodic ones.
+	prefix := "[" + result.Telemetry.RunID + "] "
+	for line := range strings.SplitSeq(strings.TrimSuffix(text, "\n"), "\n") {
+		if !strings.HasPrefix(line, prefix) {
+			t.Fatalf("line without the run-identifier prefix %q: %q", prefix, line)
+		}
 	}
 
 	// The final count reached the total: the tracker did not stop early.
-	counted := regexp.MustCompile(`tf-mut: (\d+)/`)
+	counted := regexp.MustCompile(`\] tf-mut: (\d+)/`)
 	last := 0
 	for _, match := range counted.FindAllStringSubmatch(text, -1) {
 		if n, err := strconv.Atoi(match[1]); err == nil {
@@ -509,12 +534,15 @@ func TestTraceExportWarningsAndProgressShareTheWriter(t *testing.T) {
 	request.Progress = &output
 	engine.SetProgressInterval(t, time.Millisecond)
 
-	if _, err := engine.Run(t.Context(), request); err != nil {
+	result, err := engine.Run(t.Context(), request)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	warning := "tf-mut: trace export failed"
-	progress := regexp.MustCompile(`^tf-mut: \d+/\d+ mutants, .* elapsed, ETA .*`)
+	// Warnings and progress share the writer and the run-identifier prefix.
+	prefix := "[" + result.Telemetry.RunID + "] "
+	warning := prefix + "tf-mut: trace export failed"
+	progress := regexp.MustCompile(`^` + regexp.QuoteMeta(prefix) + `tf-mut: \d+/\d+ mutants, .* elapsed, ETA .*`)
 	warnings, lines := 0, 0
 	for line := range strings.SplitSeq(strings.TrimSuffix(output.String(), "\n"), "\n") {
 		switch {
@@ -565,13 +593,15 @@ func TestTraceExportWarningsStopWhenRunReturns(t *testing.T) {
 	request.Progress = &output
 	engine.SetProgressInterval(t, time.Hour)
 
-	if _, err := engine.Run(t.Context(), request); err != nil {
+	result, err := engine.Run(t.Context(), request)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if got := requests.Load(); got != 1 {
 		t.Fatalf("export requests before return = %d, want one still pending", got)
 	}
 	warning := output.String()
+	expectedWarning := "[" + result.Telemetry.RunID + "] tf-mut: trace export failed\n"
 
 	output.Reset()
 	_, _ = output.WriteString("caller owns this buffer\n")
@@ -585,8 +615,8 @@ func TestTraceExportWarningsStopWhenRunReturns(t *testing.T) {
 	if got := output.String(); got != "caller owns this buffer\n" {
 		t.Fatalf("an export wrote to the caller's buffer after return: %q", got)
 	}
-	if warning != "tf-mut: trace export failed\n" {
-		t.Fatalf("shutdown warning = %q", warning)
+	if warning != expectedWarning {
+		t.Fatalf("shutdown warning = %q, want %q", warning, expectedWarning)
 	}
 }
 
@@ -603,6 +633,11 @@ func TestTraceExportWarningsStayWithTheirRun(t *testing.T) {
 
 func assertTraceExportWarningsStayWithTheirRun(t *testing.T, secondWriter string) {
 	t.Helper()
+
+	type runOutcome struct {
+		report report.Report
+		err    error
+	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
@@ -638,10 +673,10 @@ func assertTraceExportWarningsStayWithTheirRun(t *testing.T, secondWriter string
 		second.Progress = &secondOutput
 	}
 
-	finished := make(chan error, 1)
+	finished := make(chan runOutcome, 1)
 	go func() {
-		_, err := engine.Run(ctx, first)
-		finished <- err
+		firstReport, err := engine.Run(ctx, first)
+		finished <- runOutcome{report: firstReport, err: err}
 	}()
 
 	select {
@@ -650,21 +685,24 @@ func assertTraceExportWarningsStayWithTheirRun(t *testing.T, secondWriter string
 		t.Fatal("the first run never reached its trace export")
 	}
 
-	if _, err := engine.Run(ctx, second); err != nil {
+	secondReport, err := engine.Run(ctx, second)
+	if err != nil {
 		t.Fatal(err)
 	}
 	released.Do(func() { close(release) })
-	if err := <-finished; err != nil {
-		t.Fatal(err)
+	firstOutcome := <-finished
+	if firstOutcome.err != nil {
+		t.Fatal(firstOutcome.err)
 	}
 
-	warning := "tf-mut: trace export failed\n"
+	// Each warning carries the run identifier that run's own report publishes.
+	warning := "[" + firstOutcome.report.Telemetry.RunID + "] tf-mut: trace export failed\n"
 	if firstOutput.String() != warning {
 		t.Fatalf("first run warning = %q, want %q", firstOutput.String(), warning)
 	}
 	wanted := ""
 	if secondWriter == traceWriterCase {
-		wanted = warning
+		wanted = "[" + secondReport.Telemetry.RunID + "] tf-mut: trace export failed\n"
 	}
 	if secondOutput.String() != wanted {
 		t.Fatalf("second run warning = %q, want %q", secondOutput.String(), wanted)
@@ -779,6 +817,10 @@ func TestTraceMeasurementsMatchTheReport(t *testing.T) {
 func assertTraceUsageMatches(t *testing.T, spans []*tracepb.Span, result report.Report) {
 	t.Helper()
 
+	// The report publishes the run span's trace identifier: the one
+	// identifier the trace, the report and every stderr line share.
+	assertRunIdentifierIsTheRunSpanTraceID(t, spans, result)
+
 	children := []report.ProcessUsage{}
 	for _, span := range spans {
 		if usage, found := tracedChildUsage(t, span); found {
@@ -800,6 +842,89 @@ func assertTraceUsageMatches(t *testing.T, spans []*tracepb.Span, result report.
 			assertMutantTraceUsage(t, spans, mutant)
 		}
 	}
+}
+
+// assertRunIdentifierIsTheRunSpanTraceID holds the identifier contract at the
+// seam: the report's telemetry publishes exactly one run span, and its trace
+// ID is the report's run_id — the same value every span of the run carries.
+func assertRunIdentifierIsTheRunSpanTraceID(t *testing.T, spans []*tracepb.Span, result report.Report) {
+	t.Helper()
+
+	if result.Telemetry == nil || !runIDShape.MatchString(result.Telemetry.RunID) {
+		t.Fatalf("report run_id = %q, want the 32-hex trace-ID shape", result.Telemetry.RunID)
+	}
+
+	found := 0
+	for _, span := range spans {
+		if span.GetName() != "tf-mut.run" {
+			continue
+		}
+
+		found++
+		if got, want := hex.EncodeToString(span.GetTraceId()), result.Telemetry.RunID; got != want {
+			t.Fatalf("run span trace id = %s, report run_id = %s", got, want)
+		}
+	}
+
+	if found != 1 {
+		t.Fatalf("exported %d run spans, want exactly one", found)
+	}
+}
+
+// TestExecutionErrorAppearsOnTheMutantSpan holds the trace half of the
+// execution-error contract: an operational failure the report carries as an
+// ExecutionError is also an event on that mutant's span, carrying the same
+// text, so a trace shows the failure the report shows.
+func TestExecutionErrorAppearsOnTheMutantSpan(t *testing.T) {
+	t.Parallel()
+
+	sink := newSpanCollector(t, 0)
+	config := baseConfig(t, copyFixture(t, "skeleton"))
+	config.TestSelection = []string{"tests/does-not-exist.tftest.hcl"}
+	config.OTLPEndpoint = sink.server.URL
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.Errors) == 0 {
+		t.Fatal("the selection matching nothing produced no execution error to trace")
+	}
+
+	spans := sink.exportedSpans()
+	for _, failure := range result.Errors {
+		assertErrorIsASpanEvent(t, spans, failure)
+	}
+}
+
+// assertErrorIsASpanEvent finds the mutant's exported span and requires an
+// execution-error event carrying the report's failure text verbatim.
+func assertErrorIsASpanEvent(t *testing.T, spans []*tracepb.Span, failure report.ExecutionError) {
+	t.Helper()
+
+	for _, span := range spans {
+		if span.GetName() != "tf-mut.mutant" || spanAttributeString(span, "tf-mut.mutant_id") != failure.MutantID {
+			continue
+		}
+
+		for _, event := range span.GetEvents() {
+			if event.GetName() != "tf-mut.execution_error" {
+				continue
+			}
+
+			for _, attribute := range event.GetAttributes() {
+				if attribute.GetKey() == "tf-mut.error" && attribute.GetValue().GetStringValue() == failure.Message {
+					return
+				}
+			}
+		}
+
+		t.Fatalf("mutant %s carries the execution error %q in the report but no matching span event",
+			failure.MutantID, failure.Message)
+	}
+
+	t.Fatalf("execution error for mutant %s has no exported mutant span", failure.MutantID)
 }
 
 func assertMutantPhaseChildCounts(t *testing.T, mutant report.Mutant) {

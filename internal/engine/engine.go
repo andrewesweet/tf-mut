@@ -281,18 +281,25 @@ type instrumentation struct {
 // asked for, the tracer, and the collector whose phase recorders the pipeline
 // records through. It returns the instrumentation and the run-span context
 // the pipeline below runs under. The flush outlives request cancellation so
-// recorded spans can still reach the collector; tracing and CPU-profile
-// warnings share the request's progress writer — never a report sink — and a
-// nil writer drops them.
+// recorded spans can still reach the collector; progress, tracing and
+// CPU-profile warnings share the request's progress writer, under the run
+// identifier's prefix — never a report sink — and a nil writer drops them.
 func instrument(ctx context.Context, s *settings) (instrumentation, context.Context, error) {
-	stopProfile, profileErr := prepareRunOutput(s)
-	if profileErr != nil {
-		return instrumentation{}, nil, profileErr
+	output, outputErr := prepareRunOutput(s)
+	if outputErr != nil {
+		return instrumentation{}, nil, outputErr
 	}
 
 	// Telemetry records its own overhead without affecting verdicts.
 	tracer := tracing.New(ctx, s.OTLPEndpoint, s.Progress)
 	collector := newRunCollector(ctx, tracer)
+
+	runCtx := collector.beginRun(string(commandName(s.mode)))
+	// One identifier for everything this run publishes: minted once where the
+	// run span starts — its trace ID when tracing is on, a random one of the
+	// same shape otherwise — carried by the report's telemetry block and by
+	// every stderr line the run writes.
+	output.startIdentifier(collector.identify())
 
 	return instrumentation{
 		collector: collector,
@@ -303,9 +310,9 @@ func instrument(ctx context.Context, s *settings) (instrumentation, context.Cont
 			defer cancel()
 			_ = tracer.Shutdown(flushCtx)
 
-			stopProfile()
+			output.stopProfile()
 		},
-	}, collector.beginRun(string(commandName(s.mode))), nil
+	}, runCtx, nil
 }
 
 // dispatch holds the single request type switch. Its arm order is part of the
@@ -472,17 +479,42 @@ func discoverConfiguration(ctx context.Context, moduleDir string, s settings) (d
 		discovery.Options{SkipJSON: disableJSONReading(s), CheckoutRoot: root})
 }
 
-func prepareRunOutput(s *settings) (func(), error) {
+// runOutput is what prepareRunOutput hands the run: the stderr channel every
+// line the engine writes flows through, and the profile stop bracket.
+type runOutput struct {
+	// prefix is the run-identifier writer, nil when the run has no writer at
+	// all and stays silent.
+	prefix *runPrefixWriter
+	// stopProfile ends the CPU profile, or does nothing without one.
+	stopProfile func()
+}
+
+// startIdentifier puts the run identifier on every stderr line from here on,
+// releasing whatever was written before it existed.
+func (o runOutput) startIdentifier(identifier string) {
+	o.prefix.start(identifier)
+}
+
+// prepareRunOutput points the run's one stderr channel — progress lines,
+// tracing warnings and profile warnings — through the writer the caller gave,
+// synchronized and prefixed with the run identifier once it is minted. The
+// CPU profile writes only to the file the user explicitly requested.
+func prepareRunOutput(s *settings) (runOutput, error) {
+	output := runOutput{stopProfile: func() {}}
+
 	if s.Progress != nil {
-		s.Progress = &synchronizedWriter{writer: s.Progress}
+		output.prefix = newRunPrefixWriter(s.Progress)
+		s.Progress = &synchronizedWriter{writer: output.prefix}
 	}
 
-	// The CPU profile writes only to the file the user explicitly requested.
 	if s.CPUProfile == "" {
-		return func() {}, nil
+		return output, nil
 	}
 
-	return startCPUProfile(s.ModuleDir, s.CPUProfile, s.Progress)
+	stop, err := startCPUProfile(s.ModuleDir, s.CPUProfile, s.Progress)
+	output.stopProfile = stop
+
+	return output, err
 }
 
 func finishRunReport(

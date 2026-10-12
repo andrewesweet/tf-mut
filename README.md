@@ -98,15 +98,19 @@ For verdict-cache storage, reuse and upgrades, see the
 [cache contract](docs/design/product-design.md#10-ci-integration).
 
 With `--reporter json`, `run`, `preview`, `suggest` and `curate` include performance telemetry.
-The emitted contract is linked in the [document map](#documents). Mutants evaluated in this
-invocation carry phase timings and child-process CPU and peak memory measurements. Cached,
-static and unexecuted verdicts carry no per-mutant telemetry. These measurements do not affect
-verdicts, scores or gates.
+The emitted contract is linked in the [document map](#documents). Every run carries one
+identifier — the run span's trace ID when tracing is enabled, a random identifier of the same
+32-hex-character shape otherwise — published as the report telemetry's `run_id` and prefixed
+onto every stderr line the run writes (`[run_id] …`), so stderr, report and trace tie
+together; each mutant's execution error is also recorded as an event on that mutant's span.
+Mutants evaluated in this invocation carry phase timings and child-process CPU and peak memory
+measurements. Cached, static and unexecuted verdicts carry no per-mutant telemetry. These
+measurements do not affect verdicts, scores or gates.
 
 Every ten seconds during mutant execution, the CLI writes completed/total mutants, elapsed
-time and an estimated time remaining (ETA) to stderr. Counts exclude cached and static
-verdicts. A final line follows if periodic output began. Shorter runs stay quiet, and progress
-works with every reporter.
+time and an estimated time remaining (ETA) to stderr, prefixed with the run identifier.
+Counts exclude cached and static verdicts. A final line follows if periodic output began.
+Shorter runs stay quiet, and progress works with every reporter.
 
 When `--otlp-endpoint` is unset, tf-mut uses `OTEL_EXPORTER_OTLP_ENDPOINT`. With neither
 configured, it sends no traces. Phase spans carry the recorded child CPU and peak memory
@@ -190,7 +194,8 @@ work. An independent adversarial review drove these corrections — see
 | [`docs/schema/report-2.7.0.json`](docs/schema/report-2.7.0.json) | The telemetry JSON report schema, still published for earlier consumers |
 | [`docs/schema/report-2.8.0.json`](docs/schema/report-2.8.0.json) | The widened-incomplete-semantics JSON report schema, still published for earlier consumers |
 | [`docs/schema/report-2.9.0.json`](docs/schema/report-2.9.0.json) | The deadline-visibility JSON report schema, still published for earlier consumers |
-| [`docs/schema/report-2.10.0.json`](docs/schema/report-2.10.0.json) | The versioned JSON report schema the `json` reporter emits, including scores marked incomplete after a consecutive-failure trip |
+| [`docs/schema/report-2.10.0.json`](docs/schema/report-2.10.0.json) | The versioned JSON report schema the `json` reporter emitted through 2.10.0, including scores marked incomplete after a consecutive-failure trip — still published for earlier consumers |
+| [`docs/schema/report-2.11.0.json`](docs/schema/report-2.11.0.json) | The versioned JSON report schema the `json` reporter emits, adding the run identifier to the telemetry block |
 | [`docs/research/09-m3-real-provider-gate.md`](docs/research/09-m3-real-provider-gate.md) | The M3 inner-loop measurement, both real-provider debts settled, the M3e admission evidence |
 | [`docs/research/10-m3-exit-gate.md`](docs/research/10-m3-exit-gate.md) | The M3 exit-gate map: every normative behaviour to its test |
 | [`docs/schema/sarif-2.1.0.json`](docs/schema/sarif-2.1.0.json) | The published SARIF schema the `sarif` reporter's output is validated against |

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -13,7 +14,7 @@ import (
 )
 
 // schemaPath is the published contract the JSON reporter promises to keep.
-const schemaPath = "../../docs/schema/report-2.10.0.json"
+const schemaPath = "../../docs/schema/report-2.11.0.json"
 
 func TestPublishedSchemaMatchesTheReportersVersion(t *testing.T) {
 	t.Parallel()
@@ -118,6 +119,57 @@ func injectedDocument(t *testing.T, value report.Report, inject func(mutant map[
 	}
 
 	inject(mutant)
+
+	return document
+}
+
+// TestSchemaRejectsTelemetryWithoutARunIdentifier is the 2.11.0 presence
+// rule: a telemetry block always carries the run identifier — the one value
+// that ties the report to its stderr lines and its trace — so a block without
+// one is invalid against the file this binary ships with.
+func TestSchemaRejectsTelemetryWithoutARunIdentifier(t *testing.T) {
+	t.Parallel()
+
+	without := injectedRunIDDocument(t, nil)
+	delete(without, "run_id")
+	if problems := validate(loadSchema(t), loadSchema(t), without, "$"); len(problems) == 0 {
+		t.Fatal("the schema accepted a telemetry block without a run identifier")
+	}
+
+	misshapen := injectedRunIDDocument(t, "not-an-identifier")
+	if problems := validate(loadSchema(t), loadSchema(t), misshapen, "$"); len(problems) == 0 {
+		t.Fatal("the schema accepted a run identifier outside the 32-hex trace-ID shape")
+	}
+}
+
+// injectedRunIDDocument marshals the report, injects a telemetry block
+// carrying the given run identifier, and hands back the decoded document.
+func injectedRunIDDocument(t *testing.T, runID any) map[string]any {
+	t.Helper()
+
+	encoded, err := json.Marshal(sampleReport())
+	if err != nil {
+		t.Fatalf("encoding report: %v", err)
+	}
+
+	document := map[string]any{}
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatalf("decoding report: %v", err)
+	}
+
+	telemetry := map[string]any{
+		// Numbers arrive as float64 from json.Unmarshal, the shape every other
+		// assertion in this file validates; match it.
+		"wall_ms":     float64(167),
+		"phases":      []any{},
+		"children":    []any{},
+		"overhead_ms": float64(0),
+		"child_scope": "each entry covers the terraform process",
+	}
+	if runID != nil {
+		telemetry["run_id"] = runID
+	}
+	document["telemetry"] = telemetry
 
 	return document
 }
@@ -514,6 +566,8 @@ func validate(root, schema map[string]any, document any, path string) []string {
 		problems = append(problems, fmt.Sprintf("%s: want %v, got %v", path, fixed, document))
 	}
 
+	problems = append(problems, validatePattern(schema, document, path)...)
+
 	switch typed := document.(type) {
 	case map[string]any:
 		problems = append(problems, validateObject(root, schema, typed, path)...)
@@ -527,6 +581,28 @@ func validate(root, schema map[string]any, document any, path string) []string {
 	}
 
 	return problems
+}
+
+// validatePattern enforces a string schema's pattern: the run identifier's
+// 32-hex-character shape is a published contract, so the validator checks it.
+// A malformed pattern rejects everything — fail closed, like the production
+// validators.
+func validatePattern(schema map[string]any, document any, path string) []string {
+	expression, ok := schema["pattern"].(string)
+	if !ok {
+		return nil
+	}
+
+	text, isString := document.(string)
+	if !isString {
+		return nil
+	}
+
+	if matched, err := regexp.MatchString(expression, text); err != nil || !matched {
+		return []string{fmt.Sprintf("%s: %q does not match %q", path, text, expression)}
+	}
+
+	return nil
 }
 
 func validateObject(root, schema, document map[string]any, path string) []string {

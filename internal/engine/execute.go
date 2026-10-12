@@ -139,7 +139,7 @@ func execute(ctx context.Context, plan executionPlan) (evaluatedPopulation, erro
 				next++
 				mutex.Unlock()
 
-				verdict, outcome, failure := evaluateSafely(ctx, plan, index, budget)
+				verdict, outcome, failure := evaluate(ctx, plan, index, budget)
 
 				mutex.Lock()
 				trip.record(failure)
@@ -268,15 +268,25 @@ func timeoutBudget(settings settings, baseline time.Duration) time.Duration {
 	return scaled
 }
 
-// evaluateSafely converts a panic in one mutant's evaluation into that
-// mutant's operational failure. A worker that dies must not take the rest of
-// the population with it.
-func evaluateSafely(
+// evaluate performs one mutant's evaluation. The mutant's telemetry is
+// always recorded, and the report's execution errors are events on the
+// mutant's span — registered after the finish bracket, so they run first,
+// while the span still records — so a trace carries the same failure the
+// report does. A panic in the evaluation — a bug, not a verdict — is
+// converted into that mutant's operational failure; a worker that dies must
+// not take the rest of the population with it.
+func evaluate(
 	ctx context.Context,
 	plan executionPlan,
 	index int,
 	budget time.Duration,
 ) (verdict report.Mutant, outcome oracle.Outcome, failure *report.ExecutionError) {
+	verdict = plan.described[index]
+
+	// The mutant's own record: always on, published beside the numbers, and
+	// carried onto the published mutant even when the evaluation fails partway.
+	telemetry := plan.collector.mutant(ctx, verdict.ID, verdict.Operator)
+	defer func() { verdict.Telemetry = telemetry.finish() }()
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			verdict = plan.described[index]
@@ -287,25 +297,26 @@ func evaluateSafely(
 				Message:  fmt.Sprintf("evaluation panicked: %v", recovered),
 			}
 		}
+
+		if failure != nil {
+			telemetry.recordError(failure.Message)
+		}
 	}()
 
-	return evaluate(ctx, plan, index, budget)
+	return evaluateOne(ctx, plan, index, budget, verdict, telemetry)
 }
 
-func evaluate(
+// evaluateOne runs the mutant's evaluation itself: stage, mutate, execute,
+// observe, judge.
+func evaluateOne(
 	ctx context.Context,
 	plan executionPlan,
 	index int,
 	budget time.Duration,
-) (verdict report.Mutant, outcome oracle.Outcome, failure *report.ExecutionError) {
-	verdict = plan.described[index]
+	verdict report.Mutant,
+	telemetry *mutantCollector,
+) (report.Mutant, oracle.Outcome, *report.ExecutionError) {
 	mutant := plan.generated[index]
-
-	// The mutant's own record: always on, published beside the numbers, and
-	// carried onto the published mutant even when the evaluation fails partway.
-	telemetry := plan.collector.mutant(ctx, verdict.ID, verdict.Operator)
-	defer func() { verdict.Telemetry = telemetry.finish() }()
-
 	target := filepath.Join(plan.workRoot, fmt.Sprintf("m%04d-%s", index, mutant.ID))
 
 	sandboxPhase := telemetry.phase(phaseSandbox)
@@ -370,7 +381,7 @@ func evaluate(
 		}
 	}
 
-	outcome = oracle.Judge(observation)
+	outcome := oracle.Judge(observation)
 
 	// A phase-one survivor over zero executed runs is the operational refusal:
 	// no verdict is possible, and the mutant is never projected as a survival.

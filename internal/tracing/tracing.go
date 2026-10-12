@@ -200,6 +200,40 @@ func (s *Span) End(attributes ...Attribute) {
 	}
 }
 
+// errorEvent names the span event a recorded execution error carries, and
+// errorAttribute carries the failure text the report carries.
+const (
+	errorEvent     = "tf-mut.execution_error"
+	errorAttribute = "tf-mut.error"
+)
+
+// TraceID returns the run's trace identifier — lowercase hex, shared by every
+// span of the run — or empty when tracing is disabled or the span carries no
+// valid span context. It is the identifier the report publishes and every
+// stderr line carries.
+func (s *Span) TraceID() string {
+	if s == nil || s.span == nil {
+		return ""
+	}
+
+	spanContext := s.span.SpanContext()
+	if !spanContext.IsValid() {
+		return ""
+	}
+
+	return spanContext.TraceID().String()
+}
+
+// RecordError notes one operational failure on the span, so a trace carries
+// the same failure text the report does. A disabled span records nothing.
+func (s *Span) RecordError(message string) {
+	if s == nil || s.span == nil {
+		return
+	}
+
+	s.span.AddEvent(errorEvent, oteltrace.WithAttributes(attribute.String(errorAttribute, message)))
+}
+
 // Shutdown flushes whatever the batcher still holds. It is the caller's job
 // to give the call a context that outlives any request cancellation — a
 // Ctrl-C killed run should still ship the spans it managed to record.

@@ -55,7 +55,14 @@ package report
 // Execution provenance adds unexecuted for selected mutants never dispatched.
 // No field was added, removed or renamed; the wire contract is documented
 // in docs/schema/report-2.10.0.json.
-const SchemaVersion = "2.10.0"
+// 2.11.0 adds the run-level telemetry block's RunID: the one identifier that
+// ties a run's outputs together — the run span's trace ID when tracing is
+// enabled, a random identifier of the same 32-hex-character shape otherwise.
+// Every stderr line the tool writes during the run carries it as a prefix,
+// and each mutant's execution error is recorded as an event on that mutant's
+// span. No existing field changed name, type or meaning; the wire contract
+// is documented in docs/schema/report-2.11.0.json.
+const SchemaVersion = "2.11.0"
 
 // Command names what produced a report.
 type Command string

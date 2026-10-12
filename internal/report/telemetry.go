@@ -57,6 +57,12 @@ type MutantTelemetry struct {
 // and suggest, and the graded run behind curate. Characterise and todos do
 // not publish this block.
 type Telemetry struct {
+	// RunID is the run's one identifier (2.11.0): the run span's trace ID when
+	// tracing is enabled, a random identifier of the same 32-hex-character
+	// shape otherwise. Every stderr line the tool writes during the run
+	// carries it as a `[run_id] ` prefix, so stderr, report and trace can be
+	// tied together.
+	RunID string `json:"run_id"`
 	// WallMS is the engine invocation's wall time in milliseconds, including
 	// workspace cleanup, trace flushing and profile finalization.
 	WallMS int64 `json:"wall_ms"`

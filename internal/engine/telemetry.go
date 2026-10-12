@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -81,7 +83,11 @@ type runCollector struct {
 	order    []string
 	overhead atomic.Int64
 	runSpan  *tracing.Span
-	trip     *tripOutcome
+	// runID is the run's one identifier, minted once where the run span
+	// starts: the report's telemetry block, the progress lines and the
+	// warnings all carry it.
+	runID string
+	trip  *tripOutcome
 	// base parents every phase span to the run span; it is the collector's
 	// parenting chain, not request state captured for later.
 	base context.Context //nolint:containedctx // the parenting chain, not stored request state
@@ -116,6 +122,37 @@ func (c *runCollector) beginRun(command string) context.Context {
 	c.overhead.Add(int64(time.Since(marked)))
 
 	return c.base
+}
+
+// identify mints the run's one identifier, immediately after the run span
+// starts: the span's trace ID when tracing is enabled, a random identifier of
+// the same 32-hex-character shape otherwise. The report's telemetry block,
+// the progress lines and the warnings all carry it.
+func (c *runCollector) identify() string {
+	marked := time.Now()
+	c.runID = runIdentifier(c.runSpan)
+	c.overhead.Add(int64(time.Since(marked)))
+
+	return c.runID
+}
+
+// runIdentifier is the run span's trace ID when the span carries one —
+// tracing enabled — and a random identifier of the same shape otherwise.
+func runIdentifier(span *tracing.Span) string {
+	if id := span.TraceID(); id != "" {
+		return id
+	}
+
+	return randomRunID()
+}
+
+// randomRunID mints 16 random bytes — the 128-bit OpenTelemetry trace-ID
+// shape — hex-encoded. crypto/rand.Read always fills the buffer without error.
+func randomRunID() string {
+	var bytes [16]byte
+	_, _ = rand.Read(bytes[:])
+
+	return hex.EncodeToString(bytes[:])
 }
 
 // endRun closes the run span. It is safe to call once, at the very end of the
@@ -188,6 +225,7 @@ func (c *runCollector) finish() *report.Telemetry {
 	}
 
 	return &report.Telemetry{
+		RunID:      c.runID,
 		Phases:     c.phases,
 		Children:   children,
 		OverheadMS: c.overhead.Load() / int64(time.Millisecond),
@@ -267,4 +305,13 @@ func (m *mutantCollector) finish() *report.MutantTelemetry {
 	m.run.overhead.Add(int64(time.Since(marked)))
 
 	return telemetry
+}
+
+// recordError notes the operational failure the report carries on the
+// mutant's span, so the trace shows the same failure. It runs while the span
+// is still open, before finish ends it.
+func (m *mutantCollector) recordError(message string) {
+	marked := time.Now()
+	m.mutantSpan.RecordError(message)
+	m.run.overhead.Add(int64(time.Since(marked)))
 }
