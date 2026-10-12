@@ -296,10 +296,6 @@ func TestTheDesignDocumentsNameOnlyCommandsAndFlagsTheBinaryHas(t *testing.T) {
 
 	usageCommands := captureVocabulary(t, usage, "binary command list", `(?m)^  ([a-z]+) +[^\n]+$`)
 	usageFlags := captureVocabulary(t, usage, "binary flag list", `(?m)^  (--[a-z][a-z-]*)`)
-	knownCommands := make(map[string]bool, len(usageCommands))
-	for _, command := range usageCommands {
-		knownCommands[command] = true
-	}
 
 	for _, document := range []struct {
 		name string
