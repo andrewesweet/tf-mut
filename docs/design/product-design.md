@@ -151,7 +151,7 @@ Apply the operator catalogue (`mutation-operators.md`) to the AST. Each mutant i
 
 ### Schedule
 
-Order mutants to surface findings early and cut work:
+Reduce mutant execution without hiding findings:
 
 - **Static reachability.** A mutant in a block no run block instantiates is `NoCoverage` — no
   execution needed.
@@ -163,7 +163,7 @@ Order mutants to surface findings early and cut work:
   exclusion would run nothing, produce no fingerprint and no `no-assertion` diagnosis, and
   select zero runs from the assertion-less suites `characterise` scaffolds. The assertion
   inventory ∩ forward cone (see round one, C2, for why `relevant_attributes` cannot supply
-  either side) still matters — as a **prioritisation and predicted-diagnosis signal, never an
+  either side) still matters — as a **predicted-diagnosis signal, never an
   exclusion rule**. Sound instantiation-reachability selection lands in M2; the graph-based
   cone refinement in M3.
 
@@ -196,8 +196,6 @@ Order mutants to surface findings early and cut work:
   intends to build. It becomes worthwhile only where a single run block costs more than an
   invocation — apply-mode suites against slow providers, not the mocked plan-mode suites this
   design targets.
-- **Prioritisation.** Extreme-tier mutants first (few, cheap, highest signal), then contract,
-  then language, then lifecycle. With `--fail-fast`, an early finding stops the run.
 - **Deduplication.** Mutants with identical `(file, range, replacement)` collapse.
 
 **The in-process reference graph — roles split across milestones (revised by both reviews).**
@@ -206,7 +204,7 @@ via `Expression.Variables()`) serves distinct roles landing at different times: 
 `Unobservable` pre-classification — a site with no path to any resource, output or `check`
 needs no execution, guarded by the structural-state precedence (M3; M3 spec review C2);
 (b) ~~forward-cone prioritisation~~ — **deleted by the M3 spec review (M2): it has no
-consumer** — no `--fail-fast`, no live reporting — so reordering changes nothing observable;
+consumer** — no early-exit flag, no live reporting — so reordering changes nothing observable;
 it returns only with a specified consumer, and per R2-1 could never be an exclusion rule
 regardless; (c) doomed-mutant avoidance — the reference scan gating
 `EXT-RESOURCE-DELETE` (a **bare** dependent reference makes `count = 0` statically invalid;
@@ -244,7 +242,7 @@ human-oriented and outside compatibility promises, and since v1.7 the default ou
 simplified unless a plan is supplied. It keeps two niche jobs: a cross-validation oracle in
 tf-mut's own test suite (assert the in-process graph's edges are a subset of Terraform's real
 evaluation graph, catching hidden edges such as `depends_on` and provider references), and a
-human-facing cone rendering in `tf-mut explain`.
+human-facing cone rendering, should the deferred explanatory surface ever be built.
 
 ### Execute
 
@@ -470,6 +468,9 @@ survived. Covered by a plan, asserted on by nothing.
 
 ## 6. Coverage as a first-class output
 
+**Roadmap, not implemented.** No `coverage` command exists; the current surface is what
+`tf-mut --help` prints. This section records the design and the cost model that gates it.
+
 From the verbose baseline's `resource_changes` (which resources each run block plans) and the
 assertion inventory (which addresses the assertions actually read — parsed from the
 `.tftest.hcl` AST), `tf-mut` can emit the coverage report Terraform does not have.
@@ -606,16 +607,16 @@ correctly conclude the tool does not understand Terraform.
 
 ## 8. Command surface
 
+The implemented command and flag surface is what `tf-mut --help` prints; this section records
+the design, and its roadmap rows are marked as claims.
+
 ```
 tf-mut run       [PATH]   Full mutation run
 tf-mut preview   [PATH]   List mutants as unified diffs; execute nothing
-tf-mut coverage  [PATH]   Baseline-only coverage report (~1s)
 tf-mut suggest   [PATH]   Survivors plus generated assertions; --apply to write them
-tf-mut explain   ID       Everything about one mutant: diff, plan delta, why it survived
 tf-mut run --write-baseline   Write/update the accepted-findings baseline (M3: a run flag,
                               not a subcommand — a write must ride the full fresh population
                               it accepts)
-tf-mut init      [PATH]   Scaffold .tf-mut.hcl
 ```
 
 Key flags for `run`:
@@ -624,18 +625,17 @@ Key flags for `run`:
 | --- | --- | --- |
 | `--tier smoke\|standard\|deep` | `standard` | Operator breadth |
 | `--pack security-aws,...` | none | Opt-in domain packs |
-| `--operator ID` / `--exclude ID` | — | Fine selection |
+| `--operator ID` / `--exclude-operator ID` | — | Fine selection |
 | `--since REF` | — | Mutate only lines changed versus a git ref |
-| `--incremental` | on | Reuse cached results for unchanged sites |
 | `--jobs N` | `NumCPU` | Parallelism |
 | `--timeout-factor F` | `10` | Multiple of baseline run time |
 | `--min-score N` | — | Exit non-zero below this score |
-| `--fail-on-new` | on with a baseline | Fail only on new survivors |
-| `--engine terraform\|tofu` | `terraform` | OpenTofu support |
+| `--fail-on-new` | off | Fail on findings the baseline does not accept |
+| `--engine terraform\|tofu` | `terraform` | OpenTofu support — roadmap, a claim until [#166](https://github.com/andrewesweet/tf-mut/issues/166) corrects it |
 | `--allow-real-infrastructure` | off | Required if any provider is unmocked |
-| `--reporter ...` | `terminal` | See below |
+| `--reporter ...` | `terminal` | See §9, Reporters |
 | `--seed N` | — | Deterministic sampling |
-| `--sample N%` | — | Sample the mutant population for very large modules |
+| `--sample N` | — | Run a deterministic N% sample of the mutant population |
 
 ### Configuration — `.tf-mut.hcl`
 
@@ -644,7 +644,6 @@ an unforced error.
 
 ```hcl
 tf-mut {
-  engine     = "terraform"
   test_dir   = "tests"
   min_score  = 70
 }
@@ -723,7 +722,7 @@ The design target is a PR gate that finishes in under a minute:
 
 ```yaml
 - run: tf-mut run --since origin/main --reporter sarif --fail-on-new
-- uses: github/codeql-action/upload-sarif@v3
+- uses: github/codeql-action/upload-sarif@v4
   with: { sarif_file: tf-mut.sarif }
 ```
 

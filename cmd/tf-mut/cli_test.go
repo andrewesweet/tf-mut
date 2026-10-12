@@ -283,6 +283,82 @@ func TestTheDocumentedVocabularyMatchesTheBinary(t *testing.T) {
 	assertNeverWriteExceptions(t, documents.readme, documents.agents)
 }
 
+// TestTheDesignDocumentsNameOnlyCommandsAndFlagsTheBinaryHas is technical-
+// documentation ticket T2: docs/design/product-design.md and
+// docs/design/agent-integration.md must name only commands and flags the
+// usage constant lists, or sit in prose explicitly marked as roadmap. A
+// reader or agent following either document must not fail on the first
+// command. Sections that are roadmap by construction (§6 coverage, §12
+// roadmap, §13 open questions, **Post-MVP** paragraphs) and lines that carry
+// the word "roadmap" are exempt; everything else is held to the binary.
+func TestTheDesignDocumentsNameOnlyCommandsAndFlagsTheBinaryHas(t *testing.T) {
+	t.Parallel()
+
+	usageCommands := captureVocabulary(t, usage, "binary command list", `(?m)^  ([a-z]+) +[^\n]+$`)
+	usageFlags := captureVocabulary(t, usage, "binary flag list", `(?m)^  (--[a-z][a-z-]*)`)
+
+	for _, document := range []struct {
+		name string
+		path string
+	}{
+		{name: "product-design", path: "../../docs/design/product-design.md"},
+		{name: "agent-integration", path: "../../docs/design/agent-integration.md"},
+	} {
+		surface := designDocumentSurface(t, readDocument(t, document.path))
+
+		// Backticked `tf-mut <command>` occurrences anywhere outside the exempt
+		// prose. Matched per occurrence, not per span: the documents' ``` fences
+		// make backtick pairing across the file meaningless.
+		assertVocabularyKnown(t, document.name+" backticked commands",
+			captureVocabulary(t, surface, document.name+" backticked commands",
+				"`tf-mut ([a-z]+)"), usageCommands)
+
+		// Command fences: lines naming a command after an optional shell prompt.
+		assertVocabularyKnown(t, document.name+" command fences",
+			captureVocabulary(t, surface, document.name+" command fences",
+				`(?m)^[ \t]*\$?[ \t]*tf-mut ([a-z]+)[ \t]`), usageCommands)
+
+		// Backticked flag occurrences: the --word after each backtick.
+		flags := captureVocabulary(t, surface, document.name+" flags",
+			"`(--[a-z][a-z-]*)")
+		assertVocabularyKnown(t, document.name+" flags", flags, usageFlags)
+	}
+}
+
+// designDocumentSurface strips the roadmap-by-construction regions: whole
+// sections whose heading names them, **Post-MVP** paragraphs, and any line
+// that itself says "roadmap" (such as the §8 --engine row, a claim until
+// #166 by the maintainer's ruling recorded in §12).
+func designDocumentSurface(t *testing.T, document string) string {
+	t.Helper()
+
+	sections := strings.Split(document, "\n## ")
+	kept := sections[:1]
+	for _, section := range sections[1:] {
+		if strings.HasPrefix(section, "6. Coverage") ||
+			strings.HasPrefix(section, "12. Roadmap") ||
+			strings.HasPrefix(section, "13. Open questions") {
+			continue
+		}
+		kept = append(kept, section)
+	}
+	surface := strings.Join(kept, "\n## ")
+
+	postMVP := regexp.MustCompile(`(?s)\*\*Post-MVP \(unscheduled\)\.\*\*.*?\n\n`)
+	surface = postMVP.ReplaceAllString(surface, "")
+
+	roadmapLines := strings.Split(surface, "\n")
+	keptLines := roadmapLines[:0]
+	for _, line := range roadmapLines {
+		if strings.Contains(strings.ToLower(line), "roadmap") {
+			continue
+		}
+		keptLines = append(keptLines, line)
+	}
+
+	return strings.Join(keptLines, "\n")
+}
+
 type vocabularyDocuments struct {
 	readme             string
 	productDesign      string
