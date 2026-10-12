@@ -649,8 +649,8 @@ func classifyTraversal(traversal hcl.Traversal) (string, ReferenceForm, bool) {
 // WalkExpressions visits every expression in the module's own bodies, each
 // nested block included, in file order. The visitor receives each expression
 // through the representation-neutral contract; a consumer that needs the
-// concrete nodes asks NativeExpression at its point of use. The JSON-declared
-// files are not walked: they publish no expressions.
+// concrete nodes asks NativeExpression at its point of use. JSON-declared
+// files are not walked.
 func (m Module) WalkExpressions(visit func(hcl.Expression)) {
 	for _, path := range m.Files {
 		body, parsed := m.Bodies[path]

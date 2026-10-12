@@ -15,6 +15,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
@@ -348,7 +349,7 @@ func TestAScaffoldAnswerVerificationDeadlineFailsBeforeWriting(t *testing.T) {
 // it fires, because a hung git hangs the whole selection otherwise.
 func TestAGitCallThatOutlivesItsCapFailsTheRun(t *testing.T) {
 	module := gitFixture(t, preflightFixture)
-	writeFile(t, filepath.Join(module, "extra.tf"), extraResource)
+	testsupport.WriteFile(t, filepath.Join(module, "extra.tf"), extraResource)
 
 	realGit, lookupErr := exec.LookPath("git")
 	if lookupErr != nil {
@@ -445,7 +446,7 @@ func runGitLookupFallbackCase(t *testing.T, testCase gitLookupFallbackCase, dead
 		action = "sleep 60"
 	}
 	shim := filepath.Join(shimDir, "git")
-	writeFile(t, shim, "#!/usr/bin/env bash\nif "+testCase.condition+"; then "+action+
+	testsupport.WriteFile(t, shim, "#!/usr/bin/env bash\nif "+testCase.condition+"; then "+action+
 		"; fi\nexec \"$TF_MUT_REAL_GIT\" \"$@\"\n")
 	if chmodErr := os.Chmod(shim, 0o700); chmodErr != nil { //nolint:gosec // fixed test-written Git shim must run.
 		t.Fatal(chmodErr)
