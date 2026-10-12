@@ -190,8 +190,10 @@ func TestReportFileFailureCarriesTheRunIdentifier(t *testing.T) {
 			module := fixture(t)
 			path := filepath.Join(module, parent, "report.json")
 			var stdout, stderr bytes.Buffer
-			code := run([]string{runCommand, noCacheFlag, reporterFlag, reporterJSON,
-				"--output", "json=" + path, module}, "dev", &stdout, &stderr)
+			code := run([]string{
+				runCommand, noCacheFlag, reporterFlag, reporterJSON,
+				"--output", "json=" + path, module,
+			}, "dev", &stdout, &stderr)
 			if code != report.ExitOperational {
 				t.Fatalf("exit = %d, want operational: %s", code, stderr.String())
 			}
