@@ -122,8 +122,8 @@ func listTodos(
 		Answers:    answers,
 	})
 
-	result := shell(configuration, settings, version, configuration.ModuleDir,
-		warm{}, []string{}) // nothing was prepared: this surface runs no Terraform.
+	result := reportShell(configuration, settings, version, configuration.ModuleDir,
+		warmWorkspace{}, []string{}) // nothing was prepared: this surface runs no Terraform.
 	result.Command = report.CommandTodos
 	result.Selection = report.Selection{Mode: scopeLabel(true), Ref: "", ForcedFull: ""}
 	result.Metrics = projectMetrics(

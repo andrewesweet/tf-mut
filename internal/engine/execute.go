@@ -23,7 +23,7 @@ type executionPlan struct {
 	runner        tfexec.Runner
 	configuration discovery.Configuration
 	settings      settings
-	prepared      warm
+	prepared      warmWorkspace
 	generated     []mutation.Mutant
 	described     []report.Mutant
 	// populationDescribed is the whole post-suppression described population,

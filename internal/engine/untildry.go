@@ -58,7 +58,7 @@ func roundLimit(settings settings) int {
 func untilDry(
 	ctx context.Context,
 	runner tfexec.Runner,
-	stage staging,
+	stage characteriseStage,
 	block *report.Characterisation,
 	scaffold characterise.SuitePlan,
 	pins []characterise.Pin,
@@ -105,7 +105,7 @@ func untilDry(
 func oneRound(
 	ctx context.Context,
 	runner tfexec.Runner,
-	stage staging,
+	stage characteriseStage,
 	block *report.Characterisation,
 	scaffold characterise.SuitePlan,
 	pins []characterise.Pin,
@@ -152,7 +152,7 @@ func oneRound(
 		return pins, 0, err
 	}
 
-	updated, added := absorb(block, pins, result.Suggestions)
+	updated, added := absorbSuggestionsAsPins(block, pins, result.Suggestions)
 
 	return updated, added, nil
 }
@@ -171,13 +171,13 @@ func oneRound(
 func promoteScaffolds(
 	ctx context.Context,
 	runner tfexec.Runner,
-	stage staging,
+	stage characteriseStage,
 	block *report.Characterisation,
 	scaffold characterise.SuitePlan,
 	answers map[string]string,
 	scaffolds *scaffoldSet,
-) ([]generated, []string) {
-	promoted := []generated{}
+) ([]writtenFile, []string) {
+	promoted := []writtenFile{}
 	warnings := []string{}
 
 	for _, entry := range scaffolds.all() {
@@ -207,12 +207,12 @@ func promoteScaffolds(
 func verifyScaffoldAnswer(
 	ctx context.Context,
 	runner tfexec.Runner,
-	stage staging,
+	stage characteriseStage,
 	scaffold characterise.SuitePlan,
 	entry characterise.Scaffold,
 	answer, target string,
-) (generated, string) {
-	empty := generated{} // the not-promoted sentinel.
+) (writtenFile, string) {
+	empty := writtenFile{} // the not-promoted sentinel.
 
 	checkable, addressable := characterise.Checkable(entry.Address())
 	if !addressable {
@@ -347,7 +347,7 @@ const scaffoldScenario = "scaffolds"
 // times over at the default bound, against a real provider tree, inside a loop
 // the shipped skill tells agents to call routinely.
 func stageSuite(
-	stage staging,
+	stage characteriseStage,
 	scaffold characterise.SuitePlan,
 	pins []characterise.Pin,
 	target string,
@@ -376,8 +376,8 @@ func stageSuite(
 	})
 }
 
-// absorb takes the verified suggestions the round produced and turns the ones
-// at or below the chosen rung into pins.
+// absorbSuggestionsAsPins takes the verified suggestions the round produced
+// and turns the ones at or below the chosen rung into pins.
 //
 // It is reachable only after the round proved its population was fully
 // observed — oneRound refuses anything less before calling here: the count it
@@ -390,7 +390,7 @@ func stageSuite(
 // suite whose whole claim is that everything in it was observed. The append
 // goes through the context's constructor, and the report block carries the
 // projection of the set the loop now holds.
-func absorb(
+func absorbSuggestionsAsPins(
 	block *report.Characterisation,
 	pins []characterise.Pin,
 	suggestions []report.Suggestion,

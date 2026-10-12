@@ -77,7 +77,7 @@ type cacheEntry struct {
 // --no-cache, or where the cache location cannot be used safely.
 func openCache(
 	configuration discovery.Configuration,
-	settings settings, prepared warm,
+	settings settings, prepared warmWorkspace,
 	terraform tfexec.Version,
 ) *verdictCache {
 	if settings.NoCache || settings.AllowRealInfrastructure || settings.AllowUnsandboxedEffects {
@@ -123,7 +123,7 @@ func ensureCacheDir(dir string) bool {
 // cacheKey hashes every input that can reach a verdict.
 func cacheKey(
 	configuration discovery.Configuration,
-	settings settings, prepared warm,
+	settings settings, prepared warmWorkspace,
 	terraform tfexec.Version,
 ) (string, error) {
 	digest := sha256.New()
@@ -159,7 +159,7 @@ func cacheKey(
 // footprints. What the probe is for is a change somebody *else* made.
 func InputClosureDigest(
 	configuration discovery.Configuration,
-	settings settings, prepared warm,
+	settings settings, prepared warmWorkspace,
 	excluded map[string]bool,
 ) (string, error) {
 	digest := sha256.New()
@@ -219,7 +219,7 @@ func InputClosureDigest(
 func writeClosure(
 	write func(kind, name, value string),
 	configuration discovery.Configuration,
-	settings settings, prepared warm,
+	settings settings, prepared warmWorkspace,
 	sources map[string][]byte,
 	excluded map[string]bool,
 ) error {
