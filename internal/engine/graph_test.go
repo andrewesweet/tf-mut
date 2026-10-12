@@ -1,9 +1,8 @@
 package engine_test
 
 import (
-	"os"
 	"path/filepath"
-	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -254,39 +253,56 @@ func TestASeededMissingEdgeFailsTheSupplementalCheck(t *testing.T) {
 	}
 }
 
-// TestNoUserInvocationExecutesTerraformGraph asserts the M1 disposition
-// structurally: no production source invokes `terraform graph`. The
-// supplemental check drives the binary from this test file only.
 func TestNoUserInvocationExecutesTerraformGraph(t *testing.T) {
 	t.Parallel()
 
-	invocation := regexp.MustCompile(`"graph"`)
+	for _, command := range []string{"run", "preview", "suggest", "characterise", "todos", "curate"} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
 
-	root := filepath.Join("..", "..")
-	for _, dir := range []string{internalTree, commandTree} {
-		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, entry os.DirEntry, err error) error {
+			log := filepath.Join(t.TempDir(), "terraform-commands")
+			common := commonRequest(t, copyFixture(t, discriminateFixture))
+			common.TerraformBinary = recordingTerraform(t, log)
+
+			var request engine.Request
+
+			switch command {
+			case "run":
+				request = engine.RunRequest{Common: common, NoCache: true}
+			case "preview":
+				request = engine.PreviewRequest{Common: common}
+			case "suggest":
+				request = engine.SuggestRequest{Common: common, NoCache: true}
+			case "characterise":
+				request = engine.CharacteriseRequest{Common: common}
+			case "todos":
+				request = engine.TodosRequest{Common: common}
+			case "curate":
+				request = engine.CurateRequest{Common: common, NoCache: true}
+			}
+
+			result, err := engine.Run(t.Context(), request)
 			if err != nil {
-				return err
+				t.Fatalf("engine invocation: %v", err)
 			}
 
-			if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-				return nil
+			if string(result.Command) != command {
+				t.Fatalf("report command = %s, want %s", result.Command, command)
 			}
 
-			source, readErr := os.ReadFile(path) //nolint:gosec // repository-relative audit walk.
-			if readErr != nil {
-				return readErr
+			invocations := terraformInvocations(t, log)
+			if command != "todos" && len(invocations) == 0 {
+				t.Fatal("the engine invoked no recorded Terraform command")
 			}
 
-			if invocation.Match(source) {
-				t.Errorf("%s passes \"graph\" to something; terraform graph is test-suite-only", path)
+			if slices.Contains(invocations, "graph") {
+				t.Fatalf("terraform graph ran during an engine invocation: %v", invocations)
 			}
 
-			return nil
+			if command == "run" && !slices.Contains(invocations, "test") {
+				t.Fatalf("the run did not execute terraform test: %v", invocations)
+			}
 		})
-		if err != nil {
-			t.Fatalf("walking %s: %v", dir, err)
-		}
 	}
 }
 
