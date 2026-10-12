@@ -46,7 +46,7 @@ exception, not a dependency from the report DTO leaf. Publication otherwise
 does not import a domain context. The application layer performs the projections
 between context values and report DTOs.
 
-Lint enforces seven boundaries, including test files:
+Lint enforces nine boundaries, including test files:
 
 - The pre-existing [#89](https://github.com/andrewesweet/tf-mut/issues/89)
   `context-boundary` rule denies `internal/report` imports from all core,
@@ -75,10 +75,20 @@ Lint enforces seven boundaries, including test files:
   `internal/tracing`, the infrastructure package that projects span attributes
   and owns the exporter; callers carry `tracing.Attribute` values instead.
   The engine's two OTLP wire-decoder test files hold the rule's one recorded exclusion.
+- `skill-boundary` denies `internal/skill` imports from all core, supporting
+  and Terraform Boundary packages — skill is Publication, and those packages
+  import neither half of it (`internal/report` is `context-boundary`'s edge).
+  The application layer and the CLI keep their Publication access.
+- `skill-leaf` denies `internal/skill` imports of the domain contexts —
+  `internal/fingerprint`, `internal/oracle`, `internal/mutation`,
+  `internal/suggest`, `internal/characterise`, `internal/discovery` and
+  `internal/tfexec`. Its one documented dependency, `internal/sandbox`'s
+  checked write primitive (since #91), is the exception, and its absence from
+  the deny list is that exception's record.
 
 Core, supporting and boundary imports of `internal/skill`, and skill's own
-imports beyond its one documented sandbox exception, remain policy; these lint
-rules do not enforce them.
+imports beyond its one documented sandbox exception, are enforced by the
+`skill-boundary` and `skill-leaf` rules above.
 
 ## Architecture decisions
 
