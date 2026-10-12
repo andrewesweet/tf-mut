@@ -91,7 +91,7 @@ func (s Schemas) Block(kind, resourceType string) (SchemaBlock, bool) {
 		return schema.Block, true
 	}
 
-	return SchemaBlock{}, false //nolint:exhaustruct // no provider describes the type.
+	return SchemaBlock{}, false // no provider describes the type.
 }
 
 // BlockAttributeType returns the cty type a block schema publishes for one of
@@ -250,11 +250,11 @@ func (s Schemas) attribute(kind, resourceType, attribute string) (SchemaAttribut
 
 		described, found := schema.Block.Attributes[attribute]
 		if !found {
-			return SchemaAttribute{}, false //nolint:exhaustruct // nothing was described.
+			return SchemaAttribute{}, false // nothing was described.
 		}
 
 		return described, true
 	}
 
-	return SchemaAttribute{}, false //nolint:exhaustruct // no provider describes it.
+	return SchemaAttribute{}, false // no provider describes it.
 }

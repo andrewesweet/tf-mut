@@ -443,7 +443,7 @@ func storeRegistry(
 	// no registry here" and this write spans every generated file's write, and
 	// a registry created inside it by a concurrent invocation — or by a user —
 	// would be overwritten with no shape check at all.
-	//nolint:exhaustruct // the registry check reads the module directory and nothing else.
+ // the registry check reads the module directory and nothing else.
 	recheck := func() error {
 		if refusal := checkRegistry(discovery.Configuration{ModuleDir: moduleDir}); refusal != "" {
 			return fmt.Errorf("%w: %s", ErrWriteRefused, refusal)

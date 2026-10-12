@@ -69,7 +69,7 @@ func (s Synthesis) Input(variable discovery.Block) Input {
 func Synthesise(variable discovery.Block, sources map[string][]byte, answer string) Synthesis {
 	result := Synthesis{
 		Name: variable.Name, Expression: "", Provenance: "", Assign: false,
-		Gap: "", Attempted: []string{}, Constraint: "", ConstraintRange: hcl.Range{}, //nolint:exhaustruct // the empty range.
+		Gap: "", Attempted: []string{}, Constraint: "", ConstraintRange: hcl.Range{}, // the empty range.
 	}
 
 	if answer != "" {
@@ -134,7 +134,7 @@ func Synthesise(variable discovery.Block, sources map[string][]byte, answer stri
 func synthesiseFlip(variable discovery.Block, sources map[string][]byte, expression string) Synthesis {
 	result := Synthesis{
 		Name: variable.Name, Expression: "", Provenance: "", Assign: false,
-		Gap: "", Attempted: []string{}, Constraint: "", ConstraintRange: hcl.Range{}, //nolint:exhaustruct // the empty range.
+		Gap: "", Attempted: []string{}, Constraint: "", ConstraintRange: hcl.Range{}, // the empty range.
 	}
 
 	return accept(result, expression, FromType, variable, sources)

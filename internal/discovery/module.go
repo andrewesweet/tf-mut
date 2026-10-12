@@ -113,7 +113,7 @@ func readJSONConfigurations(
 		// has decoded completely: a file that fails half-way must contribute
 		// nothing at all, or the inventories would carry a partial reading of
 		// content the floor is meant to stay down for.
-		scratch := Module{ //nolint:exhaustruct // a decode sink: only the collected fields matter.
+		scratch := Module{ // a decode sink: only the collected fields matter.
 			Dir:            module.Dir,
 			References:     map[string][]Reference{},
 			JSONExpansions: map[string][]Ref{},

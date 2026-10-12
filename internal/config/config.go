@@ -111,27 +111,27 @@ func Load(moduleDir string) (File, error) {
 	content, err := os.ReadFile(path) //nolint:gosec // the module root is the caller's own directory.
 	if err != nil {
 		if os.IsNotExist(err) {
-			return File{}, nil //nolint:exhaustruct // absence is the zero value.
+			return File{}, nil // absence is the zero value.
 		}
 
-		return File{}, fmt.Errorf("reading %s: %w", path, err) //nolint:exhaustruct // no file to describe.
+		return File{}, fmt.Errorf("reading %s: %w", path, err) // no file to describe.
 	}
 
 	parsed, diagnostics := hclsyntax.ParseConfig(content, path, hcl.InitialPos)
 	if diagnostics.HasErrors() {
-		//nolint:exhaustruct // no file to describe.
+ // no file to describe.
 		return File{}, fmt.Errorf("%w: %s: %s", ErrConfig, path, diagnostics.Error())
 	}
 
 	body, ok := parsed.Body.(*hclsyntax.Body)
 	if !ok {
-		return File{}, fmt.Errorf("%w: %s: unexpected body", ErrConfig, path) //nolint:exhaustruct // no file to describe.
+		return File{}, fmt.Errorf("%w: %s: unexpected body", ErrConfig, path) // no file to describe.
 	}
 
 	file := File{
 		Present:   true,
 		Path:      path,
-		Settings:  Settings{}, //nolint:exhaustruct // filled from the blocks below.
+		Settings:  Settings{}, // filled from the blocks below.
 		Operators: Operators{Tier: "", Include: nil, Exclude: nil, Packs: nil},
 		Exclude:   Exclude{Paths: nil, Resources: nil},
 		Reporters: []Reporter{},
@@ -139,7 +139,7 @@ func Load(moduleDir string) (File, error) {
 	}
 
 	if err := decodeBlocks(body, &file); err != nil {
-		return File{}, fmt.Errorf("%s: %w", path, err) //nolint:exhaustruct // no file to describe.
+		return File{}, fmt.Errorf("%s: %w", path, err) // no file to describe.
 	}
 
 	return file, file.validate()

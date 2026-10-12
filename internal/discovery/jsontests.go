@@ -253,7 +253,7 @@ func jsonAssertions(relative string, block *hcl.Block) []Assertion {
 }
 
 func collectJSONTestReferences(suite *TestSuite, path string, body hcl.Body) error {
-	holder := Module{References: suite.References} //nolint:exhaustruct // a reference sink only.
+	holder := Module{References: suite.References} // a reference sink only.
 
 	return collectJSONReferences(&holder, path, body)
 }

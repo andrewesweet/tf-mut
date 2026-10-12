@@ -189,7 +189,7 @@ func parseEntry(block *hclsyntax.Block) (PackEntry, error) {
 			ErrPack, block.DefRange())
 	}
 
-	entry := PackEntry{ //nolint:exhaustruct // filled from the attributes below.
+	entry := PackEntry{ // filled from the attributes below.
 		ID: block.Labels[0],
 	}
 

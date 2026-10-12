@@ -251,12 +251,12 @@ func testDeclarations(t *testing.T) map[string]bool {
 
 	walk := func(path string, entry os.DirEntry, err error) error {
 		if err != nil || entry.IsDir() || !strings.HasSuffix(path, "_test.go") {
-			return err //nolint:wrapcheck // the walker's own error, returned unchanged.
+			return err // the walker's own error, returned unchanged.
 		}
 
 		content, readErr := os.ReadFile(path) //nolint:gosec // a repository-owned path.
 		if readErr != nil {
-			return readErr //nolint:wrapcheck // the walker's own error, returned unchanged.
+			return readErr // the walker's own error, returned unchanged.
 		}
 
 		for _, name := range gateName().FindAllString(string(content), -1) {
@@ -333,12 +333,12 @@ func goSources(t *testing.T, root string) string {
 
 	walk := func(path string, entry os.DirEntry, err error) error {
 		if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".go") {
-			return err //nolint:wrapcheck // the walker's own error, returned unchanged.
+			return err // the walker's own error, returned unchanged.
 		}
 
 		content, readErr := os.ReadFile(path) //nolint:gosec // a repository-owned path.
 		if readErr != nil {
-			return readErr //nolint:wrapcheck // the walker's own error, returned unchanged.
+			return readErr // the walker's own error, returned unchanged.
 		}
 
 		builder.Write(content)
@@ -364,7 +364,7 @@ func markdownDocuments(t *testing.T, root string) []string {
 
 	walk := func(path string, entry os.DirEntry, err error) error {
 		if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".md") {
-			return err //nolint:wrapcheck // the walker's own error, returned unchanged.
+			return err // the walker's own error, returned unchanged.
 		}
 
 		documents = append(documents, path)

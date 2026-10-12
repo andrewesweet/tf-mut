@@ -75,9 +75,9 @@ func TestAnUnsynthesizableInputBecomesANonExecutableArtefact(t *testing.T) {
 		}
 	}
 
-	if result.ExitCode(report.Gate{}) != report.ExitFindings { //nolint:exhaustruct // no gate is requested.
+	if result.ExitCode(report.Gate{}) != report.ExitFindings { // no gate is requested.
 		t.Fatalf("exit code = %d, want one while a judgement point is open",
-			result.ExitCode(report.Gate{})) //nolint:exhaustruct // no gate is requested.
+			result.ExitCode(report.Gate{})) // no gate is requested.
 	}
 }
 
@@ -415,9 +415,9 @@ func TestARefutedAnswerIsRejectedRatherThanAnOperationalFailure(t *testing.T) {
 		t.Fatalf("a refuted answer produced executable content: %+v", block.Files)
 	}
 
-	if result.ExitCode(report.Gate{}) != report.ExitFindings { //nolint:exhaustruct // no gate is requested.
+	if result.ExitCode(report.Gate{}) != report.ExitFindings { // no gate is requested.
 		t.Fatalf("exit code = %d, want one while the judgement point still needs an answer",
-			result.ExitCode(report.Gate{})) //nolint:exhaustruct // no gate is requested.
+			result.ExitCode(report.Gate{})) // no gate is requested.
 	}
 }
 

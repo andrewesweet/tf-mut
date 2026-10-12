@@ -149,12 +149,12 @@ func Install(root, agent, version string, force bool) ([]Result, error) {
 func installOne(root, agent, version string, force bool, name Name) (Result, error) {
 	relative, err := TargetPath(agent, name)
 	if err != nil {
-		return Result{}, err //nolint:exhaustruct // nothing was installed.
+		return Result{}, err // nothing was installed.
 	}
 
 	body, known := bodyOf(name)
 	if !known {
-		//nolint:exhaustruct // nothing was installed.
+ // nothing was installed.
 		return Result{}, fmt.Errorf("%w: %q ships no content", ErrUnknownAgent, name)
 	}
 
@@ -177,7 +177,7 @@ func installOne(root, agent, version string, force bool, name Name) (Result, err
 	case err == nil:
 		outcome = OutcomeUpgraded
 	case !errors.Is(err, os.ErrNotExist):
-		return Result{}, fmt.Errorf("reading %s: %w", relative, err) //nolint:exhaustruct // nothing was installed.
+		return Result{}, fmt.Errorf("reading %s: %w", relative, err) // nothing was installed.
 	default:
 		// The target does not exist: a fresh install.
 	}
@@ -204,7 +204,7 @@ func installOne(root, agent, version string, force bool, name Name) (Result, err
 	if err := sandbox.WriteFreshCheckedMode(
 		target, "", []byte(shipped), installedFileMode, commit,
 	); err != nil {
-		return Result{}, err //nolint:exhaustruct // nothing was installed.
+		return Result{}, err // nothing was installed.
 	}
 
 	return Result{Path: relative, Outcome: outcome}, nil

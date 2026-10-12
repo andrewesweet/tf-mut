@@ -150,7 +150,7 @@ func TestApplyRefusesANonVerifiedSelection(t *testing.T) {
 
 	assertTreeUnchanged(t, module, before)
 
-	if code := result.ExitCode(report.Gate{}); code != report.ExitOperational { //nolint:exhaustruct // no gate.
+	if code := result.ExitCode(report.Gate{}); code != report.ExitOperational { // no gate.
 		t.Fatalf("exit code = %d, want %d on a refused apply", code, report.ExitOperational)
 	}
 }

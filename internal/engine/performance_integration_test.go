@@ -123,7 +123,7 @@ func BenchmarkPerformanceMockedRealProvider(b *testing.B) {
 	b.ResetTimer()
 
 	for range b.N {
-		config := engine.RunRequest{ //nolint:exhaustruct // defaults are the point of the measurement.
+		config := engine.RunRequest{ // defaults are the point of the measurement.
 			Common: engine.Common{
 				ModuleDir: module,
 				Jobs:      measurementJobs,

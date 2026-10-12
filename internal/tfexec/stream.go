@@ -226,7 +226,7 @@ func decodeMember(decoder *json.Decoder, key string, found *message) error {
 	case messageTestRun:
 		return decodeRunOutcome(decoder, found)
 	case messageDiagnostic:
-		problem := Diagnostic{} //nolint:exhaustruct // decoded from the stream.
+		problem := Diagnostic{} // decoded from the stream.
 		if err := decoder.Decode(&problem); err != nil {
 			return err
 		}
@@ -244,7 +244,7 @@ func decodeMember(decoder *json.Decoder, key string, found *message) error {
 }
 
 func decodeRunOutcome(decoder *json.Decoder, found *message) error {
-	run := testRunMessage{} //nolint:exhaustruct // decoded from the stream.
+	run := testRunMessage{} // decoded from the stream.
 	if err := decoder.Decode(&run); err != nil {
 		return err
 	}

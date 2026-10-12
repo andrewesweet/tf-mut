@@ -927,9 +927,9 @@ func TestAPartialCommitReportsWhatItWrote(t *testing.T) {
 		}
 	}
 
-	if result.ExitCode(report.Gate{}) != report.ExitOperational { //nolint:exhaustruct // no gate is requested.
+	if result.ExitCode(report.Gate{}) != report.ExitOperational { // no gate is requested.
 		t.Fatalf("exit code = %d, want an operational failure for a partial commit",
-			result.ExitCode(report.Gate{})) //nolint:exhaustruct // no gate is requested.
+			result.ExitCode(report.Gate{})) // no gate is requested.
 	}
 }
 

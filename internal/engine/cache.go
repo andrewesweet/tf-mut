@@ -561,7 +561,7 @@ func (c *verdictCache) read(mutantID string) (cacheEntry, bool) {
 		return cacheEntry{}, false
 	}
 
-	entry := cacheEntry{} //nolint:exhaustruct // decoded from disk.
+	entry := cacheEntry{} // decoded from disk.
 	if json.Unmarshal(content, &entry) != nil {
 		return cacheEntry{}, false
 	}

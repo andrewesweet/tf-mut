@@ -88,7 +88,7 @@ func characteriseModule(
 	// here, gated here, and enriched with defaults after the warm-up — and a
 	// refusal costs no `init`, no provider download and no schema read,
 	// exactly as it does for a mutation run.
-	//nolint:exhaustruct // only the mocks are read from this plan.
+ // only the mocks are read from this plan.
 	mockOptions := characterise.Options{TestDirRel: configuration.TestDirRelative()}
 	gated := characterise.Plan(configuration, tfexec.Schemas{}, mockOptions,
 		characterise.Configurations(configuration))
@@ -372,7 +372,7 @@ func scaffoldSuite(
 	scaffold characterise.SuitePlan,
 	block *report.Characterisation,
 ) ([]characterise.Pin, []generated, error) {
-	*block = report.Characterisation{ //nolint:exhaustruct // filled in below, stage by stage.
+	*block = report.Characterisation{ // filled in below, stage by stage.
 		Rung: string(scaffold.Rung), Complete: false,
 		Scenarios: projectScenarios(scaffold.Scenarios), Pins: []report.Pin{},
 		Todos: projectTodos(scaffold.Todos),
@@ -507,7 +507,7 @@ func rejectAnswers(
 	// play, and reporting it as "your answer was refuted" both misattributes
 	// the cause and swallows an exit-2 condition into an exit-1 report.
 	if !errors.Is(failure, ErrScaffoldRed) {
-		return report.Characterisation{}, nil, failure //nolint:exhaustruct // nothing was produced.
+		return report.Characterisation{}, nil, failure // nothing was produced.
 	}
 
 	reason := "the suite did not pass with this answer in play, so it could not be promoted; " +
@@ -531,7 +531,7 @@ func rejectAnswers(
 	}
 
 	if !rejected {
-		return report.Characterisation{}, nil, failure //nolint:exhaustruct // nothing was produced.
+		return report.Characterisation{}, nil, failure // nothing was produced.
 	}
 
 	block.Todos = projectTodos(todos)
@@ -797,7 +797,7 @@ func stagedRun(
 		Hardlink: true,
 	})
 	if err != nil {
-		return tfexec.TestResult{}, err //nolint:exhaustruct // nothing ran.
+		return tfexec.TestResult{}, err // nothing ran.
 	}
 
 	return runner.Test(ctx, built.ModuleDir, tfexec.TestOptions{

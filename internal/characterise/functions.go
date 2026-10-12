@@ -44,7 +44,7 @@ var validationFunctionTable = map[string]function.Function{
 // nothing errored, the tool simply refused to synthesise values it could have.
 //
 //nolint:gochecknoglobals // an immutable function value.
-var lengthFunction = function.New(&function.Spec{ //nolint:exhaustruct // the unset fields are cty's own defaults.
+var lengthFunction = function.New(&function.Spec{ // the unset fields are cty's own defaults.
 	Params: []function.Parameter{{
 		Name: "value", Type: cty.DynamicPseudoType, AllowDynamicType: true,
 	}},
@@ -65,7 +65,7 @@ var lengthFunction = function.New(&function.Spec{ //nolint:exhaustruct // the un
 // function itself is the success case, which is always true.
 //
 //nolint:gochecknoglobals // an immutable function value.
-var canFunction = function.New(&function.Spec{ //nolint:exhaustruct // the unset fields are cty's own defaults.
+var canFunction = function.New(&function.Spec{ // the unset fields are cty's own defaults.
 	Params: []function.Parameter{{
 		Name: "expression", Type: cty.DynamicPseudoType,
 		AllowNull: true, AllowUnknown: true, AllowDynamicType: true,
@@ -85,7 +85,7 @@ var endsWithFunction = affixFunction(strings.HasSuffix)
 // affixFunction builds `startswith` and `endswith`, which differ only in which
 // end of the string they read.
 func affixFunction(matches func(text, affix string) bool) function.Function {
-	return function.New(&function.Spec{ //nolint:exhaustruct // the unset fields are cty's own defaults.
+	return function.New(&function.Spec{ // the unset fields are cty's own defaults.
 		Params: []function.Parameter{
 			{Name: "text", Type: cty.String},
 			{Name: "affix", Type: cty.String},
@@ -107,7 +107,7 @@ var anyTrueFunction = quantifierFunction(false)
 // idiomatic constraint over a collection is a `for` comprehension inside one
 // of them, and hclsyntax evaluates the comprehension itself.
 func quantifierFunction(universal bool) function.Function {
-	return function.New(&function.Spec{ //nolint:exhaustruct // the unset fields are cty's own defaults.
+	return function.New(&function.Spec{ // the unset fields are cty's own defaults.
 		Params: []function.Parameter{{
 			Name: "list", Type: cty.DynamicPseudoType, AllowDynamicType: true,
 		}},

@@ -128,7 +128,7 @@ func TestASeededVacuousAssertionIsRefutedThroughTheMutantLeg(t *testing.T) {
 //nolint:paralleltest // owns package-global suggestion hook for its lifetime.
 func TestASuggestExitCodeIsOneOnlyWhenSomethingIsRefuted(t *testing.T) {
 	clean := runSuggest(t, suggestRequest(t, copyFixture(t, suggestBasicFixture)))
-	if code := clean.ExitCode(report.Gate{}); code != report.ExitClean { //nolint:exhaustruct // no gate.
+	if code := clean.ExitCode(report.Gate{}); code != report.ExitClean { // no gate.
 		t.Fatalf("exit code = %d, want %d when every suggestion concluded",
 			code, report.ExitClean)
 	}
@@ -137,7 +137,7 @@ func TestASuggestExitCodeIsOneOnlyWhenSomethingIsRefuted(t *testing.T) {
 	engine.SetSuggestionDefectSeed(t, config.ModuleDir, suggest.DefectVacuous)
 
 	refuted := runSuggest(t, config)
-	if code := refuted.ExitCode(report.Gate{}); code != report.ExitFindings { //nolint:exhaustruct // no gate.
+	if code := refuted.ExitCode(report.Gate{}); code != report.ExitFindings { // no gate.
 		t.Fatalf("exit code = %d, want %d when a suggestion was refuted", code, report.ExitFindings)
 	}
 }

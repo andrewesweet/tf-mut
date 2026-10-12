@@ -123,13 +123,13 @@ func listTodos(
 	})
 
 	result := shell(configuration, settings, version, configuration.ModuleDir,
-		warm{}, []string{}) //nolint:exhaustruct // nothing was prepared: this surface runs no Terraform.
+		warm{}, []string{}) // nothing was prepared: this surface runs no Terraform.
 	result.Command = report.CommandTodos
 	result.Selection = report.Selection{Mode: scopeLabel(true), Ref: "", ForcedFull: ""}
 	result.Metrics = projectMetrics(
 		oracle.ComputeMetrics(oracle.NewPopulation(nil, oracle.Provenance{})),
 	)
-	block := &report.Characterisation{ //nolint:exhaustruct // a listing carries no scaffold.
+	block := &report.Characterisation{ // a listing carries no scaffold.
 		Rung: string(rung), Complete: false, Scenarios: projectScenarios(scenarios),
 		Pins: []report.Pin{}, Todos: projectTodos(todos),
 		Files: []report.GeneratedFile{}, Staged: true,

@@ -272,7 +272,7 @@ func readBaseline(path string) ([]acceptanceEntry, error) {
 		return nil, fmt.Errorf("%w: %s: %w", ErrBaselineFile, path, err)
 	}
 
-	decoded := acceptanceFile{} //nolint:exhaustruct // decoded from disk.
+	decoded := acceptanceFile{} // decoded from disk.
 	if err := json.Unmarshal(content, &decoded); err != nil {
 		return nil, fmt.Errorf("%w: %s: %w", ErrBaselineFile, path, err)
 	}

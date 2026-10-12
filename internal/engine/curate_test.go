@@ -657,7 +657,7 @@ func TestCurateHonoursTheGateFlagsItAccepts(t *testing.T) {
 
 	unreachable := 100.0
 
-	gate := report.Gate{ //nolint:exhaustruct // only the score gate is under test.
+	gate := report.Gate{ // only the score gate is under test.
 		MinScore: unreachable, HasMinScore: true,
 	}
 

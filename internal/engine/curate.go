@@ -175,7 +175,7 @@ func curateSuite(
 	}
 
 	result.Command = report.CommandCurate
-	result.Characterisation = &report.Characterisation{ //nolint:exhaustruct // curate reports findings, not a scaffold.
+	result.Characterisation = &report.Characterisation{ // curate reports findings, not a scaffold.
 		Rung: string(rung), Complete: true,
 		Scenarios: []report.Scenario{}, Pins: []report.Pin{},
 		Files:    []report.GeneratedFile{},
@@ -395,7 +395,7 @@ func subsumedBy(
 		return other, true
 	}
 
-	return assertion{}, false //nolint:exhaustruct // the not-found sentinel.
+	return assertion{}, false // the not-found sentinel.
 }
 
 // crossScenarioFindings reports two scenarios pinning the same behaviour under

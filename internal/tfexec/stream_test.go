@@ -167,7 +167,7 @@ func measurePeakLiveHeap(t *testing.T, work func()) uint64 {
 	peaks := make(chan uint64, 1)
 
 	go func() {
-		sample := []metrics.Sample{{Name: liveHeapMetric}} //nolint:exhaustruct // filled by the runtime.
+		sample := []metrics.Sample{{Name: liveHeapMetric}} // filled by the runtime.
 		peak := uint64(0)
 
 		for {
