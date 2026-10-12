@@ -95,6 +95,10 @@ func TestIdenticalRewritesInOneAttributeGetDistinctIDs(t *testing.T) {
 func TestACachedReplayAgreesWithAFreshRunOnIdenticalRewrites(t *testing.T) {
 	t.Parallel()
 
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
+
 	module := copyFixture(t, identicalEditsFixture)
 	config := baseConfig(t, module)
 

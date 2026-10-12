@@ -25,6 +25,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 	"github.com/andrewesweet/tf-mut/internal/tracing"
 )
 
@@ -707,6 +708,8 @@ func newSpanCollector(t *testing.T, delay time.Duration) *spanCollector {
 			}
 		}
 
+		// The delay is the staged slow exporter whose latency the wall-time
+		// assertions measure; it must stay real elapsed time.
 		time.Sleep(delay)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("{}"))
@@ -1151,7 +1154,7 @@ func TestCPUProfileNeverOverwritesExistingFiles(t *testing.T) {
 			target := filepath.Join(root, "shared", mainFile)
 			if kind != "upward-input" {
 				target = filepath.Join(t.TempDir(), mainFile)
-				writeFile(t, target, "output \"protected\" { value = true }\n")
+				testsupport.WriteFile(t, target, "output \"protected\" { value = true }\n")
 			}
 
 			if kind == "outward-source-symlink" {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/engine"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // Issue #70 and the M4.5 spec review's C4: `check` and `removed` bodies are
@@ -107,7 +108,7 @@ func TestACheckScopedDataSourceInJSONReachesTheEffectInventory(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, contractFixture)
-	writeFile(t, filepath.Join(module, "checks.tf.json"),
+	testsupport.WriteFile(t, filepath.Join(module, "checks.tf.json"),
 		`{"check":{"health":{"data":{"terraform_remote_state":{"probe":{"backend":"local"}}},`+
 			`"assert":[{"condition":"${data.terraform_remote_state.probe.backend != \"\"}",`+
 			`"error_message":"probe"}]}}}`+"\n")
@@ -127,7 +128,7 @@ func TestACheckScopedDataSourceInJSONReachesTheProviderInventory(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, contractFixture)
-	writeFile(t, filepath.Join(module, "checks.tf.json"),
+	testsupport.WriteFile(t, filepath.Join(module, "checks.tf.json"),
 		`{"check":{"metadata":{"data":{"null_data_source":{"meta":{"inputs":{"probe":"on"}}}},`+
 			`"assert":[{"condition":"${data.null_data_source.meta.inputs[\"probe\"] == \"on\"}",`+
 			`"error_message":"meta"}]}}}`+"\n")
@@ -146,7 +147,7 @@ func TestARemovedBlockInJSONReachesTheEffectInventory(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, contractFixture)
-	writeFile(t, filepath.Join(module, "removals.tf.json"),
+	testsupport.WriteFile(t, filepath.Join(module, "removals.tf.json"),
 		`{"removed":[{"from":"${terraform_data.gone}","lifecycle":{"destroy":true},`+
 			`"provisioner":{"local-exec":{"when":"destroy","command":"touch $TF_MUT_MARKER"}}}]}`+"\n")
 
@@ -164,7 +165,7 @@ func TestARemovedBlockInJSONReachesTheProviderInventory(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, contractFixture)
-	writeFile(t, filepath.Join(module, "removals.tf.json"),
+	testsupport.WriteFile(t, filepath.Join(module, "removals.tf.json"),
 		`{"removed":[{"from":"${null_resource.gone}","lifecycle":{"destroy":true}}]}`+"\n")
 
 	_, err := engine.Run(t.Context(), baseConfig(t, module))
@@ -190,7 +191,7 @@ func TestAMovedBlockRunsLikeAnyOtherModule(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, contractFixture)
-	writeFile(t, filepath.Join(module, "moves.tf"),
+	testsupport.WriteFile(t, filepath.Join(module, "moves.tf"),
 		"moved {\n  from = terraform_data.old\n  to   = terraform_data.first\n}\n")
 
 	result, err := engine.Run(t.Context(), baseConfig(t, module))
@@ -210,7 +211,7 @@ func TestAnImportBlockIsRefusedInHCL(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, contractFixture)
-	writeFile(t, filepath.Join(module, "imports.tf"),
+	testsupport.WriteFile(t, filepath.Join(module, "imports.tf"),
 		"import {\n  to = terraform_data.anchor\n  id = \"anchor\"\n}\n")
 
 	_, err := engine.Run(t.Context(), baseConfig(t, module))
@@ -233,7 +234,7 @@ func TestAMovedBlockInJSONIsReadRatherThanRefused(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, contractFixture)
-	writeFile(t, filepath.Join(module, "moves.tf.json"),
+	testsupport.WriteFile(t, filepath.Join(module, "moves.tf.json"),
 		`{"moved":[{"from":"terraform_data.old","to":"terraform_data.first"}]}`+"\n")
 
 	result, err := engine.Run(t.Context(), baseConfig(t, module))
@@ -251,7 +252,7 @@ func TestAnImportBlockInJSONIsRefusedByName(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, contractFixture)
-	writeFile(t, filepath.Join(module, "imports.tf.json"),
+	testsupport.WriteFile(t, filepath.Join(module, "imports.tf.json"),
 		`{"import":[{"to":"${terraform_data.anchor}","id":"anchor"}]}`+"\n")
 
 	config := baseConfig(t, module)

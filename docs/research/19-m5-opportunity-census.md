@@ -162,9 +162,7 @@ numbers above.
 
 ```
 MISE_CONFIG_DIR="$PWD/.artifacts/mise-config" env -u GOROOT -u GOBIN \
-  TF_MUT_ALLOW_REAL_INFRASTRUCTURE=1 mise exec -- \
-  go test -tags=integration ./internal/engine/ -count=1 -v -timeout 2h \
-  -run '^TestTheOpportunityCensusOverThePinnedCorpora$'
+  TF_MUT_ALLOW_REAL_INFRASTRUCTURE=1 mise exec -- just measure-opportunities
 ```
 
 The side-car resumes: rows already recorded are skipped unless refused, so an

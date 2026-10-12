@@ -80,10 +80,10 @@ fmt-check:
 # Run every read-only language and workflow quality gate.
 lint: lint-go lint-shell lint-config lint-actions
 
-# Run the pinned aggressive Go linters without fixes, over both build tags.
+# Run the pinned aggressive Go linters over offline and integration/research configurations.
 lint-go:
     mise exec -- golangci-lint run ./...
-    mise exec -- golangci-lint run --build-tags=integration ./...
+    mise exec -- golangci-lint run --build-tags=integration,research ./...
 
 # Parse and lint every declared Bash script with bash -n, shfmt, and shellcheck.
 lint-shell:
@@ -108,8 +108,9 @@ fix: lint-fix fmt
 typecheck:
     mise exec -- go build -mod=readonly ./...
     mise exec -- go vet -tests=true ./...
-    mise exec -- go build -mod=readonly -tags=integration ./...
-    mise exec -- go vet -tests=true -tags=integration ./...
+    mise exec -- go vet -tests=true -tags=research ./...
+    mise exec -- go build -mod=readonly -tags=integration,research ./...
+    mise exec -- go vet -tests=true -tags=integration,research ./...
 
 # Verify root and source-tool module integrity and tidiness.
 mod-check:
@@ -144,15 +145,25 @@ gate-m45:
       --raw-command -- go test ./internal/engine/ ./internal/skill/ ./internal/sandbox/ ./internal/characterise/ ./cmd/tf-mut/ \
       -json -count=1 -run '^(TestACheckScopedDataSourceReachesTheProviderInventory|TestACheckScopedDataSourceReachesTheEffectInventory|TestARemovedBlockReachesTheProviderInventory|TestARemovedBlockProvisionerReachesTheEffectInventoryAndNeverExecutes|TestACheckScopedDataSourceInJSONReachesTheEffectInventory|TestACheckScopedDataSourceInJSONReachesTheProviderInventory|TestARemovedBlockInJSONReachesTheEffectInventory|TestARemovedBlockInJSONReachesTheProviderInventory|TestAMovedBlockRunsLikeAnyOtherModule|TestAnImportBlockIsRefusedInHCL|TestAMovedBlockInJSONIsReadRatherThanRefused|TestAnImportBlockInJSONIsRefusedByName|TestAnUntestedAliasedProviderModuleCharacterisesWithNoOptIn|TestAMissingAliasMockRefusesBeforeExecution|TestTheDefaultCharacterisationWritesNothing|TestAWrittenSuiteIsGreenAndRegistered|TestASecondWriteIsRefusedAsACollision|TestForceReplacesOnlyUnmodifiedGeneratedFiles|TestScenariosCarryDistinctStateKeys|TestAZeroOutputModuleEscalatesAndSaysSo|TestARungThatPinsNothingIsNeverComplete|TestTheConfiguredRungPinsOnlyWhatTheConfigurationDetermined|TestAnUnknownRungIsRefused|TestASensitiveValueReachesNoGeneratedArtefact|TestARealCharacterisationReportValidatesAgainstThePublishedSchema|TestBranchExpansionPinsBothSidesOfAConditional|TestScenarioPinsAreInvariantUnderFileOrder|TestUntilDryConvergesWithoutWritingAByte|TestUntilDryRespectsTheGranularityLadder|TestCurateRefusesAPartialPopulationAtConfigurationTime|TestCurateReportsAnEmptyKillSetWithItsEvidence|TestCurateWritesNothing|TestOneMutantFailingTwoAssertionsAttributesBoth|TestUnassertableConstructsBecomeNonExecutableScaffolds|TestAnUnsynthesizableInputBecomesANonExecutableArtefact|TestAnAnsweredTodoIsPromotedAndTheSuiteIsGreen|TestTodosListsTheOpenJudgementPointsWithTheirEvidence|TestASecretInAFailedAttemptReachesNoArtefact|TestCharacteriseIsWiredThroughTheCommandLine|TestCharacteriseRefusesArgumentsAfterTheModulePath|TestTheTodoSurfacesAreWiredInBothArgumentOrders|TestTodosRefusesArgumentsAfterTheModulePath|TestTheInstalledSkillsWalkthroughExecutes|TestASeededWrongFlagInTheSkillTurnsTheGateRed|TestARefutedAnswerIsRejectedRatherThanAnOperationalFailure|TestAClosureChangeAtTheProbeYieldsZeroWrites|TestNoTerraformRunPrecedesAStagedGateRefusal|TestCurateIsWiredThroughTheCommandLine|TestCurateRefusesArgumentsAfterTheModulePath|TestAMinedValidationResolvesAnInputWithNoDefault|TestASensitiveAnswerIsVerifiedAndStillWithheld|TestANewClosureFileAtTheProbeYieldsZeroWrites|TestAPartialCommitReportsWhatItWrote|TestAnAnsweredScaffoldIsVerifiedBeforeItIsPromoted|TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions|TestTheFinalPinSetIsVerifiedBeforeAnyWrite|TestEveryTestNameADocumentClaimsExists|TestAPartialSkillInstallReportsWhatLanded|TestAStagedPathCannotEscapeTheSandbox|TestAScaffoldAnswerCannotInjectConfiguration|TestAForeignRegistryIsNeverReplaced|TestARegistryFailureReportsThePartialState|TestAClosureChangeInsideTheRenameWindowIsCaught|TestConfigurationAliasesAreMockedAndGated|TestTheValidationFunctionTable|TestAMovedBlockRunsLikeAnyOtherModule|TestAMovedBlockInJSONIsReadRatherThanRefused|TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten|TestAJSONDeclaredVariableReachesTheScaffold|TestForEachKeysNeedingEscapesStillRenderAGreenSuite|TestAJSONDeclaredDirectiveConditionReachesTheScaffold|TestUntilDryRefusesANarrowedPopulation|TestARealCurateReportValidatesAgainstThePublishedSchema|TestCurateHonoursTheGateFlagsItAccepts|TestNoReportFieldVariesWithTheSensitiveAnswer|TestACharacterisationFlagIsRefusedByAGradingCommand|TestAReporterThatCannotCarryACharacterisationIsRefused|TestTheInstalledWalkthroughDrainsAJudgementPoint|TestASeededWrongFlagInTheJudgementPointWalkthroughTurnsItRed|TestTheGranularityFlagReachesTheEngine)$'
 
+# Research-tagged reproductions remain offline; corpus measurements require integration.
 # Run the M5 offline gates: the Tier 4 lifecycle witnesses (M5a), the pack mechanism and contract (M5c.1), and the shipped security-aws pack (M5c.2).
 gate-m5:
     mkdir -p "{{ artifact_dir }}/test"
     mise exec -- gotestsum --format testname --junitfile "{{ artifact_dir }}/test/gate-m5.xml" \
       --raw-command -- go test ./internal/engine/ ./internal/mutation/ ./cmd/tf-mut/ \
+      -tags=research \
       -json -count=1 -run '^(TestTheIgnoreDropWitnessKillsThroughTheSeam|TestTheIgnoreAllWitnessKillsThroughTheSeam|TestTheReplaceTriggerWitnessKillsThroughTheSeam|TestEveryAdmittedLifecycleOperatorHasASiteInTheOfflineFixture|TestALifecycleMutantWithAnIdenticalFingerprintIsStructurallyUnassertable|TestModuleLevelNoCoverageKeepsItsPrecedenceOverALifecycleMutant|TestConditionalNoCoverageKeepsItsPrecedenceOverALifecycleMutant|TestDeepIncludesStandardAndStandardExcludesTheLifecycleOperators|TestThePseudoTestedCountStaysOverTheExtremeTier|TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperators|TestEveryEnabledOperatorHasAGenerationSite|TestEveryEnabledOperatorHasAMatrixRow|TestEveryMatrixRowNamesAnEnabledOperator|TestTheMatrixFixtureGeneratesOnlyParseableMutants|TestAUserPackGeneratesClassifiesAndSuggestsThroughTheSeam|TestOriginsNameThePackEntryOnACollapsedBooleanFlip|TestDisablingOriginAggregationTurnsTheOriginsCaseRed|TestReversingOwnershipLosesNoContributor|TestEveryPackContractRowIsRefusedByName|TestAnUnsupportedAttributeFormIsANoOpInThePackSummary|TestTheWidenCIDRFormFiresOnlyOnScalarIPv4CIDRs|TestSchemaEvidenceRefusesAnUndescribedAttribute|TestATypeIncompatibleReplacementFindsNoSite|TestFlagAndConfiguredPacksMergeAsAUnion|TestAConfiguredPackSelectionIsRefusedOnCurateAndUntilDry|TestALanguageOperatorOwnsARowAPackEntryAlsoProduces|TestThePackFlagIsRefusedByNameOnCharacteriseTodosAndCurate|TestPacksAreWiredThroughTheCommandLine|TestAnEditedUserPackIsACacheMiss|TestAStaleVerifiedPackSuggestionIsRefused|TestAChangedPackFileForcesTheFullPopulationUnderSince|TestAChangedPackOutsideTheClosureForcesTheFullPopulationUnderSince|TestNoPackEntersTheStandardPopulation|TestEveryPackOperatorHasASiteInTheOfflineFixture|TestARealPackReportValidatesAgainstThePublishedSchema|TestTheOpportunityCensusClassifiesUndecidableConstraints|TestTheOpportunityCensusClassifiesRefusedTypedCandidates|TestTheOpportunityCensusClassifiesMissingTypedCandidates|TestTheOpportunityCensusWithholdsRedactedEvidence|TestTheCensusDenominatorCountsJSONDeclaredVariables|TestAnEmptyJSONStratumIsPublishedAsUnmeasured|TestTheMinedCountsSplitByStratum|TestTheCensusReadingIsInternallyConsistent|TestTheRepairCandidateTableIsPinnedAndUsesTodoConstraints|TestTheRepairPrototypeMapsOnlyOneStructuredInputAndRetriesOnce|TestTheRepairPrototypeUsesTodosForLookupAndStructuredFieldsForMapping|TestARepairPrototypeGateRefusalInvokesOnlyVersion|TestASecretOnlyInARepairFailedAttemptReachesNoPublishedArtefact|TestTheShippedSecurityAWSPackShipsExactlyTheAdmittedEntries|TestTheShippedSecurityAWSPackResolvesWithoutRegistration|TestAUserPackCannotShadowTheShippedSecurityAWSPack|TestTheShippedPackSelectionLeavesTheDefaultPopulationAlone|TestEveryShippedPackSatisfiesTheUserPackContract|TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone|TestTheBenchmarkAggregationPoolsScoredModulesAndKeepsBothDenominators|TestTheBenchmarkMedianIsUnweightedAcrossModules|TestTheUnscoredKnownPopulationsTabulateByRowOutcome|TestABrokenLegAgreementTurnsThePortableAssertionsRed|TestTheBenchmarkDocumentAndRoadmapStateTheComparabilityLimits|TestTheThreePreviewRefusalsLeaveThePopulationUnknown|TestTheGatedPreviewFixtureHasAKnownPopulationAndAnUnsandboxedEffectsRow|TestAPreviewThatFailsOperationallyWhileTheRunSucceeds|TestTheRowVocabularyMapsEveryStageSentinel)$'
 
 # Run fixed-seed Go/property/corpus tests and offline real-Terraform fixtures.
 test: _test-go _test-terraform
+
+# Run the inner Go development loop; see docs/research/05-go-build-chain.md.
+test-fast:
+    mkdir -p "{{ artifact_dir }}/test"
+    RAPID_SEED=424242 RAPID_CHECKS=100 mise exec -- \
+      gotestsum --format testname --junitfile "{{ artifact_dir }}/test/unit-fast.xml" \
+      --jsonfile "{{ artifact_dir }}/test/events-fast.json" --raw-command -- \
+      go test ./... -json -count=1 -shuffle=424242 -short
 
 # Run only the fixed-seed Rapid property suite.
 test-property:
@@ -170,14 +181,15 @@ test-random:
       RAPID_SEED="$seed" RAPID_CHECKS=1000 mise exec -- \
         gotestsum --format testname --jsonfile "{{ artifact_dir }}/test/random.json" \
         --raw-command -- go test ./... -json -count=1 \
-        -shuffle=on
+        -shuffle=on -tags=research
 
 # Run the offline suite with the race detector and checked C toolchain.
+# The research tag keeps the offline research instruments in the swept set.
 test-race:
     mkdir -p "{{ artifact_dir }}/test"
     mise exec -- env CGO_ENABLED=1 RAPID_SEED=424242 gotestsum --format testname \
       --junitfile "{{ artifact_dir }}/test/race.xml" --raw-command -- \
-      go test ./... -json -count=1 -race -shuffle=424242
+      go test ./... -json -count=1 -race -shuffle=424242 -tags=research
 
 # The M5-0.4 census belongs to measure-census: at 8h wall clock
 # (docs/research/17) it would blow this suite's default timeout. The M5d
@@ -191,14 +203,14 @@ test-race:
 test-integration:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mise exec -- gotestsum --format testname --raw-command -- \
-      go test ./... -json -count=1 -tags=integration \
+      go test ./... -json -count=1 -tags=integration,research \
       -skip '^(TestTheBenchmarkCorpusCensus|TestTheBenchmarkOverThePinnedCorpus|TestTheSecurityAWSPackAdmissionMeasurement|TestTheWidenCIDRPackAdmissionMeasurement|TestTheOpportunityCensusOverThePinnedCorpora|TestTheRepairPrototypeOverThePinnedOpportunities|TestTheShippedSecurityAWSPackIsWitnessedOnAWSMocked)$'
 
 # Measure the synthesis rate over the pinned public-module corpus (M4.5-0).
 measure-synthesis:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mkdir -p "{{ artifact_dir }}/measurement"
-    mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
+    mise exec -- go test -tags=integration,research ./internal/engine/ -count=1 -v \
       -run '^TestTheSynthesisRateOverThePinnedCorpus$'
 
 # Run the M5-0.4 module-admission census over the pinned benchmark corpus.
@@ -208,7 +220,7 @@ measure-synthesis:
 measure-census:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mkdir -p "{{ artifact_dir }}/measurement"
-    mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
+    mise exec -- go test -tags=integration,research ./internal/engine/ -count=1 -v \
       -timeout 12h -run '^TestTheBenchmarkCorpusCensus$'
 
 # Run the M5d public benchmark (#164) over the pinned corpus: the pinned
@@ -222,7 +234,7 @@ measure-census:
 benchmark:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mkdir -p "{{ artifact_dir }}/measurement"
-    mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
+    mise exec -- go test -tags=integration,research ./internal/engine/ -count=1 -v \
       -timeout 48h -run '^TestTheBenchmarkOverThePinnedCorpus$'
 
 # Re-execute the M5-0.3 security-aws seed census, admission measurement,
@@ -232,7 +244,7 @@ benchmark:
 measure-security-aws:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mkdir -p "{{ artifact_dir }}/measurement"
-    mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
+    mise exec -- go test -tags=integration,research ./internal/engine/ -count=1 -v \
       -timeout 12h -run '^(TestTheSecurityAWSCandidatePackIsLoadableAndHasStableIdentities|TestTheSecurityAWSPackAdmissionMeasurement|TestEveryEnabledSecurityAWSEntryHasARealProviderWitness|TestTheShippedSecurityAWSPackIsWitnessedOnAWSMocked)$'
 
 # Re-execute the #176 PACK-WIDEN-CIDR admission over the same six targets as
@@ -245,7 +257,7 @@ measure-security-aws:
 measure-widen-cidr:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mkdir -p "{{ artifact_dir }}/measurement"
-    mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
+    mise exec -- go test -tags=integration,research ./internal/engine/ -count=1 -v \
       -timeout 2h -run '^(TestTheWidenCIDRCandidatePackIsLoadableAndHasStableIdentities|TestTheWidenCIDRPackAdmissionMeasurement|TestEveryWidenCIDREntryHasARealProviderWitness)$'
 
 # Run the M5-0.5a opportunity census and mined-rung count over both pinned
@@ -255,7 +267,7 @@ measure-widen-cidr:
 measure-opportunities:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mkdir -p "{{ artifact_dir }}/measurement"
-    mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
+    mise exec -- go test -tags=integration,research ./internal/engine/ -count=1 -v \
       -timeout 2h -run '^TestTheOpportunityCensusOverThePinnedCorpora$'
 
 # Run the M5-0.5b throwaway repair table over the 14 pinned opportunities.
@@ -264,14 +276,14 @@ measure-opportunities:
 measure-repair:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mkdir -p "{{ artifact_dir }}/measurement"
-    mise exec -- go test -tags=integration ./internal/engine/ -count=1 -v \
+    mise exec -- go test -tags=integration,research ./internal/engine/ -count=1 -v \
       -timeout 2h -run '^TestTheRepairPrototypeOverThePinnedOpportunities$'
 
 # Run opt-in realistically sized performance benchmarks.
 test-performance:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mkdir -p "{{ artifact_dir }}/performance"
-    mise exec -- go test -run '^$' -bench Performance -tags=integration ./... \
+    mise exec -- go test -run '^$' -bench Performance -tags=integration,research ./... \
       >"{{ artifact_dir }}/performance/bench.txt"
 
 # Fuzz one explicit package/target for a bounded duration.
@@ -338,7 +350,7 @@ _test-go:
     RAPID_SEED=424242 RAPID_CHECKS=100 mise exec -- \
       gotestsum --format testname --junitfile "{{ artifact_dir }}/test/unit.xml" \
       --jsonfile "{{ artifact_dir }}/test/events.json" --raw-command -- \
-      go test ./... -json -count=1 -shuffle=424242
+      go test ./... -json -count=1 -shuffle=424242 -tags=research
 
 _test-terraform:
     mise exec -- tests/build-chain/terraform-offline.sh

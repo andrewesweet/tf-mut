@@ -12,6 +12,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // registryFixture is a loopback module registry together with the certificate
@@ -88,7 +89,7 @@ func versionedConsumer(t *testing.T, fixture registryFixture) string {
 		t.Fatalf("creating consumer: %v", err)
 	}
 
-	writeFile(t, filepath.Join(module, "main.tf"), `module "local" {
+	testsupport.WriteFile(t, filepath.Join(module, "main.tf"), `module "local" {
   source  = "`+fixture.host+`/test/local/null"
   version = "0.0.1"
 
@@ -100,7 +101,7 @@ output "name" {
 }
 `)
 
-	writeFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), `run "wires_the_versioned_module" {
+	testsupport.WriteFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), `run "wires_the_versioned_module" {
   command = plan
 
   assert {

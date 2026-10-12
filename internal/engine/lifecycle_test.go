@@ -10,6 +10,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // The M5a Tier 4 slice. The lifecycle fixture carries every admitted
@@ -301,7 +302,7 @@ func TestModuleLevelNoCoverageKeepsItsPrecedenceOverALifecycleMutant(t *testing.
 
 	module := copyFixture(t, "nocoverage")
 
-	writeFile(t, filepath.Join(module, "main.tf"),
+	testsupport.WriteFile(t, filepath.Join(module, "main.tf"),
 		strings.Replace(readFile(t, filepath.Join(module, "main.tf")),
 			`resource "terraform_data" "never_planned" {
   input = "root"
@@ -343,7 +344,7 @@ func TestConditionalNoCoverageKeepsItsPrecedenceOverALifecycleMutant(t *testing.
 
 	module := copyFixture(t, "conditional-nocoverage")
 
-	writeFile(t, filepath.Join(module, "main.tf"),
+	testsupport.WriteFile(t, filepath.Join(module, "main.tf"),
 		strings.Replace(readFile(t, filepath.Join(module, "main.tf")),
 			`resource "terraform_data" "gated" {
   count = var.enabled ? 1 : 0
@@ -440,6 +441,9 @@ func TestDeepIncludesStandardAndStandardExcludesTheLifecycleOperators(t *testing
 // 4 additions do not move it.
 func TestThePseudoTestedCountStaysOverTheExtremeTier(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
 
 	smokeConfig := baseConfig(t, copyFixture(t, "lifecycle"))
 	smokeConfig.Tier = mutation.TierSmoke
@@ -481,6 +485,9 @@ func TestThePseudoTestedCountStaysOverTheExtremeTier(t *testing.T) {
 // encodes — including the schema_version the binary stamps.
 func TestARealDeepReportValidatesAgainstThePublishedSchema(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
 
 	result := lifecycleDeep(t)
 

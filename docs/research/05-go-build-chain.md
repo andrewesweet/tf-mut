@@ -41,7 +41,7 @@ The initial quality posture should be deliberately strict:
 - canonical jq, yamlfmt and Tombi formatting plus parse/lint gates for JSON, YAML and TOML;
 - actionlint and zizmor's aggressive auditor persona over workflows and Dependabot;
 - golangci-lint v2 with `default: all`, explicit justified exceptions and a separate fix mode;
-- compiler/type checks over normal and integration build tags;
+- compiler/type checks over the [production and test tag matrices](#linting-and-type-checking);
 - offline, real-Terraform tests as the normal test suite, with race, property and seed-corpus
   checks required on pull requests;
 - fuzz seed-corpus checks and diff mutation on pull requests, bounded active fuzzing and full
@@ -223,15 +223,16 @@ agent instructions or muscle memory.
 | `just fmt` | Apply canonical Go, Bash, JSON, YAML, TOML and explicitly rooted Terraform formatting. |
 | `just fmt-check` | Diff-only equivalent of `fmt`; never changes the tree. |
 | `just lint` | Run the exact pinned aggressive Go, Bash, data-file and GitHub Actions lint configuration; no fixes. |
-| `just lint-go` | Run the aggressive golangci-lint configuration. |
+| `just lint-go` | Run the aggressive golangci-lint configuration over the [lint tag matrix](#linting-and-type-checking). |
 | `just lint-shell` | Run `bash -n`, shfmt check and ShellCheck over the complete Bash manifest. |
 | `just lint-config` | Parse and format-check JSON/YAML/TOML, then run Tombi lint with warnings as errors. |
 | `just lint-actions` | Run actionlint and offline zizmor with the auditor persona and strict collection. |
 | `just lint-fix` | Apply safe fixes and canonical formatting, repeat the sequence, and fail if the second pass changes the tree. |
 | `just fix` | Apply convergent linter fixes and every canonical formatter. Explicitly mutating. |
-| `just typecheck` | `go build` plus `go vet -tests=true` over the documented normal and integration tag matrix; do not execute tests. |
+| `just typecheck` | Compile and vet the [production and test tag matrices](#linting-and-type-checking); do not execute tests. |
 | `just mod-check` | `go mod tidy -diff`, `go mod verify` and read-only module loading. |
 | `just test` | No-egress engine-seam suite using real Terraform, fixed shuffle/Rapid seeds, regression properties and fuzz corpus. |
+| `just test-fast` | Run the [inner development loop](#tests-properties-and-fuzzing) with the same fixed seeds. |
 | `just test-property` | Focused Rapid property/state-machine suite; also included by `test`. |
 | `just test-random` | Scheduled randomized shuffle/Rapid run that records seeds and minimized regressions. |
 | `just test-race` | The offline suite with `CGO_ENABLED=1 -race`; requires the checked C toolchain. |
@@ -239,8 +240,8 @@ agent instructions or muscle memory.
 | `just test-performance` | Realistically sized provider-schema measurement; separate, explicit and artifact-producing. |
 | `just fuzz PACKAGE TARGET DURATION` | Run exactly one named native fuzz target for a bounded time. |
 | `just fuzz-all` | Discover targets from `go test -list='^Fuzz' ./...`, fail if empty, and invoke each with a bound. |
-| `just mutate-diff BASE` | Gremlins `--integration --coverpkg './...' --diff BASE`; initially report-only and time-bounded. |
-| `just mutate` | Full `--integration --coverpkg './...'` mutation sweep, normally scheduled. |
+| `just mutate-diff BASE` | [Cross-package mutation sweep](#mutation-testing) with `--diff BASE`; initially report-only and time-bounded. |
+| `just mutate` | Full [cross-package mutation sweep](#mutation-testing), normally scheduled. |
 | `just security` | Required but time-varying vuln/dependency/secret/workflow scan; emit redacted diagnostics and zizmor SARIF. |
 | `just agent-check` | Verify links, hook/rule syntax, trust documentation and one-way “interactive is never auto-allowed” safety invariants. |
 | `just ci` | Hermetic, source-tree-clean PR bundle: doctor, format, modules, typecheck, lint, build and fixed-seed offline tests. |
@@ -323,10 +324,13 @@ configuration final. The relevant upstream references are the
 Go has no separate TypeScript-like type checker. Aggressive type safety comes from several
 independent compiler/analyzer paths:
 
-1. `go build` over the documented normal and integration tag matrix for production packages;
-2. `go vet -tests=true` over the same matrix to type-check test packages without executing
-   `TestMain`, package initialization or Terraform setup;
-3. golangci-lint's non-disableable typecheck findings, `govet` and Staticcheck;
+1. `go build` without tags and with `-tags=integration,research` for production packages;
+2. `go vet -tests=true` without tags, with `-tags=research`, and with
+   `-tags=integration,research` to type-check test packages without executing `TestMain`,
+   package initialization or Terraform setup. The research-only files are tests, so they
+   need no separate production build;
+3. golangci-lint's non-disableable typecheck findings, `govet` and Staticcheck, without tags
+   and with `--build-tags=integration,research`;
 4. `go test -race` for executed concurrency behaviour.
 
 Do not describe `go test -run='^$'` as compile-only: it links and starts each test binary even
@@ -349,6 +353,19 @@ The scheduled `test-random` recipe uses new seeds and always prints/records them
 automatic reruns to turn a flaky first attempt into a green gate. See
 [gotestsum](https://github.com/gotestyourself/gotestsum) and the
 [Go test flags](https://pkg.go.dev/cmd/go#hdr-Testing_flags).
+
+For the inner development loop, use `just test-fast`. It runs the Go suite with `-short`,
+skipping the real-Terraform tests gated by `testing.Short()`, and omits the `research` build
+tag. The repair prototype, opportunity census and benchmark instruments require that tag.
+The full offline recipes (`just test`, `just test-race` and `just test-random`) include it
+and never pass `-short`; `just ci` continues to run `just test`. Integration and measurement
+recipes include both `integration` and `research`, because their test files share helpers
+with the research instruments. `just gate-m5` includes `research` for its offline
+reproductions and excludes integration-tagged corpus measurements.
+
+The fast suite still measured 2m47s–3m00s on the 12-core development host during a concurrent
+corpus run. Its critical path includes many Terraform-spawning tests taking 3–8s each;
+skipping the longest tests does not make it a sub-minute loop.
 
 The initial split is:
 
@@ -392,10 +409,12 @@ independent options: **integration mode** makes every relevant test package run,
 `--coverpkg './...'` attributes coverage to the internal packages those tests exercise. Either
 omission can silently misclassify mutants.
 
+The research tag preserves the research instruments in the mutation surface. Gremlins'
+`--integration` selects cross-package coverage; the Go `integration` build tag is excluded.
 The pull-request recipe should be conceptually equivalent to:
 
 ```text
-gremlins unleash --integration --coverpkg "./..." --diff <reviewed-base> --output <artifact>
+gremlins unleash --integration --tags research --coverpkg "./..." --diff <reviewed-base> --output <artifact>
 ```
 
 CI needs sufficient Git history to resolve the base. Plant an acceptance mutant in a non-seam

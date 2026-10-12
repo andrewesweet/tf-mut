@@ -1,3 +1,5 @@
+//go:build research
+
 package engine_test
 
 import (

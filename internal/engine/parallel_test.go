@@ -175,6 +175,8 @@ func waitForSandbox(t *testing.T, workDir string) {
 			return
 		}
 
+		// Real elapsed time: the helper is a separate process and the
+		// directory appearing is its only signal.
 		time.Sleep(crashPollInterval)
 	}
 

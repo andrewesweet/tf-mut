@@ -13,13 +13,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/skill"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // The command line is a thin shell over the engine, so these tests check the
@@ -251,7 +251,7 @@ func TestConfiguredReportersMergeWithTheFlag(t *testing.T) {
 	sarifPath := filepath.Join(module, "findings.sarif")
 
 	writeModule(t, module)
-	writeFile(t, filepath.Join(module, ".tf-mut.hcl"),
+	testsupport.WriteFile(t, filepath.Join(module, ".tf-mut.hcl"),
 		"reporter \"sarif\" {\n  path = \""+sarifPath+"\"\n}\n")
 
 	stdout := bytes.Buffer{}
@@ -281,7 +281,7 @@ func TestAnUnknownConfiguredReporterIsRefused(t *testing.T) {
 
 	module := t.TempDir()
 	writeModule(t, module)
-	writeFile(t, filepath.Join(module, ".tf-mut.hcl"),
+	testsupport.WriteFile(t, filepath.Join(module, ".tf-mut.hcl"),
 		"reporter \"telepathy\" {\n  path = \"nowhere\"\n}\n")
 
 	stderr := bytes.Buffer{}
@@ -298,7 +298,7 @@ func TestAnUnknownConfiguredReporterIsRefused(t *testing.T) {
 func writeModule(t *testing.T, dir string) {
 	t.Helper()
 
-	writeFile(t, filepath.Join(dir, "main.tf"),
+	testsupport.WriteFile(t, filepath.Join(dir, "main.tf"),
 		"resource \"terraform_data\" \"app\" {\n  input = \"kept\"\n}\n\n"+
 			"output \"app\" {\n  value = terraform_data.app.input\n}\n")
 
@@ -306,18 +306,10 @@ func writeModule(t *testing.T, dir string) {
 		t.Fatalf("creating the test directory: %v", err)
 	}
 
-	writeFile(t, filepath.Join(dir, "tests", "unit.tftest.hcl"),
+	testsupport.WriteFile(t, filepath.Join(dir, "tests", "unit.tftest.hcl"),
 		"run \"planned\" {\n  command = plan\n\n  assert {\n"+
 			"    condition     = output.app == \"kept\"\n"+
 			"    error_message = \"the input must survive\"\n  }\n}\n")
-}
-
-func writeFile(t *testing.T, path, content string) {
-	t.Helper()
-
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("writing %s: %v", path, err)
-	}
 }
 
 // TestTheInstalledSkillReferencesOnlyCommandsAndFlagsTheBinaryHas is the
@@ -925,7 +917,7 @@ func suggestFixture(t *testing.T) string {
 
 	module := t.TempDir()
 
-	writeFile(t, filepath.Join(module, "main.tf"),
+	testsupport.WriteFile(t, filepath.Join(module, "main.tf"),
 		"resource \"terraform_data\" \"asserted\" {\n  input = \"kept\"\n}\n\n"+
 			"resource \"terraform_data\" \"ignored\" {\n  input = \"unchecked\"\n}\n\n"+
 			"output \"app\" {\n  value = terraform_data.asserted.input\n}\n\n"+
@@ -935,7 +927,7 @@ func suggestFixture(t *testing.T) string {
 		t.Fatalf("creating the test directory: %v", err)
 	}
 
-	writeFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"),
+	testsupport.WriteFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"),
 		"run \"applied\" {\n  command = apply\n\n  assert {\n"+
 			"    condition     = output.app == \"kept\"\n"+
 			"    error_message = \"the input must survive\"\n  }\n}\n")
@@ -983,7 +975,7 @@ func TestCharacteriseIsWiredThroughTheCommandLine(t *testing.T) {
 	t.Parallel()
 
 	module := t.TempDir()
-	writeFile(t, filepath.Join(module, "main.tf"),
+	testsupport.WriteFile(t, filepath.Join(module, "main.tf"),
 		"resource \"terraform_data\" \"app\" {\n  input = \"kept\"\n}\n\n"+
 			"output \"app\" {\n  value = terraform_data.app.output\n}\n")
 
@@ -1018,7 +1010,7 @@ func TestTheGranularityFlagReachesTheEngine(t *testing.T) {
 	t.Parallel()
 
 	module := t.TempDir()
-	writeFile(t, filepath.Join(module, "main.tf"),
+	testsupport.WriteFile(t, filepath.Join(module, "main.tf"),
 		"resource \"terraform_data\" \"app\" {\n  input = \"kept\"\n}\n\n"+
 			"output \"app\" {\n  value = terraform_data.app.output\n}\n")
 
@@ -1153,7 +1145,7 @@ func todoFixture(t *testing.T) string {
 	t.Helper()
 
 	module := t.TempDir()
-	writeFile(t, filepath.Join(module, "main.tf"),
+	testsupport.WriteFile(t, filepath.Join(module, "main.tf"),
 		"variable \"vpc_cidr\" {\n  type = string\n\n  validation {\n"+
 			"    condition     = can(cidrnetmask(var.vpc_cidr))\n"+
 			"    error_message = \"vpc_cidr must be a CIDR block\"\n  }\n}\n\n"+
@@ -1414,7 +1406,7 @@ func walkthroughFixture(t *testing.T) string {
 	t.Helper()
 
 	module := t.TempDir()
-	writeFile(t, filepath.Join(module, "main.tf"),
+	testsupport.WriteFile(t, filepath.Join(module, "main.tf"),
 		"variable \"env\" {\n  type    = string\n  default = \"dev\"\n}\n\n"+
 			"resource \"terraform_data\" \"app\" {\n  input = \"app-${var.env}\"\n}\n\n"+
 			"output \"app\" {\n  value = terraform_data.app.output\n}\n\n"+
@@ -1435,7 +1427,7 @@ func TestCurateIsWiredThroughTheCommandLine(t *testing.T) {
 	t.Parallel()
 
 	module := fixture(t)
-	writeFile(t, filepath.Join(module, ".tf-mut.hcl"),
+	testsupport.WriteFile(t, filepath.Join(module, ".tf-mut.hcl"),
 		"exclude {\n  paths = [\"main.tf\"]\n}\n")
 	stderr := bytes.Buffer{}
 
@@ -1793,7 +1785,7 @@ func judgementPointFixture(t *testing.T) string {
 	t.Helper()
 
 	module := t.TempDir()
-	writeFile(t, filepath.Join(module, "main.tf"),
+	testsupport.WriteFile(t, filepath.Join(module, "main.tf"),
 		"variable \"vpc_cidr\" {\n  type = string\n\n  validation {\n"+
 			"    condition     = can(cidrnetmask(var.vpc_cidr))\n"+
 			"    error_message = \"vpc_cidr must be a CIDR block\"\n  }\n}\n\n"+
@@ -1890,12 +1882,17 @@ func TestTheProfilingAndTracingFlagsAreUniversal(t *testing.T) {
 	module := fixture(t)
 
 	// A real OTLP/HTTP sink: the endpoint the flag names must be contacted,
-	// not parsed and dropped.
-	spanCount := atomic.Int64{}
+	// not parsed and dropped. The first export closes over the channel the
+	// assertion waits on, so the test awaits the export itself rather than
+	// polling a counter.
+	spanExported := make(chan struct{}, 1)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/traces", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
-		spanCount.Add(1)
+		select {
+		case spanExported <- struct{}{}:
+		default:
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("{}"))
 	})
@@ -1927,13 +1924,12 @@ func TestTheProfilingAndTracingFlagsAreUniversal(t *testing.T) {
 		t.Fatalf("--cpu-profile wrote %d bytes with no gzip magic", len(profile))
 	}
 
-	// The batcher exports on its own schedule; the deferred shutdown flushes.
-	deadline := time.Now().Add(10 * time.Second)
-	for spanCount.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
-	}
-
-	if spanCount.Load() == 0 {
+	// The batcher exports on its own schedule; the deferred shutdown
+	// flushes. The wait is bounded so a missing export fails the test
+	// instead of hanging it.
+	select {
+	case <-spanExported:
+	case <-time.After(10 * time.Second):
 		t.Fatal("--otlp-endpoint received no export from the command")
 	}
 }

@@ -353,6 +353,8 @@ func recordingTerraform(t *testing.T, log string) string {
 			return path
 		}
 
+		// Real elapsed time: only the kernel knows when ETXTBSY lifts; the
+		// interval paces retries instead of spinning.
 		time.Sleep(probeInterval)
 	}
 

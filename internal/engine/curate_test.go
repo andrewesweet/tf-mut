@@ -12,6 +12,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // M4.5c: the until-dry loop over the staged suite, and curate's
@@ -100,7 +101,7 @@ func TestCurateRefusesAConfiguredNarrowing(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, "suggest-basic")
-	writeFile(t, filepath.Join(module, ".tf-mut.hcl"),
+	testsupport.WriteFile(t, filepath.Join(module, ".tf-mut.hcl"),
 		"operators {\n  include = [\"BOOL-FLIP\"]\n}\n\n"+
 			"exclude {\n  paths = [\"main.tf\"]\n}\n")
 
@@ -586,7 +587,7 @@ func TestAForeignRegistryIsNeverReplaced(t *testing.T) {
 	module := copyFixture(t, untestedBranchesFixture)
 	registry := filepath.Join(module, engine.RegistryName)
 
-	writeFile(t, registry, "{\"this\":\"is not a provenance registry\"}\n")
+	testsupport.WriteFile(t, registry, "{\"this\":\"is not a provenance registry\"}\n")
 
 	config := characteriseRequest(t, module)
 	config.Write = true

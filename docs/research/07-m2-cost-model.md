@@ -16,7 +16,7 @@ v1.15.8. Fixture: ten AWS resources behind `mock_provider "aws"`, `hashicorp/aws
 roughly 840 MB installed.
 
 ```bash
-TF_MUT_ALLOW_REAL_INFRASTRUCTURE=1 go test -tags=integration ./internal/engine/ \
+TF_MUT_ALLOW_REAL_INFRASTRUCTURE=1 go test -tags=integration,research ./internal/engine/ \
   -run TestCostModelForTheM2SpeedLevers -count=1 -timeout 60m
 ```
 

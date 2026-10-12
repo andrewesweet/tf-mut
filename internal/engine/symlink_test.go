@@ -8,6 +8,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // symlinkedModule builds a module directory holding one symlinked .tf file
@@ -27,7 +28,7 @@ func symlinkedModule(t *testing.T) string {
 		t.Fatalf("creating shared directory: %v", err)
 	}
 
-	writeFile(t, filepath.Join(repository, "shared", "versions.tf"), `variable "shared_tag" {
+	testsupport.WriteFile(t, filepath.Join(repository, "shared", "versions.tf"), `variable "shared_tag" {
   type    = string
   default = "shared-v1"
 }
@@ -37,12 +38,12 @@ func symlinkedModule(t *testing.T) string {
 		t.Fatalf("linking versions.tf: %v", err)
 	}
 
-	writeFile(t, filepath.Join(module, "main.tf"), `output "tag" {
+	testsupport.WriteFile(t, filepath.Join(module, "main.tf"), `output "tag" {
   value = upper(var.shared_tag)
 }
 `)
 
-	writeFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), `run "tag" {
+	testsupport.WriteFile(t, filepath.Join(module, "tests", "unit.tftest.hcl"), `run "tag" {
   command = plan
 
   assert {

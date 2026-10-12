@@ -15,6 +15,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // TestADeadlineExpiredRunLeavesNoProviderProcessBehind holds the D11 road-test
@@ -34,6 +35,10 @@ import (
 // sightings persist.
 func TestADeadlineExpiredRunLeavesNoProviderProcessBehind(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
+
 	requireProviderMirror(t)
 
 	if runtime.GOOS != "linux" {
@@ -82,6 +87,8 @@ func TestADeadlineExpiredRunLeavesNoProviderProcessBehind(t *testing.T) {
 			t.Fatalf("provider processes outlived the run they were started by: %v", leaked)
 		}
 
+		// Real elapsed time: the kernel reaps the providers asynchronously;
+		// nothing signals their exit, so the poll waits.
 		time.Sleep(100 * time.Millisecond)
 	}
 }
@@ -109,6 +116,10 @@ type deadlineMutant struct {
 
 func TestAMutantWhoseTestReachedItsDeadlineIsNamedInTheReport(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
+
 	requireProviderMirror(t)
 
 	module := copyFixture(t, "unmocked-timeout")
@@ -162,6 +173,10 @@ func TestAMutantWhoseTestReachedItsDeadlineIsNamedInTheReport(t *testing.T) {
 // must name the deadline behind whatever verdicts the finished runs earned.
 func TestTheTerminalReportNamesTheMutantsWhoseTestReachedItsDeadline(t *testing.T) {
 	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
+
 	requireProviderMirror(t)
 
 	module := copyFixture(t, "unmocked-timeout")
@@ -335,7 +350,7 @@ func patchEntry(t *testing.T, path string, patch map[string]any) {
 		t.Fatalf("encoding cache entry: %v", encodeErr)
 	}
 
-	writeFile(t, path, string(encoded))
+	testsupport.WriteFile(t, path, string(encoded))
 }
 
 // pluginCacheDir reads the plugin cache directory back out of the request the

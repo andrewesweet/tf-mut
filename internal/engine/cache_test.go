@@ -12,6 +12,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // M3b.2 (#48): the incremental cache — coarse before clever, safe as a disk
@@ -121,7 +122,7 @@ func TestPreSandboxFixInvalidVerdictsAreNotReplayed(t *testing.T) {
 			t.Fatalf("encoding legacy cache entry: %v", encodeErr)
 		}
 
-		writeFile(t, path, string(encoded))
+		testsupport.WriteFile(t, path, string(encoded))
 		legacy++
 	}
 
@@ -301,7 +302,7 @@ func TestCorruptionIsAMiss(t *testing.T) {
 			continue
 		}
 
-		writeFile(t, filepath.Join(cacheDir(module), entry.Name()), "{ truncated")
+		testsupport.WriteFile(t, filepath.Join(cacheDir(module), entry.Name()), "{ truncated")
 		corrupted++
 	}
 
@@ -396,7 +397,7 @@ func TestEvictionIsDeterministicAndSizeCapped(t *testing.T) {
 	// Fill the cache far beyond the cap with stale-shaped entries.
 	for index := range engine.CacheMaxEntries + 32 {
 		name := filepath.Join(dir, "0000stale-"+paddedIndex(index)+".json")
-		writeFile(t, name, `{"format_version":"none"}`)
+		testsupport.WriteFile(t, name, `{"format_version":"none"}`)
 	}
 
 	appendFile(t, filepath.Join(module, "main.tf"), "\n# touched\n")
@@ -469,7 +470,7 @@ func TestTheLockFileIsAKeyDimension(t *testing.T) {
 
 	// A minimal valid lock: comments only, which init accepts and preserves.
 	lock := filepath.Join(module, ".terraform.lock.hcl")
-	writeFile(t, lock, "# This file is maintained automatically by \"terraform init\".\n")
+	testsupport.WriteFile(t, lock, "# This file is maintained automatically by \"terraform init\".\n")
 
 	config := baseConfig(t, module)
 	cachedRun(t, config)
@@ -535,7 +536,7 @@ func TestAutoVarFilesAreAKeyDimension(t *testing.T) {
 	config := baseConfig(t, module)
 	cachedRun(t, config)
 
-	writeFile(t, filepath.Join(module, "probe.auto.tfvars"), "# appeared\n")
+	testsupport.WriteFile(t, filepath.Join(module, "probe.auto.tfvars"), "# appeared\n")
 
 	result := cachedRun(t, config)
 	if result.Population.Cached != 0 {
@@ -601,10 +602,10 @@ func TestMockDataFilesAreAKeyDimension(t *testing.T) {
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
 
-	writeFile(t, filepath.Join(module, "tests", "data.tfmock.hcl"), "# mock data v1\n")
+	testsupport.WriteFile(t, filepath.Join(module, "tests", "data.tfmock.hcl"), "# mock data v1\n")
 	cachedRun(t, config)
 
-	writeFile(t, filepath.Join(module, "tests", "data.tfmock.hcl"), "# mock data v2\n")
+	testsupport.WriteFile(t, filepath.Join(module, "tests", "data.tfmock.hcl"), "# mock data v2\n")
 
 	result := cachedRun(t, config)
 	if result.Population.Cached != 0 {

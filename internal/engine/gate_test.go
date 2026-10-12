@@ -13,6 +13,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 const (
@@ -37,7 +38,7 @@ func weakenTests(t *testing.T, module string) {
 
 	path := filepath.Join(module, "tests", "unit.tftest.hcl")
 
-	writeFile(t, path, `run "weak" {
+	testsupport.WriteFile(t, path, `run "weak" {
   command = plan
 
   assert {
@@ -217,7 +218,7 @@ func TestAnAcceptedIndeterminateTurningActionableIsNew(t *testing.T) {
 		t.Fatalf("encoding baseline: %v", err)
 	}
 
-	writeFile(t, path, string(encoded))
+	testsupport.WriteFile(t, path, string(encoded))
 
 	check := baseConfig(t, module)
 	check.FailOnNew = true
@@ -267,7 +268,7 @@ func TestStaleAndUnobservedAreDistinguished(t *testing.T) {
 		t.Fatalf("encoding baseline: %v", err)
 	}
 
-	writeFile(t, path, string(encoded))
+	testsupport.WriteFile(t, path, string(encoded))
 
 	full := baseConfig(t, module)
 	full.FailOnNew = true

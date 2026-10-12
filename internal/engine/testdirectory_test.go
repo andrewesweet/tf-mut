@@ -8,6 +8,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // The suite's own helper module: a run block instantiates it from under the
@@ -60,7 +61,7 @@ func TestACustomTestDirectoryInstallsItsHelperModules(t *testing.T) {
 	}
 
 	path := filepath.Join(module, "suite", "unit.tftest.hcl")
-	writeFile(t, path, strings.ReplaceAll(readFile(t, path), "./tests/setup", "./suite/setup"))
+	testsupport.WriteFile(t, path, strings.ReplaceAll(readFile(t, path), "./tests/setup", "./suite/setup"))
 	before := treeDigest(t, module)
 
 	request := baseConfig(t, module)
@@ -90,8 +91,8 @@ func TestTheModuleRootStaysMutableUnderARootColocatedTestDirectory(t *testing.T)
 
 			module := copyFixture(t, testdirHelperFixture)
 			if syntax == jsonTestSyntax {
-				writeFile(t, filepath.Join(module, mainFile), "output \"greeting\" {\n  value = \"hello\"\n}\n")
-				writeFile(t, filepath.Join(module, "modules.tf.json"),
+				testsupport.WriteFile(t, filepath.Join(module, mainFile), "output \"greeting\" {\n  value = \"hello\"\n}\n")
+				testsupport.WriteFile(t, filepath.Join(module, "modules.tf.json"),
 					`{"module":{"child":{"source":"./child"}}}`)
 			}
 
@@ -139,7 +140,7 @@ func TestAHelperRootedAtTheTestDirectoryIsNotMutated(t *testing.T) {
 	module := copyFixture(t, testdirHelperFixture)
 	path := filepath.Join(module, "tests", "unit.tftest.hcl")
 	suite := readFile(t, path)
-	writeFile(t, path, strings.ReplaceAll(suite, "./tests/setup", "./tests"))
+	testsupport.WriteFile(t, path, strings.ReplaceAll(suite, "./tests/setup", "./tests"))
 	before := treeDigest(t, module)
 
 	preview, err := engine.Run(t.Context(), previewRequest(t, module))
@@ -169,7 +170,7 @@ func TestAProductionModuleUnderTheTestDirectoryStaysMutable(t *testing.T) {
 
 			module := copyFixture(t, testdirHelperFixture)
 			if syntax == jsonTestSyntax {
-				writeFile(t, filepath.Join(module, "shared.tf.json"),
+				testsupport.WriteFile(t, filepath.Join(module, "shared.tf.json"),
 					`{"module":{"shared":{"source":"./tests"}}}`)
 			} else {
 				appendFile(t, filepath.Join(module, mainFile), "\nmodule \"shared\" {\n  source = \"./tests\"\n}\n")

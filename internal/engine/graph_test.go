@@ -9,6 +9,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // The attribute-level reference graph (M3a.1, issue #44) is proven here in the
@@ -97,7 +98,7 @@ func testJSONBlockSitesMapIntoTheGraph(t *testing.T) {
   "module": {"named": {"source": "hashicorp/consul/aws"}},
   "provider": {"null": {"alias": "named"}}
 }`
-	writeFile(t, filepath.Join(module, "main.tf.json"), source)
+	testsupport.WriteFile(t, filepath.Join(module, "main.tf.json"), source)
 
 	graph := discover(t, module).BuildGraph()
 
