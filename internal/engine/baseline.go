@@ -14,12 +14,13 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
-// warm is the one initialised workspace every mutant sandbox borrows from.
+// warmWorkspace is the one initialised workspace every mutant sandbox
+// borrows from.
 //
 // It exists because Terraform's init writes into its working directory and the
 // source tree is never written to: the warm workspace absorbs those writes, and
 // its provider tree and module payloads are then shared read-only.
-type warm struct {
+type warmWorkspace struct {
 	moduleDir        string
 	dataDir          string
 	lockFile         string
@@ -47,10 +48,10 @@ func prepare(
 	configuration discovery.Configuration,
 	settings settings, workRoot string,
 	collector *runCollector,
-) (warm, error) {
+) (warmWorkspace, error) {
 	prepared, err := warmUp(ctx, runner, configuration, workRoot, collector)
 	if err != nil {
-		return warm{}, err
+		return warmWorkspace{}, err
 	}
 
 	// A preview executes nothing: it needs the schemas that gate the deletion
@@ -61,7 +62,7 @@ func prepare(
 	}
 
 	if err := runBaseline(ctx, runner, configuration, &prepared, collector); err != nil {
-		return warm{}, err
+		return warmWorkspace{}, err
 	}
 
 	return prepared, nil
@@ -76,7 +77,7 @@ func warmUp(
 	configuration discovery.Configuration,
 	workRoot string,
 	collector *runCollector,
-) (warm, error) {
+) (warmWorkspace, error) {
 	materialisePhase := collector.phase(phaseWarmMaterialise)
 	built, err := sandbox.Materialise(sandbox.Spec{
 		SourceRoot: configuration.ClosureRoot,
@@ -88,10 +89,10 @@ func warmUp(
 	})
 	materialisePhase()
 	if err != nil {
-		return warm{}, err
+		return warmWorkspace{}, err
 	}
 
-	prepared := warm{
+	prepared := warmWorkspace{
 		moduleDir: built.ModuleDir,
 		dataDir:   filepath.Join(built.ModuleDir, sandbox.DataDirName),
 		warnings:  []string{},
@@ -103,7 +104,7 @@ func warmUp(
 		filepath.Join(configuration.ClosureRoot, filepath.FromSlash(configuration.RootRelative())))
 	backendPhase()
 	if stripErr != nil {
-		return warm{}, stripErr
+		return warmWorkspace{}, stripErr
 	}
 
 	_, hasLock := configuration.LockFilePath()
@@ -114,7 +115,7 @@ func warmUp(
 	})
 	initPhase(collector.child("init", initResult.Usage, initResult.Started)...)
 	if initErr != nil {
-		return warm{}, initErr
+		return warmWorkspace{}, initErr
 	}
 
 	if path := filepath.Join(prepared.moduleDir, sandbox.LockFileName); fileExists(path) {
@@ -125,12 +126,12 @@ func warmUp(
 	prepared.schemas, err = runner.ProvidersSchema(ctx, prepared.moduleDir)
 	schemaPhase(collector.child("providers", prepared.schemas.Usage, prepared.schemas.Started)...)
 	if err != nil {
-		return warm{}, err
+		return warmWorkspace{}, err
 	}
 
 	for _, rewrite := range rewrites {
 		if restoreErr := sandbox.WriteFresh(rewrite.target, rewrite.source, rewrite.original); restoreErr != nil {
-			return warm{}, fmt.Errorf("restoring %s: %w", filepath.Base(rewrite.target), restoreErr)
+			return warmWorkspace{}, fmt.Errorf("restoring %s: %w", filepath.Base(rewrite.target), restoreErr)
 		}
 	}
 
@@ -146,7 +147,7 @@ func warmUp(
 
 	sources, err := moduleSources(configuration)
 	if err != nil {
-		return warm{}, err
+		return warmWorkspace{}, err
 	}
 
 	prepared.sources = sources
@@ -166,7 +167,7 @@ func runBaseline(
 	ctx context.Context,
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
-	prepared *warm,
+	prepared *warmWorkspace,
 	collector *runCollector,
 ) error {
 	testPhase := collector.phase(phaseBaselineTest)
@@ -207,7 +208,7 @@ func calibrateOracle(
 	ctx context.Context,
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
-	prepared *warm,
+	prepared *warmWorkspace,
 	first tfexec.TestResult,
 	collector *runCollector,
 ) error {

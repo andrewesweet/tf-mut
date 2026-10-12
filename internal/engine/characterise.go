@@ -19,17 +19,17 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
-// staging is what every staged run needs: the closure to materialise, the
-// settings that shape it, the warm workspace it borrows from, and the root to
-// build under.
+// characteriseStage is what every staged run needs: the closure to
+// materialise, the settings that shape it, the warm workspace it borrows
+// from, and the root to build under.
 //
 // One value rather than four parameters: the four travelled together through
 // six functions, and threading a fifth past them is what pushed one signature
 // over the argument limit.
-type staging struct {
+type characteriseStage struct {
 	configuration discovery.Configuration
 	settings      settings
-	prepared      warm
+	prepared      warmWorkspace
 	workRoot      string
 	// terraform is the version gate's result, carried so that a staged round
 	// can drive the mutation pipeline without checking the binary again.
@@ -119,7 +119,7 @@ func characteriseModule(
 	}
 
 	warnings = append(warnings, prepared.warnings...)
-	result := shell(configuration, settings, version.Terraform,
+	result := reportShell(configuration, settings, version.Terraform,
 		configuration.ModuleDir, prepared, warnings)
 	result.Command = report.CommandCharacterise
 	// A characterisation reads the whole module: there is no count lever it
@@ -127,7 +127,7 @@ func characteriseModule(
 	// the same shape for every command.
 	result.Selection = report.Selection{Mode: scopeLabel(true), Ref: "", ForcedFull: ""}
 
-	stage := staging{
+	stage := characteriseStage{
 		configuration: configuration, settings: settings,
 		prepared: prepared, workRoot: workRoot, terraform: version, collector: collector,
 	}
@@ -206,7 +206,7 @@ func projectSuite(events *dispatcher, result *report.Report) {
 // declaration sources a judgement point quotes verbatim.
 func planScaffold(
 	configuration discovery.Configuration,
-	settings settings, prepared warm,
+	settings settings, prepared warmWorkspace,
 	rung characterise.Rung,
 	answers map[string]string,
 ) (characterise.SuitePlan, error) {
@@ -242,9 +242,9 @@ var seedNoEscalation = func(_ discovery.Configuration,
 // failure after the first rename has changed the caller's tree, and an error
 // alone would not say which files moved.
 func commit(
-	stage staging,
+	stage characteriseStage,
 	block *report.Characterisation,
-	files []generated,
+	files []writtenFile,
 	result *report.Report,
 ) error {
 	if !stage.settings.CharacteriseWrite {
@@ -304,12 +304,12 @@ var seedFinalPinDefect = func(_ discovery.Configuration, pins []characterise.Pin
 func closeTheGap(
 	ctx context.Context,
 	runner tfexec.Runner,
-	stage staging,
+	stage characteriseStage,
 	block *report.Characterisation,
 	scaffold characterise.SuitePlan,
 	pins []characterise.Pin,
 	answers map[string]string,
-) ([]generated, []string, error) {
+) ([]writtenFile, []string, error) {
 	// A refused loop is a *reported* outcome and not a swallowed error: the
 	// stop reason it records is one of three published values, so the report
 	// carrying it has to reach a reporter. The failure travels as a warning on
@@ -368,10 +368,10 @@ var seedInitialPinDefect = func(_ discovery.Configuration, pins []characterise.P
 func scaffoldSuite(
 	ctx context.Context,
 	runner tfexec.Runner,
-	stage staging,
+	stage characteriseStage,
 	scaffold characterise.SuitePlan,
 	block *report.Characterisation,
-) ([]characterise.Pin, []generated, error) {
+) ([]characterise.Pin, []writtenFile, error) {
 	*block = report.Characterisation{ // filled in below, stage by stage.
 		Rung: string(scaffold.Rung), Complete: false,
 		Scenarios: projectScenarios(scaffold.Scenarios), Pins: []report.Pin{},
@@ -498,7 +498,7 @@ func rejectAnswers(
 	block report.Characterisation,
 	scaffold characterise.SuitePlan,
 	failure error,
-) (report.Characterisation, []generated, error) {
+) (report.Characterisation, []writtenFile, error) {
 	// Only a red suite is evidence about an answer. `harvestScaffold` and
 	// `verifyScaffold` also propagate staging errors, runner errors and
 	// canonicalisation errors, and none of those says anything about the value
@@ -549,8 +549,8 @@ func artefactFiles(
 	scaffold characterise.SuitePlan,
 	scenarios []characterise.Scenario,
 	todos []characterise.Todo,
-) []generated {
-	files := make([]generated, 0, len(scenarios))
+) []writtenFile {
+	files := make([]writtenFile, 0, len(scenarios))
 
 	for _, scenario := range scenarios {
 		// The artefact is redacted in both views: it is the editable surface,
@@ -565,13 +565,13 @@ func artefactFiles(
 	return files
 }
 
-// generated pairs the bytes a file is written and verified with against the
+// writtenFile pairs the bytes a file is written and verified with against the
 // view a report publishes.
 //
 // They differ only where a sensitive variable is assigned: Terraform cannot
 // plan a redaction marker, and a report may not carry a secret. The digest is
 // the written bytes', because that is what the write protocol commits against.
-type generated struct {
+type writtenFile struct {
 	entry report.GeneratedFile
 	bytes []byte
 	// digest is the written bytes' digest, which the provenance registry
@@ -590,8 +590,8 @@ type generated struct {
 // The mandatory fixture's answer space is thirty-two bits. A report field that
 // varies with a value the report exists not to carry is a disclosure whatever
 // else it is useful for.
-func generatedFile(path string, written, reported []byte, executable bool) generated {
-	return generated{
+func generatedFile(path string, written, reported []byte, executable bool) writtenFile {
+	return writtenFile{
 		entry: report.GeneratedFile{
 			Path:       path,
 			Content:    string(reported),
@@ -605,7 +605,7 @@ func generatedFile(path string, written, reported []byte, executable bool) gener
 }
 
 // entriesOf is the reported view of a generated file set.
-func entriesOf(files []generated) []report.GeneratedFile {
+func entriesOf(files []writtenFile) []report.GeneratedFile {
 	entries := make([]report.GeneratedFile, 0, len(files))
 	for _, file := range files {
 		entries = append(entries, file.entry)
@@ -618,7 +618,7 @@ func entriesOf(files []generated) []report.GeneratedFile {
 func scaffoldArtefact(
 	scaffold characterise.SuitePlan,
 	scaffolds *scaffoldSet,
-) []generated {
+) []writtenFile {
 	// A promoted scaffold has left the artefact: it is test content now.
 	outstanding := scaffolds.scaffolded()
 	if len(outstanding) == 0 {
@@ -627,7 +627,7 @@ func scaffoldArtefact(
 
 	content := characterise.RenderScaffolds(scaffold, outstanding)
 
-	return []generated{generatedFile(
+	return []writtenFile{generatedFile(
 		characterise.ArtefactFile(scaffold.Options.TestDirRel, scaffoldScenario),
 		content, content, false,
 	)}
@@ -638,8 +638,8 @@ func pinnedFiles(
 	scaffold characterise.SuitePlan,
 	scenarios []characterise.Scenario,
 	pins []characterise.Pin,
-) []generated {
-	files := make([]generated, 0, len(scenarios))
+) []writtenFile {
+	files := make([]writtenFile, 0, len(scenarios))
 
 	for _, scenario := range scenarios {
 		one := []characterise.Scenario{scenario}
@@ -661,7 +661,7 @@ func pinnedFiles(
 func harvestScaffold(
 	ctx context.Context,
 	runner tfexec.Runner,
-	stage staging,
+	stage characteriseStage,
 	scaffold characterise.SuitePlan,
 ) (characterise.Harvest, error) {
 	staged := stagedScaffold(stage.configuration, scaffold, nil)
@@ -745,7 +745,7 @@ func stagedScaffold(
 func verifyScaffold(
 	ctx context.Context,
 	runner tfexec.Runner,
-	stage staging,
+	stage characteriseStage,
 	scaffold characterise.SuitePlan,
 	pins []characterise.Pin,
 	name string,
@@ -781,7 +781,7 @@ func verifyScaffold(
 func stagedRun(
 	ctx context.Context,
 	runner tfexec.Runner,
-	stage staging,
+	stage characteriseStage,
 	staged map[string][]byte,
 	name string,
 ) (tfexec.TestResult, error) {

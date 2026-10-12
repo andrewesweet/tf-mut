@@ -136,10 +136,10 @@ func (g Generator) Generate(survivors []Survivor) ([]Candidate, []Suggestion) {
 	return collapse(candidates), skipped
 }
 
-// generated is one survivor's generation outcome: a candidate awaiting
+// generatedFile is one survivor's generation outcome: a candidate awaiting
 // verification, a skipped suggestion with its reason, or nothing — the
 // generator has nothing honest to say about that survivor.
-type generated struct {
+type generatedFile struct {
 	candidate *Candidate
 	skip      *Suggestion
 }
@@ -171,10 +171,10 @@ func collapse(candidates []Candidate) []Candidate {
 }
 
 // seed rewrites a candidate into the named deliberately wrong assertion.
-func (g Generator) seed(survivor Survivor, candidate Candidate) generated {
+func (g Generator) seed(survivor Survivor, candidate Candidate) generatedFile {
 	target, found := g.placement(survivor.delta)
 	if !found {
-		return generated{candidate: &candidate}
+		return generatedFile{candidate: &candidate}
 	}
 
 	// Terraform refuses a constant condition ("must refer to at least one
@@ -198,15 +198,15 @@ func (g Generator) seed(survivor Survivor, candidate Candidate) generated {
 const partsOfAnEquality = 2
 
 // generateOne produces the suggestion for one survivor.
-func (g Generator) generateOne(survivor Survivor) generated {
+func (g Generator) generateOne(survivor Survivor) generatedFile {
 	delta := survivor.delta
 	if len(delta) == 0 {
-		return generated{}
+		return generatedFile{}
 	}
 
 	target, found := g.placement(delta)
 	if !found {
-		return generated{}
+		return generatedFile{}
 	}
 
 	// The JSON test writer is deliberately not built, so a survivor carried by
@@ -216,7 +216,7 @@ func (g Generator) generateOne(survivor Survivor) generated {
 			"the target run is declared in "+target.Rel+
 				", and no JSON test writer is built: this suggestion is reported and never applied")
 
-		return generated{skip: &skip}
+		return generatedFile{skip: &skip}
 	}
 
 	return g.suggestFor(survivor, target, delta)
@@ -257,7 +257,7 @@ func (g Generator) suggestFor(
 	survivor Survivor,
 	target discovery.RunBlock,
 	changes []fingerprint.Change,
-) generated {
+) generatedFile {
 	renderer := render{schemas: g.Schemas}
 
 	var value, metadata []fingerprint.Change
@@ -304,14 +304,14 @@ func (g Generator) suggestFor(
 		if len(pass) > 0 {
 			skip := Skipped(survivor.id, target.Rel, target.Name, reasonOf(first), first.Error())
 
-			return generated{skip: &skip}
+			return generatedFile{skip: &skip}
 		}
 	}
 
 	skip := Skipped(survivor.id, target.Rel, target.Name, SkipUnaddressable,
 		"the delta carries no change in the target run")
 
-	return generated{skip: &skip}
+	return generatedFile{skip: &skip}
 }
 
 // walked is one pass of walkChanges: the expression a change admitted, the
@@ -553,7 +553,7 @@ func reasonOf(err error) SkipReason {
 // or the digest protocol proves a file nobody was shown. Where the target
 // cannot be rewritten the outcome is a skip — a candidate with no patch has no
 // spelling.
-func build(survivor Survivor, target discovery.RunBlock, expression string) generated {
+func build(survivor Survivor, target discovery.RunBlock, expression string) generatedFile {
 	id := identifier(survivor.id, target.Rel, target.Name, expression)
 
 	patch, err := PatchFor(target, expression, VerifiedMessage(id, survivor.id))
@@ -561,12 +561,12 @@ func build(survivor Survivor, target discovery.RunBlock, expression string) gene
 		skip := Skipped(survivor.id, target.Rel, target.Name, SkipUnaddressable,
 			"the target run could not be rewritten: "+err.Error())
 
-		return generated{skip: &skip}
+		return generatedFile{skip: &skip}
 	}
 
 	candidate := NewCandidate(survivor.id, target.Rel, target.Name, expression, patch)
 
-	return generated{candidate: &candidate}
+	return generatedFile{candidate: &candidate}
 }
 
 // identifier is the stable suggestion ID: a content hash over the mutant

@@ -89,8 +89,8 @@ func baselinePath(settings settings, moduleDir string) string {
 // truth table, writes the baseline where requested, and records the
 // fail-on-new outcome. It judges the population fact and the published rows
 // together — the fact decides, the rows carry identities — and returns the
-// per-row labels for finish to project; the gate outcomes it writes onto the
-// gates value the run computed.
+// per-row labels for finishReport to project; the gate outcomes it writes
+// onto the gates value the run computed.
 func applyBaselineGate(
 	settings settings,
 	moduleDir string,

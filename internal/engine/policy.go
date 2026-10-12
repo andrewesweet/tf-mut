@@ -29,65 +29,65 @@ const (
 
 // withConfiguration merges `.tf-mut.hcl` into the run's configuration, leaving
 // every scalar the caller set explicitly alone.
-func (c settings) withConfiguration(moduleDir string) (settings, tfconfig.File, error) {
+func (s settings) withConfiguration(moduleDir string) (settings, tfconfig.File, error) {
 	file, err := tfconfig.Load(moduleDir)
 	if err != nil {
-		return c, file, err
+		return s, file, err
 	}
 
 	// Pack selection is the union of the flag and the configured list, and a
 	// selected pack is loaded here — before any Terraform runs — so an unknown
 	// name, a shadowed reserved name or a file outside the contract is a
 	// configuration error whether or not a `.tf-mut.hcl` exists at all.
-	c.Packs = selectedPacks(c.Packs, file.Operators.Packs)
+	s.Packs = selectedPacks(s.Packs, file.Operators.Packs)
 
-	c.loadedPacks, err = resolvePacks(moduleDir, c.Packs, file.Packs)
+	s.loadedPacks, err = resolvePacks(moduleDir, s.Packs, file.Packs)
 	if err != nil {
-		return c, file, err
+		return s, file, err
 	}
 
 	if !file.Present {
-		return c, file, nil
+		return s, file, nil
 	}
 
 	settings := file.Settings
 
-	if settings.TestDirectory != nil && !c.overridden(FlagTestDirectory) {
-		c.TestDirectory = *settings.TestDirectory
+	if settings.TestDirectory != nil && !s.overridden(FlagTestDirectory) {
+		s.TestDirectory = *settings.TestDirectory
 	}
 
-	if settings.Jobs != nil && !c.overridden(FlagJobs) {
-		c.Jobs = *settings.Jobs
+	if settings.Jobs != nil && !s.overridden(FlagJobs) {
+		s.Jobs = *settings.Jobs
 	}
 
-	if settings.TimeoutFactor != nil && !c.overridden(FlagTimeoutFactor) {
-		c.TimeoutFactor = *settings.TimeoutFactor
+	if settings.TimeoutFactor != nil && !s.overridden(FlagTimeoutFactor) {
+		s.TimeoutFactor = *settings.TimeoutFactor
 	}
 
-	if settings.MinScore != nil && !c.overridden(FlagMinScore) {
-		c.MinScore = *settings.MinScore
-		c.HasMinScore = true
+	if settings.MinScore != nil && !s.overridden(FlagMinScore) {
+		s.MinScore = *settings.MinScore
+		s.HasMinScore = true
 	}
 
-	if settings.AllowIncompleteScore != nil && !c.overridden(FlagAllowIncompleteScore) {
-		c.AllowIncompleteScore = *settings.AllowIncompleteScore
+	if settings.AllowIncompleteScore != nil && !s.overridden(FlagAllowIncompleteScore) {
+		s.AllowIncompleteScore = *settings.AllowIncompleteScore
 	}
 
-	if file.Operators.Tier != "" && !c.overridden(FlagTier) {
-		c.Tier = mutation.Tier(file.Operators.Tier)
-		if !c.Tier.Valid() {
-			return c, file, fmt.Errorf("%w: %s is not a tier", tfconfig.ErrConfig, file.Operators.Tier)
+	if file.Operators.Tier != "" && !s.overridden(FlagTier) {
+		s.Tier = mutation.Tier(file.Operators.Tier)
+		if !s.Tier.Valid() {
+			return s, file, fmt.Errorf("%w: %s is not a tier", tfconfig.ErrConfig, file.Operators.Tier)
 		}
 	}
 
-	c.IncludeOperators = append(slices.Clone(c.IncludeOperators), file.Operators.Include...)
-	c.ExcludeOperators = append(slices.Clone(c.ExcludeOperators), file.Operators.Exclude...)
+	s.IncludeOperators = append(slices.Clone(s.IncludeOperators), file.Operators.Include...)
+	s.ExcludeOperators = append(slices.Clone(s.ExcludeOperators), file.Operators.Exclude...)
 
-	return c, file, nil
+	return s, file, nil
 }
 
-func (c settings) overridden(flag string) bool {
-	return slices.Contains(c.SetFlags, flag)
+func (s settings) overridden(flag string) bool {
+	return slices.Contains(s.SetFlags, flag)
 }
 
 // suppress applies configured exclusions and inline directives to the described

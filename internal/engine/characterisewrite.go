@@ -84,9 +84,9 @@ type registryFile struct {
 // carries the paths and the caller keeps the report.
 func commitScaffold(
 	configuration discovery.Configuration,
-	settings settings, prepared warm,
+	settings settings, prepared warmWorkspace,
 	block *report.Characterisation,
-	files []generated,
+	files []writtenFile,
 ) error {
 	// The commit's own target set is excluded from the digest: the probe is
 	// there to catch a change somebody else made, and a commit that tripped
@@ -239,10 +239,10 @@ func checkTargets(
 // closure and the target immediately before every rename.
 func writeFiles(
 	configuration discovery.Configuration,
-	settings settings, prepared warm,
+	settings settings, prepared warmWorkspace,
 	inputDigest string,
 	block *report.Characterisation,
-	files []generated,
+	files []writtenFile,
 	targets map[string]bool,
 ) ([]string, error) {
 	written := []string{}
@@ -291,7 +291,7 @@ func writeFiles(
 }
 
 // targetPaths is the absolute path set this commit is placing.
-func targetPaths(configuration discovery.Configuration, files []generated) map[string]bool {
+func targetPaths(configuration discovery.Configuration, files []writtenFile) map[string]bool {
 	targets := map[string]bool{}
 
 	for _, file := range files {
@@ -310,7 +310,7 @@ func targetPaths(configuration discovery.Configuration, files []generated) map[s
 // made this content green, and is the target still free?
 func recheckWrite(
 	configuration discovery.Configuration,
-	settings settings, prepared warm,
+	settings settings, prepared warmWorkspace,
 	inputDigest string,
 	targets map[string]bool,
 	file report.GeneratedFile,
@@ -404,7 +404,7 @@ func loadRegistry(moduleDir string) registry {
 func storeRegistry(
 	moduleDir string,
 	block *report.Characterisation,
-	files []generated,
+	files []writtenFile,
 	inputDigest string,
 	existing registry,
 ) error {

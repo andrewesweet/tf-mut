@@ -496,9 +496,9 @@ func mutate(
 	}
 
 	graph := floorGraph(configuration)
-	result := shell(configuration, settings, version.Terraform, moduleDir, prepared, warnings)
+	result := reportShell(configuration, settings, version.Terraform, moduleDir, prepared, warnings)
 
-	mutants, classified := describe(configuration, graph, settings, generated.Mutants)
+	mutants, classified := describeMutants(configuration, graph, settings, generated.Mutants)
 
 	// Suppression runs after the safety gates by construction: the gates are
 	// decided from the parsed configuration before generation, so no exclusion
@@ -553,7 +553,7 @@ func mutate(
 		return report.Report{}, oracle.Population{}, err
 	}
 
-	return finish(ctx, plan, moduleDir, result, evaluated)
+	return finishReport(ctx, plan, moduleDir, result, evaluated)
 }
 
 // prepareWorkRoot refuses a suite with no run blocks and creates the run's
@@ -599,14 +599,14 @@ func floorGraph(configuration discovery.Configuration) *discovery.Graph {
 	return configuration.BuildGraph()
 }
 
-// finish publishes the classified population and projects the report from
+// finishReport publishes the classified population and projects the report from
 // what its subscribers concluded.
 //
 // The subscription order is the contract (ADR-0005): the report projection
 // completes the aggregates first, the suggestion leg reacts next in suggest
 // mode, and the acceptance gate last, so a suggestion leg that fails stops
 // delivery before the baseline writer runs.
-func finish(
+func finishReport(
 	ctx context.Context,
 	plan executionPlan,
 	moduleDir string,
@@ -620,7 +620,7 @@ func finish(
 	population := classifyRun(shell, evaluated.classified, evaluated.failures)
 	projection := &gradingProjection{plan: plan, moduleDir: moduleDir, shell: shell, evaluated: evaluated}
 
-	plan.events.populationClassified.subscribe(projection.complete)
+	plan.events.populationClassified.subscribe(projection.completeReport)
 
 	if plan.settings.mode == suggestMode {
 		projection.subscribeSuggestions(plan.events)
@@ -667,10 +667,10 @@ type gradingProjection struct {
 	labels      map[int]string
 }
 
-// complete computes the aggregates over the classified population.
-func (p *gradingProjection) complete(event PopulationClassified) error {
+// completeReport computes the aggregates over the classified population.
+func (p *gradingProjection) completeReport(event PopulationClassified) error {
 	finalisePhase := p.plan.collector.phase(phaseFinalise)
-	p.completed = complete(p.plan.configuration, p.plan.settings, p.plan.populationDescribed, p.shell,
+	p.completed = completeReport(p.plan.configuration, p.plan.settings, p.plan.populationDescribed, p.shell,
 		p.evaluated.rows, event.population)
 	finalisePhase()
 
@@ -856,10 +856,10 @@ func build(
 	configuration discovery.Configuration,
 	settings settings, workRoot string,
 	collector *runCollector,
-) (warm, mutation.Result, error) {
+) (warmWorkspace, mutation.Result, error) {
 	prepared, err := prepare(ctx, runner, configuration, settings, workRoot, collector)
 	if err != nil {
-		return warm{}, mutation.Result{}, err // nothing was built.
+		return warmWorkspace{}, mutation.Result{}, err // nothing was built.
 	}
 
 	generationPhase := collector.phase(phaseGeneration)
@@ -876,10 +876,11 @@ func build(
 	return prepared, generated, err
 }
 
-// complete computes everything the report can only say once every mutant has
-// a verdict, over the population fact the classification sites assembled. It
-// returns values; finish projects them onto the published report once, last.
-func complete(
+// completeReport computes everything the report can only say once every
+// mutant has a verdict, over the population fact the classification sites
+// assembled. It returns values; finishReport projects them onto the published
+// report once, last.
+func completeReport(
 	configuration discovery.Configuration,
 	settings settings,
 	populationDescribed []report.Mutant,
@@ -901,7 +902,7 @@ func complete(
 
 // completedRun is what a finished execution concluded, computed as values over
 // the population fact and projected onto the published report once, in
-// finish.
+// finishReport.
 type completedRun struct {
 	metrics        report.Metrics
 	operatorErrors []report.OperatorErrors
@@ -979,12 +980,12 @@ func gateOutcomes(settings settings, shell report.Report, metrics report.Metrics
 	}
 }
 
-// shell builds the report value's context: everything true of the run before
-// any mutant has a verdict.
-func shell(
+// reportShell builds the report value's context: everything true of the run
+// before any mutant has a verdict.
+func reportShell(
 	configuration discovery.Configuration,
 	settings settings, terraformVersion, moduleDir string,
-	prepared warm,
+	prepared warmWorkspace,
 	warnings []string,
 ) report.Report {
 	return report.Report{
@@ -1066,7 +1067,7 @@ func countAssertions(configuration discovery.Configuration) int {
 const conditionallyNoCoverageClaim = "the mutated block's multiplicity expression is statically zero under every " +
 	"relevant run, so no run instantiates the block and nothing can execute the mutation"
 
-// describe converts generated mutants into report values, assigning the
+// describeMutants converts generated mutants into report values, assigning the
 // statically decidable states before anything executes: module-level
 // NoCoverage first — the structural precedence and the M2 behaviour — then
 // the guarded static Unobservable shortcut (M3a.2).
@@ -1074,7 +1075,7 @@ const conditionallyNoCoverageClaim = "the mutated block's multiplicity expressio
 // Every described row leaves with the outcome classified for it, so the
 // population fact the run reports is built at the classification sites
 // themselves and never re-parsed from the published values.
-func describe(
+func describeMutants(
 	configuration discovery.Configuration,
 	graph *discovery.Graph,
 	settings settings,
@@ -1193,57 +1194,57 @@ func staticallyUnobservable(graph *discovery.Graph, mutant mutation.Mutant) bool
 }
 
 // Exclude is the site exclusion policy the run was given.
-func (c settings) Exclude() tfconfig.Exclude {
-	return tfconfig.Exclude{Paths: c.ExcludePaths, Resources: c.ExcludeResources}
+func (s settings) Exclude() tfconfig.Exclude {
+	return tfconfig.Exclude{Paths: s.ExcludePaths, Resources: s.ExcludeResources}
 }
 
 // toolVersion is what a generated file's header records: this binary's own
 // version, never Terraform's. The two were confused once, which put a
 // Terraform version in a line reading "Generated by tf-mut characterise".
-func (c settings) toolVersion() string {
-	return buildinfo.Resolve(c.ToolVersion)
+func (s settings) toolVersion() string {
+	return buildinfo.Resolve(s.ToolVersion)
 }
 
-func (c settings) withDefaults() settings {
-	if c.TestDirectory == "" {
-		c.TestDirectory = DefaultTestDirectory
+func (s settings) withDefaults() settings {
+	if s.TestDirectory == "" {
+		s.TestDirectory = DefaultTestDirectory
 	}
 
-	if c.Jobs <= 0 {
-		c.Jobs = defaultJobs()
+	if s.Jobs <= 0 {
+		s.Jobs = defaultJobs()
 	}
 
-	if c.TimeoutFactor <= 0 {
-		c.TimeoutFactor = DefaultTimeoutFactor
+	if s.TimeoutFactor <= 0 {
+		s.TimeoutFactor = DefaultTimeoutFactor
 	}
 
-	if c.TimeoutFloor <= 0 {
-		c.TimeoutFloor = DefaultTimeoutFloor
+	if s.TimeoutFloor <= 0 {
+		s.TimeoutFloor = DefaultTimeoutFloor
 	}
 
-	if c.TerraformBinary == "" {
-		c.TerraformBinary = DefaultTerraformBinary
+	if s.TerraformBinary == "" {
+		s.TerraformBinary = DefaultTerraformBinary
 	}
 
-	return c
+	return s
 }
 
 // selection is the operator population the configuration asks for.
-func (c settings) selection() mutation.Selection {
-	tier := c.Tier
+func (s settings) selection() mutation.Selection {
+	tier := s.Tier
 	if !tier.Valid() {
 		tier = mutation.TierStandard
 	}
 
 	return mutation.Selection{
-		Tier: tier, Include: c.IncludeOperators, Exclude: c.ExcludeOperators,
-		GeneratedFamilies: c.GeneratedFunctions,
+		Tier: tier, Include: s.IncludeOperators, Exclude: s.ExcludeOperators,
+		GeneratedFamilies: s.GeneratedFunctions,
 	}
 }
 
 // baselineFingerprint composes the unmutated suite's masked fingerprint, which
 // is what every mutant is compared against.
-func baselineFingerprint(prepared warm) string {
+func baselineFingerprint(prepared warmWorkspace) string {
 	masked := make([]fingerprint.Payload, 0, len(prepared.payloads))
 
 	for _, payload := range prepared.payloads {
