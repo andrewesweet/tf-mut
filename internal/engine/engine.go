@@ -241,10 +241,6 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	started := time.Now()
 	var collector *runCollector
 	defer func() {
-		if err == nil {
-			err = ctx.Err()
-		}
-
 		if err != nil || collector == nil ||
 			result.Command == report.CommandCharacterise || result.Command == report.CommandTodos {
 			return
@@ -644,10 +640,6 @@ func finish(
 	}
 
 	result := projection.project()
-	if err := ctx.Err(); err != nil {
-		return report.Report{}, oracle.Population{}, err
-	}
-
 	if plan.settings.mode == suggestMode {
 		applySuggestions(plan.settings, &result, applyContext{
 			moduleDir:   plan.configuration.ModuleDir,
