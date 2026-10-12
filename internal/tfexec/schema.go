@@ -82,30 +82,11 @@ type SchemaAttribute struct {
 // payload path through nested blocks and their nesting modes, a walk no
 // attribute lookup can answer because a nested block is not an attribute.
 // Evidence about one argument is Attribute's question.
+// Provider selection follows Attribute.
 func (s Schemas) Block(kind, resourceType string) (SchemaBlock, bool) {
 	schema, known := s.schema(kind, resourceType)
 
 	return schema.Block, known
-}
-
-func (s Schemas) schema(kind, resourceType string) (Schema, bool) {
-	var selected Schema
-	var selectedProvider string
-	var known bool
-
-	for name, provider := range s.ProviderSchemas {
-		schemas := provider.ResourceSchemas
-		if kind == dataSourceKind {
-			schemas = provider.DataSourceSchemas
-		}
-
-		schema, found := schemas[resourceType]
-		if found && (!known || name < selectedProvider) {
-			selected, selectedProvider, known = schema, name, true
-		}
-	}
-
-	return selected, known
 }
 
 // ProvidersSchema retrieves the provider schemas visible from dir. It suppresses
@@ -192,11 +173,19 @@ func decodePublishedType(raw json.RawMessage) (cty.Type, bool) {
 // Attribute looks up one argument of a managed resource or data source type,
 // and whether any visible provider describes the resource type. The path
 // descends the type's nested configuration blocks: every segment but the last
-// names a nested block, and the last names the argument.
+// names a nested block, and the last names the argument. Segments contain
+// schema names, without instance indices or map keys.
 //
-// An argument the schema does not describe is never reported as optional or
-// computed: the flags are false whether the type, the path or the argument
-// is unknown, so no operator fires on evidence the schema did not publish.
+// Attribute and Block select the lexicographically first provider address
+// whose schema publishes the requested kind and resource type. A missing
+// path does not trigger a lookup in another provider's schema.
+//
+// With a nonempty path, the second result describes whether the resource type
+// is known, not whether the argument exists. A missing block or argument on a
+// known type returns a zero Attribute and true: Optional and Computed are
+// false, and Type is absent. An empty path or unknown resource type returns
+// a zero Attribute and false, so callers can distinguish absent arguments
+// from missing schema evidence.
 func (s Schemas) Attribute(kind, resourceType string, path []string) (Attribute, bool) {
 	if len(path) == 0 {
 		return Attribute{}, false
@@ -224,4 +213,24 @@ func (s Schemas) Attribute(kind, resourceType string, path []string) (Attribute,
 		Computed: described.Computed && !described.Optional && !described.Required,
 		Type:     described.Type,
 	}, true
+}
+
+func (s Schemas) schema(kind, resourceType string) (Schema, bool) {
+	var selected Schema
+	var selectedProvider string
+	var known bool
+
+	for name, provider := range s.ProviderSchemas {
+		schemas := provider.ResourceSchemas
+		if kind == dataSourceKind {
+			schemas = provider.DataSourceSchemas
+		}
+
+		schema, found := schemas[resourceType]
+		if found && (!known || name < selectedProvider) {
+			selected, selectedProvider, known = schema, name, true
+		}
+	}
+
+	return selected, known
 }
