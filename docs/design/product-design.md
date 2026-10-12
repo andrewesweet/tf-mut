@@ -151,7 +151,7 @@ Apply the operator catalogue (`mutation-operators.md`) to the AST. Each mutant i
 
 ### Schedule
 
-Order mutants to surface findings early and cut work:
+Reduce mutant execution without hiding findings:
 
 - **Static reachability.** A mutant in a block no run block instantiates is `NoCoverage` — no
   execution needed.
@@ -163,7 +163,7 @@ Order mutants to surface findings early and cut work:
   exclusion would run nothing, produce no fingerprint and no `no-assertion` diagnosis, and
   select zero runs from the assertion-less suites `characterise` scaffolds. The assertion
   inventory ∩ forward cone (see round one, C2, for why `relevant_attributes` cannot supply
-  either side) still matters — as a **prioritisation and predicted-diagnosis signal, never an
+  either side) still matters — as a **predicted-diagnosis signal, never an
   exclusion rule**. Sound instantiation-reachability selection lands in M2; the graph-based
   cone refinement in M3.
 
@@ -196,9 +196,6 @@ Order mutants to surface findings early and cut work:
   intends to build. It becomes worthwhile only where a single run block costs more than an
   invocation — apply-mode suites against slow providers, not the mocked plan-mode suites this
   design targets.
-- **Prioritisation.** Extreme-tier mutants first (few, cheap, highest signal), then contract,
-  then language, then lifecycle. Prioritisation is ordering only: nothing reorders execution
-  mid-run, so it changes no verdict.
 - **Deduplication.** Mutants with identical `(file, range, replacement)` collapse.
 
 **The in-process reference graph — roles split across milestones (revised by both reviews).**
@@ -633,12 +630,12 @@ Key flags for `run`:
 | `--jobs N` | `NumCPU` | Parallelism |
 | `--timeout-factor F` | `10` | Multiple of baseline run time |
 | `--min-score N` | — | Exit non-zero below this score |
-| `--fail-on-new` | on with a baseline | Fail only on new survivors |
+| `--fail-on-new` | off | Fail on findings the baseline does not accept |
 | `--engine terraform\|tofu` | `terraform` | OpenTofu support — roadmap, a claim until [#166](https://github.com/andrewesweet/tf-mut/issues/166) corrects it |
 | `--allow-real-infrastructure` | off | Required if any provider is unmocked |
 | `--reporter ...` | `terminal` | See §9, Reporters |
 | `--seed N` | — | Deterministic sampling |
-| `--sample N` | — | Sample the mutant population for very large modules |
+| `--sample N` | — | Run a deterministic N% sample of the mutant population |
 
 ### Configuration — `.tf-mut.hcl`
 
@@ -647,7 +644,6 @@ an unforced error.
 
 ```hcl
 tf-mut {
-  engine     = "terraform"
   test_dir   = "tests"
   min_score  = 70
 }
