@@ -353,9 +353,8 @@ func assertUnobservedBaseline(t *testing.T, result report.Report, ids []string) 
 	}
 }
 
+//nolint:paralleltest // Swaps the package-level progress interval, which is not safe in parallel.
 func TestInFlightVerdictsAndFailuresPreserveTheTripEvidence(t *testing.T) {
-	t.Parallel()
-
 	releases := t.TempDir()
 	path := filepath.Join(t.TempDir(), "terraform-trip-evidence")
 	script := `#!/usr/bin/env bash
@@ -388,7 +387,7 @@ exec terraform "$@"
 	config.TerraformBinary = path
 	config.Env = append(config.Env, "TF_MUT_TRIP_RELEASES="+releases)
 	config.Progress = tripReleaseWriter{directory: releases}
-	config.ProgressIntervalForTesting = time.Millisecond
+	engine.SetProgressInterval(t, time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
