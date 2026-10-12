@@ -364,7 +364,7 @@ _test-go:
     RAPID_SEED=424242 RAPID_CHECKS=100 mise exec -- \
       gotestsum --format testname --junitfile "{{ artifact_dir }}/test/unit.xml" \
       --jsonfile "{{ artifact_dir }}/test/events.json" --raw-command -- \
-      go test ./... -json -count=1 -shuffle=424242
+      go test ./... -json -count=1 -shuffle=424242 -tags=research
 
 _test-terraform:
     mise exec -- tests/build-chain/terraform-offline.sh
