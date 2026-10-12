@@ -129,13 +129,19 @@ func TestTheTimelessLanguageGuardNormalizesParagraphWhitespace(t *testing.T) {
 		{name: "unicode whitespace", content: "It is not\u00a0yet supported.", lines: []int{1}},
 		{name: "wrapped", content: "A heading\n\nIt is not\nyet supported.", lines: []int{3}},
 		{name: "CRLF wrapped", content: "A heading\r\n\r\nIt is not\r\nyet supported.", lines: []int{3}},
-		{name: "multiple hits per line", content: "Currently, not\nyet available now or soon.\nNot  yet supported.", lines: []int{1, 2, 3}},
+		{
+			name:    "multiple hits per line",
+			content: "Currently, not\nyet available now or soon.\nNot  yet supported.",
+			lines:   []int{1, 2, 3},
+		},
 		{name: "paragraph boundary", content: "It is not\n \t\nyet supported.", lines: nil},
 		{name: "fence boundary", content: "It is not\n```text\ncurrently now soon not yet\n```\nyet supported.", lines: nil},
 		{name: "after fence", content: "```text\nnot yet\n```\nIt is not\nyet supported.", lines: []int{4}},
 		{name: "before fence", content: "It is not\nyet supported.\n```text\nnot yet\n```", lines: []int{1}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			hits := bannedPhraseLines(strings.Split(test.content, "\n"))
 			if !slices.Equal(hits, test.lines) {
 				t.Fatalf("banned phrase source lines = %v, want %v", hits, test.lines)
