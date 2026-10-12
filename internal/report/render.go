@@ -163,6 +163,8 @@ func WriteTerminal(writer io.Writer, value Report) error {
 		writeRun(&builder, value)
 	}
 
+	writeDeadlines(&builder, value)
+
 	if _, err := io.WriteString(writer, builder.String()); err != nil {
 		return fmt.Errorf("writing report: %w", err)
 	}
@@ -458,8 +460,6 @@ func writeMetrics(builder *strings.Builder, value Report) {
 		value.Count(Timeout), value.Count(Invalid),
 		value.Count(Unobservable), value.Count(Ignored))
 
-	writeDeadlines(builder, value)
-
 	writeDiagnoses(builder, value)
 
 	if metrics.Incomplete {
@@ -472,7 +472,10 @@ func writeMetrics(builder *strings.Builder, value Report) {
 // writeDeadlines names the mutants whose test reached its execution budget,
 // whatever verdict the runs that finished first earned: the state vocabulary is
 // unchanged by design, so without this list a deadline behind a Killed or
-// KilledByError verdict would be invisible.
+// KilledByError verdict would be invisible. It renders at the WriteTerminal
+// boundary — after the command-specific body — so every terminal rendering of
+// a report carries it, including the characterisation and curate renderers
+// whose sections never reach the metrics block.
 func writeDeadlines(builder *strings.Builder, value Report) {
 	reached := make([]Mutant, 0)
 	for _, mutant := range value.Mutants {

@@ -46,10 +46,7 @@ package report
 // population was rejected by terraform validate. No field was added, removed
 // or renamed, and the exit-code semantics are unchanged; the wire contract is
 // documented in docs/schema/report-2.8.0.json.
-// 2.9.0 adds, additively: the per-mutant DeadlineReached flag — true exactly
-// when this mutant's Terraform test invocation reached its execution budget,
-// whatever verdict the runs that finished first earned. Verdict precedence is
-// unchanged, and every 2.8.0 document is a valid 2.9.0 document; the wire
+// 2.9.0 adds the per-mutant DeadlineReached flag. Its presence and compatibility
 // contract is documented in docs/schema/report-2.9.0.json.
 const SchemaVersion = "2.9.0"
 

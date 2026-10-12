@@ -347,11 +347,11 @@ volatile only under the mutant is *undecidable*, not maskable — masking it on 
 erase the very difference the mutation made, so the C4 rule's "residual undecidability" clause
 governs it.
 
-Since 2.9.0 the report also carries, per mutant, whether its test invocation reached the
-execution budget at all (`deadline_reached`): the verdict the runs that finished first earned
-keeps its precedence — a deadline behind failed runs is `Killed`, behind errored runs
-`KilledByError` — and the flag makes the cut-short evaluation visible beside that verdict,
-in the terminal and markdown summaries as well as the JSON document.
+A test deadline remains visible even when an earlier failure determines the mutant's verdict.
+Terminal reports for every command include a trailing `Deadline reached` list when any
+mutant's test reached its budget; the Markdown summary also names these mutants. The JSON
+flag and its compatibility contract are defined in the
+[published report schema](../schema/report-2.9.0.json).
 
 Three R2 corrections are embedded there. **`MockMasked` is a diagnosis, not a state** (R2-8):
 as a state it overlapped `Survived` by definition. **`Timeout` sits in the denominator and

@@ -1614,6 +1614,44 @@ func TestMarkdownCarriesGateOutcomeAndNewVersusAccepted(t *testing.T) {
 	}
 }
 
+// TestTheTerminalReportNamesDeadlinesOnEveryCommandShape: the deadline rows
+// render at the shared terminal boundary, so a curate report carrying verdicts
+// from the population it judged names them too — its sections never reach the
+// metrics block.
+func TestTheTerminalReportNamesDeadlinesOnEveryCommandShape(t *testing.T) {
+	t.Parallel()
+
+	marked := allStatesReport()
+	marked.Command = report.CommandCurate
+	marked.Characterisation = &report.Characterisation{Rung: "assertion"}
+	for index := range marked.Mutants {
+		marked.Mutants[index].DeadlineReached = marked.Mutants[index].State == report.Killed
+	}
+
+	rendered := strings.Builder{}
+	if err := report.WriteTerminal(&rendered, marked); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	page := rendered.String()
+	if !strings.Contains(page, "Deadline reached 1") {
+		t.Fatalf("the curate terminal rendering names no deadline:\n%s", page)
+	}
+
+	quiet := allStatesReport()
+	quiet.Command = report.CommandCurate
+	quiet.Characterisation = &report.Characterisation{Rung: "assertion"}
+
+	unmarked := strings.Builder{}
+	if err := report.WriteTerminal(&unmarked, quiet); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	if strings.Contains(unmarked.String(), "Deadline reached") {
+		t.Fatalf("the curate terminal rendering names a deadline no test reached:\n%s", unmarked.String())
+	}
+}
+
 // TestTheMarkdownSummaryNamesTheMutantsWhoseTestReachedItsDeadline: the PR
 // summary must surface a deadline behind a verdict that outranked it, and stay
 // quiet when no test reached its budget.
