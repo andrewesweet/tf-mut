@@ -19,9 +19,7 @@ import (
 // sites — a rebuilt prefix is the adapter joining two address spaces without
 // an adapter, the failure shape the M3 spec review named twice.
 type Path struct {
-	// raw is the canonical spelling the value was parsed from. The questions
-	// that match a whole spelling rather than project a part of it — the
-	// attribute question against the path it is asked of — read it.
+	// raw retains the canonical spelling for queries that inspect it directly.
 	raw string
 	// kind is the top-level record the path lives in.
 	kind pathKind
@@ -56,10 +54,9 @@ const (
 
 // ParsePath parses one canonical payload path.
 //
-// The parse is total: a path the grammar does not name parses to a value
-// whose questions are all answered negatively, because a payload's value map
-// is keyed by everything Terraform serialised, not only by the paths the
-// grammar promises.
+// The parse is total: unrecognised records retain their raw spelling without
+// an owner or body, because a payload's value map is keyed by everything
+// Terraform serialised, not only by the paths the grammar promises.
 func ParsePath(raw string) Path {
 	p := Path{raw: raw}
 
@@ -85,8 +82,7 @@ func ParsePath(raw string) Path {
 		p.kind = pathStateOutput
 		p.owner, p.body, _ = strings.Cut(strings.TrimPrefix(raw, stateOutputs+"."), ".")
 	default:
-		// The payload's own bookkeeping: kind stays pathOther, every field
-		// stays empty, and every question is answered negatively.
+		// The payload's own bookkeeping retains only its raw spelling.
 	}
 
 	return p
@@ -223,12 +219,12 @@ func (p Path) UnknownValueBase() (string, bool) {
 // — its type descriptor or a sensitivity or unknown marker — rather than its
 // value.
 //
-// The metadata members change whenever the value does, and they are never
-// assertable; a candidate selector asks the question to prefer the value
-// delta, whose refusal would otherwise be outranked in the report by the
-// metadata's own.
+// These members are not assertion targets. A candidate selector checks for
+// them to prefer the value delta, whose refusal would otherwise be outranked
+// in the report by the metadata's own.
+//
+//nolint:exhaustive // only output records carry metadata; the default arm is the refusal.
 func (p Path) IsOutputMetadata() bool {
-	//nolint:exhaustive // only output records carry metadata; the default arm is the refusal.
 	switch p.kind {
 	case pathPlanOutput, pathStateOutput:
 	default:
@@ -263,8 +259,9 @@ func (p Path) IsOutputMetadata() bool {
 // string-keyed `for_each` instance, a value outside any resource — reports
 // false. `count` is the only instance numbering this can read, which is the
 // point: a vanishing instance is what a count mutation does.
+//
+//nolint:exhaustive // only resource records carry counted instances; the default arm is the refusal.
 func (p Path) CountedInstance() (resource string, index int, ok bool) {
-	//nolint:exhaustive // only resource records carry counted instances; the default arm is the refusal.
 	switch p.kind {
 	case pathPlanResource, pathStateResource:
 	default:
