@@ -17,6 +17,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
@@ -31,6 +32,9 @@ import (
 const EndpointEnv = "OTEL_EXPORTER_OTLP_ENDPOINT"
 
 const exportFailureWarning = "tf-mut: trace export failed\n"
+
+//nolint:gochecknoglobals // OpenTelemetry's initialization callback is process-global.
+var initializationMutex sync.Mutex
 
 // Tracer hands out spans, or no-ops when disabled.
 type Tracer struct {
@@ -121,6 +125,20 @@ func New(ctx context.Context, endpoint string, warnings io.Writer) *Tracer {
 	}
 
 	otel.SetLogger(logr.Discard())
+
+	initializationMutex.Lock()
+	previousHandler := otel.GetErrorHandler()
+	var diagnostic atomic.Bool
+	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(error) {
+		diagnostic.Store(true)
+	}))
+	defer func() {
+		otel.SetErrorHandler(previousHandler)
+		initializationMutex.Unlock()
+		if diagnostic.Load() {
+			tracer.writeWarning("tf-mut: tracing initialization warning\n")
+		}
+	}()
 
 	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(parsed.String()))
 	if err != nil {

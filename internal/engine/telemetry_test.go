@@ -668,9 +668,10 @@ func TestTraceExportWarningsStayWithTheirRun(t *testing.T) {
 
 // spanCollector is the OTLP/HTTP sink the seam test points the engine at.
 type spanCollector struct {
-	server *httptest.Server
-	mutex  sync.Mutex
-	spans  []*tracepb.Span
+	server    *httptest.Server
+	mutex     sync.Mutex
+	spans     []*tracepb.Span
+	resources []*tracepb.ResourceSpans
 }
 
 func newSpanCollector(t *testing.T, delay time.Duration) *spanCollector {
@@ -695,6 +696,7 @@ func newSpanCollector(t *testing.T, delay time.Duration) *spanCollector {
 
 		sink.mutex.Lock()
 		defer sink.mutex.Unlock()
+		sink.resources = append(sink.resources, request.GetResourceSpans()...)
 		for _, resource := range request.GetResourceSpans() {
 			for _, scope := range resource.GetScopeSpans() {
 				sink.spans = append(sink.spans, scope.GetSpans()...)
@@ -729,6 +731,21 @@ func (s *spanCollector) exportedSpans() []*tracepb.Span {
 	defer s.mutex.Unlock()
 
 	return slices.Clone(s.spans)
+}
+
+func (s *spanCollector) resourceAttributeString(key string) string {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	for _, resource := range s.resources {
+		for _, attr := range resource.GetResource().GetAttributes() {
+			if attr.GetKey() == key {
+				return attr.GetValue().GetStringValue()
+			}
+		}
+	}
+
+	return ""
 }
 
 func TestTraceMeasurementsMatchTheReport(t *testing.T) {
