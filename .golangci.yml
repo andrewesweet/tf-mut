@@ -152,16 +152,13 @@ linters:
             - pkg: github.com/andrewesweet/tf-mut/internal/report
               desc: "Only the application layer and the CLI read the publication. See CONTEXT.md's dependency direction."
         # #89, sixth rule: internal/report is the stdlib-only publication leaf
-        # and imports nothing from this module. The one allow entry admits the
-        # package's own external test files, which import the package they
-        # test; in lax mode a longer allow prefix overrides the deny, so any
-        # other module import — in production or test files alike — still
-        # fails lint.
+        # and imports nothing from this module.
         report-leaf:
-          list-mode: lax
+          list-mode: strict
           files:
             - "**/internal/report/**"
           allow:
+            - $gostd
             - github.com/andrewesweet/tf-mut/internal/report$
           deny:
             - pkg: github.com/andrewesweet/tf-mut

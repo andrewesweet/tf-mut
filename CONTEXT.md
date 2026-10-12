@@ -65,9 +65,9 @@ Lint enforces six boundaries, including test files:
 - `publication-boundary` denies `internal/report` imports from every package
   except `internal/engine` and `cmd/tf-mut` — the application layer and the
   CLI, the only readers of the publication.
-- `report-leaf` denies every module import from `internal/report` itself, so
-  the publication leaf stays stdlib-only; its one admission is the package's
-  own external test files importing the package they test.
+- `report-leaf` allows only standard-library imports from `internal/report`,
+  with one exception: its external test files may import the exact package
+  they test.
 
 Core, supporting and boundary imports of `internal/skill`, and skill's own
 imports beyond its one documented sandbox exception, remain policy; these lint
