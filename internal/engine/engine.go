@@ -921,7 +921,7 @@ func completeReport(
 		findings:       findingsOf(configuration, executed, population),
 		warnings: append(append(unanswerableResources(configuration, populationDescribed),
 			unscoredWarnings(population, metrics)...), tripWarnings(trip)...),
-		gates: gateOutcomes(settings, shell, metrics),
+		gates: gateOutcomes(settings, shell, metrics, population),
 	}
 }
 
@@ -983,11 +983,17 @@ func scopeLabel(full bool) string {
 // fail-on-new and baseline rows arrive with the baseline file (M3b.3); the
 // min-score row is recorded here, labelled partial over any scoped or sampled
 // population.
-func gateOutcomes(settings settings, shell report.Report, metrics report.Metrics) *report.Gates {
+func gateOutcomes(
+	settings settings,
+	shell report.Report,
+	metrics report.Metrics,
+	population oracle.Population,
+) *report.Gates {
 	// The gate table's non-Full rows: scoped, sampled, or served even partly
 	// from the cache — each evaluated over what actually ran, labelled
 	// partial.
-	partial := shell.Sampling != nil ||
+	_, authErr := population.Authoritative(ErrBaselineUnobserved, "")
+	partial := authErr != nil || shell.Sampling != nil ||
 		shell.Population.Cached > 0 ||
 		(shell.Selection.Mode == report.SelectionSince && shell.Selection.ForcedFull == "")
 	scope := scopeLabel(!partial)
