@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 )
 
@@ -145,6 +146,20 @@ type CharacteriseRequest struct {
 	UntilDry bool
 	Resume   bool
 	Answers  []string
+
+	// pinDefectHooks carries the two pin-verifier defect hooks the engine
+	// seam's tests seed. Production never sets it: the request's zero value
+	// is the production path, both hooks nil, both identities, and
+	// export_test.go is the only writer.
+	pinDefectHooks pinDefectHooks
+}
+
+// pinDefectHooks is the pair of defect hooks beside the characterisation's
+// initial and final pin verifiers. It rides the request rather than any
+// package state, so a test's hooks affect only requests carrying them.
+type pinDefectHooks struct {
+	initial func([]characterise.Pin) []characterise.Pin
+	final   func([]characterise.Pin) []characterise.Pin
 }
 
 // TodosRequest lists or resolves characterisation judgement points.

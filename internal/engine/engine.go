@@ -340,11 +340,13 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 
 	// Characterisation judges safety gates against its planned suite rather than the one on disk.
 	// Request types choose dispatch; characterise and todos publish no telemetry.
-	switch request.(type) {
+	switch typed := request.(type) {
 	case CurateRequest, *CurateRequest:
 		return curateSuite(ctx, runner, configuration, s, version, moduleDir, collector)
-	case CharacteriseRequest, *CharacteriseRequest:
-		return characteriseModule(ctx, runner, configuration, s, version, collector)
+	case CharacteriseRequest:
+		return characteriseModule(ctx, runner, configuration, s, version, collector, typed.pinDefectHooks)
+	case *CharacteriseRequest:
+		return characteriseModule(ctx, runner, configuration, s, version, collector, typed.pinDefectHooks)
 	default:
 		// run, preview and suggest share the grading pipeline: the mode each
 		// request carries decides preview's shortcuts and the suggest leg.

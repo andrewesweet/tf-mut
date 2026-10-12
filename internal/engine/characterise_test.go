@@ -346,13 +346,13 @@ func statesOf(graded report.Report) map[report.State]int {
 // `--until-dry` takes, and one that a deletion would have left every test green
 // over.
 //
-//nolint:paralleltest // owns package-global characterisation hook for its lifetime.
+//nolint:paralleltest // owns its seeded pin-defect request for the run's lifetime.
 func TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten(t *testing.T) {
 	module := copyFixture(t, untestedBranchesFixture)
 
 	config := characteriseRequest(t, module)
 	config.Write = true
-	engine.SetInitialPinDefectSeed(t, module)
+	config = engine.WithSeededInitialPinDefect(config)
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrScaffoldRed) {

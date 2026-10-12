@@ -493,7 +493,7 @@ func TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions(t *testing.T) {
 // set: the verification between the loop and the write has to catch it, and
 // nothing may be written. Remove that verification and this test fails.
 //
-//nolint:paralleltest // owns package-global characterisation hook for its lifetime.
+//nolint:paralleltest // owns the package-global until-dry seed for its lifetime.
 func TestTheFinalPinSetIsVerifiedBeforeAnyWrite(t *testing.T) {
 	module := copyFixture(t, untestedBranchesFixture)
 
@@ -501,7 +501,7 @@ func TestTheFinalPinSetIsVerifiedBeforeAnyWrite(t *testing.T) {
 	config.UntilDry = true
 	config.Write = true
 	engine.SetUntilDryRounds(t, module, 1)
-	engine.SetFinalPinDefectSeed(t, module)
+	config = engine.WithSeededFinalPinDefect(config)
 
 	_, err := engine.Run(t.Context(), config)
 	if !errors.Is(err, engine.ErrScaffoldRed) {

@@ -183,8 +183,6 @@ type options struct {
 	reporters []config.Reporter
 }
 
-// flagValues collects the parsed flag pointers, so declaring the surface and
-// reading it can be two short functions instead of one long one.
 // outputFlag collects repeatable FORMAT=PATH reporter outputs.
 type outputFlag []config.Reporter
 
@@ -209,6 +207,12 @@ func (o *outputFlag) Set(value string) error {
 	return nil
 }
 
+// flagValues collects the parsed flag pointers, so declaring the surface and
+// reading it can be two short functions instead of one long one. The request
+// context the parser derives — the build version, the module directory, the
+// flags the caller actually set, whether the score and sample flags were
+// given, and the progress writer — rides on the same value, so the request
+// method reads one receiver instead of a positional list of its parts.
 type flagValues struct {
 	testDirectory, reporter, sarifPath, tier *string
 	operators, excludeOperators              *string
@@ -231,6 +235,15 @@ type flagValues struct {
 	write, force, resume, untilDry           *bool
 	answers                                  *answerFlag
 	cpuProfile, otlpEndpoint                 *string
+
+	// The request context: filled in by parse once the flag set is parsed and
+	// the positional argument resolved, and read by request and its helpers.
+	buildVersion      string
+	moduleDir         string
+	given             []string
+	minScoreRequested bool
+	sampleRequested   bool
+	progress          io.Writer
 }
 
 // answerFlag collects repeatable todo-<id>=<value> answers.
@@ -373,8 +386,15 @@ func parse(command, buildVersion string, args []string, stderr io.Writer) (optio
 		return options{}, err
 	}
 
+	values.buildVersion = buildVersion
+	values.moduleDir = moduleDir
+	values.given = given
+	values.minScoreRequested = requested
+	values.sampleRequested = sampled
+	values.progress = stderr
+
 	return options{
-		config: engineConfig(command, buildVersion, values, moduleDir, given, requested, sampled, stderr),
+		config: values.request(command),
 		gate: report.Gate{
 			MinScore:             *values.minScore,
 			HasMinScore:          requested,
@@ -519,23 +539,16 @@ func refuseUncarryingReporter(command, reporter string) error {
 		errUncarryingReporter, reporter, command)
 }
 
-// engineConfig maps the parsed flags onto the engine's closed request set.
+// request maps the parsed flags onto the engine's closed request set.
 // Each command builds its own request: a request with no field for a control
 // is what makes the parser's refusal of the corresponding flag complete, so
 // the mode booleans a legacy input once carried are gone — the request's type
 // is the command.
-func engineConfig(
-	command, buildVersion string,
-	values flagValues,
-	moduleDir string,
-	given []string,
-	requested, sampled bool,
-	progress io.Writer,
-) engine.Request {
+func (values flagValues) request(command string) engine.Request {
 	switch command {
 	case characteriseCommand:
 		return engine.CharacteriseRequest{
-			Common:   commonFlags(buildVersion, values, moduleDir, given, progress),
+			Common:   values.common(),
 			PinRung:  *values.pin,
 			Write:    *values.write,
 			Force:    *values.force,
@@ -546,7 +559,7 @@ func engineConfig(
 
 	case todosCommand:
 		return engine.TodosRequest{
-			Common:  commonFlags(buildVersion, values, moduleDir, given, progress),
+			Common:  values.common(),
 			PinRung: *values.pin,
 			Answers: *values.answers,
 			Resume:  *values.resume,
@@ -554,22 +567,22 @@ func engineConfig(
 
 	case curateCommand:
 		return engine.CurateRequest{
-			Common:  commonFlags(buildVersion, values, moduleDir, given, progress),
-			Gate:    gateControls(values, requested),
+			Common:  values.common(),
+			Gate:    values.gate(),
 			NoCache: *values.noCache,
 		}
 
 	case previewCommand:
 		return engine.PreviewRequest{
-			Common:     commonFlags(buildVersion, values, moduleDir, given, progress),
-			Population: populationControls(values, sampled),
+			Common:     values.common(),
+			Population: values.population(),
 		}
 
 	case suggestCommand:
 		return engine.SuggestRequest{
-			Common:      commonFlags(buildVersion, values, moduleDir, given, progress),
-			Population:  populationControls(values, sampled),
-			Gate:        gateControls(values, requested),
+			Common:      values.common(),
+			Population:  values.population(),
+			Gate:        values.gate(),
 			NoCache:     *values.noCache,
 			DryRun:      *values.dryRun,
 			SurvivorIDs: commaSeparated(*values.survivors),
@@ -579,17 +592,17 @@ func engineConfig(
 
 	default:
 		return engine.RunRequest{
-			Common:     commonFlags(buildVersion, values, moduleDir, given, progress),
-			Population: populationControls(values, sampled),
-			Gate:       gateControls(values, requested),
+			Common:     values.common(),
+			Population: values.population(),
+			Gate:       values.gate(),
 			NoCache:    *values.noCache,
 		}
 	}
 }
 
-// populationControls projects the population flags onto the Population embed
+// population projects the population flags onto the Population embed
 // the run, preview and suggest requests carry.
-func populationControls(values flagValues, sampled bool) engine.Population {
+func (values flagValues) population() engine.Population {
 	return engine.Population{
 		Tier:               mutation.Tier(*values.tier),
 		IncludeOperators:   commaSeparated(*values.operators),
@@ -598,19 +611,19 @@ func populationControls(values flagValues, sampled bool) engine.Population {
 		ExcludeResources:   commaSeparated(*values.excludeResources),
 		Since:              *values.since,
 		SamplePercent:      *values.sample,
-		HasSample:          sampled,
+		HasSample:          values.sampleRequested,
 		SampleSeed:         *values.seed,
 		GeneratedFunctions: *values.generatedFunctions,
 		Packs:              commaSeparated(*values.packs),
 	}
 }
 
-// gateControls projects the acceptance flags onto the Gate embed the run,
+// gate projects the acceptance flags onto the Gate embed the run,
 // suggest and curate requests carry.
-func gateControls(values flagValues, requested bool) engine.Gate {
+func (values flagValues) gate() engine.Gate {
 	return engine.Gate{
 		MinScore:             *values.minScore,
-		HasMinScore:          requested,
+		HasMinScore:          values.minScoreRequested,
 		AllowIncompleteScore: *values.allowIncomplete,
 		AllowSampledGate:     *values.allowSampledGate,
 		FailOnNew:            *values.failOnNew,
@@ -619,17 +632,11 @@ func gateControls(values flagValues, requested bool) engine.Gate {
 	}
 }
 
-// commonFlags projects the flags every command shares onto the Common embed
+// common projects the flags every command shares onto the Common embed
 // the typed requests carry.
-func commonFlags(
-	buildVersion string,
-	values flagValues,
-	moduleDir string,
-	given []string,
-	progress io.Writer,
-) engine.Common {
+func (values flagValues) common() engine.Common {
 	return engine.Common{
-		ModuleDir:               moduleDir,
+		ModuleDir:               values.moduleDir,
 		TestDirectory:           *values.testDirectory,
 		Jobs:                    *values.jobs,
 		TimeoutFactor:           *values.timeoutFactor,
@@ -641,11 +648,11 @@ func commonFlags(
 		TerraformBinary:         "",
 		Env:                     nil,
 		WorkDir:                 "",
-		ToolVersion:             buildinfo.Resolve(buildVersion),
-		SetFlags:                given,
+		ToolVersion:             buildinfo.Resolve(values.buildVersion),
+		SetFlags:                values.given,
 		CPUProfile:              *values.cpuProfile,
 		OTLPEndpoint:            *values.otlpEndpoint,
-		Progress:                progress,
+		Progress:                values.progress,
 	}
 }
 

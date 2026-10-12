@@ -19,13 +19,14 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
-// characteriseStage is what every staged run needs: the closure to
-// materialise, the settings that shape it, the warm workspace it borrows
-// from, and the root to build under.
+// characteriseStage is what every staged run needs: the runner every staged
+// round executes through, the planned suite the rounds render and grade, the
+// answers in force, the closure to materialise, the settings that shape it,
+// the warm workspace it borrows from, and the root to build under.
 //
-// One value rather than four parameters: the four travelled together through
-// six functions, and threading a fifth past them is what pushed one signature
-// over the argument limit.
+// One value rather than a positional list: these travelled together through
+// the staged pipeline, and threading them past each other is what pushed the
+// loop's signatures over the argument limit.
 type characteriseStage struct {
 	configuration discovery.Configuration
 	settings      settings
@@ -35,6 +36,43 @@ type characteriseStage struct {
 	// can drive the mutation pipeline without checking the binary again.
 	terraform tfexec.Version
 	collector *runCollector
+	// runner executes every staged round: the harvest runs, the verifications
+	// and the until-dry loop's grading rounds all go through it.
+	runner tfexec.Runner
+	// scaffold is the planned suite every staged round renders and grades.
+	scaffold characterise.SuitePlan
+	// answers are the caller's judgement-point answers in force.
+	answers map[string]string
+	// scaffolds is the gap-closing loop's record of the constructs it
+	// discovered. A path that does not run the loop leaves it empty.
+	scaffolds *scaffoldSet
+	// seedInitialPinDefect and seedFinalPinDefect are the pin-defect hooks
+	// beside the initial and final verifiers, copied from the request.
+	// Production never writes them, so a staged run's pin sets pass through
+	// untouched; a nil hook is the identity.
+	seedInitialPinDefect func([]characterise.Pin) []characterise.Pin
+	seedFinalPinDefect   func([]characterise.Pin) []characterise.Pin
+}
+
+// initialPins passes the harvested pin set through the initial pin-defect
+// hook. A nil hook is the production path and the identity: the request's
+// zero value carries none, and export_test.go is the only writer of one.
+func (s characteriseStage) initialPins(pins []characterise.Pin) []characterise.Pin {
+	if s.seedInitialPinDefect == nil {
+		return pins
+	}
+
+	return s.seedInitialPinDefect(pins)
+}
+
+// finalPins passes the pin set the loop ended with through the final
+// pin-defect hook, under the same nil-is-identity rule as initialPins.
+func (s characteriseStage) finalPins(pins []characterise.Pin) []characterise.Pin {
+	if s.seedFinalPinDefect == nil {
+		return pins
+	}
+
+	return s.seedFinalPinDefect(pins)
 }
 
 // ErrScaffoldRed reports a generated suite that did not pass in the sandbox.
@@ -71,8 +109,7 @@ func characteriseModule(
 	ctx context.Context,
 	runner tfexec.Runner,
 	configuration discovery.Configuration,
-	settings settings, version tfexec.Version,
-	collector *runCollector,
+	settings settings, version tfexec.Version, collector *runCollector, hooks pinDefectHooks,
 ) (report.Report, error) {
 	rung, answers, err := characteriseInputs(configuration, settings)
 	if err != nil {
@@ -88,7 +125,6 @@ func characteriseModule(
 	// here, gated here, and enriched with defaults after the warm-up — and a
 	// refusal costs no `init`, no provider download and no schema read,
 	// exactly as it does for a mutation run.
-	// only the mocks are read from this plan.
 	mockOptions := characterise.Options{TestDirRel: configuration.TestDirRelative()}
 	gated := characterise.Plan(configuration, tfexec.Schemas{}, mockOptions,
 		characterise.Configurations(configuration))
@@ -119,8 +155,7 @@ func characteriseModule(
 	}
 
 	warnings = append(warnings, prepared.warnings...)
-	result := reportShell(configuration, settings, version.Terraform,
-		configuration.ModuleDir, prepared, warnings)
+	result := reportShell(configuration, settings, version.Terraform, configuration.ModuleDir, prepared, warnings)
 	result.Command = report.CommandCharacterise
 	// A characterisation reads the whole module: there is no count lever it
 	// could have been scoped by, and saying so keeps the population contract
@@ -130,12 +165,14 @@ func characteriseModule(
 	stage := characteriseStage{
 		configuration: configuration, settings: settings,
 		prepared: prepared, workRoot: workRoot, terraform: version, collector: collector,
+		runner: runner, scaffold: scaffold, answers: answers, scaffolds: newScaffoldSet(),
+		seedInitialPinDefect: hooks.initial, seedFinalPinDefect: hooks.final,
 	}
 
 	events := dispatcher{}
 	projectSuite(&events, &result)
 	var block report.Characterisation
-	pins, files, err := scaffoldSuite(ctx, runner, stage, scaffold, &block)
+	pins, files, err := scaffoldSuite(ctx, stage, &block)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -151,7 +188,7 @@ func characteriseModule(
 	// evidence for it. What the loop genuinely cannot run over is a scaffold
 	// with an unresolved judgement point, because there is no executable suite.
 	if settings.UntilDry && unresolvedTodos(block.Todos) == 0 {
-		closed, refused, err := closeTheGap(ctx, runner, stage, &block, scaffold, pins, answers)
+		closed, refused, err := closeTheGap(ctx, stage, &block, pins)
 		if err != nil {
 			return report.Report{}, err
 		}
@@ -284,14 +321,6 @@ func characteriseInputs(
 	return rung, answers, nil
 }
 
-// seedFinalPinDefect is an inert test hook beside the final verifier it drives.
-// Tests replace it with the false pin needed to prove the verifier is load-bearing.
-//
-//nolint:gochecknoglobals // test seam, inert outside the suite.
-var seedFinalPinDefect = func(_ discovery.Configuration, pins []characterise.Pin) []characterise.Pin {
-	return pins
-}
-
 // closeTheGap runs the until-dry loop, promotes what the answers earned, and
 // proves the pin set the loop ended with before any of it can be written.
 //
@@ -303,12 +332,9 @@ var seedFinalPinDefect = func(_ discovery.Configuration, pins []characterise.Pin
 // evidence, not the same claim.
 func closeTheGap(
 	ctx context.Context,
-	runner tfexec.Runner,
 	stage characteriseStage,
 	block *report.Characterisation,
-	scaffold characterise.SuitePlan,
 	pins []characterise.Pin,
-	answers map[string]string,
 ) ([]writtenFile, []string, error) {
 	// A refused loop is a *reported* outcome and not a swallowed error: the
 	// stop reason it records is one of three published values, so the report
@@ -320,12 +346,7 @@ func closeTheGap(
 	// Terraform crash, a staging failure or a mutation-engine failure is an
 	// operational failure, and turning one into a warning plus an incomplete
 	// report exits 1 where the published contract says 2.
-	// The scaffold record travels through the loop — rounds record into it —
-	// and on to promotion and the artefact, so every move runs through the
-	// context's constructors and transition.
-	scaffolds := newScaffoldSet()
-
-	updated, err := untilDry(ctx, runner, stage, block, scaffold, pins, scaffolds)
+	updated, err := untilDry(ctx, stage, block, pins)
 	if err != nil {
 		if !errors.Is(err, ErrBaselineRed) {
 			return nil, nil, err
@@ -336,7 +357,7 @@ func closeTheGap(
 		return nil, []string{err.Error()}, nil
 	}
 
-	promoted, refusals, err := promoteScaffolds(ctx, runner, stage, block, scaffold, answers, scaffolds)
+	promoted, refusals, err := promoteScaffolds(ctx, stage, block)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -344,24 +365,16 @@ func closeTheGap(
 	// The final leg's evidence is not carried further: the judgement points
 	// and scaffolds were promoted on the legs above, and this leg re-proves
 	// the pin set the loop ended with.
-	pins = seedFinalPinDefect(stage.configuration, updated)
+	pins = stage.finalPins(updated)
 	block.Pins = projectPins(pins)
 
-	if _, err := verifyScaffold(ctx, runner, stage, scaffold, pins, "verify-final"); err != nil {
+	if _, err := verifyScaffold(ctx, stage, pins, "verify-final"); err != nil {
 		return nil, nil, err
 	}
 
-	return append(append(pinnedFiles(scaffold, scaffold.Scenarios, pins),
+	return append(append(pinnedFiles(stage.scaffold, stage.scaffold.Scenarios, pins),
 		promoted...),
-		scaffoldArtefact(scaffold, scaffolds)...), refusals, nil
-}
-
-// seedInitialPinDefect is an inert test hook beside the initial verifier it drives.
-// Tests replace it with the false pin needed to prove the verifier is load-bearing.
-//
-//nolint:gochecknoglobals // test seam, inert outside the suite.
-var seedInitialPinDefect = func(_ discovery.Configuration, pins []characterise.Pin) []characterise.Pin {
-	return pins
+		scaffoldArtefact(stage.scaffold, stage.scaffolds)...), refusals, nil
 }
 
 // scaffoldSuite harvests, pins and verifies the planned scaffold, filling the
@@ -370,11 +383,10 @@ var seedInitialPinDefect = func(_ discovery.Configuration, pins []characterise.P
 // from.
 func scaffoldSuite(
 	ctx context.Context,
-	runner tfexec.Runner,
 	stage characteriseStage,
-	scaffold characterise.SuitePlan,
 	block *report.Characterisation,
 ) ([]characterise.Pin, []writtenFile, error) {
+	scaffold := stage.scaffold
 	*block = report.Characterisation{ // filled in below, stage by stage.
 		Rung: string(scaffold.Rung), Complete: false,
 		Scenarios: projectScenarios(scaffold.Scenarios), Pins: []report.Pin{},
@@ -398,7 +410,7 @@ func scaffoldSuite(
 		return nil, files, nil
 	}
 
-	harvest, err := harvestScaffold(ctx, runner, stage, scaffold)
+	harvest, err := harvestScaffold(ctx, stage)
 	if err != nil {
 		rejected, refused, failure := rejectAnswers(*block, scaffold, err)
 		*block = rejected
@@ -409,8 +421,7 @@ func scaffoldSuite(
 	// The pins the context harvested are what everything downstream consumes:
 	// the renderer, the verifier and the defect-seeding hooks all read the
 	// context values, and the report block carries their projection.
-	pins := seedInitialPinDefect(
-		stage.configuration,
+	pins := stage.initialPins(
 		characterise.PinHarvest(scaffold, stage.configuration, stage.prepared.schemas, harvest),
 	)
 	block.Pins = projectPins(pins)
@@ -418,7 +429,7 @@ func scaffoldSuite(
 	files := pinnedFiles(scaffold, scaffold.Scenarios, pins)
 	block.Files = entriesOf(files)
 
-	verification, err := verifyScaffold(ctx, runner, stage, scaffold, pins, "verify")
+	verification, err := verifyScaffold(ctx, stage, pins, "verify")
 	if err != nil {
 		rejected, refused, failure := rejectAnswers(*block, scaffold, err)
 		*block = rejected
@@ -663,18 +674,16 @@ func pinnedFiles(
 // by construction.
 func harvestScaffold(
 	ctx context.Context,
-	runner tfexec.Runner,
 	stage characteriseStage,
-	scaffold characterise.SuitePlan,
 ) (characterise.Harvest, error) {
-	staged := stagedScaffold(stage.configuration, scaffold, nil)
+	staged := stagedScaffold(stage.configuration, stage.scaffold, nil)
 
-	first, err := stagedRun(ctx, runner, stage, staged, "harvest-1")
+	first, err := stagedRun(ctx, stage, staged, "harvest-1")
 	if err != nil {
 		return characterise.Harvest{}, err
 	}
 
-	second, err := stagedRun(ctx, runner, stage, staged, "harvest-2")
+	second, err := stagedRun(ctx, stage, staged, "harvest-2")
 	if err != nil {
 		return characterise.Harvest{}, err
 	}
@@ -747,15 +756,13 @@ func stagedScaffold(
 // what a promotion transition demands.
 func verifyScaffold(
 	ctx context.Context,
-	runner tfexec.Runner,
 	stage characteriseStage,
-	scaffold characterise.SuitePlan,
 	pins []characterise.Pin,
 	name string,
 ) (characterise.Verification, error) {
-	staged := stagedScaffold(stage.configuration, scaffold, pins)
+	staged := stagedScaffold(stage.configuration, stage.scaffold, pins)
 
-	result, err := stagedRun(ctx, runner, stage, staged, name)
+	result, err := stagedRun(ctx, stage, staged, name)
 	if err != nil {
 		return characterise.Verification{}, err
 	}
@@ -789,7 +796,6 @@ func verifyScaffold(
 // is not evidence a pin may be made from.
 func stagedRun(
 	ctx context.Context,
-	runner tfexec.Runner,
 	stage characteriseStage,
 	staged map[string][]byte,
 	name string,
@@ -811,7 +817,7 @@ func stagedRun(
 
 	budget := stage.settings.preflightCap()
 
-	result, err := runner.Test(ctx, built.ModuleDir, tfexec.TestOptions{
+	result, err := stage.runner.Test(ctx, built.ModuleDir, tfexec.TestOptions{
 		TestDirectory: stage.configuration.TestDirRelative(),
 		Filters:       nil,
 		Verbose:       true,
