@@ -258,25 +258,17 @@ func (b *graphBuilder) linkJSON(expr hcl.Expression, reader nodeID) {
 func (b *graphBuilder) buildBlock(block *hclsyntax.Block) {
 	switch block.Type {
 	case resourceBlock, dataBlock:
-		if len(block.Labels) != resourceLabelCount {
+		address, ok := BlockAddr(block.Type, block.Labels)
+		if !ok {
 			return
-		}
-
-		address := block.Labels[0] + "." + block.Labels[1]
-		if block.Type == dataBlock {
-			address = dataBlock + "." + address
 		}
 
 		owner := b.declare(address)
 		b.walkBody(block.Body, address, owner, owner)
 	case outputBlock, moduleBlock, variableBlock, checkBlock:
-		if len(block.Labels) != 1 {
+		address, ok := BlockAddr(block.Type, block.Labels)
+		if !ok {
 			return
-		}
-
-		address := block.Type + "." + block.Labels[0]
-		if block.Type == variableBlock {
-			address = "var." + block.Labels[0]
 		}
 
 		owner := b.declare(address)
@@ -294,7 +286,8 @@ func (b *graphBuilder) buildBlock(block *hclsyntax.Block) {
 			}
 		}
 	case providerBlock:
-		if len(block.Labels) != 1 {
+		address, ok := BlockAddr(block.Type, block.Labels)
+		if !ok {
 			return
 		}
 
@@ -302,9 +295,9 @@ func (b *graphBuilder) buildBlock(block *hclsyntax.Block) {
 		// a reach the graph does not model edge by edge: the provider node
 		// makes any cone that touches it unbounded, so no shortcut can turn
 		// this into a proof (review of #44).
-		owner := b.declare(providerBlock + "." + block.Labels[0])
+		owner := b.declare(address)
 		b.graph.unbounded[owner] = true
-		b.walkBody(block.Body, providerBlock+"."+block.Labels[0], owner, nodeID{})
+		b.walkBody(block.Body, address, owner, nodeID{})
 	default:
 	}
 }
