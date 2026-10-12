@@ -255,11 +255,13 @@ JSON, terminal and SARIF, and the fixture secret appeared in no artefact.
 
 **Characterisation** (`internal/characterise`; #107 pull request #136, #106 pull request #142,
 #108 pull request #146). Judgement points move only through transitions — `OpenTodo`,
-`Answer`, `Promote`, `Reject` — with promotion reachable only from an answered point carrying a
-`Verification` the engine's verifier built; `Input` and `InputProvenance` (`FromDefault`,
-`FromValidation`, `FromType`, `FromAnswer`) written by the preference order alone; `Pinned`
-and `PinSkipped` the only spellings of a pin, the skipped one taking no expression;
-`Scaffolded` and `Scaffold.Promote` taking the verification as its only route to `promoted`;
+`Answer`, `Promote`, `Reject` — with the transition contract in
+[the judgement-point implementation](../../internal/characterise/todo.go); `Input` and
+`InputProvenance` (`FromDefault`, `FromValidation`, `FromType`, `FromAnswer`) written by the
+preference order alone; `Pinned` and `PinSkipped` the only spellings of a pin, the skipped one
+taking no expression;
+`Scaffolded` and the scaffold-promotion transition (see
+[its current contract](../../internal/characterise/scaffold.go));
 `Scenario` identity, name, state key and inputs behind accessors. After #108 the package has
 no production import of `internal/report`.
 

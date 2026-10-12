@@ -136,8 +136,9 @@ func (t Todo) Answer() Answered {
 	}
 }
 
-// Answered is a judgement point whose answer was supplied, and the only value
-// Promote and Reject accept: there is no route from open to either.
+// Answered is a judgement point whose answer was supplied. Verification.Promote
+// consumes this handle, and Reject is defined on it: neither transition accepts
+// an open Todo.
 type Answered struct {
 	point Todo
 }
@@ -170,8 +171,8 @@ func (a Answered) Reject(reason string) Todo {
 // Verification is the evidence promotion demands: the proof that the suite an
 // answer produced was executed and passed. It is opaque — the engine builds it
 // through Verified at the point its verifier succeeded, and nothing it carries
-// is published — so it is the receiver of Promote: promotion requires a
-// verification in hand, by type.
+// is published — so it is the receiver of Promote and PromoteScaffold:
+// promotion requires a verification in hand, by type.
 type Verification struct{}
 
 // Verified records that one verification leg passed.

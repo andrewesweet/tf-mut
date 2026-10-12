@@ -132,8 +132,8 @@ type SuitePlan struct {
 	Todos []Todo
 	// Answered holds the answered points' transition handles, keyed by point
 	// identity. The bundle above carries every point in its current state;
-	// the handle is what a later Promote or Reject consumes, and it is the
-	// only value either transition accepts.
+	// the handle permits later promotion or rejection. See Answered for the
+	// transition contract.
 	Answered map[string]Answered
 	// Values are the assignments the generated run blocks actually carry,
 	// keyed by scenario identifier and then by variable name.

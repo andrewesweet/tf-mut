@@ -7,11 +7,8 @@ package characterise
 // the check somebody has to answer it with. It is never executable and never
 // verified on its own: it exists in exactly one of two states — scaffolded,
 // carrying the proposal, or promoted, carrying test content — and the move
-// between them runs through Promote alone. The rule "a scaffold whose
-// behaviour did not verify cannot become test content" is the transition's
-// signature: Promote is the only route to promoted, and the only value it
-// accepts is the verification evidence, which the engine builds through
-// Verified at the point its verifier succeeded.
+// between them runs through Verification.PromoteScaffold alone. See that
+// method for the verification contract.
 
 // ScaffoldStatus is the closed state vocabulary of a scaffold, in the
 // vocabulary the Characterisation context owns. The application layer projects
