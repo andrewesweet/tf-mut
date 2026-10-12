@@ -95,7 +95,9 @@ linters:
         # #89, third rule: core, supporting and Terraform Boundary packages
         # cannot import the application layer or CLI. The engine coordinates
         # these contexts and the CLI coordinates the engine; reverse imports
-        # from the packages below fail lint.
+        # from the packages below fail lint. The rule also covers skill and
+        # infrastructure packages: only the CLI imports the engine. External
+        # tests may still import their exact package under test.
         application-boundary:
           list-mode: lax
           files:
@@ -107,6 +109,11 @@ linters:
             - "**/internal/sandbox/**"
             - "**/internal/suggest/**"
             - "**/internal/characterise/**"
+            - "**/internal/skill/**"
+            - "**/internal/config/**"
+            - "**/internal/buildinfo/**"
+            - "**/internal/buildchain/**"
+            - "**/internal/tracing/**"
           deny:
             - pkg: github.com/andrewesweet/tf-mut/internal/engine
               desc: "The engine is the application layer; a context never imports it. See CONTEXT.md's dependency direction."
@@ -174,6 +181,49 @@ linters:
           deny:
             - pkg: go.opentelemetry.io
               desc: "OpenTelemetry is confined to internal/tracing; carry tracing.Attribute values instead. See CONTEXT.md's infrastructure packages and dependency direction."
+        # R1 of the clean-architecture follow-up: skill is Publication, and
+        # the core, supporting and Terraform Boundary packages import neither
+        # half of it — internal/report via context-boundary, internal/skill
+        # here. The file set is context-boundary's; the overlap is deliberate,
+        # because each rule records a different edge of the same policy. The
+        # application layer and the CLI keep their Publication access.
+        skill-boundary:
+          list-mode: lax
+          files:
+            - "**/internal/fingerprint/**"
+            - "**/internal/oracle/**"
+            - "**/internal/mutation/**"
+            - "**/internal/discovery/**"
+            - "**/internal/tfexec/**"
+            - "**/internal/sandbox/**"
+            - "**/internal/suggest/**"
+            - "**/internal/characterise/**"
+          deny:
+            - pkg: github.com/andrewesweet/tf-mut/internal/skill
+              desc: "internal/skill is Publication; core, supporting and boundary packages import neither half of Publication. See CONTEXT.md's dependency direction."
+        # R1, second rule: internal/skill owns shipped documents and no domain
+        # context. Its one recorded dependency is Terraform Boundary's checked
+        # write primitive (internal/sandbox, since #91); sandbox's absence from
+        # the deny list IS that exception, not an omission.
+        skill-leaf:
+          list-mode: lax
+          files:
+            - "**/internal/skill/**"
+          deny:
+            - pkg: github.com/andrewesweet/tf-mut/internal/fingerprint
+              desc: "internal/skill imports no domain context beyond its documented sandbox exception. See CONTEXT.md's dependency direction."
+            - pkg: github.com/andrewesweet/tf-mut/internal/oracle
+              desc: "internal/skill imports no domain context beyond its documented sandbox exception. See CONTEXT.md's dependency direction."
+            - pkg: github.com/andrewesweet/tf-mut/internal/mutation
+              desc: "internal/skill imports no domain context beyond its documented sandbox exception. See CONTEXT.md's dependency direction."
+            - pkg: github.com/andrewesweet/tf-mut/internal/suggest
+              desc: "internal/skill imports no domain context beyond its documented sandbox exception. See CONTEXT.md's dependency direction."
+            - pkg: github.com/andrewesweet/tf-mut/internal/characterise
+              desc: "internal/skill imports no domain context beyond its documented sandbox exception. See CONTEXT.md's dependency direction."
+            - pkg: github.com/andrewesweet/tf-mut/internal/discovery
+              desc: "internal/skill imports no domain context beyond its documented sandbox exception. See CONTEXT.md's dependency direction."
+            - pkg: github.com/andrewesweet/tf-mut/internal/tfexec
+              desc: "internal/skill imports no domain context beyond its documented sandbox exception. See CONTEXT.md's dependency direction."
     cyclop:
       # Matched to revive's cyclomatic setting below. A complete dispatch over
       # Terraform's grammar — every top-level block kind, every reference form,
