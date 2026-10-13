@@ -252,9 +252,10 @@ Every recipe should run tools through the mise environment or the repo-local `.t
 minimum Just version. Recipes that rewrite source or locks (`fmt`, `fix`, updates) must never be
 dependencies of `ci`.
 
-Keep all generated output under ignored `.artifacts/`: binaries, sandboxes, JUnit, Go test event
-JSON, coverage profiles, mutation JSON and SARIF. A recipe must produce the same artifact paths
-locally and in CI, and `just ci` must leave tracked and untracked source locations unchanged.
+Keep development output under ignored `.artifacts/`: binaries, sandboxes, JUnit, Go test event
+JSON, coverage profiles, mutation JSON and SARIF. Release packaging writes to its caller's
+`OUT_DIR`. A recipe must produce the same artifact paths locally and in CI, and `just ci`
+must leave tracked and untracked source locations unchanged.
 
 ## Formatting and autofix
 
@@ -501,7 +502,8 @@ artifacts.
 
 The workflow file should contain orchestration only:
 
-1. check out the repository, with full history only for mutation/history jobs;
+1. check out the repository, with full history for mutation/history jobs and two commits
+   for quality/race jobs whose workflow-contract tests exercise the parent-revision fallback;
 2. bootstrap mise at a commit-SHA-pinned version;
 3. run the one direct locked mise install, then `just tools-install` for the Go tools and
    provider mirror, with caches keyed by every applicable lock, OS and architecture;
@@ -517,7 +519,20 @@ Recommended jobs:
 | Nightly | `just ci-full`, `just security` with full-history Gitleaks |
 | Explicit/network | `just test-integration`, `just test-performance` on trusted push/manual events only |
 | Weekly update | `just tools-update`, `just providers-update`, `just deps-update`, then open a pull request |
-| Release | Linux-x64 `just ci-full`, security/history scan and two-build digest comparison; later SBOM/signing |
+| Release (`v*` tag push) | The pull-request recipes, then `just package-test-release VERSION OUT_DIR` |
+
+The [release workflow](../../.github/workflows/release.yml) calls `ci.yml` before packaging.
+The pushed tag must match the root [`VERSION`](../../VERSION) declaration. When changing that
+declaration, update the YAML example in [`ACTION.md`](../../ACTION.md) in the same change.
+`TestTheActionDocumentNamesTheDeclaredReleaseVersion` checks the active Action ref and version
+input against the declaration without querying Git tags.
+
+`package-test-release` stamps the supplied version into both binaries and normalises archive
+metadata. The publication job creates a GitHub release with the assets specified in
+[Distribution](../../ACTION.md#distribution). Only that job receives `contents: write`.
+After publication, separate jobs download the published assets to verify their checksums
+and compare the archives byte for byte against a fresh rebuild. Packaging and rebuilding
+install the locked tools without restoring toolchain caches.
 
 The separate CodeQL workflow runs Go and Actions analysis on pull requests, the default branch,
 and a weekly schedule, always with `security-and-quality`.
@@ -742,9 +757,9 @@ Acceptance evidence for the initial chain should include:
   spike; no version-only exemption is silently accepted.
 - Race and fuzz checks only explore executed paths. They complement, rather than replace,
   properties, mutation and static analysis.
-- Global line-coverage thresholds, golines, NilAway, SBOM/signing and automatic release
-  publication are deferred for stated reasons. Deferral is not rejection; each should enter
-  only with a measured signal and a Just recipe that works locally.
+- Global line-coverage thresholds, golines, NilAway and SBOM/signing are deferred for stated
+  reasons. Deferral is not rejection; each should enter only with a measured signal and a
+  Just recipe that works locally.
 - Claude/Codex native LSP, hooks and permission systems are capability gaps, not equivalent
   adapters. The shared instructions, skills and authoritative Just commands provide semantic
   parity where the products permit it; the one-way safety invariant prevents over-claiming.

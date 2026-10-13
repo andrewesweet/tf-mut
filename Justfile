@@ -356,10 +356,15 @@ _test-terraform:
     mise exec -- tests/build-chain/terraform-offline.sh
 
 # Package the built binaries as versioned, checksummed per-architecture assets.
+# The archive metadata is normalised (root ownership, epoch mtime) so two
+# packages of one commit and version are byte-identical — the release pipeline's rebuild
+# job asserts exactly that against the published release.
 package-test-release version out_dir:
     mkdir -p "{{ out_dir }}/{{ version }}"
-    mise exec -- env CGO_ENABLED=0 GOARCH=amd64 go build -trimpath -mod=readonly -o "{{ out_dir }}/amd64/tf-mut" ./cmd/tf-mut
-    mise exec -- env CGO_ENABLED=0 GOARCH=arm64 go build -trimpath -mod=readonly -o "{{ out_dir }}/arm64/tf-mut" ./cmd/tf-mut
-    tar -czf "{{ out_dir }}/{{ version }}/tf-mut_{{ version }}_linux_amd64.tar.gz" -C "{{ out_dir }}/amd64" tf-mut
-    tar -czf "{{ out_dir }}/{{ version }}/tf-mut_{{ version }}_linux_arm64.tar.gz" -C "{{ out_dir }}/arm64" tf-mut
+    mise exec -- env CGO_ENABLED=0 GOARCH=amd64 go build -trimpath -mod=readonly -ldflags "-X main.version={{ version }}" -o "{{ out_dir }}/amd64/tf-mut" ./cmd/tf-mut
+    mise exec -- env CGO_ENABLED=0 GOARCH=arm64 go build -trimpath -mod=readonly -ldflags "-X main.version={{ version }}" -o "{{ out_dir }}/arm64/tf-mut" ./cmd/tf-mut
+    tar --numeric-owner --owner=0 --group=0 --mtime='@0' \
+      -czf "{{ out_dir }}/{{ version }}/tf-mut_{{ version }}_linux_amd64.tar.gz" -C "{{ out_dir }}/amd64" tf-mut
+    tar --numeric-owner --owner=0 --group=0 --mtime='@0' \
+      -czf "{{ out_dir }}/{{ version }}/tf-mut_{{ version }}_linux_arm64.tar.gz" -C "{{ out_dir }}/arm64" tf-mut
     cd "{{ out_dir }}/{{ version }}" && sha256sum -- *.tar.gz > checksums.txt

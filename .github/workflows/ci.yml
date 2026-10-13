@@ -3,6 +3,9 @@ on:
   pull_request:
   push:
     branches: [master]
+  # The release pipeline (release-it ticket T4) re-runs this gate for a
+  # pushed v* tag before anything is published.
+  workflow_call:
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
@@ -30,6 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 2
           persist-credentials: false
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
@@ -51,11 +55,12 @@ jobs:
           include-hidden-files: true
   race:
     name: Race detector
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_call'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 2
           persist-credentials: false
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
@@ -99,7 +104,7 @@ jobs:
           include-hidden-files: true
   mutation-diff:
     name: Mutation diff
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'workflow_call'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -117,8 +122,17 @@ jobs:
           mise exec -- just tools-install
       - name: Run bounded report-only diff mutation
         env:
-          MUTATION_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-        run: mise exec -- just mutate-diff "$MUTATION_BASE"
+          EVENT_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          base="$EVENT_BASE"
+          # The release pipeline's call arrives as a tag push, whose event
+          # carries the zero SHA as `before`; the meaningful diff base is
+          # then the tagged commit's parent.
+          if [[ ! $base =~ ^[0-9a-f]{40}$ || $base =~ ^0{40}$ ]]; then
+            base=$(git rev-parse HEAD^)
+          fi
+          mise exec -- just mutate-diff "$base"
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

@@ -5,6 +5,7 @@ go 1.26.0
 toolchain go1.26.9
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/go-logr/logr v1.4.4
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/zclconf/go-cty v1.16.3
@@ -13,6 +14,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.47.0
 	go.opentelemetry.io/otel/trace v1.47.0
 	go.opentelemetry.io/proto/otlp v1.11.1
+	go.yaml.in/yaml/v3 v3.0.5
 	google.golang.org/protobuf v1.36.12
 	pgregory.net/rapid v1.3.0
 )
