@@ -20,6 +20,13 @@ const (
 	ciWorkflowPath     = ".github/workflows/ci.yml"
 	codeQLWorkflowPath = ".github/workflows/codeql.yml"
 	minimumToolCount   = 1
+	mutationDiffName   = "mutate-diff"
+	securityName       = "security"
+	pushEventName      = "push"
+	eventBaseEnv       = "EVENT_BASE"
+	eventNameEnv       = "GITHUB_EVENT_NAME"
+	miseExecCommand    = "exec"
+	justCommand        = "just"
 )
 
 type workflowContract struct {
@@ -32,12 +39,20 @@ type workflowJob struct {
 	Uses        string            `yaml:"uses"`
 	Env         map[string]string `yaml:"env"`
 	Permissions map[string]string `yaml:"permissions"`
-	Strategy    struct {
-		Matrix struct {
-			Include []map[string]string `yaml:"include"`
-		} `yaml:"matrix"`
-	} `yaml:"strategy"`
-	Steps []workflowStep `yaml:"steps"`
+	Strategy    workflowStrategy  `yaml:"strategy"`
+	Steps       []workflowStep    `yaml:"steps"`
+}
+
+type workflowStrategy struct {
+	Matrix workflowMatrix `yaml:"matrix"`
+}
+
+type workflowMatrix struct {
+	Include []map[string]string `yaml:"include"`
+}
+
+type dependabotUpdate struct {
+	Ecosystem string `yaml:"package-ecosystem"` //nolint:tagliatelle // Dependabot requires this YAML key.
 }
 
 type workflowStep struct {
@@ -100,8 +115,8 @@ func TestPublicControlPlaneRecipesExist(t *testing.T) {
 		"deps-update", "update", "build", "fmt", "fmt-check", "lint", "lint-go",
 		"lint-shell", "lint-config", "lint-actions", "lint-fix", "fix", "typecheck",
 		"mod-check", "test", "test-property", "test-random", "test-race",
-		"test-integration", "test-performance", "fuzz", "fuzz-all", "mutate-diff",
-		"mutate", "security", "agent-check", "ci", "ci-full",
+		"test-integration", "test-performance", "fuzz", "fuzz-all", mutationDiffName,
+		"mutate", securityName, "agent-check", "ci", "ci-full",
 	} {
 		declaration := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(recipe) + `(?: [^:]*)?:`)
 		if !declaration.MatchString(justfile) {
@@ -124,7 +139,7 @@ func TestCodeQLCoversEverySupportedLanguageWithMaximumBuiltInSuite(t *testing.T)
 
 	workflow := readWorkflow(t, codeQLWorkflowPath)
 	analyze := workflow.Jobs["analyze"]
-	var languages []string
+	languages := make([]string, 0, len(analyze.Strategy.Matrix.Include))
 	for _, row := range analyze.Strategy.Matrix.Include {
 		languages = append(languages, row["language"])
 	}
@@ -180,20 +195,20 @@ func assertCIWorkflowContract(t *testing.T) {
 	if workflow.Permissions["contents"] != "read" || len(workflow.Permissions) != 1 {
 		t.Errorf("CI permissions = %v, want only contents: read", workflow.Permissions)
 	}
-	for _, event := range []string{"pull_request", "push", "workflow_call"} {
+	for _, event := range []string{"pull_request", pushEventName, "workflow_call"} {
 		if _, found := workflow.On[event]; !found {
 			t.Errorf("CI has no %s trigger", event)
 		}
 	}
 	_, base := gitRevisions(t, repositoryRoot(t))
 	for job, recipe := range map[string]string{
-		"quality": "ci", "security": "security", "race": "test-race", "mutation-diff": "mutate-diff",
+		"quality": "ci", securityName: securityName, "race": "test-race", mutationDiffName: mutationDiffName,
 	} {
 		commands := workflowCommands(t, repositoryRoot(t), workflow.Jobs[job], map[string]string{
-			"EVENT_BASE": base, "GITHUB_EVENT_NAME": "push",
+			eventBaseEnv: base, eventNameEnv: pushEventName,
 		})
-		want := []string{"exec", "--", "just", recipe}
-		if recipe == "mutate-diff" {
+		want := []string{miseExecCommand, "--", justCommand, recipe}
+		if recipe == mutationDiffName {
 			want = append(want, base)
 		}
 		if !slices.ContainsFunc(commands, func(command []string) bool { return slices.Equal(command, want) }) {
@@ -233,9 +248,7 @@ func assertDependabotUpdatesActions(t *testing.T) {
 	t.Helper()
 
 	var dependabot struct {
-		Updates []struct {
-			Ecosystem string `yaml:"package-ecosystem"`
-		} `yaml:"updates"`
+		Updates []dependabotUpdate `yaml:"updates"`
 	}
 	if err := yaml.Unmarshal([]byte(readRepositoryFile(t, ".github/dependabot.yml")), &dependabot); err != nil {
 		t.Fatalf("parse Dependabot configuration: %v", err)
@@ -270,7 +283,8 @@ func assertImmutableActionReferences(t *testing.T, path string, workflow workflo
 
 	immutableReference := regexp.MustCompile(`^[0-9a-f]{40}$`)
 	for _, job := range workflow.Jobs {
-		uses := []string{job.Uses}
+		uses := make([]string, 1, 1+len(job.Steps))
+		uses[0] = job.Uses
 		for _, step := range job.Steps {
 			uses = append(uses, step.Uses)
 		}
@@ -317,7 +331,7 @@ func workflowCommands(t *testing.T, directory string, job workflowJob, overrides
 	return commands
 }
 
-func gitRevisions(t *testing.T, directory string) (string, string) {
+func gitRevisions(t *testing.T, directory string) (head, parent string) {
 	t.Helper()
 
 	command := exec.CommandContext(context.Background(), "git", "rev-parse", "HEAD", "HEAD^")
@@ -337,9 +351,9 @@ func gitRevisions(t *testing.T, directory string) (string, string) {
 func TestMutationDiffResolvesEventBaseIndependentlyOfEventName(t *testing.T) {
 	t.Parallel()
 
-	job := readWorkflow(t, ciWorkflowPath).Jobs["mutation-diff"]
+	job := readWorkflow(t, ciWorkflowPath).Jobs[mutationDiffName]
 	head, parent := gitRevisions(t, repositoryRoot(t))
-	for _, event := range []string{"push", "pull_request", "workflow_call"} {
+	for _, event := range []string{pushEventName, "pull_request", "workflow_call"} {
 		for _, test := range []struct {
 			name string
 			base string
@@ -356,9 +370,9 @@ func TestMutationDiffResolvesEventBaseIndependentlyOfEventName(t *testing.T) {
 				t.Parallel()
 
 				commands := workflowCommands(t, repositoryRoot(t), job, map[string]string{
-					"EVENT_BASE": test.base, "GITHUB_EVENT_NAME": event,
+					eventBaseEnv: test.base, eventNameEnv: event,
 				})
-				want := []string{"exec", "--", "just", "mutate-diff", test.want}
+				want := []string{miseExecCommand, "--", justCommand, mutationDiffName, test.want}
 				if len(commands) == 0 || !slices.Equal(commands[len(commands)-1], want) {
 					t.Fatalf("commands = %q, want final invocation %q", commands, want)
 				}
@@ -391,10 +405,10 @@ func TestMutationDiffFallbackWorksWithTestJobCheckoutDepth(t *testing.T) {
 			}
 			directory := shallowCheckout(t, depth)
 			_, parent := gitRevisions(t, directory)
-			commands := workflowCommands(t, directory, workflow.Jobs["mutation-diff"], map[string]string{
-				"EVENT_BASE": strings.Repeat("0", 40), "GITHUB_EVENT_NAME": "push",
+			commands := workflowCommands(t, directory, workflow.Jobs[mutationDiffName], map[string]string{
+				eventBaseEnv: strings.Repeat("0", 40), eventNameEnv: pushEventName,
 			})
-			want := []string{"exec", "--", "just", "mutate-diff", parent}
+			want := []string{miseExecCommand, "--", justCommand, mutationDiffName, parent}
 			if len(commands) == 0 || !slices.Equal(commands[len(commands)-1], want) {
 				t.Fatalf("commands = %q, want final invocation %q", commands, want)
 			}
@@ -414,7 +428,8 @@ func shallowCheckout(t *testing.T, depth string) string {
 	}
 	command.Stdin = strings.NewReader(`git init -q --initial-branch=main --object-format=sha1 source
 for message in root parent tagged; do
-  git -C source -c user.name=Test -c user.email=test@example.invalid -c commit.gpgsign=false commit -q --allow-empty -m "$message"
+  git -C source -c user.name=Test -c user.email=test@example.invalid \
+    -c commit.gpgsign=false commit -q --allow-empty -m "$message"
 done
 git clone -q --depth "$CHECKOUT_DEPTH" "file://$PWD/source" checkout
 git -C checkout rev-parse --is-shallow-repository

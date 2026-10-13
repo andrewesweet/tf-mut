@@ -9,6 +9,26 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+var (
+	errActionDocumentMissingExample  = errors.New("ACTION.md has no YAML example")
+	errActionDocumentMissingFence    = errors.New("ACTION.md has no closing YAML fence")
+	errActionDocumentMissingStep     = errors.New("ACTION.md's YAML example has no tf-mut step")
+	errActionDocumentVersionMismatch = errors.New("ACTION.md release version mismatch")
+)
+
+type actionDocumentJob struct {
+	Steps []actionDocumentStep `yaml:"steps"`
+}
+
+type actionDocumentStep struct {
+	Uses string               `yaml:"uses"`
+	With actionDocumentInputs `yaml:"with"`
+}
+
+type actionDocumentInputs struct {
+	Version string `yaml:"version"`
+}
+
 // TestTheActionDocumentNamesTheDeclaredReleaseVersion is
 // technical-documentation ticket T1 with release-it ticket T4: ACTION.md's
 // install example must pin a version the release process declares, so a
@@ -32,22 +52,15 @@ func TestTheActionDocumentNamesTheDeclaredReleaseVersion(t *testing.T) {
 func checkActionDocumentVersion(document, declared string) error {
 	_, example, found := strings.Cut(document, "```yaml\n")
 	if !found {
-		return errors.New("ACTION.md has no YAML example")
+		return errActionDocumentMissingExample
 	}
 	example, _, found = strings.Cut(example, "\n```")
 	if !found {
-		return errors.New("ACTION.md has no closing YAML fence")
+		return errActionDocumentMissingFence
 	}
 
 	var workflow struct {
-		Jobs map[string]struct {
-			Steps []struct {
-				Uses string `yaml:"uses"`
-				With struct {
-					Version string `yaml:"version"`
-				} `yaml:"with"`
-			} `yaml:"steps"`
-		} `yaml:"jobs"`
+		Jobs map[string]actionDocumentJob `yaml:"jobs"`
 	}
 	if err := yaml.Unmarshal([]byte(example), &workflow); err != nil {
 		return fmt.Errorf("parse ACTION.md's YAML example: %w", err)
@@ -62,13 +75,13 @@ func checkActionDocumentVersion(document, declared string) error {
 			}
 			found = true
 			if ref != declared || step.With.Version != declared {
-				return fmt.Errorf("ACTION.md pins %q with version %q, want declared release %q",
-					step.Uses, step.With.Version, declared)
+				return fmt.Errorf("%w: pins %q with version %q, want declared release %q",
+					errActionDocumentVersionMismatch, step.Uses, step.With.Version, declared)
 			}
 		}
 	}
 	if !found {
-		return errors.New("ACTION.md's YAML example has no tf-mut step")
+		return errActionDocumentMissingStep
 	}
 
 	return nil
@@ -76,6 +89,8 @@ func checkActionDocumentVersion(document, declared string) error {
 
 func TestActionDocumentVersionChecksActiveYAMLFields(t *testing.T) {
 	t.Parallel()
+
+	const releaseVersion = "v0.1.0"
 
 	for _, test := range []struct {
 		name     string
@@ -88,7 +103,7 @@ func TestActionDocumentVersionChecksActiveYAMLFields(t *testing.T) {
 			steps: `      - uses: "andrewesweet/tf-mut@v0.1.0"
         with:
           version: 'v0.1.0'`,
-			declared: "v0.1.0",
+			declared: releaseVersion,
 		},
 		{
 			name: "commented pins cannot hide a stale uses ref",
@@ -97,7 +112,7 @@ func TestActionDocumentVersionChecksActiveYAMLFields(t *testing.T) {
       - uses: andrewesweet/tf-mut@v0.0.1
         with:
           version: v0.1.0`,
-			declared: "v0.1.0",
+			declared: releaseVersion,
 			wantErr:  true,
 		},
 		{
@@ -106,7 +121,7 @@ func TestActionDocumentVersionChecksActiveYAMLFields(t *testing.T) {
       - uses: andrewesweet/tf-mut@v0.1.0
         with:
           version: v0.0.1`,
-			declared: "v0.1.0",
+			declared: releaseVersion,
 			wantErr:  true,
 		},
 		{
@@ -117,7 +132,7 @@ func TestActionDocumentVersionChecksActiveYAMLFields(t *testing.T) {
       - uses: andrewesweet/tf-mut@v0.1.0
         with:
           version: v0.1.0`,
-			declared: "v0.1.0",
+			declared: releaseVersion,
 		},
 		{
 			name: "equal prerelease pins",
@@ -134,7 +149,7 @@ func TestActionDocumentVersionChecksActiveYAMLFields(t *testing.T) {
       - uses: andrewesweet/tf-mut@v0.0.1
         with:
           version: v0.0.1`,
-			declared: "v0.1.0",
+			declared: releaseVersion,
 			wantErr:  true,
 		},
 	} {
