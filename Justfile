@@ -357,7 +357,7 @@ _test-terraform:
 
 # Package the built binaries as versioned, checksummed per-architecture assets.
 # The archive metadata is normalised (root ownership, epoch mtime) so two
-# packages of one commit are byte-identical — the release pipeline's rebuild
+# packages of one commit and version are byte-identical — the release pipeline's rebuild
 # job asserts exactly that against the published release.
 package-test-release version out_dir:
     mkdir -p "{{ out_dir }}/{{ version }}"

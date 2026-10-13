@@ -44,7 +44,8 @@ jobs:
 4. **Read the result.** The markdown summary lands in the job step summary. The check's
    outcome is tf-mut's own exit code, captured before any upload ran: `1` means findings —
    mutants survived — and fails the check; `2` is an operational failure. The reporting
-   steps always run first, so a red check still carries its annotations and summary.
+   steps run before the final exit step. SARIF upload failures do not change that exit code;
+   see [Fork and Dependabot pull requests](#fork-and-dependabot-pull-requests).
 
 ## The trust and failure-order contract
 
