@@ -417,9 +417,8 @@ func TestCacheInvalidationPerKeyDimension(t *testing.T) {
 					name, result.Population.Cached)
 			}
 
-			// The miss explanation is exclusive: an environment-only miss
-			// names the variable, and any other moved dimension names
-			// nothing rather than the wrong cause.
+			// The miss explanation names a changed environment variable;
+			// a moved dimension with an unchanged environment names nothing.
 			if name == "environment" {
 				if result.CacheMiss == nil ||
 					!slices.Contains(result.CacheMiss.Added, "TF_VAR_cache_probe") {
@@ -914,6 +913,47 @@ func TestAChangedEnvironmentVariableIsReportedAsChanged(t *testing.T) {
 	assertReportCarriesNoValue(t, second, secondValue)
 }
 
+func TestAnEnvironmentChangeThatChangesTheBaselineNamesTheVariable(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "operators")
+	config := baseConfig(t, module)
+	config.IncludeOperators = []string{string(mutation.StrCase)}
+	envIndex := len(config.Env)
+	config.Env = append(config.Env, `TF_VAR_names=["alpha","beta"]`)
+	first := cachedRun(t, config)
+	warm := cachedRun(t, config)
+	if warm.Population.Cached == 0 {
+		t.Fatal("the unchanged run replayed nothing; the case is vacuous")
+	}
+
+	config.Env[envIndex] = `TF_VAR_names=["alpha","gamma"]`
+	second := cachedRun(t, config)
+	if second.Baseline.Fingerprint == first.Baseline.Fingerprint {
+		t.Fatal("changing TF_VAR_names did not change the baseline fingerprint")
+	}
+
+	if second.Population.Cached != 0 {
+		t.Fatalf("%d cached verdicts survived an environment and baseline change",
+			second.Population.Cached)
+	}
+
+	if second.CacheMiss == nil {
+		t.Fatal("an environment and baseline cache miss named no variable")
+	}
+
+	if !slices.Equal(second.CacheMiss.Changed, []string{"TF_VAR_names"}) ||
+		len(second.CacheMiss.Added) != 0 || len(second.CacheMiss.Removed) != 0 {
+		t.Fatalf("the miss names %+v, want only TF_VAR_names as changed", second.CacheMiss)
+	}
+
+	replayed := cachedRun(t, config)
+	if replayed.Population.Cached == 0 || replayed.CacheMiss != nil {
+		t.Fatalf("the unchanged new environment did not replay without an explanation: %+v",
+			replayed.CacheMiss)
+	}
+}
+
 // TestARemovedEnvironmentVariableIsReportedAsRemoved: the variable the first
 // run saw is gone from the second — the miss names it without its value.
 func TestARemovedEnvironmentVariableIsReportedAsRemoved(t *testing.T) {
@@ -954,7 +994,7 @@ func TestARemovedEnvironmentVariableIsReportedAsRemoved(t *testing.T) {
 }
 
 // TestACacheHitCarriesNoMissExplanation: the explanation is present exactly
-// when the run missed only because of the environment — a hit carries none.
+// when the run missed and the environment changed — a hit carries none.
 func TestACacheHitCarriesNoMissExplanation(t *testing.T) {
 	t.Parallel()
 

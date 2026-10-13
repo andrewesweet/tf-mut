@@ -787,10 +787,11 @@ across repositories, or restoring it through a broad CI cache key, is a document
 `--no-cache` is the mitigation. Finer graph-derived invalidation waits for a measurement
 proving the coarse key insufficient.
 
-Cached verdicts are reused only when the environment is the same: a run that misses only
-because the environment changed since the stored generation names the added, removed and
-changed variable names — never their values — in the report's `cache_miss` block and on one
-terminal line.
+Cached verdicts are reused only when the environment is the same. When a run replays no
+cached verdict and the environment differs from the stored generation, it names the added,
+removed and changed variable names — never their values — in the report's `cache_miss` block
+and on one terminal line, even when other key components also differ. The three lists are
+jointly capped at 32 names, with truncation flagged.
 
 **One identifier names one mutant (report schema 2.6.0).** The mutant identifier is a content
 hash over the operator, the closure-relative path, the site address, the replaced content and

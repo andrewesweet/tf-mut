@@ -63,10 +63,10 @@ package report
 // span. No existing field changed name, type or meaning; the wire contract
 // is documented in docs/schema/report-2.11.0.json.
 // 2.12.0 adds the top-level cache-miss explanation: when a run replays no
-// cached verdict only because the environment changed since the stored
-// generation, the report names the added, removed and changed variable
-// names — never their values. No existing field changed name, type or
-// meaning; the wire contract is documented in
+// cached verdict and the environment changed since the stored generation,
+// the report names the added, removed and changed variable names — never
+// their values — even when other key components also differ. No existing
+// field changed name, type or meaning; the wire contract is documented in
 // docs/schema/report-2.12.0.json.
 const SchemaVersion = "2.12.0"
 
@@ -366,10 +366,11 @@ type Provenance struct {
 
 // CacheMiss explains a cache miss the engine attributed to the environment
 // (2.12.0): cached verdicts are reused only under the same environment, so
-// a run that replays nothing only because the environment changed since the
-// stored generation names the variable names that were added, removed or
-// changed — never their values. Each list is sorted; Truncated reports that
-// the bound cut the lists. Absent on a cache hit, on a run that never
+// a run that replays nothing and whose environment changed since the stored
+// generation names the variable names that were added, removed or changed
+// — never their values — even when other key components also differ.
+// Each list is sorted; Truncated reports that the bound cut the lists.
+// Absent on a cache hit, on a run that never
 // consults the cache, and on a miss no stored generation explains.
 type CacheMiss struct {
 	// Added names variables the current environment carries that the stored
@@ -571,9 +572,10 @@ type Report struct {
 	Errors []ExecutionError `json:"errors"`
 	// Population is the selected/omitted/cached/fresh split (2.1.0).
 	Population Population `json:"population"`
-	// CacheMiss names the environment variables whose change caused this run
-	// to miss the verdict cache (2.12.0). Absent except on a miss the stored
-	// generation explains.
+	// CacheMiss names the environment variables that changed since the stored
+	// generation when this run replays no verdict (2.12.0), even when other
+	// key components also differ. Absent except on a miss the stored generation
+	// explains.
 	CacheMiss *CacheMiss `json:"cache_miss,omitempty"`
 	// Selection records how the population was chosen (2.1.0).
 	Selection Selection `json:"selection"`

@@ -64,13 +64,13 @@ type verdictCache struct {
 	// manifest is this run's key broken into per-component digests with the
 	// per-variable environment map beside it. The store writes it next to
 	// the entries; a later run whose key misses diffs it to explain an
-	// environment-only miss.
+	// environment change behind a miss.
 	manifest cacheManifest
 }
 
 // envComponent is the key-component kind the whole effective environment
-// hashes under. The miss explanation diffs it per variable; every other
-// component must match for the explanation to be honest.
+// hashes under. The miss explanation diffs it per variable, even when other
+// components also differ.
 const envComponent = "env"
 
 // manifestSuffix names the per-generation sidecar: the key prefix so a
@@ -565,12 +565,10 @@ func (c *verdictCache) manifestName() string {
 }
 
 // explainMiss diffs the stored generations against this run, newest first,
-// and reports the environment names behind a miss caused only by the
-// environment: every other key component matches the stored generation, and
-// the variable names differ. Anything else — no stored generation, a moved
-// source, a generation this binary predates — is a miss without an
-// explanation, never a guess. Values reach neither the document nor the
-// report: only their names travel.
+// and reports the environment names that changed, even when other key
+// components also differ. No stored generation, an unchanged environment,
+// or a generation this binary predates is a miss without an explanation.
+// Values reach neither the document nor the report: only their names travel.
 func (c *verdictCache) explainMiss() *report.CacheMiss {
 	unlock, err := c.lock()
 	if err != nil {
@@ -632,7 +630,7 @@ func (c *verdictCache) explainMiss() *report.CacheMiss {
 	})
 
 	for _, generation := range generations {
-		if !explainedByEnvironment(c.manifest, generation.manifest) {
+		if c.manifest.Components[envComponent] == generation.manifest.Components[envComponent] {
 			continue
 		}
 
@@ -642,34 +640,6 @@ func (c *verdictCache) explainMiss() *report.CacheMiss {
 	}
 
 	return nil
-}
-
-// explainedByEnvironment reports whether the miss is attributable to the
-// environment alone: every key component but the environment matches the
-// stored generation. Strictness is the point — an over-determined miss names
-// nothing rather than the wrong cause.
-func explainedByEnvironment(current, stored cacheManifest) bool {
-	for kind, digest := range current.Components {
-		if kind == envComponent {
-			continue
-		}
-
-		if stored.Components[kind] != digest {
-			return false
-		}
-	}
-
-	for kind := range stored.Components {
-		if kind == envComponent {
-			continue
-		}
-
-		if _, found := current.Components[kind]; !found {
-			return false
-		}
-	}
-
-	return true
 }
 
 // diffEnvNames reduces two per-variable digest maps to the sorted, bounded
@@ -892,8 +862,8 @@ func (c *verdictCache) store(mutants []report.Mutant, classified []oracle.Classi
 
 // writeManifest persists this generation's key beside its meaning — the
 // per-component digests and the per-variable environment map, values never
-// included — so a later run can tell an environment-only miss from any
-// other. Best effort like every cache write: a lost manifest costs only the
+// included — so a later run can name environment changes behind a miss.
+// Best effort like every cache write: a lost manifest costs only the
 // explanation, never a verdict.
 func (c *verdictCache) writeManifest() {
 	encoded, err := json.Marshal(c.manifest)
