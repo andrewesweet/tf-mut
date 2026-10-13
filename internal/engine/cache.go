@@ -61,8 +61,8 @@ const keyPrefixLength = 16
 type verdictCache struct {
 	dir string
 	key string
-	// manifest is this run's key broken into per-component digests with the
-	// per-variable environment map beside it. The store writes it next to
+	// manifest is this run's key beside its environment digest and
+	// per-variable environment map. The store writes it next to
 	// the entries; a later run whose key misses diffs it to explain an
 	// environment change behind a miss.
 	manifest cacheManifest
@@ -78,15 +78,15 @@ const envComponent = "env"
 // carry — entry names pair the prefix with hex.
 const manifestSuffix = "-manifest.json"
 
-// cacheManifest is one generation's key beside its meaning: the per-component
-// digests the key is built from, and the environment as a map of variable
-// name to the hash of its value. Values never reach this document — neither
+// cacheManifest is one generation's key beside its environment digest and
+// the environment as a map of variable name to the hash of its value.
+// Values never reach this document — neither
 // the whole-environment lines the key hashes, nor any single value — so a
 // reader learns which names differ and nothing else.
 type cacheManifest struct {
 	FormatVersion string `json:"format_version"`
 	RunKey        string `json:"run_key"`
-	// Components maps each key-component kind to its hex digest.
+	// Components carries only the environment component's hex digest.
 	Components map[string]string `json:"components"`
 	// Env maps each environment variable name to the hex digest of its value.
 	Env map[string]string `json:"env"`
@@ -164,45 +164,31 @@ func ensureCacheDir(dir string) bool {
 }
 
 // keyRecorder hashes the key's (kind, name, value) sequence into the
-// overall digest and, beside it, into one digest per component kind. The
-// overall byte sequence is unchanged — what hits still hits — and the
-// per-kind digests let a later run tell which component moved.
+// overall digest and, beside it, into the environment digest. The overall
+// byte sequence is unchanged — what hits still hits — and the environment
+// digest lets a later run tell whether the environment moved.
 type keyRecorder struct {
-	overall hash.Hash
-	parts   map[string]hash.Hash
+	overall     hash.Hash
+	environment hash.Hash
 }
 
 func (r *keyRecorder) write(kind, name, value string) {
 	_, _ = fmt.Fprintf(r.overall, "%s\x00%s\x00%s\x00", kind, name, value)
 
-	part, found := r.parts[kind]
-	if !found {
-		part = sha256.New()
-		r.parts[kind] = part
+	if kind == envComponent {
+		_, _ = fmt.Fprintf(r.environment, "%s\x00%s\x00%s\x00", kind, name, value)
 	}
-
-	_, _ = fmt.Fprintf(part, "%s\x00%s\x00%s\x00", kind, name, value)
-}
-
-// components resolves each recorded part to its hex digest.
-func (r *keyRecorder) components() map[string]string {
-	resolved := make(map[string]string, len(r.parts))
-	for kind, part := range r.parts {
-		resolved[kind] = hex.EncodeToString(part.Sum(nil))
-	}
-
-	return resolved
 }
 
 // cacheKey hashes every input that can reach a verdict, and returns the key
-// beside the manifest that explains it: the per-component digests and the
+// beside the manifest that explains it: the environment digest and the
 // per-variable environment map.
 func cacheKey(
 	configuration discovery.Configuration,
 	settings settings, prepared warmWorkspace,
 	terraform tfexec.Version,
 ) (string, cacheManifest, error) {
-	recorder := &keyRecorder{overall: sha256.New(), parts: map[string]hash.Hash{}}
+	recorder := &keyRecorder{overall: sha256.New(), environment: sha256.New()}
 	write := recorder.write
 
 	write("format", "", cacheFormatVersion)
@@ -220,7 +206,7 @@ func cacheKey(
 	return key, cacheManifest{
 		FormatVersion: cacheFormatVersion,
 		RunKey:        key,
-		Components:    recorder.components(),
+		Components:    map[string]string{envComponent: hex.EncodeToString(recorder.environment.Sum(nil))},
 		Env:           envDigestMap(settings),
 	}, nil
 }
@@ -861,7 +847,7 @@ func (c *verdictCache) store(mutants []report.Mutant, classified []oracle.Classi
 }
 
 // writeManifest persists this generation's key beside its meaning — the
-// per-component digests and the per-variable environment map, values never
+// environment digest and the per-variable environment map, values never
 // included — so a later run can name environment changes behind a miss.
 // Best effort like every cache write: a lost manifest costs only the
 // explanation, never a verdict.

@@ -1,6 +1,8 @@
 package engine_test
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -81,6 +83,71 @@ func TestASecondUnchangedRunIsAllCacheHits(t *testing.T) {
 	}
 
 	assertVerdictInvariance(t, first, second)
+}
+
+func TestCacheManifestStoresOnlyTheEnvironmentComponent(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+	config := baseConfig(t, module)
+	const probeName = "TFMUT_CACHE_PROBE"
+	const probeValue = "probe-value-6f913a2b"
+	config.Env = append(config.Env, probeName+"="+probeValue)
+	cachedRun(t, config)
+
+	environment := append(os.Environ(), config.Env...)
+	slices.Sort(environment)
+	environment = slices.Compact(environment)
+	digest := sha256.New()
+	for _, entry := range environment {
+		_, _ = fmt.Fprintf(digest, "env\x00\x00%s\x00", entry)
+	}
+
+	wantEnvironment := hex.EncodeToString(digest.Sum(nil))
+	probeDigest := sha256.Sum256([]byte(probeValue))
+	entries, err := os.ReadDir(cacheDir(module))
+	if err != nil {
+		t.Fatalf("reading cache: %v", err)
+	}
+
+	manifests := 0
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), "-manifest.json") {
+			continue
+		}
+
+		content, err := os.ReadFile(filepath.Join(cacheDir(module), entry.Name()))
+		if err != nil {
+			t.Fatalf("reading manifest: %v", err)
+		}
+
+		var manifest struct {
+			Components map[string]string `json:"components"`
+			Env        map[string]string `json:"env"`
+		}
+		if err := json.Unmarshal(content, &manifest); err != nil {
+			t.Fatalf("decoding manifest: %v", err)
+		}
+
+		if len(manifest.Components) != 1 || manifest.Components["env"] != wantEnvironment {
+			t.Fatalf("manifest components = %v, want only env = %s",
+				manifest.Components, wantEnvironment)
+		}
+
+		if manifest.Env[probeName] != hex.EncodeToString(probeDigest[:]) {
+			t.Fatalf("manifest does not preserve the digest of %s", probeName)
+		}
+
+		if strings.Contains(string(content), probeValue) {
+			t.Fatal("an environment value reaches the manifest bytes")
+		}
+
+		manifests++
+	}
+
+	if manifests != 1 {
+		t.Fatalf("stored %d manifests, want one", manifests)
+	}
 }
 
 // TestACachedReplayIsByteIdenticalToTheFreshRun is the control for the
