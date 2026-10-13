@@ -20,6 +20,7 @@ const (
 	ciWorkflowPath     = ".github/workflows/ci.yml"
 	codeQLWorkflowPath = ".github/workflows/codeql.yml"
 	minimumToolCount   = 1
+	mutationDiffJobID  = "mutation-diff"
 	mutationDiffName   = "mutate-diff"
 	securityName       = "security"
 	pushEventName      = "push"
@@ -202,7 +203,7 @@ func assertCIWorkflowContract(t *testing.T) {
 	}
 	_, base := gitRevisions(t, repositoryRoot(t))
 	for job, recipe := range map[string]string{
-		"quality": "ci", securityName: securityName, "race": "test-race", mutationDiffName: mutationDiffName,
+		"quality": "ci", securityName: securityName, "race": "test-race", mutationDiffJobID: mutationDiffName,
 	} {
 		commands := workflowCommands(t, repositoryRoot(t), workflow.Jobs[job], map[string]string{
 			eventBaseEnv: base, eventNameEnv: pushEventName,
@@ -351,7 +352,7 @@ func gitRevisions(t *testing.T, directory string) (head, parent string) {
 func TestMutationDiffResolvesEventBaseIndependentlyOfEventName(t *testing.T) {
 	t.Parallel()
 
-	job := readWorkflow(t, ciWorkflowPath).Jobs[mutationDiffName]
+	job := readWorkflow(t, ciWorkflowPath).Jobs[mutationDiffJobID]
 	head, parent := gitRevisions(t, repositoryRoot(t))
 	for _, event := range []string{pushEventName, "pull_request", "workflow_call"} {
 		for _, test := range []struct {
@@ -405,7 +406,7 @@ func TestMutationDiffFallbackWorksWithTestJobCheckoutDepth(t *testing.T) {
 			}
 			directory := shallowCheckout(t, depth)
 			_, parent := gitRevisions(t, directory)
-			commands := workflowCommands(t, directory, workflow.Jobs[mutationDiffName], map[string]string{
+			commands := workflowCommands(t, directory, workflow.Jobs[mutationDiffJobID], map[string]string{
 				eventBaseEnv: strings.Repeat("0", 40), eventNameEnv: pushEventName,
 			})
 			want := []string{miseExecCommand, "--", justCommand, mutationDiffName, parent}
