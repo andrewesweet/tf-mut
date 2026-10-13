@@ -62,7 +62,13 @@ package report
 // and each mutant's execution error is recorded as an event on that mutant's
 // span. No existing field changed name, type or meaning; the wire contract
 // is documented in docs/schema/report-2.11.0.json.
-const SchemaVersion = "2.11.0"
+// 2.12.0 adds the top-level cache-miss explanation: when a run replays no
+// cached verdict only because the environment changed since the stored
+// generation, the report names the added, removed and changed variable
+// names — never their values. No existing field changed name, type or
+// meaning; the wire contract is documented in
+// docs/schema/report-2.12.0.json.
+const SchemaVersion = "2.12.0"
 
 // Command names what produced a report.
 type Command string
@@ -358,6 +364,32 @@ type Provenance struct {
 	BaselineStatus string `json:"baseline_status,omitempty"`
 }
 
+// CacheMiss explains a cache miss the engine attributed to the environment
+// (2.12.0): cached verdicts are reused only under the same environment, so
+// a run that replays nothing only because the environment changed since the
+// stored generation names the variable names that were added, removed or
+// changed — never their values. Each list is sorted; Truncated reports that
+// the bound cut the lists. Absent on a cache hit, on a run that never
+// consults the cache, and on a miss no stored generation explains.
+type CacheMiss struct {
+	// Added names variables the current environment carries that the stored
+	// generation did not.
+	Added []string `json:"added,omitempty"`
+	// Removed names variables the stored generation carried that the current
+	// environment does not.
+	Removed []string `json:"removed,omitempty"`
+	// Changed names variables both carry under different values.
+	Changed []string `json:"changed,omitempty"`
+	// Truncated reports that the bound cut the lists.
+	Truncated bool `json:"truncated,omitempty"`
+}
+
+// MaxCacheMissNames bounds the variable names one CacheMiss carries across
+// its three lists. A session-to-session diff is a handful of names; the bound
+// exists for a wholesale environment replacement, which would otherwise turn
+// the explanation into the environment listing the field exists to avoid.
+const MaxCacheMissNames = 32
+
 // Population is the count split every scoped, cached or sampled run must
 // report distinctly, so a reader always knows what this run actually proved.
 type Population struct {
@@ -539,6 +571,10 @@ type Report struct {
 	Errors []ExecutionError `json:"errors"`
 	// Population is the selected/omitted/cached/fresh split (2.1.0).
 	Population Population `json:"population"`
+	// CacheMiss names the environment variables whose change caused this run
+	// to miss the verdict cache (2.12.0). Absent except on a miss the stored
+	// generation explains.
+	CacheMiss *CacheMiss `json:"cache_miss,omitempty"`
 	// Selection records how the population was chosen (2.1.0).
 	Selection Selection `json:"selection"`
 	// Sampling is present only on a sampled run (2.1.0).

@@ -834,6 +834,14 @@ func executeWithCache(
 	if cache != nil {
 		result.Population.Cached = cache.load(plan.described, plan.classified)
 		result.Population.Fresh = result.Population.Selected - result.Population.Cached
+
+		// A miss the stored generation attributes to the environment alone
+		// names the variables that differed — never their values. Nothing
+		// selected means nothing was looked up, so there is nothing to
+		// explain.
+		if result.Population.Cached == 0 && result.Population.Selected > 0 {
+			result.CacheMiss = cache.explainMiss()
+		}
 	}
 
 	loadPhase()

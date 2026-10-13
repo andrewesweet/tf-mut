@@ -280,7 +280,7 @@ func readSchema(t *testing.T) []byte {
 		t.Fatal("repository root not found")
 	}
 
-	path := filepath.Join(root, "docs", "schema", "report-2.11.0.json")
+	path := filepath.Join(root, "docs", "schema", "report-2.12.0.json")
 
 	content, err := os.ReadFile(path) //nolint:gosec // a repository-owned path.
 	if err != nil {

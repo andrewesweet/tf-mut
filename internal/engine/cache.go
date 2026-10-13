@@ -5,11 +5,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/oracle"
@@ -59,6 +61,35 @@ const keyPrefixLength = 16
 type verdictCache struct {
 	dir string
 	key string
+	// manifest is this run's key broken into per-component digests with the
+	// per-variable environment map beside it. The store writes it next to
+	// the entries; a later run whose key misses diffs it to explain an
+	// environment-only miss.
+	manifest cacheManifest
+}
+
+// envComponent is the key-component kind the whole effective environment
+// hashes under. The miss explanation diffs it per variable; every other
+// component must match for the explanation to be honest.
+const envComponent = "env"
+
+// manifestSuffix names the per-generation sidecar: the key prefix so a
+// stale generation is recognisable, and a fixed suffix no entry name can
+// carry — entry names pair the prefix with hex.
+const manifestSuffix = "-manifest.json"
+
+// cacheManifest is one generation's key beside its meaning: the per-component
+// digests the key is built from, and the environment as a map of variable
+// name to the hash of its value. Values never reach this document — neither
+// the whole-environment lines the key hashes, nor any single value — so a
+// reader learns which names differ and nothing else.
+type cacheManifest struct {
+	FormatVersion string `json:"format_version"`
+	RunKey        string `json:"run_key"`
+	// Components maps each key-component kind to its hex digest.
+	Components map[string]string `json:"components"`
+	// Env maps each environment variable name to the hex digest of its value.
+	Env map[string]string `json:"env"`
 }
 
 // cacheEntry is the persisted verdict of one mutant under one key: the
@@ -96,7 +127,7 @@ func openCache(
 		return nil
 	}
 
-	key, err := cacheKey(configuration, settings, prepared, terraform)
+	key, manifest, err := cacheKey(configuration, settings, prepared, terraform)
 	if err != nil {
 		return nil
 	}
@@ -111,7 +142,7 @@ func openCache(
 		return nil
 	}
 
-	return &verdictCache{dir: dir, key: key}
+	return &verdictCache{dir: dir, key: key, manifest: manifest}
 }
 
 // ensureCacheDir makes the cache location a private real directory.
@@ -132,16 +163,47 @@ func ensureCacheDir(dir string) bool {
 	return os.Chmod(dir, cacheDirMode) == nil
 }
 
-// cacheKey hashes every input that can reach a verdict.
+// keyRecorder hashes the key's (kind, name, value) sequence into the
+// overall digest and, beside it, into one digest per component kind. The
+// overall byte sequence is unchanged — what hits still hits — and the
+// per-kind digests let a later run tell which component moved.
+type keyRecorder struct {
+	overall hash.Hash
+	parts   map[string]hash.Hash
+}
+
+func (r *keyRecorder) write(kind, name, value string) {
+	_, _ = fmt.Fprintf(r.overall, "%s\x00%s\x00%s\x00", kind, name, value)
+
+	part, found := r.parts[kind]
+	if !found {
+		part = sha256.New()
+		r.parts[kind] = part
+	}
+
+	_, _ = fmt.Fprintf(part, "%s\x00%s\x00%s\x00", kind, name, value)
+}
+
+// components resolves each recorded part to its hex digest.
+func (r *keyRecorder) components() map[string]string {
+	resolved := make(map[string]string, len(r.parts))
+	for kind, part := range r.parts {
+		resolved[kind] = hex.EncodeToString(part.Sum(nil))
+	}
+
+	return resolved
+}
+
+// cacheKey hashes every input that can reach a verdict, and returns the key
+// beside the manifest that explains it: the per-component digests and the
+// per-variable environment map.
 func cacheKey(
 	configuration discovery.Configuration,
 	settings settings, prepared warmWorkspace,
 	terraform tfexec.Version,
-) (string, error) {
-	digest := sha256.New()
-	write := func(kind, name, value string) {
-		_, _ = fmt.Fprintf(digest, "%s\x00%s\x00%s\x00", kind, name, value)
-	}
+) (string, cacheManifest, error) {
+	recorder := &keyRecorder{overall: sha256.New(), parts: map[string]hash.Hash{}}
+	write := recorder.write
 
 	write("format", "", cacheFormatVersion)
 	write("terraform", settings.TerraformBinary, terraform.Terraform)
@@ -150,10 +212,34 @@ func cacheKey(
 	write("config", "", resolvedConfiguration(settings))
 
 	if err := writeClosure(write, configuration, settings, prepared, prepared.sources, nil); err != nil {
-		return "", err
+		return "", cacheManifest{}, err
 	}
 
-	return hex.EncodeToString(digest.Sum(nil)), nil
+	key := hex.EncodeToString(recorder.overall.Sum(nil))
+
+	return key, cacheManifest{
+		FormatVersion: cacheFormatVersion,
+		RunKey:        key,
+		Components:    recorder.components(),
+		Env:           envDigestMap(settings),
+	}, nil
+}
+
+// envDigestMap reduces the whole effective environment to a map of variable
+// name to the hash of its value. A name carried twice — the process's plus
+// the run's addition under different values — resolves to the later sorted
+// line, deterministically; the key still hashes both lines, so the map can
+// understate only a case no invocation should construct.
+func envDigestMap(settings settings) map[string]string {
+	digests := map[string]string{}
+
+	for _, entry := range relevantEnvironment(settings) {
+		name, value, _ := strings.Cut(entry, "=")
+		sum := sha256.Sum256([]byte(value))
+		digests[name] = hex.EncodeToString(sum[:])
+	}
+
+	return digests
 }
 
 // InputClosureDigest is the digest of everything a run reads: the sources, the
@@ -316,7 +402,7 @@ func writeClosure(
 	// The relevant environment: everything Terraform-shaped, from the
 	// caller's environment and the run's own additions.
 	for _, entry := range relevantEnvironment(settings) {
-		write("env", "", entry)
+		write(envComponent, "", entry)
 	}
 
 	return nil
@@ -470,6 +556,177 @@ func hashTree(write func(kind, name, value string), root string) error {
 	}
 
 	return nil
+}
+
+// manifestName is this generation's sidecar: the key prefix so stale
+// generations are recognisable, beside the entries it explains.
+func (c *verdictCache) manifestName() string {
+	return c.key[:keyPrefixLength] + manifestSuffix
+}
+
+// explainMiss diffs the stored generations against this run, newest first,
+// and reports the environment names behind a miss caused only by the
+// environment: every other key component matches the stored generation, and
+// the variable names differ. Anything else — no stored generation, a moved
+// source, a generation this binary predates — is a miss without an
+// explanation, never a guess. Values reach neither the document nor the
+// report: only their names travel.
+func (c *verdictCache) explainMiss() *report.CacheMiss {
+	unlock, err := c.lock()
+	if err != nil {
+		return nil
+	}
+
+	defer unlock()
+
+	type generation struct {
+		modified time.Time
+		name     string
+		manifest cacheManifest
+	}
+
+	generations := []generation{}
+
+	entries, err := os.ReadDir(c.dir)
+	if err != nil {
+		return nil
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), manifestSuffix) {
+			continue
+		}
+
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			continue
+		}
+
+		content, readErr := os.ReadFile(filepath.Join(c.dir, entry.Name()))
+		if readErr != nil {
+			continue
+		}
+
+		stored := cacheManifest{}
+		if json.Unmarshal(content, &stored) != nil {
+			continue
+		}
+
+		if stored.FormatVersion != cacheFormatVersion || stored.RunKey == c.key {
+			continue
+		}
+
+		generations = append(generations, generation{
+			modified: info.ModTime(),
+			name:     entry.Name(),
+			manifest: stored,
+		})
+	}
+
+	slices.SortFunc(generations, func(a, b generation) int {
+		if !a.modified.Equal(b.modified) {
+			return b.modified.Compare(a.modified)
+		}
+
+		return strings.Compare(a.name, b.name)
+	})
+
+	for _, generation := range generations {
+		if !explainedByEnvironment(c.manifest, generation.manifest) {
+			continue
+		}
+
+		if miss := diffEnvNames(generation.manifest.Env, c.manifest.Env); miss != nil {
+			return miss
+		}
+	}
+
+	return nil
+}
+
+// explainedByEnvironment reports whether the miss is attributable to the
+// environment alone: every key component but the environment matches the
+// stored generation. Strictness is the point — an over-determined miss names
+// nothing rather than the wrong cause.
+func explainedByEnvironment(current, stored cacheManifest) bool {
+	for kind, digest := range current.Components {
+		if kind == envComponent {
+			continue
+		}
+
+		if stored.Components[kind] != digest {
+			return false
+		}
+	}
+
+	for kind := range stored.Components {
+		if kind == envComponent {
+			continue
+		}
+
+		if _, found := current.Components[kind]; !found {
+			return false
+		}
+	}
+
+	return true
+}
+
+// diffEnvNames reduces two per-variable digest maps to the sorted, bounded
+// name lists the report carries: added, removed and changed. An empty diff —
+// the degenerate duplicate-name case the key still distinguishes — is no
+// explanation. Values are compared only as digests and never leave this
+// function.
+func diffEnvNames(stored, current map[string]string) *report.CacheMiss {
+	miss := &report.CacheMiss{}
+
+	for name := range current {
+		previous, found := stored[name]
+		if !found {
+			miss.Added = append(miss.Added, name)
+		} else if previous != current[name] {
+			miss.Changed = append(miss.Changed, name)
+		}
+	}
+
+	for name := range stored {
+		if _, found := current[name]; !found {
+			miss.Removed = append(miss.Removed, name)
+		}
+	}
+
+	if len(miss.Added)+len(miss.Removed)+len(miss.Changed) == 0 {
+		return nil
+	}
+
+	slices.Sort(miss.Added)
+	slices.Sort(miss.Removed)
+	slices.Sort(miss.Changed)
+
+	miss.Truncated = truncateEnvNames(miss)
+
+	return miss
+}
+
+// truncateEnvNames caps the three lists at the report bound, filling added
+// before removed before changed, and reports whether any name was cut.
+func truncateEnvNames(miss *report.CacheMiss) bool {
+	remaining := report.MaxCacheMissNames
+	truncated := false
+
+	for _, list := range []*[]string{&miss.Added, &miss.Removed, &miss.Changed} {
+		if len(*list) <= remaining {
+			remaining -= len(*list)
+
+			continue
+		}
+
+		*list = (*list)[:remaining]
+		remaining = 0
+		truncated = true
+	}
+
+	return truncated
 }
 
 // entryName is the entry file for a mutant under this key: a key prefix so
@@ -629,7 +886,51 @@ func (c *verdictCache) store(mutants []report.Mutant, classified []oracle.Classi
 		c.write(mutant.ID, entry)
 	}
 
+	c.writeManifest()
 	c.evict()
+}
+
+// writeManifest persists this generation's key beside its meaning — the
+// per-component digests and the per-variable environment map, values never
+// included — so a later run can tell an environment-only miss from any
+// other. Best effort like every cache write: a lost manifest costs only the
+// explanation, never a verdict.
+func (c *verdictCache) writeManifest() {
+	encoded, err := json.Marshal(c.manifest)
+	if err != nil {
+		return
+	}
+
+	temporary, err := os.CreateTemp(c.dir, "manifest-*")
+	if err != nil {
+		return
+	}
+
+	name := temporary.Name()
+
+	if _, err := temporary.Write(encoded); err != nil {
+		_ = temporary.Close()
+		_ = os.Remove(name)
+
+		return
+	}
+
+	if err := temporary.Chmod(cacheEntryMode); err != nil {
+		_ = temporary.Close()
+		_ = os.Remove(name)
+
+		return
+	}
+
+	if err := temporary.Close(); err != nil {
+		_ = os.Remove(name)
+
+		return
+	}
+
+	if err := os.Rename(name, filepath.Join(c.dir, c.manifestName())); err != nil {
+		_ = os.Remove(name)
+	}
 }
 
 // cacheable admits verdicts that executed and cannot drift: a Timeout may be

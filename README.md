@@ -195,7 +195,8 @@ work. An independent adversarial review drove these corrections — see
 | [`docs/schema/report-2.8.0.json`](docs/schema/report-2.8.0.json) | The widened-incomplete-semantics JSON report schema, still published for earlier consumers |
 | [`docs/schema/report-2.9.0.json`](docs/schema/report-2.9.0.json) | The deadline-visibility JSON report schema, still published for earlier consumers |
 | [`docs/schema/report-2.10.0.json`](docs/schema/report-2.10.0.json) | The versioned JSON report schema the `json` reporter emitted through 2.10.0, including scores marked incomplete after a consecutive-failure trip — still published for earlier consumers |
-| [`docs/schema/report-2.11.0.json`](docs/schema/report-2.11.0.json) | The versioned JSON report schema the `json` reporter emits, adding the run identifier to the telemetry block |
+| [`docs/schema/report-2.11.0.json`](docs/schema/report-2.11.0.json) | The versioned JSON report schema the `json` reporter emitted through 2.11.0, adding the run identifier to the telemetry block — still published for earlier consumers |
+| [`docs/schema/report-2.12.0.json`](docs/schema/report-2.12.0.json) | The versioned JSON report schema the `json` reporter emits, adding the cache-miss explanation that names the environment variables behind an environment-only miss |
 | [`docs/research/09-m3-real-provider-gate.md`](docs/research/09-m3-real-provider-gate.md) | The M3 inner-loop measurement, both real-provider debts settled, the M3e admission evidence |
 | [`docs/research/10-m3-exit-gate.md`](docs/research/10-m3-exit-gate.md) | The M3 exit-gate map: every normative behaviour to its test |
 | [`docs/schema/sarif-2.1.0.json`](docs/schema/sarif-2.1.0.json) | The published SARIF schema the `sarif` reporter's output is validated against |

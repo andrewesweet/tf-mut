@@ -164,6 +164,7 @@ func WriteTerminal(writer io.Writer, value Report) error {
 	}
 
 	writeDeadlines(&builder, value)
+	writeCacheMiss(&builder, value)
 
 	if _, err := io.WriteString(writer, builder.String()); err != nil {
 		return fmt.Errorf("writing report: %w", err)
@@ -494,6 +495,38 @@ func writeDeadlines(builder *strings.Builder, value Report) {
 	for _, mutant := range reached {
 		fmt.Fprintf(builder, "    %s  %s  %s\n", mutant.Operator, location(mutant.Range), mutant.State)
 	}
+}
+
+// writeCacheMiss names the environment variables behind a miss the stored
+// generation explains, on one terminal line carrying names only — never
+// values. It renders at the WriteTerminal boundary — after the
+// command-specific body — so every terminal rendering of a report carries
+// it, the way the deadline list does.
+func writeCacheMiss(builder *strings.Builder, value Report) {
+	if value.CacheMiss == nil {
+		return
+	}
+
+	segments := []string{}
+
+	if len(value.CacheMiss.Added) > 0 {
+		segments = append(segments, "added: "+strings.Join(value.CacheMiss.Added, ", "))
+	}
+
+	if len(value.CacheMiss.Removed) > 0 {
+		segments = append(segments, "removed: "+strings.Join(value.CacheMiss.Removed, ", "))
+	}
+
+	if len(value.CacheMiss.Changed) > 0 {
+		segments = append(segments, "changed: "+strings.Join(value.CacheMiss.Changed, ", "))
+	}
+
+	if value.CacheMiss.Truncated {
+		segments = append(segments, fmt.Sprintf("list truncated at %d names", MaxCacheMissNames))
+	}
+
+	fmt.Fprintf(builder, "\n  Cache miss: the environment changed since the cached verdicts were stored (%s).\n",
+		strings.Join(segments, "; "))
 }
 
 // writeDiagnoses renders the survivor diagnosis counts: "twenty survivors" and

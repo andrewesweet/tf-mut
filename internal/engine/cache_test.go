@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -415,6 +416,20 @@ func TestCacheInvalidationPerKeyDimension(t *testing.T) {
 				t.Fatalf("dimension %s: %d cached verdicts survived an input change",
 					name, result.Population.Cached)
 			}
+
+			// The miss explanation is exclusive: an environment-only miss
+			// names the variable, and any other moved dimension names
+			// nothing rather than the wrong cause.
+			if name == "environment" {
+				if result.CacheMiss == nil ||
+					!slices.Contains(result.CacheMiss.Added, "TF_VAR_cache_probe") {
+					t.Fatalf("dimension %s: the environment-only miss carries %+v",
+						name, result.CacheMiss)
+				}
+			} else if result.CacheMiss != nil {
+				t.Fatalf("dimension %s: a non-environment miss carries %+v",
+					name, result.CacheMiss)
+			}
 		})
 	}
 }
@@ -823,5 +838,244 @@ func TestMockDataFilesAreAKeyDimension(t *testing.T) {
 	result := cachedRun(t, config)
 	if result.Population.Cached != 0 {
 		t.Fatalf("%d cached verdicts survived a mock-data edit", result.Population.Cached)
+	}
+}
+
+// TestACacheMissCausedOnlyByTheEnvironmentNamesTheVariable (road-test F11,
+// option B): the key keeps hashing the whole environment, but a miss caused
+// only by the environment names the variable that differed — never its
+// value.
+func TestACacheMissCausedOnlyByTheEnvironmentNamesTheVariable(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+	config := baseConfig(t, module)
+	cachedRun(t, config)
+
+	const probeName = "TFMUT_CACHE_PROBE"
+	const probeValue = "probe-value-7f3a9c2e"
+	config.Env = append(config.Env, probeName+"="+probeValue)
+
+	second := cachedRun(t, config)
+	if second.Population.Cached != 0 {
+		t.Fatalf("%d cached verdicts survived an unrelated environment change",
+			second.Population.Cached)
+	}
+
+	if second.CacheMiss == nil {
+		t.Fatal("an environment-only cache miss named no variable")
+	}
+
+	if !slices.Contains(second.CacheMiss.Added, probeName) {
+		t.Fatalf("the miss names added %q, which omits %q",
+			second.CacheMiss.Added, probeName)
+	}
+
+	assertReportCarriesNoValue(t, second, probeValue)
+}
+
+// TestAChangedEnvironmentVariableIsReportedAsChanged: renaming nothing and
+// adding nothing, only the value differs — the miss still names the variable
+// and still withholds both values.
+func TestAChangedEnvironmentVariableIsReportedAsChanged(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+	config := baseConfig(t, module)
+
+	const probeName = "TFMUT_CACHE_PROBE"
+	const firstValue = "probe-first-4b1d88"
+	const secondValue = "probe-second-9e27f1"
+	config.Env = append(config.Env, probeName+"="+firstValue)
+	cachedRun(t, config)
+
+	for index, entry := range config.Env {
+		if strings.HasPrefix(entry, probeName+"=") {
+			config.Env[index] = probeName + "=" + secondValue
+		}
+	}
+
+	second := cachedRun(t, config)
+	if second.Population.Cached != 0 {
+		t.Fatalf("%d cached verdicts survived an environment value change",
+			second.Population.Cached)
+	}
+
+	if second.CacheMiss == nil {
+		t.Fatal("an environment-only cache miss named no variable")
+	}
+
+	if !slices.Contains(second.CacheMiss.Changed, probeName) {
+		t.Fatalf("the miss names changed %q, which omits %q",
+			second.CacheMiss.Changed, probeName)
+	}
+
+	assertReportCarriesNoValue(t, second, firstValue)
+	assertReportCarriesNoValue(t, second, secondValue)
+}
+
+// TestARemovedEnvironmentVariableIsReportedAsRemoved: the variable the first
+// run saw is gone from the second — the miss names it without its value.
+func TestARemovedEnvironmentVariableIsReportedAsRemoved(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+	config := baseConfig(t, module)
+
+	const probeName = "TFMUT_CACHE_PROBE"
+	const probeValue = "probe-value-c53a917d"
+	config.Env = append(config.Env, probeName+"="+probeValue)
+	cachedRun(t, config)
+
+	kept := config.Env[:0]
+	for _, entry := range config.Env {
+		if !strings.HasPrefix(entry, probeName+"=") {
+			kept = append(kept, entry)
+		}
+	}
+	config.Env = kept
+
+	second := cachedRun(t, config)
+	if second.Population.Cached != 0 {
+		t.Fatalf("%d cached verdicts survived an environment variable removal",
+			second.Population.Cached)
+	}
+
+	if second.CacheMiss == nil {
+		t.Fatal("an environment-only cache miss named no variable")
+	}
+
+	if !slices.Contains(second.CacheMiss.Removed, probeName) {
+		t.Fatalf("the miss names removed %q, which omits %q",
+			second.CacheMiss.Removed, probeName)
+	}
+
+	assertReportCarriesNoValue(t, second, probeValue)
+}
+
+// TestACacheHitCarriesNoMissExplanation: the explanation is present exactly
+// when the run missed only because of the environment — a hit carries none.
+func TestACacheHitCarriesNoMissExplanation(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+	config := baseConfig(t, module)
+	first := cachedRun(t, config)
+	if first.CacheMiss != nil {
+		t.Fatalf("a first run over an empty cache carries a miss explanation: %+v",
+			first.CacheMiss)
+	}
+
+	second := cachedRun(t, config)
+	if second.Population.Cached == 0 {
+		t.Fatal("the second unchanged run replayed nothing; the case is vacuous")
+	}
+
+	if second.CacheMiss != nil {
+		t.Fatalf("a cache hit carries a miss explanation: %+v", second.CacheMiss)
+	}
+}
+
+// TestAMissWithNoStoredGenerationCarriesNoExplanation: an old-format cache —
+// entries but no per-generation digests — misses without an explanation
+// rather than guessing one.
+func TestAMissWithNoStoredGenerationCarriesNoExplanation(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+	config := baseConfig(t, module)
+	cachedRun(t, config)
+
+	// Simulate a cache written before per-generation digests existed: the
+	// entries stay, every manifest goes.
+	entries, err := os.ReadDir(cacheDir(module))
+	if err != nil {
+		t.Fatalf("reading cache: %v", err)
+	}
+
+	removed := 0
+
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), "-manifest.json") {
+			if err := os.Remove(filepath.Join(cacheDir(module), entry.Name())); err != nil {
+				t.Fatalf("removing manifest: %v", err)
+			}
+
+			removed++
+		}
+	}
+
+	if removed == 0 {
+		t.Fatal("the first run stored no generation manifest to remove")
+	}
+
+	config.Env = append(config.Env, "TFMUT_CACHE_PROBE=probe-value-2a6f40b1")
+	second := cachedRun(t, config)
+	if second.Population.Cached != 0 {
+		t.Fatalf("%d cached verdicts survived an environment change", second.Population.Cached)
+	}
+
+	if second.CacheMiss != nil {
+		t.Fatalf("a miss with no stored generation carries an explanation: %+v",
+			second.CacheMiss)
+	}
+}
+
+// TestAMissExplanationIsBoundedAndSorted: a wholesale environment
+// replacement still yields a bounded, sorted explanation — never the
+// environment listing the field exists to avoid — with truncation flagged.
+func TestAMissExplanationIsBoundedAndSorted(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "all-killed")
+	config := baseConfig(t, module)
+	cachedRun(t, config)
+
+	const probes = 40
+	for index := range probes {
+		config.Env = append(config.Env,
+			fmt.Sprintf("TFMUT_CACHE_PROBE_%02d=probe-value-%02d", index, index))
+	}
+
+	second := cachedRun(t, config)
+	if second.CacheMiss == nil {
+		t.Fatal("an environment-only cache miss named no variable")
+	}
+
+	total := len(second.CacheMiss.Added) + len(second.CacheMiss.Removed) +
+		len(second.CacheMiss.Changed)
+	if total != report.MaxCacheMissNames {
+		t.Fatalf("the miss carries %d names, want the bound %d",
+			total, report.MaxCacheMissNames)
+	}
+
+	if !second.CacheMiss.Truncated {
+		t.Fatalf("%d added variables truncated without the flag: %+v", probes, second.CacheMiss)
+	}
+
+	for _, list := range [][]string{
+		second.CacheMiss.Added, second.CacheMiss.Removed, second.CacheMiss.Changed,
+	} {
+		if !slices.IsSorted(list) {
+			t.Fatalf("the miss list %q is not sorted", list)
+		}
+	}
+
+	assertReportCarriesNoValue(t, second, "probe-value-07")
+}
+
+// assertReportCarriesNoValue fails when the environment value reaches any
+// report byte — the JSON document, and through it every reporter derived
+// from the same value.
+func assertReportCarriesNoValue(t *testing.T, value report.Report, secret string) {
+	t.Helper()
+
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("encoding report: %v", err)
+	}
+
+	if strings.Contains(string(encoded), secret) {
+		t.Fatal("an environment value reaches the report bytes")
 	}
 }
