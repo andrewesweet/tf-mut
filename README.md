@@ -27,8 +27,8 @@ below reproduces the CI environment on your machine.
 
 ## Bootstrap and build
 
-The initial supported platform is Linux x86-64, including WSL2. Run these steps in order; each
-is one of the commands the CI workflow runs, with the result to expect:
+Run these steps from this checkout's root to install the tools, build tf-mut and run the
+same quality checks as CI:
 
 1. Trust the workspace configuration:
 
@@ -120,8 +120,10 @@ declaration still causes provider schema retrieval to fail.
 When a Terraform command reaches its deadline, tf-mut stops the command and its provider
 plugins. See [mutant states](docs/design/product-design.md#4-mutant-states) for how a test
 deadline appears beside the mutant's verdict. The `--preflight-timeout` cap applies to
-each call separately, including validation during mutant execution. Zero retains the
-defaults; negative durations are refused. For a persistent cap,
+each call separately, including validation during mutant execution. The defaults are
+10 minutes for `init` and 1 minute for other preflight calls, baseline runs and
+characterisation's staged runs. Zero retains the defaults; negative durations are refused.
+For a persistent cap,
 see [configuration](docs/design/product-design.md#configuration--tf-muthcl).
 Git calls, including checkout-root discovery and `--since`, have a fixed 30-second cap;
 an overrun is an operational failure.
