@@ -172,7 +172,7 @@ contexts and glossary, start with [`CONTEXT.md`](CONTEXT.md).
 | --- | --- |
 | [`docs/adr/`](docs/adr/) | Accepted architectural decisions, one numbered record each |
 | [`docs/agents/`](docs/agents/) | Agent operating notes: the issue tracker, triage labels, and domain pointers |
-| [`docs/design/`](docs/design/) | Architecture, the operator catalogue, characterisation, and agent integration — start with [`product-design.md`](docs/design/product-design.md) |
+| [`docs/design/`](docs/design/) | Architecture, the operator catalogue, characterisation, agent integration, and pack design — start with [`product-design.md`](docs/design/product-design.md) |
 | [`docs/research/`](docs/research/) | Numbered research notes; every measurement verified against the real Terraform CLI |
 | [`docs/reviews/`](docs/reviews/) | Adversarial and implementation reviews with their dispositions, which outrank design prose on conflict |
 | [`docs/schema/`](docs/schema/) | Versioned report schemas and the vendored external schemas that outputs are validated against |
