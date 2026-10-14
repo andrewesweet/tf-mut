@@ -16,6 +16,14 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
+const (
+	emptyCacheNameDefect    = "empty-name"
+	equalsCacheNameDefect   = "equals-in-name"
+	nulCacheNameDefect      = "nul-in-name"
+	invalidCacheValueDefect = "invalid-value-digest"
+	invalidCacheDigest      = "not-a-digest"
+)
+
 func TestNonregularCacheManifestsAreNotRead(t *testing.T) {
 	t.Parallel()
 
@@ -40,6 +48,8 @@ func TestNonregularCacheManifestsAreNotRead(t *testing.T) {
 				err = syscall.Mkfifo(path, 0o600)
 			case "directory":
 				err = os.Mkdir(path, 0o700)
+			default:
+				t.Fatalf("unknown nonregular manifest kind %q", kind)
 			}
 
 			if err != nil {
@@ -169,25 +179,7 @@ func TestCacheMissExplanationsRequireUsableVerdictEntries(t *testing.T) {
 			}
 
 			for _, path := range entries {
-				switch defect {
-				case "missing":
-					if err := os.Remove(path); err != nil {
-						t.Fatalf("removing entry: %v", err)
-					}
-				case "truncated":
-					testsupport.WriteFile(t, path, "{ truncated")
-				default:
-					document := readCacheDocument(t, path)
-					if defect == "wrong-key" {
-						document["run_key"] = strings.Repeat("0", 64)
-					} else if defect == "static-record" {
-						document["record"] = map[string]any{"state": "NoCoverage", "message": "static"}
-					} else {
-						document["record"] = map[string]any{"state": "not-a-verdict"}
-					}
-
-					writeCacheDocument(t, path, document)
-				}
+				corruptCacheVerdict(t, path, defect)
 			}
 
 			config.Env = append(config.Env, "TFMUT_CACHE_PROBE=entry-probe")
@@ -227,20 +219,7 @@ func TestTheNewestMatchingEnvironmentStopsCacheMissAttribution(t *testing.T) {
 			if change == "source" {
 				appendFile(t, filepath.Join(module, mainFile), "\n# source-only edit\n")
 			} else {
-				for _, path := range paths {
-					if path == oldPath {
-						continue
-					}
-
-					prefix := strings.TrimSuffix(filepath.Base(path), "-manifest.json") + "-"
-					for _, entry := range cacheVerdictFiles(t, module) {
-						if strings.HasPrefix(filepath.Base(entry), prefix) {
-							if err := os.Remove(entry); err != nil {
-								t.Fatalf("removing current entry: %v", err)
-							}
-						}
-					}
-				}
+				removeNewerCacheVerdicts(t, module, paths, oldPath)
 			}
 
 			third := cachedRun(t, config)
@@ -255,7 +234,8 @@ func TestMalformedCacheManifestsCarryNoExplanation(t *testing.T) {
 	t.Parallel()
 
 	for _, defect := range []string{
-		"renamed-env", "null-env", "empty-env", "empty-name", "equals-in-name", "nul-in-name", "invalid-value-digest",
+		"renamed-env", "null-env", "empty-env", emptyCacheNameDefect,
+		equalsCacheNameDefect, nulCacheNameDefect, invalidCacheValueDefect,
 		"missing-key", "invalid-key", "wrong-filename", "missing-components", "missing-env-component",
 		"invalid-env-digest", "extra-component", "wrong-format",
 	} {
@@ -276,30 +256,37 @@ func TestMalformedCacheManifestsCarryNoExplanation(t *testing.T) {
 				document["env"] = nil
 			case "empty-env":
 				document["env"] = map[string]any{}
-			case "empty-name", "equals-in-name", "nul-in-name", "invalid-value-digest":
-				names := map[string]string{"empty-name": "", "equals-in-name": "A=B", "nul-in-name": "A\x00B", "invalid-value-digest": "A"}
+			case emptyCacheNameDefect, equalsCacheNameDefect, nulCacheNameDefect, invalidCacheValueDefect:
+				names := map[string]string{
+					emptyCacheNameDefect:    "",
+					equalsCacheNameDefect:   "A=B",
+					nulCacheNameDefect:      "A\x00B",
+					invalidCacheValueDefect: "A",
+				}
 				digest := strings.Repeat("a", 64)
-				if defect == "invalid-value-digest" {
-					digest = "not-a-digest"
+				if defect == invalidCacheValueDefect {
+					digest = invalidCacheDigest
 				}
 
-				document["env"].(map[string]any)[names[defect]] = digest
+				cacheDocumentObject(t, document, "env")[names[defect]] = digest
 			case "missing-key":
 				delete(document, "run_key")
 			case "invalid-key":
-				document["run_key"] = "not-a-digest"
+				document["run_key"] = invalidCacheDigest
 			case "wrong-filename":
 				document["run_key"] = strings.Repeat("0", 64)
 			case "missing-components":
 				delete(document, "components")
 			case "missing-env-component":
-				delete(document["components"].(map[string]any), "env")
+				delete(cacheDocumentObject(t, document, "components"), "env")
 			case "invalid-env-digest":
-				document["components"].(map[string]any)["env"] = "not-a-digest"
+				cacheDocumentObject(t, document, "components")["env"] = invalidCacheDigest
 			case "extra-component":
-				document["components"].(map[string]any)["source"] = strings.Repeat("a", 64)
+				cacheDocumentObject(t, document, "components")["source"] = strings.Repeat("a", 64)
 			case "wrong-format":
 				document["format_version"] = "not-this-format"
+			default:
+				t.Fatalf("unknown manifest defect %q", defect)
 			}
 
 			writeCacheDocument(t, path, document)
@@ -380,10 +367,74 @@ func cacheVerdictFiles(t *testing.T, module string) []string {
 	})
 }
 
+func corruptCacheVerdict(t *testing.T, path, defect string) {
+	t.Helper()
+
+	switch defect {
+	case "missing":
+		if err := os.Remove(path); err != nil {
+			t.Fatalf("removing entry: %v", err)
+		}
+
+		return
+	case "truncated":
+		testsupport.WriteFile(t, path, "{ truncated")
+
+		return
+	default:
+	}
+
+	document := readCacheDocument(t, path)
+	switch defect {
+	case "wrong-key":
+		document["run_key"] = strings.Repeat("0", 64)
+	case "static-record":
+		document["record"] = map[string]any{"state": "NoCoverage", "message": "static"}
+	case "illegal-record":
+		document["record"] = map[string]any{"state": "not-a-verdict"}
+	default:
+		t.Fatalf("unknown verdict defect %q", defect)
+	}
+
+	writeCacheDocument(t, path, document)
+}
+
+func removeNewerCacheVerdicts(t *testing.T, module string, manifests []string, oldPath string) {
+	t.Helper()
+
+	for _, path := range manifests {
+		if path == oldPath {
+			continue
+		}
+
+		prefix := strings.TrimSuffix(filepath.Base(path), "-manifest.json") + "-"
+		for _, entry := range cacheVerdictFiles(t, module) {
+			if !strings.HasPrefix(filepath.Base(entry), prefix) {
+				continue
+			}
+
+			if err := os.Remove(entry); err != nil {
+				t.Fatalf("removing current entry: %v", err)
+			}
+		}
+	}
+}
+
+func cacheDocumentObject(t *testing.T, document map[string]any, key string) map[string]any {
+	t.Helper()
+
+	object, ok := document[key].(map[string]any)
+	if !ok {
+		t.Fatalf("cache document member %q is not an object", key)
+	}
+
+	return object
+}
+
 func readCacheDocument(t *testing.T, path string) map[string]any {
 	t.Helper()
 
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) //nolint:gosec // Paths come from fixture copies under t.TempDir().
 	if err != nil {
 		t.Fatalf("reading cache document: %v", err)
 	}
