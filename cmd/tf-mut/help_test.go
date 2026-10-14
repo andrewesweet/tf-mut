@@ -40,6 +40,46 @@ func TestReferencePageMatchesCommittedPage(t *testing.T) {
 	}
 }
 
+func TestReferenceFlagTablesPreserveTheirThreeColumns(t *testing.T) {
+	t.Parallel()
+
+	stdout := bytes.Buffer{}
+	stderr := bytes.Buffer{}
+	if code := run([]string{generateReferenceFlag}, "test", &stdout, &stderr); code != exitSuccess {
+		t.Fatalf("reference generation exited %d: %s", code, stderr.String())
+	}
+
+	agentRows := 0
+
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		if !strings.HasPrefix(line, "| `--") {
+			continue
+		}
+
+		cells := strings.Split(strings.ReplaceAll(line, `\|`, "\x00"), "|")
+		if len(cells) != 5 {
+			t.Fatalf("flag row has %d columns, want 3: %s", len(cells)-2, line)
+		}
+
+		for i, cell := range cells {
+			cells[i] = strings.ReplaceAll(strings.TrimSpace(cell), "\x00", "|")
+		}
+
+		if cells[1] == "`--agent claude|generic`" {
+			agentRows++
+
+			want := []string{"", "`--agent claude|generic`", "Target agent for the installed skills", "`\"claude\"`", ""}
+			if !slices.Equal(cells, want) {
+				t.Fatalf("agent row = %q, want %q", cells, want)
+			}
+		}
+	}
+
+	if agentRows != 1 {
+		t.Fatalf("reference contains %d agent rows, want 1", agentRows)
+	}
+}
+
 // firstDifference names the byte where two documents part, so a drift report
 // points at the line instead of dumping two pages.
 func firstDifference(left, right string) int {

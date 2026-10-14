@@ -258,7 +258,7 @@ Arguments: `install  The only skill subcommand: install the skills into the proj
 
 | Flag | Description | Default |
 | --- | --- | --- |
-| `--agent claude|generic` | Target agent for the installed skills | `"claude"` |
+| `--agent claude\|generic` | Target agent for the installed skills | `"claude"` |
 | `--path DIR` | The project root to install into | `"."` |
 | `--force` | Overwrite user-edited skill files | — |
 

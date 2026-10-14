@@ -580,8 +580,16 @@ func renderReferencePage() string {
 			rendered.WriteString("| --- | --- | --- |\n")
 
 			for _, name := range names {
-				rendered.WriteString("| `--" + name + flagMetavar(name) + "` | " +
-					referenceDescription(name, lookup) + " | " + referenceDefault(name, lookup) + " |\n")
+				cells := []string{
+					"`--" + name + flagMetavar(name) + "`",
+					lookup(name).Usage,
+					referenceDefault(name, lookup),
+				}
+				for i, cell := range cells {
+					cells[i] = strings.ReplaceAll(cell, "|", "\\|")
+				}
+
+				rendered.WriteString("| " + strings.Join(cells, " | ") + " |\n")
 			}
 		}
 
@@ -601,13 +609,6 @@ func flagMetavar(name string) string {
 	}
 
 	return " " + flagDocs[name].metavar
-}
-
-// referenceDescription renders the reference table's description cell,
-// escaping the pipe characters of the reporter enum so the table keeps its
-// columns.
-func referenceDescription(name string, lookup func(string) *flag.Flag) string {
-	return strings.ReplaceAll(lookup(name).Usage, "|", "\\|")
 }
 
 // referenceDefault renders the reference table's default cell from the live
