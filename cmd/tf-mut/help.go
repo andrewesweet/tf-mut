@@ -196,8 +196,10 @@ var flagDocs = map[string]flagDoc{ //nolint:gochecknoglobals // the immutable he
 	pathFlag:        {"DIR", "The project root to install into"},
 }
 
+const skillForceDescription = "Overwrite user-edited skill files"
+
 var skillFlagDocs = map[string]flagDoc{ //nolint:gochecknoglobals // the immutable help table.
-	forceFlag: {"", "Overwrite user-edited skill files"},
+	forceFlag: {"", skillForceDescription},
 }
 
 // hiddenDefault names the flags whose zero value means unset rather than a

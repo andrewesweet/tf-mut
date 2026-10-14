@@ -622,8 +622,9 @@ correctly conclude the tool does not understand Terraform.
 
 ## 8. Command surface
 
-The implemented command and flag surface is the [command-line reference](../reference/cli.md), generated from the binary's help table; this section records
-the design, and its roadmap rows are marked as claims.
+The implemented command and flag surface is the [command-line reference](../reference/cli.md),
+generated from the binary's help table. This section records the design and marks roadmap
+claims explicitly.
 
 ```
 tf-mut run       [PATH]   Full mutation run
@@ -634,24 +635,10 @@ tf-mut run --write-baseline   Write/update the accepted-findings baseline (M3: a
                               it accepts)
 ```
 
-Key flags for `run`:
+For `run` flags and defaults, see the [run reference](../reference/cli.md#run).
 
-| Flag | Default | Purpose |
-| --- | --- | --- |
-| `--tier smoke\|standard\|deep` | `standard` | Operator breadth |
-| `--pack security-aws,...` | none | Opt-in domain packs |
-| `--operator ID` / `--exclude-operator ID` | — | Fine selection |
-| `--since REF` | — | Mutate only lines changed versus a git ref |
-| `--jobs N` | [See usage](../../README.md#using-it) | Parallelism |
-| `--timeout-factor F` | `10` | Multiple of baseline run time |
-| `--preflight-timeout D` | See usage | See [deadline behaviour and defaults](../../README.md#using-it) |
-| `--min-score N` | — | Exit non-zero below this score |
-| `--fail-on-new` | off | Fail on findings the baseline does not accept |
-| `--engine terraform\|tofu` | `terraform` | OpenTofu support — roadmap, a claim until [#166](https://github.com/andrewesweet/tf-mut/issues/166) corrects it |
-| `--allow-real-infrastructure` | off | Required if any provider is unmocked |
-| `--reporter ...` | `terminal` | See §9, Reporters |
-| `--seed N` | — | Deterministic sampling |
-| `--sample N` | — | Run a deterministic N% sample of the mutant population |
+OpenTofu support is a roadmap claim: `--engine terraform|tofu`, with `terraform` as the planned
+default, remains deferred until [#166](https://github.com/andrewesweet/tf-mut/issues/166) corrects it.
 
 ### Configuration — `.tf-mut.hcl`
 
@@ -976,7 +963,7 @@ before any comparability claim is made. OpenTofu parity was removed from the mil
 the maintainer's ruling of 16 September 2026, before implementation began, and carried
 verbatim to issue #166 with the measurement that would have gated it (M5-0.2) and the
 tested-matrix design rows (`--binary`, the flavour block, `gate-tofu`); the spec revision
-records the ruling, and the CLI table's `--engine` row above stays a roadmap claim until
+records the ruling, and the proposed `--engine` flag above stays a roadmap claim until
 #166 corrects it. The rest ran as specified: the three Tier 4 lifecycle operators were
 admitted behind kill witnesses (M5-0.1, `docs/research/16-m5-01-lifecycle-witnesses.md`),
 the `security-aws` pack shipped with eleven witnessed entries under the pack contract — the
