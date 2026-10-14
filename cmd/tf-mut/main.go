@@ -23,7 +23,6 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/skill"
-	"github.com/andrewesweet/tf-mut/internal/tracing"
 )
 
 var version = "dev"
@@ -70,6 +69,41 @@ const (
 	allowIncompleteFlag  = "allow-incomplete-score"
 	reporterFlagName     = "reporter"
 
+	// The remaining flags, named for the same reason now that the help table,
+	// the declaration and the scoping tables all spell them: the FlagName
+	// suffix marks the spellings a test file already claims with a -- prefix.
+	failureTripFlag             = "failure-trip"
+	allowRealInfrastructureFlag = "allow-real-infrastructure"
+	allowUnsandboxedEffectsFlag = "allow-unsandboxed-effects"
+	allowSampledGateFlag        = "allow-sampled-gate"
+	noCacheFlagName             = "no-cache"
+	failOnNewFlag               = "fail-on-new"
+	writeBaselineFlagName       = "write-baseline"
+	baselineFlag                = "baseline"
+	sarifPathFlag               = "sarif-path"
+	cpuProfileFlag              = "cpu-profile"
+	otlpEndpointFlag            = "otlp-endpoint"
+	outputFlagName              = "output"
+	dryRunFlagName              = "dry-run"
+	allVerifiedFlag             = "all-verified"
+	survivorFlag                = "survivor"
+	applyFlag                   = "apply"
+	writeFlagName               = "write"
+	forceFlag                   = "force"
+	untilDryFlagName            = "until-dry"
+	agentFlag                   = "agent"
+	pathFlag                    = "path"
+
+	// The help spellings: explicit help exits 0, and install is skill's only
+	// subcommand.
+	helpShortFlag  = "-h"
+	helpLongFlag   = "--help"
+	installCommand = "install"
+
+	// The repeated metavars of the help table.
+	pathMetavar = "PATH"
+	idsMetavar  = "ID[,ID]"
+
 	reporterTerminal = "terminal"
 	reporterJSON     = "json"
 	reporterSARIF    = "sarif"
@@ -78,85 +112,19 @@ const (
 	reporterJUnit    = "junit"
 	reporterMarkdown = "markdown"
 
-	usage = `usage: tf-mut <command> [flags] [PATH]
-
-Commands:
-  run          Mutate the module at PATH and report which resources are pseudo-tested
-  preview      List the mutants that would be generated, as diffs, executing nothing
-  suggest      Generate, verify and optionally apply the assertions that kill the survivors
-  characterise Scaffold, harvest and pin a first test suite for a module that has none
-  todos        List the open judgement points characterisation refuses to guess at
-  curate       Report redundant assertions from a full, authoritative population
-  skill        Install the shipped agent skills (skill install [--agent claude|generic] [--path .])
-  version      Print the build version
-
-Flags for run, preview, suggest, characterise, todos and curate:
-  --test-directory PATH        Test directory relative to the module (default "tests")
-  --jobs N                     Mutants to execute concurrently (default: three-quarters of CPUs, min 1)
-  --timeout-factor F           Multiple of the baseline run time (default 10)
-  --preflight-timeout D        Absolute cap on preflight terraform calls: version,
-                               init, providers schema, fmt, validate and the baseline
-                               runs (default: 10m for init, 1m for the rest; "90s", "10m")
-  --allow-real-infrastructure  Permit execution against unmocked providers
-  --allow-unsandboxed-effects  Permit apply-mode provisioners and unsevered data sources
-  --reporter FORMAT            terminal|json|sarif|mte|html|junit|markdown (default terminal)
-  --output FORMAT=PATH         Write an additional reporter from the same run;
-                               repeatable — every output derives from one report value
-  --sarif-path PATH            Where to write the SARIF document
-  --cpu-profile PATH           Write a CPU profile of tf-mut itself
-  --otlp-endpoint URL          Export run, mutant and phase spans over OTLP/HTTP
-
-Flags for run, suggest and curate:
-  --min-score N                Fail below this mutation score percentage
-  --failure-trip N             Stop the run after N consecutive operational failures
-                               (default 5); the report names the trip and the first
-                               failure, and the score is marked incomplete
-  --allow-incomplete-score     Let an untrustworthy score satisfy --min-score
-                               (timeout, nothing scored, Invalid-dominated)
-  --allow-sampled-gate         Let a sampled run satisfy --min-score (unsafe)
-  --no-cache                   Disable the project-local verdict cache
-  --fail-on-new                Fail on findings the baseline does not accept
-  --write-baseline             Accept the current findings as the baseline
-  --baseline PATH              Baseline file (default ".tf-mut-baseline.json")
-
-Flags for run, preview and suggest:
-  --tier smoke|standard|deep   Operator breadth (default standard)
-  --since REF                  Run only mutants in configuration changed since REF,
-                               including staged, unstaged and untracked changes
-  --sample N                   Run a deterministic N% sample (non-authoritative)
-  --seed N                     Seed for --sample (default 0)
-  --generated-functions        Opt in to the generated function-family operators
-  --pack NAME[,NAME]           Enable these domain packs by name: a shipped pack such as
-                               security-aws, or one registered in .tf-mut.hcl; merged as a
-                               union with the configured packs list
-  --operator ID[,ID]           Restrict generation to these operators
-  --exclude-operator ID[,ID]   Remove operators from the population
-  --exclude-path GLOB[,GLOB]   Remove sites in matching files
-  --exclude-resource ADDR[,..] Remove sites in matching resources
-
-Flags for characterise:
-  --pin LEVEL                  Pinning granularity: outputs, counts or configured
-                               (default outputs; a module with no outputs escalates)
-  --write                      Place the verified suite in the test directory
-  --force                      Replace generated files nobody has edited
-  --until-dry                  Iterate scaffold, mutate and pin until the
-                               survivors stop yielding new assertions
-  --answer todo-ID=VALUE       Answer one judgement point; repeatable
-  --resume                     Read answered judgement points from the edited
-                               artefact, re-synthesise, verify and promote
-
-Flags for suggest:
-  --dry-run                    Print the candidate patches and verify nothing
-  --survivor ID[,ID]           Suggest only for these survivor identifiers
-  --apply ID[,ID]              Apply these verified suggestions to the test files
-  --all-verified               Apply every verified suggestion
-
-Settings also readable from .tf-mut.hcl at the module root. A flag given on the
-command line overrides the configured value of that scalar and nothing else.`
-
 	exitSuccess = 0
 	exitUsage   = 2
+
+	// generateReferenceFlag is the maintainer escape hatch the reference
+	// recipe uses: it renders docs/reference/cli.md to standard output. It is
+	// deliberately outside the description table, so --help never advertises it.
+	generateReferenceFlag = "--generate-reference"
 )
+
+// usage is the top-level help, rendered from the description table in
+// help.go rather than hand-written: the skill audit and the vocabulary audit
+// read the command and flag shapes off this value.
+var usage = renderTopHelp() //nolint:gochecknoglobals // the rendered help surface the audits pin.
 
 func main() {
 	os.Exit(run(os.Args[1:], version, os.Stdout, os.Stderr))
@@ -167,8 +135,29 @@ func run(args []string, buildVersion string, stdout, stderr io.Writer) int {
 		return fail(stderr, usage)
 	}
 
+	// Explicit help exits 0; every other misuse exits 2. The interception
+	// sits ahead of flag parsing because Go's flag package answers -h with a
+	// usage dump to standard error and a parse error.
+	if args[0] == generateReferenceFlag {
+		// Fprint, not Fprintln: the rendered page already ends in exactly one
+		// newline, and the golden test holds the committed page byte-equal.
+		if _, err := fmt.Fprint(stdout, renderReferencePage()); err != nil {
+			return report.ExitOperational
+		}
+
+		return exitSuccess
+	}
+
+	if args[0] == helpShortFlag || args[0] == helpLongFlag {
+		return printHelp(stdout, renderTopHelp())
+	}
+
 	switch args[0] {
 	case versionCommand, versionFlag:
+		if wantsHelp(args[1:]) {
+			return printHelp(stdout, commandHelp(versionCommand))
+		}
+
 		if _, err := fmt.Fprintln(stdout, buildinfo.Resolve(buildVersion)); err != nil {
 			return report.ExitOperational
 		}
@@ -176,12 +165,30 @@ func run(args []string, buildVersion string, stdout, stderr io.Writer) int {
 		return exitSuccess
 	case runCommand, previewCommand, suggestCommand, characteriseCommand,
 		todosCommand, curateCommand:
+		if wantsHelp(args[1:]) {
+			return printHelp(stdout, commandHelp(args[0]))
+		}
+
 		return execute(args[0], buildVersion, args[1:], stdout, stderr)
 	case skillCommand:
+		if wantsHelp(args[1:]) {
+			return printHelp(stdout, commandHelp(skillCommand))
+		}
+
 		return skillInstall(args[1:], buildVersion, stdout, stderr)
 	default:
 		return fail(stderr, usage)
 	}
+}
+
+// printHelp writes explicitly requested help to standard output. A failed
+// write is operational, not a usage error.
+func printHelp(stdout io.Writer, text string) int {
+	if _, err := fmt.Fprintln(stdout, text); err != nil {
+		return report.ExitOperational
+	}
+
+	return exitSuccess
 }
 
 type options struct {
@@ -272,82 +279,96 @@ func (a *answerFlag) Set(value string) error {
 	return nil
 }
 
+// helpText reads one flag's description off the help table, so the flag set
+// and the rendered help share one source for what each flag means. Defaults
+// stay on the flag set itself, where the renderer reads them.
+func helpText(name string) string {
+	return flagDocs[name].description
+}
+
 func declareFlags(set *flag.FlagSet) flagValues {
 	return flagValues{
 		testDirectory: set.String(testDirectoryFlag, engine.DefaultTestDirectory,
-			"test directory relative to the module"),
-		jobs: set.Int(jobsFlag, 0, "mutants to execute concurrently"),
+			helpText(testDirectoryFlag)),
+		jobs: set.Int(jobsFlag, 0, helpText(jobsFlag)),
 		timeoutFactor: set.Float64(timeoutFactorFlag, engine.DefaultTimeoutFactor,
-			"multiple of the baseline run time"),
-		failureTrip: set.Int("failure-trip", engine.DefaultFailureTripThreshold,
-			"stop the run after this many consecutive operational failures"),
+			helpText(timeoutFactorFlag)),
+		failureTrip: set.Int(failureTripFlag, engine.DefaultFailureTripThreshold,
+			helpText(failureTripFlag)),
 		preflightTimeout: set.Duration(preflightTimeoutFlag, 0,
-			"absolute cap on preflight terraform calls: version, init, providers schema, fmt, "+
-				"validate and the baseline runs (default: 10m for init, 1m for the rest)"),
-		minScore: set.Float64(minScoreFlag, 0, "fail below this mutation score percentage"),
+			helpText(preflightTimeoutFlag)),
+		minScore: set.Float64(minScoreFlag, 0, helpText(minScoreFlag)),
 		allowIncomplete: set.Bool(allowIncompleteFlag, false,
-			"let an untrustworthy score satisfy --min-score (timeout, nothing scored, Invalid-dominated)"),
-		allowReal: set.Bool("allow-real-infrastructure", false,
-			"permit execution against unmocked providers"),
-		allowEffects: set.Bool("allow-unsandboxed-effects", false,
-			"permit apply-mode provisioners and unsevered data sources"),
+			helpText(allowIncompleteFlag)),
+		allowReal: set.Bool(allowRealInfrastructureFlag, false,
+			helpText(allowRealInfrastructureFlag)),
+		allowEffects: set.Bool(allowUnsandboxedEffectsFlag, false,
+			helpText(allowUnsandboxedEffectsFlag)),
 		reporter: set.String(reporterFlagName, reporterTerminal,
-			"output format: terminal, json, sarif, mte, html, junit or markdown"),
-		sarifPath:        set.String("sarif-path", "", "where to write the SARIF document"),
-		tier:             set.String(tierFlag, "", "operator breadth: smoke, standard or deep"),
-		operators:        set.String(operatorFlag, "", "restrict generation to these operator identifiers"),
-		excludeOperators: set.String(excludeOperatorFlag, "", "remove these operator identifiers"),
-		excludePaths:     set.String(excludePathFlag, "", "remove sites in files matching these globs"),
-		excludeResources: set.String(excludeResourceFlag, "", "remove sites in these resource addresses"),
-		since:            set.String(sinceFlag, "", "run only mutants in configuration changed since this git ref"),
-		sample:           set.Float64(sampleFlagName, 0, "run a deterministic percentage sample of the population"),
-		seed:             set.Int64(seedFlag, 0, "seed for --sample"),
-		allowSampledGate: set.Bool("allow-sampled-gate", false,
-			"let a sampled run satisfy a gate (unsafe)"),
-		noCache: set.Bool("no-cache", false, "disable the project-local verdict cache"),
-		failOnNew: set.Bool("fail-on-new", false,
-			"fail on findings the baseline does not accept"),
-		writeBaseline: set.Bool("write-baseline", false,
-			"accept the current findings as the baseline"),
-		baselinePath: set.String("baseline", "", "baseline file location"),
+			helpText(reporterFlagName)),
+		sarifPath:        set.String(sarifPathFlag, "", helpText(sarifPathFlag)),
+		tier:             set.String(tierFlag, "", helpText(tierFlag)),
+		operators:        set.String(operatorFlag, "", helpText(operatorFlag)),
+		excludeOperators: set.String(excludeOperatorFlag, "", helpText(excludeOperatorFlag)),
+		excludePaths:     set.String(excludePathFlag, "", helpText(excludePathFlag)),
+		excludeResources: set.String(excludeResourceFlag, "", helpText(excludeResourceFlag)),
+		since:            set.String(sinceFlag, "", helpText(sinceFlag)),
+		sample:           set.Float64(sampleFlagName, 0, helpText(sampleFlagName)),
+		seed:             set.Int64(seedFlag, 0, helpText(seedFlag)),
+		allowSampledGate: set.Bool(allowSampledGateFlag, false,
+			helpText(allowSampledGateFlag)),
+		noCache: set.Bool(noCacheFlagName, false, helpText(noCacheFlagName)),
+		failOnNew: set.Bool(failOnNewFlag, false,
+			helpText(failOnNewFlag)),
+		writeBaseline: set.Bool(writeBaselineFlagName, false,
+			helpText(writeBaselineFlagName)),
+		baselinePath: set.String(baselineFlag, "", helpText(baselineFlag)),
 		generatedFunctions: set.Bool(generatedFunctionsFlag, false,
-			"opt in to the generated function-family operators"),
-		packs:   set.String(packFlag, "", "enable these domain packs by name (shipped or registered)"),
+			helpText(generatedFunctionsFlag)),
+		packs:   set.String(packFlag, "", helpText(packFlag)),
 		outputs: declareOutputFlag(set),
-		dryRun: set.Bool("dry-run", false,
-			"print the candidate patches and verify nothing"),
-		allVerified: set.Bool("all-verified", false, "apply every verified suggestion"),
-		survivors:   set.String("survivor", "", "suggest only for these survivor identifiers"),
-		apply:       set.String("apply", "", "apply these verified suggestions"),
-		pin:         set.String("pin", "", "pinning granularity: outputs, counts or configured"),
-		write:       set.Bool("write", false, "place the verified suite in the test directory"),
-		force:       set.Bool("force", false, "replace generated files nobody has edited"),
-		resume: set.Bool("resume", false,
-			"read answered judgement points from the edited artefact and promote them"),
-		untilDry: set.Bool("until-dry", false,
-			"iterate until the survivors stop yielding new assertions"),
+		dryRun: set.Bool(dryRunFlagName, false,
+			helpText(dryRunFlagName)),
+		allVerified: set.Bool(allVerifiedFlag, false, helpText(allVerifiedFlag)),
+		survivors:   set.String(survivorFlag, "", helpText(survivorFlag)),
+		apply:       set.String(applyFlag, "", helpText(applyFlag)),
+		pin:         set.String(pinFlag, "", helpText(pinFlag)),
+		write:       set.Bool(writeFlagName, false, helpText(writeFlagName)),
+		force:       set.Bool(forceFlag, false, helpText(forceFlag)),
+		resume: set.Bool(resumeFlagName, false,
+			helpText(resumeFlagName)),
+		untilDry: set.Bool(untilDryFlagName, false,
+			helpText(untilDryFlagName)),
 		answers: declareAnswerFlag(set),
-		cpuProfile: set.String("cpu-profile", "",
-			"write a CPU profile of tf-mut itself to this file"),
-		otlpEndpoint: set.String("otlp-endpoint", "",
-			"export run, mutant and phase spans to this OTLP/HTTP endpoint ("+
-				tracing.EndpointEnv+" is honoured when unset)"),
+		cpuProfile: set.String(cpuProfileFlag, "",
+			helpText(cpuProfileFlag)),
+		otlpEndpoint: set.String(otlpEndpointFlag, "",
+			helpText(otlpEndpointFlag)),
 	}
 }
 
 func declareAnswerFlag(set *flag.FlagSet) *answerFlag {
 	answers := &answerFlag{}
-	set.Var(answers, "answer", "answer one judgement point as todo-<id>=<value>; repeatable")
+	set.Var(answers, answerFlagName, helpText(answerFlagName))
 
 	return answers
 }
 
 func declareOutputFlag(set *flag.FlagSet) *outputFlag {
 	outputs := &outputFlag{}
-	set.Var(outputs, "output",
-		"write an additional FORMAT=PATH reporter from the same run; repeatable")
+	set.Var(outputs, outputFlagName, helpText(outputFlagName))
 
 	return outputs
+}
+
+// declareSkillFlags declares the install subcommand's flags from the help
+// table, sharing one source with the skill help the renderer prints.
+func declareSkillFlags(set *flag.FlagSet) (agent, path *string, force *bool) {
+	agent = set.String(agentFlag, skill.AgentClaude, helpText(agentFlag))
+	path = set.String(pathFlag, ".", helpText(pathFlag))
+	force = set.Bool(forceFlag, false, helpText(forceFlag))
+
+	return agent, path, force
 }
 
 // overrideOf maps a flag onto the engine setting its explicit value
@@ -458,8 +479,8 @@ var errUncarryingReporter = errors.New(
 //
 //nolint:gochecknoglobals // an immutable list.
 var gateFlags = []string{
-	minScoreFlag, allowIncompleteFlag, "allow-sampled-gate",
-	"fail-on-new", "write-baseline", "baseline",
+	minScoreFlag, allowIncompleteFlag, allowSampledGateFlag,
+	failOnNewFlag, writeBaselineFlagName, baselineFlag,
 }
 
 // commandFlags names the flags each command acts on, for the flags that belong
@@ -483,22 +504,22 @@ var commandFlags = map[string]map[string]bool{
 	previewCommand: flagSet(populationFlags...),
 	suggestCommand: flagSet(append(suggestOnlyFlags, gradingFlags()...)...),
 	characteriseCommand: flagSet(
-		"write", "force", pinFlag, "until-dry", answerFlagName, resumeFlagName,
+		writeFlagName, forceFlag, pinFlag, untilDryFlagName, answerFlagName, resumeFlagName,
 	),
 	todosCommand:  flagSet(pinFlag, answerFlagName, resumeFlagName),
-	curateCommand: flagSet(append([]string{"no-cache"}, gateFlags...)...),
+	curateCommand: flagSet(append([]string{noCacheFlagName}, gateFlags...)...),
 }
 
 // suggestOnlyFlags are the suggest command's own controls, which no other
 // request has a field for.
 //
 //nolint:gochecknoglobals // an immutable list.
-var suggestOnlyFlags = []string{"apply", "all-verified", "survivor", "dry-run"}
+var suggestOnlyFlags = []string{applyFlag, allVerifiedFlag, survivorFlag, dryRunFlagName}
 
 // gradingFlags is what the run and suggest requests share beyond the
 // population controls: the acceptance gate and the cache switch.
 func gradingFlags() []string {
-	return append(append([]string{"no-cache"}, gateFlags...), populationFlags...)
+	return append(append([]string{noCacheFlagName}, gateFlags...), populationFlags...)
 }
 
 // populationFlags are the controls that select or narrow the mutant population;
@@ -768,16 +789,14 @@ func modulePathArgument(set *flag.FlagSet) (string, error) {
 // fourth recorded exception, performed by internal/skill under its
 // preserve-user-edits protocol.
 func skillInstall(args []string, buildVersion string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] != "install" {
+	if len(args) == 0 || args[0] != installCommand {
 		return fail(stderr, "usage: tf-mut skill install [--agent claude|generic] [--path .] [--force]")
 	}
 
 	set := flag.NewFlagSet("tf-mut skill install", flag.ContinueOnError)
 	set.SetOutput(stderr)
 
-	agent := set.String("agent", skill.AgentClaude, "target agent: claude or generic")
-	path := set.String("path", ".", "the project root to install into")
-	force := set.Bool("force", false, "replace a user-edited skill file")
+	agent, path, force := declareSkillFlags(set)
 
 	if err := set.Parse(args[1:]); err != nil {
 		return report.ExitOperational

@@ -25,6 +25,8 @@ authoritative populations only. For the shipped milestone status, see [README.md
 3. `docs/adr/` — accepted architectural decisions; read records relevant to the change
 4. `docs/research/05-go-build-chain.md` — accepted local/CI build-chain contract
 5. `docs/design/product-design.md` — architecture, mutant states, metrics, CLI, roadmap
+   (the implemented surface is [`docs/reference/cli.md`](docs/reference/cli.md), generated
+   from the binary's help table)
 6. `docs/reviews/` — **all adversarial reviews and their dispositions. Read before changing
    any design decision**: many decisions exist specifically because a review refuted the
    obvious alternative, with experiments

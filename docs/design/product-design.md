@@ -622,7 +622,7 @@ correctly conclude the tool does not understand Terraform.
 
 ## 8. Command surface
 
-The implemented command and flag surface is what `tf-mut --help` prints; this section records
+The implemented command and flag surface is the [command-line reference](../reference/cli.md), generated from the binary's help table; this section records
 the design, and its roadmap rows are marked as claims.
 
 ```

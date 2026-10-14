@@ -54,6 +54,11 @@ const (
 	jobsDenominator = 4
 )
 
+// DefaultJobsDescription states the defaultJobs policy for help text: the
+// numerator and denominator above in words, so the command line renders the
+// policy from this constant rather than retyping it.
+const DefaultJobsDescription = "three quarters of the CPUs, at least 1"
+
 // defaultJobs saturates the machine without drowning it: three quarters of the
 // cores, and never fewer than one. Parallelism is worth 3x on a provider-free
 // module and almost nothing against a large provider schema (see

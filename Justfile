@@ -69,6 +69,11 @@ build:
     mise exec -- env CGO_ENABLED=0 go build -trimpath -buildvcs=true -mod=readonly \
       -ldflags "-X main.version={{ version }}" -o "{{ binary }}" ./cmd/tf-mut
 
+# Regenerate the command-line reference from the binary's help table.
+reference:
+    mkdir -p docs/reference
+    mise exec -- go run ./cmd/tf-mut --generate-reference > docs/reference/cli.md
+
 # Apply canonical Go, Bash, JSON, YAML, TOML, and Terraform formatting.
 fmt:
     mise exec -- scripts/format write
