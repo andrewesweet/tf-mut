@@ -165,41 +165,17 @@ work. An independent adversarial review drove these corrections — see
 
 ## Documents
 
-| Document | Contents |
+One row per `docs/` directory, so the map holds as files are added. For the bounded
+contexts and glossary, start with [`CONTEXT.md`](CONTEXT.md).
+
+| Directory | Contents |
 | --- | --- |
-| [`docs/design/product-design.md`](docs/design/product-design.md) | **Start here.** Proposed product capabilities, architecture, metrics, CLI, roadmap |
-| [`docs/design/mutation-operators.md`](docs/design/mutation-operators.md) | The operator catalogue, in six tiers |
-| [`docs/design/characterisation.md`](docs/design/characterisation.md) | Characterisation mode — scaffolding unit tests for legacy modules, no LLM required |
-| [`docs/design/agent-integration.md`](docs/design/agent-integration.md) | Failure-mode taxonomy, and driving the tool from a coding agent |
-| [`docs/reviews/2026-08-15-adversarial-review.md`](docs/reviews/2026-08-15-adversarial-review.md) | Adversarial review round 1 (4 critical) and dispositions |
-| [`docs/reviews/2026-08-16-adversarial-review-r2.md`](docs/reviews/2026-08-16-adversarial-review-r2.md) | Round 2, external agent, over the round-1 revisions (5 critical) and dispositions |
-| [`docs/reviews/2026-08-16-build-chain-implementation-review.md`](docs/reviews/2026-08-16-build-chain-implementation-review.md) | Sol/xhigh adversarial review of the implemented build chain and dispositions |
-| [`docs/reviews/2026-08-16-m1-implementation-review.md`](docs/reviews/2026-08-16-m1-implementation-review.md) | What implementing M1 measured, decided and deferred, and the open questions M2 must dispose of |
-| [`docs/reviews/2026-08-16-m2-spec-review.md`](docs/reviews/2026-08-16-m2-spec-review.md) | Adversarial review of the M2 spec, and the ten dispositions that shaped it |
-| [`docs/reviews/2026-08-16-m2-implementation-review.md`](docs/reviews/2026-08-16-m2-implementation-review.md) | What implementing M2 measured, decided and deferred, and the open questions M3 must dispose of |
-| [`docs/research/01-terraform-test-capabilities.md`](docs/research/01-terraform-test-capabilities.md) | What `terraform test` can do in v1.15.8, verified against the CLI |
-| [`docs/research/02-prior-art.md`](docs/research/02-prior-art.md) | Mutation testing prior art, and an analysis of Oasis |
-| [`docs/research/03-hcl2-tooling.md`](docs/research/03-hcl2-tooling.md) | HCL2 tooling and the mutable surface of the language |
-| [`docs/research/04-harness-spike.md`](docs/research/04-harness-spike.md) | Measured spike results — isolation, equivalence, throughput |
-| [`docs/research/05-go-build-chain.md`](docs/research/05-go-build-chain.md) | Accepted Go/Just/mise build-chain contract and implementation notes |
-| [`docs/research/06-m1-exit-gate.md`](docs/research/06-m1-exit-gate.md) | M1 exit gates: the reproduction map, the deviations, and the measured real-provider numbers |
-| [`docs/research/07-m2-cost-model.md`](docs/research/07-m2-cost-model.md) | What M2's planned speed levers actually buy, measured — and why run-block splitting was dropped |
-| [`docs/research/08-m2-exit-gate.md`](docs/research/08-m2-exit-gate.md) | The honesty gate, the contract sweep from every normative behaviour to its test, and M2's measurements |
-| [`docs/schema/report-1.0.0.json`](docs/schema/report-1.0.0.json) | The M1 JSON report schema, still published for consumers that read it |
-| [`docs/schema/report-2.1.0.json`](docs/schema/report-2.1.0.json) | The M3 JSON report schema, still published for earlier consumers |
-| [`docs/schema/report-2.3.0.json`](docs/schema/report-2.3.0.json) | The M4.5 JSON report schema, still published for earlier consumers |
-| [`docs/schema/report-2.4.0.json`](docs/schema/report-2.4.0.json) | The M5c.1 JSON report schema, still published for earlier consumers |
-| [`docs/schema/report-2.5.0.json`](docs/schema/report-2.5.0.json) | The M5c.1 `PACK-WIDEN-CIDR` JSON report schema, still published for earlier consumers |
-| [`docs/schema/report-2.6.0.json`](docs/schema/report-2.6.0.json) | The mutant-id derivation revision, still published for earlier consumers |
-| [`docs/schema/report-2.7.0.json`](docs/schema/report-2.7.0.json) | The telemetry JSON report schema, still published for earlier consumers |
-| [`docs/schema/report-2.8.0.json`](docs/schema/report-2.8.0.json) | The widened-incomplete-semantics JSON report schema, still published for earlier consumers |
-| [`docs/schema/report-2.9.0.json`](docs/schema/report-2.9.0.json) | The deadline-visibility JSON report schema, still published for earlier consumers |
-| [`docs/schema/report-2.10.0.json`](docs/schema/report-2.10.0.json) | The versioned JSON report schema the `json` reporter emitted through 2.10.0, including scores marked incomplete after a consecutive-failure trip — still published for earlier consumers |
-| [`docs/schema/report-2.11.0.json`](docs/schema/report-2.11.0.json) | The versioned JSON report schema the `json` reporter emitted through 2.11.0, adding the run identifier to the telemetry block — still published for earlier consumers |
-| [`docs/schema/report-2.12.0.json`](docs/schema/report-2.12.0.json) | The emitted JSON report schema, including the optional cache-miss explanation |
-| [`docs/research/09-m3-real-provider-gate.md`](docs/research/09-m3-real-provider-gate.md) | The M3 inner-loop measurement, both real-provider debts settled, the M3e admission evidence |
-| [`docs/research/10-m3-exit-gate.md`](docs/research/10-m3-exit-gate.md) | The M3 exit-gate map: every normative behaviour to its test |
-| [`docs/schema/sarif-2.1.0.json`](docs/schema/sarif-2.1.0.json) | The published SARIF schema the `sarif` reporter's output is validated against |
+| [`docs/adr/`](docs/adr/) | Numbered architectural decision records, including superseded decisions |
+| [`docs/agents/`](docs/agents/) | Agent operating notes: the issue tracker, triage labels, and domain pointers |
+| [`docs/design/`](docs/design/) | Architecture, the operator catalogue, characterisation, agent integration, and pack design — start with [`product-design.md`](docs/design/product-design.md) |
+| [`docs/research/`](docs/research/) | Numbered research notes, measurements, and milestone exit gates |
+| [`docs/reviews/`](docs/reviews/) | Adversarial and implementation reviews with their dispositions, which outrank design prose on conflict |
+| [`docs/schema/`](docs/schema/) | Versioned report schemas and the vendored external schemas that outputs are validated against — the `json` reporter emits [`report-2.12.0.json`](docs/schema/report-2.12.0.json) |
 
 ## Findings that shaped the design
 
