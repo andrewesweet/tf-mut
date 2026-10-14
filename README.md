@@ -170,7 +170,7 @@ contexts and glossary, start with [`CONTEXT.md`](CONTEXT.md).
 
 | Directory | Contents |
 | --- | --- |
-| [`docs/adr/`](docs/adr/) | Accepted architectural decisions, one numbered record each |
+| [`docs/adr/`](docs/adr/) | Numbered architectural decision records, including superseded decisions |
 | [`docs/agents/`](docs/agents/) | Agent operating notes: the issue tracker, triage labels, and domain pointers |
 | [`docs/design/`](docs/design/) | Architecture, the operator catalogue, characterisation, agent integration, and pack design — start with [`product-design.md`](docs/design/product-design.md) |
 | [`docs/research/`](docs/research/) | Numbered research notes, measurements, and milestone exit gates |
