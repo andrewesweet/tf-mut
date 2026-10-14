@@ -601,7 +601,8 @@ func assertReadmeSchemaLink(t *testing.T, readme string) {
 	t.Helper()
 
 	want := "docs/schema/report-" + report.SchemaVersion + ".json"
-	links := regexp.MustCompile(`(?m)^\|\s*\[[^\]]+\]\(([^)]+)\)\s*\|`).FindAllStringSubmatch(readme, -1)
+	documentMap := documentSlice(t, readme, "## Documents\n", "\n## ", "README document map")
+	links := regexp.MustCompile(`\[[^\]]+\]\(([^)]+)\)`).FindAllStringSubmatch(documentMap, -1)
 	for _, link := range links {
 		target, err := url.Parse(link[1])
 		if err != nil || target.Scheme != "" || target.Host != "" || filepath.Clean(target.Path) != want {
