@@ -104,6 +104,8 @@ with `tf-mut run -h`. The one flag the rest of this page assumes is the output f
 | --- | --- |
 | `--reporter terminal\|json\|sarif\|mte\|html\|junit\|markdown` | Output format (`mte` is Mutation Testing Elements) |
 
+Parallelism needs no flag on a first run: `--jobs` defaults to three-quarters of CPUs, min 1.
+
 For suites under `tests/unit`, pass `--test-directory tests/unit` so Terraform installs
 the modules called by those tests. Mocked suites can run in roots with a `backend` block,
 including a remote backend, without initialising that backend. An effective `cloud`
