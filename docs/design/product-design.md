@@ -248,7 +248,7 @@ human-facing cone rendering, should the deferred explanatory surface ever be bui
 
 ### Execute
 
-Per mutant, in parallel across `--jobs` workers (default three quarters of the available CPUs, at least 1):
+Per mutant, in parallel across up to `--jobs` workers (see [parallelism defaults](../../README.md#using-it)):
 
 1. Materialise a sandbox rooted at the **`..`-closure of local module sources** (the review's
    M6: a `source = "../shared"` — the standard monorepo layout — escapes a sandbox rooted at
@@ -642,7 +642,7 @@ Key flags for `run`:
 | `--pack security-aws,...` | none | Opt-in domain packs |
 | `--operator ID` / `--exclude-operator ID` | — | Fine selection |
 | `--since REF` | — | Mutate only lines changed versus a git ref |
-| `--jobs N` | three quarters of the available CPUs, at least 1 | Parallelism |
+| `--jobs N` | [See usage](../../README.md#using-it) | Parallelism |
 | `--timeout-factor F` | `10` | Multiple of baseline run time |
 | `--preflight-timeout D` | See usage | See [deadline behavior and defaults](../../README.md#using-it) |
 | `--min-score N` | — | Exit non-zero below this score |
