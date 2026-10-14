@@ -141,6 +141,19 @@ widened without amending this section.
    (`internal/engine/backend_internal_test.go`). Discovery rejects malformed HCL before
    warm-up runs, so the engine seam cannot stage this refusal. Every verdict backend
    neutralisation leads to is still asserted through the engine seam (`warmup_test.go`).
+9. Leaf adapters and publication renderers are tested directly on their own contracts: the
+   seven report renderings (`internal/report/reporters_test.go`, `schema_test.go`), the span
+   projection and endpoint handling (`internal/tracing/tracing_test.go`), the build-chain
+   workflow and provider-chain contracts (`internal/buildchain/contracts_test.go`,
+   `provider_test.go`), the skill-install protocol (`internal/skill/skill_test.go`), the
+   sandbox inode and escape refusals (`internal/sandbox/sandbox_test.go`), the stream decode
+   contracts beyond exception 2's memory gate (`internal/tfexec/stream_test.go`), the
+   shipped-pack contract (`internal/mutation/shipped_test.go`), and the suggestion contracts
+   outside exception 4's matrices (`internal/suggest/evidence_contract_test.go`,
+   `output_index_test.go`, `schema_wire_test.go`). These are contracts about documents, files
+   and protocols the real binary cannot be driven into producing on demand, or invariants the
+   report never surfaces as a verdict; every verdict they lead to is still asserted through
+   the engine seam.
 
 ## Build and verification
 
@@ -179,6 +192,9 @@ this repository contract.
 | `internal/sandbox` | Closure-rooted materialisation, provider and remote-module sharing, fresh-inode writes |
 | `internal/tfexec` | The Terraform CLI: `version`, `init`, `validate`, `providers schema`, `fmt`, and the `test -json` stream |
 | `internal/report` | The report value, its state, diagnosis and metric definitions, and the seven reporter renderings (terminal, JSON, SARIF, mutation-testing-elements, HTML, JUnit, markdown) |
+| `internal/tracing` | The run's structure as OpenTelemetry spans — one per run, per mutant and per phase — over OTLP/HTTP, exporting only when an endpoint is configured |
+| `internal/buildinfo` | Build metadata injected by the linker, normalised to a stable display value (`dev` when none was supplied) |
+| `internal/buildchain` | Internal checks and update helpers for the shared build chain: the fixture-to-mirror provider-chain proof and the Go toolchain sync |
 
 The JSON reporter's contract is validated in the suite; the current and earlier published
 schemas are linked in the [README document map](README.md#documents). The characterisation block's
