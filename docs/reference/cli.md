@@ -20,7 +20,7 @@ Arguments: `PATH  The module directory to mutate (default ".")`
 | `--preflight-timeout D` | Absolute cap on preflight Terraform calls: version, init, providers schema, fmt, validate and the baseline runs | `10m for init, 1m for the rest` |
 | `--allow-real-infrastructure` | Permit execution against unmocked providers | — |
 | `--allow-unsandboxed-effects` | Permit apply-mode provisioners and unsevered data sources | — |
-| `--reporter FORMAT` | terminal\|json\|sarif\|mte\|html\|junit\|markdown | `terminal` |
+| `--reporter FORMAT` | terminal\|json\|sarif\|mte\|html\|junit\|markdown; characterise, todos and curate accept only terminal\|json | `terminal` |
 | `--output FORMAT=PATH` | Write an additional reporter from the same run; repeatable — every output derives from one report value | — |
 | `--sarif-path PATH` | Where to write the SARIF document | — |
 | `--cpu-profile PATH` | Write a CPU profile of tf-mut itself | — |
@@ -67,7 +67,7 @@ Arguments: `PATH  The module directory to preview (default ".")`
 | `--preflight-timeout D` | Absolute cap on preflight Terraform calls: version, init, providers schema, fmt, validate and the baseline runs | `10m for init, 1m for the rest` |
 | `--allow-real-infrastructure` | Permit execution against unmocked providers | — |
 | `--allow-unsandboxed-effects` | Permit apply-mode provisioners and unsevered data sources | — |
-| `--reporter FORMAT` | terminal\|json\|sarif\|mte\|html\|junit\|markdown | `terminal` |
+| `--reporter FORMAT` | terminal\|json\|sarif\|mte\|html\|junit\|markdown; characterise, todos and curate accept only terminal\|json | `terminal` |
 | `--output FORMAT=PATH` | Write an additional reporter from the same run; repeatable — every output derives from one report value | — |
 | `--sarif-path PATH` | Where to write the SARIF document | — |
 | `--cpu-profile PATH` | Write a CPU profile of tf-mut itself | — |
@@ -107,7 +107,7 @@ Arguments: `PATH  The module directory to suggest for (default ".")`
 | `--preflight-timeout D` | Absolute cap on preflight Terraform calls: version, init, providers schema, fmt, validate and the baseline runs | `10m for init, 1m for the rest` |
 | `--allow-real-infrastructure` | Permit execution against unmocked providers | — |
 | `--allow-unsandboxed-effects` | Permit apply-mode provisioners and unsevered data sources | — |
-| `--reporter FORMAT` | terminal\|json\|sarif\|mte\|html\|junit\|markdown | `terminal` |
+| `--reporter FORMAT` | terminal\|json\|sarif\|mte\|html\|junit\|markdown; characterise, todos and curate accept only terminal\|json | `terminal` |
 | `--output FORMAT=PATH` | Write an additional reporter from the same run; repeatable — every output derives from one report value | — |
 | `--sarif-path PATH` | Where to write the SARIF document | — |
 | `--cpu-profile PATH` | Write a CPU profile of tf-mut itself | — |
@@ -158,7 +158,7 @@ Arguments: `PATH  The module directory to characterise (default ".")`
 | `--preflight-timeout D` | Absolute cap on preflight Terraform calls: version, init, providers schema, fmt, validate and the baseline runs | `10m for init, 1m for the rest` |
 | `--allow-real-infrastructure` | Permit execution against unmocked providers | — |
 | `--allow-unsandboxed-effects` | Permit apply-mode provisioners and unsevered data sources | — |
-| `--reporter FORMAT` | terminal\|json\|sarif\|mte\|html\|junit\|markdown | `terminal` |
+| `--reporter FORMAT` | terminal\|json\|sarif\|mte\|html\|junit\|markdown; characterise, todos and curate accept only terminal\|json | `terminal` |
 | `--output FORMAT=PATH` | Write an additional reporter from the same run; repeatable — every output derives from one report value | — |
 | `--sarif-path PATH` | Where to write the SARIF document | — |
 | `--cpu-profile PATH` | Write a CPU profile of tf-mut itself | — |
@@ -194,7 +194,7 @@ Arguments: `PATH  The module directory to list judgement points for (default "."
 | `--preflight-timeout D` | Absolute cap on preflight Terraform calls: version, init, providers schema, fmt, validate and the baseline runs | `10m for init, 1m for the rest` |
 | `--allow-real-infrastructure` | Permit execution against unmocked providers | — |
 | `--allow-unsandboxed-effects` | Permit apply-mode provisioners and unsevered data sources | — |
-| `--reporter FORMAT` | terminal\|json\|sarif\|mte\|html\|junit\|markdown | `terminal` |
+| `--reporter FORMAT` | terminal\|json\|sarif\|mte\|html\|junit\|markdown; characterise, todos and curate accept only terminal\|json | `terminal` |
 | `--output FORMAT=PATH` | Write an additional reporter from the same run; repeatable — every output derives from one report value | — |
 | `--sarif-path PATH` | Where to write the SARIF document | — |
 | `--cpu-profile PATH` | Write a CPU profile of tf-mut itself | — |
@@ -227,7 +227,7 @@ Arguments: `PATH  The module directory to curate (default ".")`
 | `--preflight-timeout D` | Absolute cap on preflight Terraform calls: version, init, providers schema, fmt, validate and the baseline runs | `10m for init, 1m for the rest` |
 | `--allow-real-infrastructure` | Permit execution against unmocked providers | — |
 | `--allow-unsandboxed-effects` | Permit apply-mode provisioners and unsevered data sources | — |
-| `--reporter FORMAT` | terminal\|json\|sarif\|mte\|html\|junit\|markdown | `terminal` |
+| `--reporter FORMAT` | terminal\|json\|sarif\|mte\|html\|junit\|markdown; characterise, todos and curate accept only terminal\|json | `terminal` |
 | `--output FORMAT=PATH` | Write an additional reporter from the same run; repeatable — every output derives from one report value | — |
 | `--sarif-path PATH` | Where to write the SARIF document | — |
 | `--cpu-profile PATH` | Write a CPU profile of tf-mut itself | — |

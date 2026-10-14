@@ -129,7 +129,10 @@ var flagDocs = map[string]flagDoc{ //nolint:gochecknoglobals // the immutable he
 	},
 	allowRealInfrastructureFlag: {"", "Permit execution against unmocked providers"},
 	allowUnsandboxedEffectsFlag: {"", "Permit apply-mode provisioners and unsevered data sources"},
-	reporterFlagName:            {"FORMAT", "terminal|json|sarif|mte|html|junit|markdown"},
+	reporterFlagName: {
+		"FORMAT",
+		"terminal|json|sarif|mte|html|junit|markdown; characterise, todos and curate accept only terminal|json",
+	},
 	outputFlagName: {
 		"FORMAT=PATH",
 		"Write an additional reporter from the same run; repeatable — every output derives from one " +
