@@ -522,7 +522,7 @@ func assertDocumentRepairs(t *testing.T, documents vocabularyDocuments) {
 		"\n\n### Scope", "product-design opening")
 
 	containsToken(t, documents.readme, "unknown value in the mutation's forward cone", "README forward-cone rule")
-	containsToken(t, documents.readme, "M2 whole-payload rule as the floor", "README unknown floor")
+	containsToken(t, documents.readme, "whole-payload unknown check", "README unknown floor")
 	containsToken(t, documents.readme, "wherever a mapping", "README unknown floor scope")
 	containsToken(t, documents.readme, "AGENTS.md#conventions", "README never-write contract")
 	containsToken(t, productOpening,

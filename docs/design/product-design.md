@@ -108,7 +108,7 @@ When Git supplies a checkout root, a run block's local module source must resolv
 that work tree. Sibling modules reached through `..` remain allowed within it. A refusal
 names the declaring test file, run block, source string and resolved target. If the Git
 lookup fails for an ordinary reason, this run-block boundary check is disabled. For
-deadline failures, see [deadline behavior](../../README.md#using-it).
+deadline failures, see [deadline behaviour](../../README.md#using-it).
 
 ### Baseline
 
@@ -562,7 +562,7 @@ Set elements, untyped collection indices and unsupported continuations report
 `skipped-unrenderable`.
 
 Alongside scalar equalities, candidates can assert emptiness with `length(value) == 0` or
-answer a mutant's null value with `value != null`. A recognized carried unknown marker
+answer a mutant's null value with `value != null`. A recognised carried unknown marker
 beneath the value prevents an empty-value assertion. For counted resources whose instance
 record and values disappear, candidates use `length(resource) == N`, with `N` inferred
 from carried instance indices, rather than reading a vanished instance. Every candidate
@@ -644,7 +644,7 @@ Key flags for `run`:
 | `--since REF` | — | Mutate only lines changed versus a git ref |
 | `--jobs N` | [See usage](../../README.md#using-it) | Parallelism |
 | `--timeout-factor F` | `10` | Multiple of baseline run time |
-| `--preflight-timeout D` | See usage | See [deadline behavior and defaults](../../README.md#using-it) |
+| `--preflight-timeout D` | See usage | See [deadline behaviour and defaults](../../README.md#using-it) |
 | `--min-score N` | — | Exit non-zero below this score |
 | `--fail-on-new` | off | Fail on findings the baseline does not accept |
 | `--engine terraform\|tofu` | `terraform` | OpenTofu support — roadmap, a claim until [#166](https://github.com/andrewesweet/tf-mut/issues/166) corrects it |

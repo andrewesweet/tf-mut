@@ -2,12 +2,19 @@
 
 Mutation testing for `terraform test`, designed for fully-mocked unit tests.
 
-> **Status: M5 complete — the witnessed lifecycle operators, the pack mechanism and the public
-> benchmark.** `tf-mut run` and `tf-mut preview` drive Tiers 0–3
+tf-mut is for a Terraform module author with a `terraform test` suite, or an agent acting for
+one. A run scores the suite by what it does not check: every surviving mutant carries the
+diagnosis of what would catch it.
+
+You need Linux x86-64 (including WSL2), Terraform 1.15.8, Go 1.26.9 and mise 2026.10.7. Those
+versions are pinned in `mise.toml`, and the CI workflow installs the same set, so the bootstrap
+below reproduces the CI environment on your machine.
+
+> `tf-mut run` and `tf-mut preview` drive Tiers 0–3
 > against real Terraform, and every surviving mutant carries exactly one diagnosis: whether the
 > fix is an assertion, a mock default, a different input, or acceptance. The oracle never claims
 > an equality it cannot prove: an unknown value in the mutation's forward cone — judged under the
-> fail-closed address adapters, with the M2 whole-payload rule as the floor wherever a mapping
+> fail-closed address adapters, with a whole-payload unknown check wherever a mapping
 > fails — or volatility it could not decompose, makes the comparison indeterminate rather than
 > identical.
 > `tf-mut suggest` generates and *verifies* the assertions that kill the survivors, and
@@ -20,21 +27,50 @@ Mutation testing for `terraform test`, designed for fully-mocked unit tests.
 
 ## Bootstrap and build
 
-The initial supported platform is Linux x86-64, including WSL2. Install the mise version pinned
-in `mise.toml`, then run:
+Run these steps from this checkout's root to install the tools, build tf-mut and run the
+same quality checks as CI:
 
-```bash
-mise trust
-MISE_CONFIG_DIR="$PWD/.artifacts/mise-config" mise install --yes
-MISE_CONFIG_DIR="$PWD/.artifacts/mise-config" mise exec -- just tools-install
-MISE_CONFIG_DIR="$PWD/.artifacts/mise-config" mise exec -- just ci
-```
+1. Trust the workspace configuration:
 
-After bootstrap, Just is the shared local/CI control plane. `just --list` documents focused
-format, lint, type, test, fuzz, mutation, and security recipes for Go, Bash, JSON, YAML, TOML,
-Terraform, and GitHub Actions. `just security` is intentionally separate from the reproducible
-`just ci` gate because vulnerability databases change over time. CodeQL additionally analyzes
-every language it supports here (Go and GitHub Actions) in GitHub's code-scanning environment.
+   ```bash
+   mise trust
+   ```
+
+   Expected result: mise accepts this checkout's configuration, so later commands run without
+   an untrusted-config prompt.
+
+2. Install the exact locked tools:
+
+   ```bash
+   MISE_CONFIG_DIR="$PWD/.artifacts/mise-config" mise install --yes
+   ```
+
+   Expected result: mise reports all locked tools installed, including Terraform 1.15.8 and
+   Go 1.26.9.
+
+3. Install the source tools and the offline provider mirror:
+
+   ```bash
+   MISE_CONFIG_DIR="$PWD/.artifacts/mise-config" mise exec -- just tools-install
+   ```
+
+   Expected result: the provider mirror is populated and the step ends with
+   `toolchain doctor: ok`.
+
+4. Run the full reproducible gate:
+
+   ```bash
+   MISE_CONFIG_DIR="$PWD/.artifacts/mise-config" mise exec -- just ci
+   ```
+
+   Expected result: every recipe passes, matching the CI result for the same commit.
+
+After bootstrap, Just is the shared local/CI control plane. `mise exec -- just --list`
+documents focused format, lint, type, test, fuzz, mutation, and security recipes for Go,
+Bash, JSON, YAML, TOML, Terraform, and GitHub Actions. `just security` is intentionally
+separate from the reproducible `just ci` gate because vulnerability databases change over time.
+CodeQL additionally analyses every language it supports here (Go and GitHub Actions) in
+GitHub's code-scanning environment.
 
 ## Using it
 
@@ -49,31 +85,45 @@ tf-mut skill install [flags]     # install the shipped agent skills
 tf-mut version                   # print the build version
 ```
 
+`[PATH]` in the synopsis is the module directory: the brackets are not typed, and leaving the
+argument out measures the current directory.
+
+The build writes `.artifacts/bin/tf-mut`. Run the examples below from this checkout's root;
+`mise exec` supplies the pinned Terraform and other tools.
+
+The three commands a first run needs are `preview`, which lists the mutants as diffs without
+executing anything; `run`, which mutates the module and reports what the suite does not check;
+and `suggest`, which generates and verifies the assertions that kill the survivors:
+
+```bash
+mise exec -- ./.artifacts/bin/tf-mut preview ./module
+mise exec -- ./.artifacts/bin/tf-mut run ./module
+mise exec -- ./.artifacts/bin/tf-mut suggest ./module
+```
+
+Each command documents its own flags with defaults:
+`mise exec -- ./.artifacts/bin/tf-mut <command> -h` prints them. Start with
+`mise exec -- ./.artifacts/bin/tf-mut run -h`. The one flag the rest of this page assumes is
+the output format:
+
 | Flag | Purpose |
 | --- | --- |
-| `--test-directory PATH` | Test directory relative to the module (default `tests`); used for initialization, test execution and [helper exclusion from the mutation surface](docs/design/mutation-operators.md#the-mutation-surface) |
-| `--jobs N` | Mutants executing concurrently (default: three quarters of the available CPUs, rounded down and at least 1) |
-| `--timeout-factor F` | Multiple of the baseline run time; the budget is `max(F × baseline, 30 s)` |
-| `--failure-trip N` | Consecutive operational-failure limit (default 5); see [execution and failure trips](docs/design/product-design.md#execute) |
-| `--preflight-timeout D` | Absolute cap on each preflight Terraform call — version, init, providers schema, fmt, validate, the baseline runs and characterisation's staged runs (`"90s"`, `"10m"`; default 10 m for init, 1 m for the rest). An expired cap is an operational failure |
-| `--min-score N` | Fail below this mutation score percentage |
-| `--allow-incomplete-score` | Let an [incomplete score](docs/design/product-design.md#5-metrics) satisfy `--min-score` |
-| `--allow-real-infrastructure` | Required when any provider is unmocked |
-| `--allow-unsandboxed-effects` | Required for apply-mode provisioners and unsevered data sources |
 | `--reporter terminal\|json\|sarif\|mte\|html\|junit\|markdown` | Output format (`mte` is Mutation Testing Elements) |
-| `--cpu-profile PATH` | Write a CPU profile of tf-mut itself |
-| `--otlp-endpoint URL` | Export run, mutant and phase spans over OTLP/HTTP |
+
+Parallelism needs no flag on a first run: `--jobs` defaults to three-quarters of CPUs, min 1.
 
 For suites under `tests/unit`, pass `--test-directory tests/unit` so Terraform installs
 the modules called by those tests. Mocked suites can run in roots with a `backend` block,
-including a remote backend, without initializing that backend. An effective `cloud`
+including a remote backend, without initialising that backend. An effective `cloud`
 declaration still causes provider schema retrieval to fail.
 
 When a Terraform command reaches its deadline, tf-mut stops the command and its provider
 plugins. See [mutant states](docs/design/product-design.md#4-mutant-states) for how a test
 deadline appears beside the mutant's verdict. The `--preflight-timeout` cap applies to
-each call separately, including validation during mutant execution. Zero retains the
-defaults; negative durations are refused. For a persistent cap,
+each call separately, including validation during mutant execution. The defaults are
+10 minutes for `init` and 1 minute for other preflight calls, baseline runs and
+characterisation's staged runs. Zero retains the defaults; negative durations are refused.
+For a persistent cap,
 see [configuration](docs/design/product-design.md#configuration--tf-muthcl).
 Git calls, including checkout-root discovery and `--since`, have a fixed 30-second cap;
 an overrun is an operational failure.
@@ -118,15 +168,16 @@ measurements. Endpoints use HTTP or HTTPS. tf-mut appends `/v1/traces` to
 the supplied base path unless it already ends with that suffix. An unusable endpoint disables
 tracing with a warning. Tracing warnings share the CLI's progress stream on stderr and never
 enter report output. Export failures produce a fixed warning without endpoint paths or
-credentials. Resource or sampler initialization diagnostics produce a fixed warning while
-preserving the OpenTelemetry SDK's fallback behavior.
+credentials. Resource or sampler initialisation diagnostics produce a fixed warning while
+preserving the OpenTelemetry SDK's fallback behaviour.
 
 Use a new file outside the module directory for `--cpu-profile`. Its parent directory must
 exist. tf-mut refuses existing files and symlinks, and warns on stderr if profile output fails
-after profiling starts. For example, from the directory containing `module`:
+after profiling starts. For example, with `module` under this checkout's root:
 
 ```bash
-tf-mut run --no-cache --reporter json --cpu-profile cpu.pprof \
+mise exec -- ./.artifacts/bin/tf-mut run --no-cache --reporter json \
+  --cpu-profile cpu.pprof \
   --otlp-endpoint http://localhost:4318 ./module > report.json
 ```
 
@@ -215,20 +266,33 @@ reproduction steps in [`docs/research/04-harness-spike.md`](docs/research/04-har
 ## Repository layout
 
 ```
-docs/design/      Product design and operator catalogue
-docs/research/    Research notes, all claims sourced or verified
-research/spikes/  Terraform fixtures used to verify the harness design
-cmd/tf-mut/       Command-line entry point, a thin shell over the engine
-internal/engine/  The one testing seam: configuration in, report out
+docs/adr/            Numbered architectural decision records, including superseded decisions
+docs/agents/         Agent operating notes: the issue tracker, triage labels, and domain pointers
+docs/design/         Product design and operator catalogue
+docs/research/       Research notes, all claims sourced or verified
+docs/reviews/        Adversarial and implementation reviews with their dispositions
+docs/schema/         Versioned report schemas and the vendored external schemas
+research/spikes/     Terraform fixtures used to verify the harness design
+tests/               Agent and build-chain shell checks
+cmd/tf-mut/          Command-line entry point, a thin shell over the engine
+internal/engine/     The one testing seam: configuration in, report out
 internal/discovery/  Module and test-file parsing, closure, safety detection
 internal/mutation/   The operator catalogue, its applicability matrix, and generation
 internal/fingerprint/  Canonical payloads, the volatile mask, and the masked delta
+internal/oracle/     The mutant outcome, its diagnoses and their evidence
+internal/suggest/    Suggestion candidates, verification and run-block patches
+internal/characterise/  Scaffold planning, input synthesis and judgement points
+internal/skill/      The shipped agent skills and the skill install protocol
 internal/config/     .tf-mut.hcl and the inline suppression directives
 internal/sandbox/    Sandbox materialisation, sharing rules, fresh-inode writes
 internal/tfexec/     The Terraform CLI and its machine-readable output
 internal/report/     The report value and its renderings
-scripts/          Private helpers behind the Just control plane
-tools/            Source-tool and Terraform-provider lock domains
+internal/tracing/    Run, mutant and phase spans over OTLP/HTTP
+internal/buildinfo/  Build metadata injected by the linker
+internal/buildchain/  Checks and update helpers for the shared build chain
+internal/testsupport/  File-writing helpers shared by the test suites
+scripts/             Private helpers behind the Just control plane
+tools/               Source-tool and Terraform-provider lock domains
 ```
 
 See [Reporters](docs/design/product-design.md#9-reporters) for the rendering contracts.
