@@ -836,11 +836,10 @@ func executeWithCache(
 		result.Population.Fresh = result.Population.Selected - result.Population.Cached
 
 		// A miss with a changed environment since the stored generation
-		// names the variables that differed — never their values. Nothing
-		// selected means nothing was looked up, so there is nothing to
-		// explain.
-		if result.Population.Cached == 0 && result.Population.Selected > 0 {
-			result.CacheMiss = cache.explainMiss()
+		// names the variables that differed — never their values — when a
+		// pending lookup has usable evidence from that generation.
+		if result.Population.Cached == 0 {
+			result.CacheMiss = cache.explainMiss(plan.described)
 		}
 	}
 

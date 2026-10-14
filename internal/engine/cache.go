@@ -42,6 +42,8 @@ import (
 // (TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError).
 const cacheFormatVersion = "tf-mut-cache-5"
 
+const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
+
 // The cache is private by construction: evidence may embed plan values and
 // source text.
 const (
@@ -79,7 +81,7 @@ const envComponent = "env"
 const manifestSuffix = "-manifest.json"
 
 // cacheManifest is one generation's key beside its environment digest and
-// the environment as a map of variable name to the hash of its value.
+// the environment as a map of variable name to the hash of its value set.
 // Values never reach this document — neither
 // the whole-environment lines the key hashes, nor any single value — so a
 // reader learns which names differ and nothing else.
@@ -88,7 +90,7 @@ type cacheManifest struct {
 	RunKey        string `json:"run_key"`
 	// Components carries only the environment component's hex digest.
 	Components map[string]string `json:"components"`
-	// Env maps each environment variable name to the hex digest of its value.
+	// Env maps each environment variable name to the hex digest of its value set.
 	Env map[string]string `json:"env"`
 }
 
@@ -204,7 +206,7 @@ func cacheKey(
 	key := hex.EncodeToString(recorder.overall.Sum(nil))
 
 	return key, cacheManifest{
-		FormatVersion: cacheFormatVersion,
+		FormatVersion: cacheManifestFormatVersion,
 		RunKey:        key,
 		Components:    map[string]string{envComponent: hex.EncodeToString(recorder.environment.Sum(nil))},
 		Env:           envDigestMap(settings),
@@ -212,16 +214,19 @@ func cacheKey(
 }
 
 // envDigestMap reduces the whole effective environment to a map of variable
-// name to the hash of its value. A name carried twice — the process's plus
-// the run's addition under different values — resolves to the later sorted
-// line, deterministically; the key still hashes both lines, so the map can
-// understate only a case no invocation should construct.
+// name to the hash of its sorted value set, including the process's values
+// and the run's additions. A single value keeps its original digest.
 func envDigestMap(settings settings) map[string]string {
+	values := map[string][]string{}
 	digests := map[string]string{}
 
 	for _, entry := range relevantEnvironment(settings) {
 		name, value, _ := strings.Cut(entry, "=")
-		sum := sha256.Sum256([]byte(value))
+		values[name] = append(values[name], value)
+	}
+
+	for name, entries := range values {
+		sum := sha256.Sum256([]byte(strings.Join(entries, "\x00")))
 		digests[name] = hex.EncodeToString(sum[:])
 	}
 
@@ -550,12 +555,18 @@ func (c *verdictCache) manifestName() string {
 	return c.key[:keyPrefixLength] + manifestSuffix
 }
 
-// explainMiss diffs the stored generations against this run, newest first,
+// explainMiss compares the newest eligible stored generation against this run,
 // and reports the environment names that changed, even when other key
 // components also differ. No stored generation, an unchanged environment,
 // or a generation this binary predates is a miss without an explanation.
 // Values reach neither the document nor the report: only their names travel.
-func (c *verdictCache) explainMiss() *report.CacheMiss {
+func (c *verdictCache) explainMiss(mutants []report.Mutant) *report.CacheMiss {
+	if !slices.ContainsFunc(mutants, func(mutant report.Mutant) bool {
+		return mutant.State == report.Pending
+	}) {
+		return nil
+	}
+
 	unlock, err := c.lock()
 	if err != nil {
 		return nil
@@ -582,7 +593,7 @@ func (c *verdictCache) explainMiss() *report.CacheMiss {
 		}
 
 		info, infoErr := entry.Info()
-		if infoErr != nil {
+		if infoErr != nil || !info.Mode().IsRegular() {
 			continue
 		}
 
@@ -596,7 +607,7 @@ func (c *verdictCache) explainMiss() *report.CacheMiss {
 			continue
 		}
 
-		if stored.FormatVersion != cacheFormatVersion || stored.RunKey == c.key {
+		if !validCacheManifest(stored, entry.Name()) {
 			continue
 		}
 
@@ -616,22 +627,83 @@ func (c *verdictCache) explainMiss() *report.CacheMiss {
 	})
 
 	for _, generation := range generations {
-		if c.manifest.Components[envComponent] == generation.manifest.Components[envComponent] {
+		if generation.manifest.RunKey == c.key {
+			return nil
+		}
+
+		previous := verdictCache{dir: c.dir, key: generation.manifest.RunKey}
+		if !previous.hasUsableEntry(mutants) {
 			continue
 		}
 
-		if miss := diffEnvNames(generation.manifest.Env, c.manifest.Env); miss != nil {
-			return miss
+		if c.manifest.Components[envComponent] == generation.manifest.Components[envComponent] {
+			return nil
 		}
+
+		return diffEnvNames(generation.manifest.Env, c.manifest.Env)
 	}
 
 	return nil
 }
 
+func (c *verdictCache) hasUsableEntry(mutants []report.Mutant) bool {
+	for _, mutant := range mutants {
+		if mutant.State != report.Pending {
+			continue
+		}
+
+		entry, found := c.read(mutant.ID)
+		if !found {
+			continue
+		}
+
+		candidate := mutant
+		classified := oracle.Classified{}
+		if rehydrated(&candidate, &classified, entry) && cacheable(candidate) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func validCacheManifest(manifest cacheManifest, name string) bool {
+	if manifest.FormatVersion != cacheManifestFormatVersion || !validCacheDigest(manifest.RunKey) {
+		return false
+	}
+
+	if name != manifest.RunKey[:keyPrefixLength]+manifestSuffix || manifest.Env == nil ||
+		len(manifest.Components) != 1 || !validCacheDigest(manifest.Components[envComponent]) {
+		return false
+	}
+
+	if (len(manifest.Env) == 0) != (manifest.Components[envComponent] == hashBytes(nil)) {
+		return false
+	}
+
+	for variable, digest := range manifest.Env {
+		if variable == "" || strings.ContainsAny(variable, "=\x00") || !validCacheDigest(digest) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func validCacheDigest(digest string) bool {
+	if len(digest) != sha256.Size*2 {
+		return false
+	}
+
+	decoded, err := hex.DecodeString(digest)
+
+	return err == nil && hex.EncodeToString(decoded) == digest
+}
+
 // diffEnvNames reduces two per-variable digest maps to the sorted, bounded
 // name lists the report carries: added, removed and changed. An empty diff —
-// the degenerate duplicate-name case the key still distinguishes — is no
-// explanation. Values are compared only as digests and never leave this
+// a comparison with no changed variable — is no explanation.
+// Values are compared only as digests and never leave this
 // function.
 func diffEnvNames(stored, current map[string]string) *report.CacheMiss {
 	miss := &report.CacheMiss{}
