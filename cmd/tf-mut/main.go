@@ -92,7 +92,7 @@ Commands:
 
 Flags for run, preview, suggest, characterise, todos and curate:
   --test-directory PATH        Test directory relative to the module (default "tests")
-  --jobs N                     Mutants to execute concurrently (default: CPU count)
+  --jobs N                     Mutants to execute concurrently (default: three-quarters of CPUs, min 1)
   --timeout-factor F           Multiple of the baseline run time (default 10)
   --preflight-timeout D        Absolute cap on preflight terraform calls: version,
                                init, providers schema, fmt, validate and the baseline

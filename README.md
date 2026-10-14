@@ -52,7 +52,7 @@ tf-mut version                   # print the build version
 | Flag | Purpose |
 | --- | --- |
 | `--test-directory PATH` | Test directory relative to the module (default `tests`); used for initialization, test execution and [helper exclusion from the mutation surface](docs/design/mutation-operators.md#the-mutation-surface) |
-| `--jobs N` | Mutants executing concurrently (default: CPU count) |
+| `--jobs N` | Mutants executing concurrently (default: three quarters of the available CPUs, at least 1) |
 | `--timeout-factor F` | Multiple of the baseline run time; the budget is `max(F × baseline, 30 s)` |
 | `--failure-trip N` | Consecutive operational-failure limit (default 5); see [execution and failure trips](docs/design/product-design.md#execute) |
 | `--preflight-timeout D` | Absolute cap on each preflight Terraform call — version, init, providers schema, fmt, validate, the baseline runs and characterisation's staged runs (`"90s"`, `"10m"`; default 10 m for init, 1 m for the rest). An expired cap is an operational failure |
