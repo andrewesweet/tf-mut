@@ -390,8 +390,7 @@ func writeClosure(
 		return err
 	}
 
-	// The relevant environment: everything Terraform-shaped, from the
-	// caller's environment and the run's own additions.
+	// See relevantEnvironment for the environment included in the key.
 	for _, entry := range relevantEnvironment(settings) {
 		write(envComponent, "", entry)
 	}
@@ -603,11 +602,7 @@ func (c *verdictCache) explainMiss(mutants []report.Mutant) *report.CacheMiss {
 		}
 
 		stored := cacheManifest{}
-		if json.Unmarshal(content, &stored) != nil {
-			continue
-		}
-
-		if !validCacheManifest(stored, entry.Name()) {
+		if json.Unmarshal(content, &stored) != nil || !validCacheManifest(stored, entry.Name()) {
 			continue
 		}
 
