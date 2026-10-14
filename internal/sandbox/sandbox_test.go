@@ -9,11 +9,10 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 )
 
-// These are the only tests in this repository that do not go through the engine
-// seam. They exist because the milestone spec asks for the inode assertion
-// itself to fail loudly (issue #12), and an assertion that can only be observed
-// through a whole mutation run is an assertion nobody can trust. Everything
-// about mutation *behaviour* is still tested at the seam.
+// These direct-contract tests exist because the milestone spec asks for the inode
+// assertion itself to fail loudly (issue #12), and an assertion that can only be
+// observed through a whole mutation run is an assertion nobody can trust.
+// See AGENTS.md's testing-seam section for the exception and its limits.
 
 func TestWritingOverTheSourceFileIsRefused(t *testing.T) {
 	t.Parallel()
