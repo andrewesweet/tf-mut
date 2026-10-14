@@ -36,6 +36,13 @@ const (
 	unassertableSite = "output.value"
 )
 
+// Literals the cache-miss rendering tests share: the variable names behind
+// an explained miss, never their values.
+const (
+	cacheMissAddedVariable   = "TFMUT_CACHE_PROBE"
+	cacheMissChangedVariable = "SSH_CONNECTION"
+)
+
 // mteSchemaPath is the pinned, vendored mutation-testing-report-schema.
 const mteSchemaPath = "../../docs/schema/mutation-testing-report-2.0.0.json"
 
@@ -1649,6 +1656,46 @@ func TestTheTerminalReportNamesDeadlinesOnEveryCommandShape(t *testing.T) {
 
 	if strings.Contains(unmarked.String(), "Deadline reached") {
 		t.Fatalf("the curate terminal rendering names a deadline no test reached:\n%s", unmarked.String())
+	}
+}
+
+// TestTheTerminalReportNamesTheEnvironmentVariablesBehindACacheMiss: one
+// line carrying names only — the miss names what differed, never the values
+// that differed — and silence when the run has nothing to explain.
+func TestTheTerminalReportNamesTheEnvironmentVariablesBehindACacheMiss(t *testing.T) {
+	t.Parallel()
+
+	value := allStatesReport()
+	value.CacheMiss = &report.CacheMiss{
+		Added:   []string{cacheMissAddedVariable},
+		Changed: []string{cacheMissChangedVariable},
+	}
+
+	rendered := strings.Builder{}
+	if err := report.WriteTerminal(&rendered, value); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	page := rendered.String()
+	for _, needle := range []string{"Cache miss", cacheMissAddedVariable, cacheMissChangedVariable} {
+		if !strings.Contains(page, needle) {
+			t.Fatalf("the terminal rendering is missing %q:\n%s", needle, page)
+		}
+	}
+
+	if lines := strings.Count(page, "Cache miss"); lines != 1 {
+		t.Fatalf("the terminal rendering carries %d cache-miss lines, want one:\n%s", lines, page)
+	}
+
+	quiet := allStatesReport()
+
+	unmarked := strings.Builder{}
+	if err := report.WriteTerminal(&unmarked, quiet); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	if strings.Contains(unmarked.String(), "Cache miss") {
+		t.Fatalf("the terminal rendering explains a miss nothing suffered:\n%s", unmarked.String())
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 )
 
 // schemaPath is the published contract the JSON reporter promises to keep.
-const schemaPath = "../../docs/schema/report-2.11.0.json"
+const schemaPath = "../../docs/schema/report-2.12.0.json"
 
 func TestPublishedSchemaMatchesTheReportersVersion(t *testing.T) {
 	t.Parallel()
@@ -170,6 +170,60 @@ func injectedRunIDDocument(t *testing.T, runID any) map[string]any {
 		telemetry["run_id"] = runID
 	}
 	document["telemetry"] = telemetry
+
+	return document
+}
+
+// TestSchemaCarriesTheCacheMissExplanation is the 2.12.0 additive rule: a
+// report naming the environment variables behind its cache miss validates,
+// while a block carrying an empty name list does not — every list present
+// carries at least one name.
+func TestSchemaCarriesTheCacheMissExplanation(t *testing.T) {
+	t.Parallel()
+
+	explained := sampleReport()
+	explained.CacheMiss = &report.CacheMiss{
+		Added:   []string{cacheMissAddedVariable},
+		Changed: []string{cacheMissChangedVariable},
+	}
+
+	encoded, err := json.Marshal(explained)
+	if err != nil {
+		t.Fatalf("encoding report: %v", err)
+	}
+
+	document := any(nil)
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatalf("decoding report: %v", err)
+	}
+
+	if problems := validate(loadSchema(t), loadSchema(t), document, "$"); len(problems) > 0 {
+		t.Fatalf("a report carrying the miss explanation does not validate:\n  %s",
+			strings.Join(problems, "\n  "))
+	}
+
+	empty := injectedCacheMissDocument(t, map[string]any{"added": []any{}})
+	if problems := validate(loadSchema(t), loadSchema(t), empty, "$"); len(problems) == 0 {
+		t.Fatal("the schema accepted a miss explanation with an empty name list")
+	}
+}
+
+// injectedCacheMissDocument marshals the report, injects the given
+// cache_miss block, and hands back the decoded document.
+func injectedCacheMissDocument(t *testing.T, miss map[string]any) map[string]any {
+	t.Helper()
+
+	encoded, err := json.Marshal(sampleReport())
+	if err != nil {
+		t.Fatalf("encoding report: %v", err)
+	}
+
+	document := map[string]any{}
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatalf("decoding report: %v", err)
+	}
+
+	document["cache_miss"] = miss
 
 	return document
 }

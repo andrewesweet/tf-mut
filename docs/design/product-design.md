@@ -301,7 +301,7 @@ The trip applies to `run`, `suggest`, `curate` and mutation rounds of
 `characterise --until-dry`. It returns the operational exit code (`2`) and marks the
 score incomplete, even when every pending mutant was dispatched. A warning names the
 trip and the failure that began the streak. On a refused invocation, the warning travels
-with the error instead of a report. The [report schema](../schema/report-2.11.0.json)
+with the error instead of a report. The [report schema](../schema/report-2.12.0.json)
 owns the execution provenance and population-count contract for undispatched mutants.
 
 **The source tree is never written to.** This is a deliberate divergence from Oasis's
@@ -365,7 +365,7 @@ A test deadline remains visible even when an earlier failure determines the muta
 Terminal reports for every command include a trailing `Deadline reached` list when any
 mutant's test reached its budget; the Markdown summary also names these mutants. The JSON
 flag and its compatibility contract are defined in the
-[published report schema](../schema/report-2.11.0.json).
+[published report schema](../schema/report-2.12.0.json).
 
 Three R2 corrections are embedded there. **`MockMasked` is a diagnosis, not a state** (R2-8):
 as a state it overlapped `Survived` by definition. **`Timeout` sits in the denominator and
@@ -461,7 +461,7 @@ partitions. The **scored set** is `K + KE + S + NC + SU + T`; `Invalid`, `Unobse
 | **Reachability** | (K + KE + S + T) ÷ scored set | Coverage |
 
 `T` sits in every denominator it can reach (R2-11): machine load can then only *lower* a
-score, never raise it. The [published report schema](../schema/report-2.11.0.json) owns the
+score, never raise it. The [published report schema](../schema/report-2.12.0.json) owns the
 conditions that mark a score **incomplete**. `--min-score` gates fail on incomplete scores unless
 `--allow-incomplete-score` is passed. The `K` versus `KE` share is always displayed alongside
 the mutation score: a score composed mostly of `KE` means Terraform is doing the detecting,
@@ -769,8 +769,9 @@ undispatched mutant prevents population authority: see the
 verdicts from a project-local cache (`.tf-mut-cache/`, `0700`, atomic writes,
 corruption-as-miss, advisory locking, deterministic size-capped eviction) under a coarse key:
 the entire materialised source closure, all tests, the resolved configuration, the lock and
-module inventory with remote payloads, the relevant environment, the Terraform identity, the
-cache version ([invalidation policy](../../internal/engine/cache.go)) and the masked baseline
+module inventory with remote payloads, the whole process environment plus run-specific
+additions, the Terraform identity, the cache version
+([invalidation policy](../../internal/engine/cache.go)) and the masked baseline
 fingerprint — any doubt is a miss, and cache reads and writes are disabled under
 `--allow-real-infrastructure` and `--allow-unsandboxed-effects`, whose external state cannot
 be keyed soundly.
@@ -786,6 +787,20 @@ projection withholds sensitive values.** Sharing a cache
 across repositories, or restoring it through a broad CI cache key, is a documented risk;
 `--no-cache` is the mitigation. Finer graph-derived invalidation waits for a measurement
 proving the coarse key insufficient.
+
+Cached verdicts are reused only when the environment is the same. Each generation also
+stores a manifest containing the environment digest and per-variable digests, never the
+environment values. A missing, invalid, nonregular or older-format manifest cannot explain
+a miss; it does not invalidate usable verdict entries.
+
+When a run replays no cached verdict and has pending cache lookups, tf-mut checks valid
+stored manifests from newest to oldest. A manifest under the current key stops the search
+without an explanation. Otherwise, it compares the first generation with a usable cached
+verdict for at least one pending mutant. If that generation's environment is unchanged,
+or no such generation exists, it emits no explanation. When the environment differs, one
+terminal line names the added, removed and changed variables, never their values, even when
+other key components also differ. The JSON `cache_miss` fields and name-list bound follow the
+[published report schema](../schema/report-2.12.0.json#/$defs/cache_miss).
 
 **One identifier names one mutant (report schema 2.6.0).** The mutant identifier is a content
 hash over the operator, the closure-relative path, the site address, the replaced content and
