@@ -159,7 +159,7 @@ var flagDocs = map[string]flagDoc{ //nolint:gochecknoglobals // the immutable he
 	failOnNewFlag:         {"", "Fail on findings the baseline does not accept"},
 	writeBaselineFlagName: {"", "Accept the current findings as the baseline"},
 	baselineFlag:          {pathMetavar, "Baseline file"},
-	tierFlag:              {"", "Operator breadth: smoke, standard or deep"},
+	tierFlag:              {"LEVEL", "Operator breadth: smoke, standard or deep"},
 	sinceFlag: {
 		"REF",
 		"Run only mutants in configuration changed since REF, including staged, unstaged and untracked " +
@@ -194,6 +194,10 @@ var flagDocs = map[string]flagDoc{ //nolint:gochecknoglobals // the immutable he
 	allVerifiedFlag: {"", "Apply every verified suggestion"},
 	agentFlag:       {"claude|generic", "Target agent for the installed skills"},
 	pathFlag:        {"DIR", "The project root to install into"},
+}
+
+var skillFlagDocs = map[string]flagDoc{ //nolint:gochecknoglobals // the immutable help table.
+	forceFlag: {"", "Overwrite user-edited skill files"},
 }
 
 // hiddenDefault names the flags whose zero value means unset rather than a
@@ -286,17 +290,12 @@ func liveSkillFlags() *flag.FlagSet {
 
 // flagLookup reads one flag's live declaration from whichever set declares
 // it, so defaults render for engine and skill flags alike.
-func flagLookup() func(string) *flag.Flag {
-	commands := liveFlags()
-	install := liveSkillFlags()
-
-	return func(name string) *flag.Flag {
-		if found := commands.Lookup(name); found != nil {
-			return found
-		}
-
-		return install.Lookup(name)
+func flagLookup(command string) func(string) *flag.Flag {
+	if command == skillCommand {
+		return liveSkillFlags().Lookup
 	}
+
+	return liveFlags().Lookup
 }
 
 // flagDefault renders one flag's default from the live flag set. The five
@@ -377,7 +376,7 @@ func renderFlag(name string, lookup func(string) *flag.Flag, width int) string {
 	}
 
 	return line + strings.Repeat(" ", width-len(line)+helpPadding) +
-		doc.description + flagDefault(name, lookup)
+		lookup(name).Usage + flagDefault(name, lookup)
 }
 
 // flagWidth is the display width flag lines align their descriptions to.
@@ -402,7 +401,7 @@ func flagWidth(names []string) int {
 // the vocabulary audit's two-space command pattern keeps reading only the
 // command list.
 func renderTopHelp() string {
-	lookup := flagLookup()
+	lookup := flagLookup("")
 
 	var rendered strings.Builder
 
@@ -484,7 +483,7 @@ func applicableFlags(command string) []string {
 // description, arguments, applicable flags with live defaults, one example,
 // and the three exit codes.
 func commandHelp(command string) string {
-	lookup := flagLookup()
+	lookup := flagLookup(command)
 
 	var doc commandDoc
 
@@ -540,8 +539,6 @@ func commandHelp(command string) string {
 // section per command with usage, synopsis, description, arguments, flags
 // with defaults, and an example, plus the three exit codes once at the end.
 func renderReferencePage() string {
-	lookup := flagLookup()
-
 	var rendered strings.Builder
 
 	rendered.WriteString("# Command-line reference\n")
@@ -550,6 +547,8 @@ func renderReferencePage() string {
 		"when this page drifts from it. Regenerate with `just reference`.\n")
 
 	for _, doc := range commandDocs {
+		lookup := flagLookup(doc.name)
+
 		rendered.WriteString("\n## " + doc.name + "\n")
 
 		var arguments string
@@ -582,7 +581,7 @@ func renderReferencePage() string {
 
 			for _, name := range names {
 				rendered.WriteString("| `--" + name + flagMetavar(name) + "` | " +
-					referenceDescription(name) + " | " + referenceDefault(name, lookup) + " |\n")
+					referenceDescription(name, lookup) + " | " + referenceDefault(name, lookup) + " |\n")
 			}
 		}
 
@@ -607,8 +606,8 @@ func flagMetavar(name string) string {
 // referenceDescription renders the reference table's description cell,
 // escaping the pipe characters of the reporter enum so the table keeps its
 // columns.
-func referenceDescription(name string) string {
-	return strings.ReplaceAll(flagDocs[name].description, "|", "\\|")
+func referenceDescription(name string, lookup func(string) *flag.Flag) string {
+	return strings.ReplaceAll(lookup(name).Usage, "|", "\\|")
 }
 
 // referenceDefault renders the reference table's default cell from the live
@@ -634,16 +633,4 @@ func exitCodeProse() string {
 		"trustworthy result, or the invocation was wrong: a bad flag, an unknown "+
 		"command, or a flag after the module path.",
 		report.ExitClean, exitSuccess, report.ExitFindings, report.ExitOperational)
-}
-
-// wantsHelp reports whether the arguments ask for help outright. Only exact
-// flag spellings count: a value that merely contains "-h" must not trigger.
-func wantsHelp(args []string) bool {
-	for _, arg := range args {
-		if arg == helpShortFlag || arg == helpLongFlag || arg == "-help" {
-			return true
-		}
-	}
-
-	return false
 }

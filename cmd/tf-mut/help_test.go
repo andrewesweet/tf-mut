@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"flag"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/skill"
 )
 
 // TestReferencePageMatchesCommittedPage is technical-documentation ticket
@@ -61,6 +63,7 @@ func TestExplicitHelpExitsZeroAndUsageErrorsExitTwo(t *testing.T) {
 		{helpShortFlag},
 		{runCommand, helpShortFlag},
 		{runCommand, helpLongFlag},
+		{runCommand, "--test-directory", "tests", "--jobs", "1", helpShortFlag},
 		{previewCommand, helpLongFlag},
 		{suggestCommand, helpShortFlag},
 		{characteriseCommand, helpLongFlag},
@@ -104,6 +107,166 @@ func TestExplicitHelpExitsZeroAndUsageErrorsExitTwo(t *testing.T) {
 				t.Fatalf("exit code = %d, want %d for %q", code, exitUsage, args)
 			}
 		})
+	}
+}
+
+func TestHelpRespectsEngineFlagParsing(t *testing.T) {
+	t.Parallel()
+
+	module := t.TempDir()
+
+	for _, command := range []string{
+		runCommand, previewCommand, suggestCommand, characteriseCommand, todosCommand, curateCommand,
+	} {
+		for _, help := range []string{helpShortFlag, helpLongFlag, "-help"} {
+			for _, test := range []struct {
+				args []string
+				want string
+			}{
+				{[]string{"--test-directory", help, "--unknown"}, "flag provided but not defined"},
+				{[]string{"--jobs", help}, "invalid value"},
+				{[]string{"--unknown", help}, "flag provided but not defined"},
+				{[]string{module, help}, errTrailingArguments.Error()},
+				{[]string{"--", module, help}, errTrailingArguments.Error()},
+				{[]string{"--", help, module}, errTrailingArguments.Error()},
+			} {
+				args := append([]string{command}, test.args...)
+				stdout := bytes.Buffer{}
+				stderr := bytes.Buffer{}
+
+				if code := run(args, "test", &stdout, &stderr); code != exitUsage {
+					t.Fatalf("%q exited %d, want %d: %s", args, code, exitUsage, stderr.String())
+				}
+
+				if stdout.Len() != 0 || !strings.Contains(stderr.String(), test.want) {
+					t.Fatalf("%q: stdout = %q, stderr = %q; want only error %q",
+						args, stdout.String(), stderr.String(), test.want)
+				}
+			}
+		}
+	}
+}
+
+func TestHelpRespectsVersionFlagParsing(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []string{versionCommand, versionFlag} {
+		for _, help := range []string{helpShortFlag, helpLongFlag, "-help"} {
+			for _, args := range [][]string{
+				{command, "--", help},
+				{command, "positional", help},
+			} {
+				stdout := bytes.Buffer{}
+				stderr := bytes.Buffer{}
+
+				if code := run(args, "test", &stdout, &stderr); code != exitUsage ||
+					stdout.Len() != 0 || !strings.Contains(stderr.String(), "takes no arguments") {
+					t.Fatalf("%q: exit = %d, stdout = %q, stderr = %q",
+						args, code, stdout.String(), stderr.String())
+				}
+			}
+
+			stdout := bytes.Buffer{}
+			stderr := bytes.Buffer{}
+			args := []string{command, "--unknown", help}
+
+			if code := run(args, "test", &stdout, &stderr); code != exitUsage ||
+				stdout.Len() != 0 || !strings.Contains(stderr.String(), "flag provided but not defined") {
+				t.Fatalf("%q: exit = %d, stdout = %q, stderr = %q",
+					args, code, stdout.String(), stderr.String())
+			}
+		}
+	}
+}
+
+func TestHelpRespectsSkillFlagParsing(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	relative, err := skill.TargetPath(skill.AgentGeneric, skill.NameMutation)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, help := range []string{helpShortFlag, helpLongFlag, "-help"} {
+		stdout := bytes.Buffer{}
+		stderr := bytes.Buffer{}
+		args := []string{skillCommand, installCommand, "--agent", skill.AgentGeneric, "--path", help}
+
+		if code := run(args, "test", &stdout, &stderr); code != exitSuccess || stderr.Len() != 0 {
+			t.Fatalf("%q: exit = %d, stderr = %q", args, code, stderr.String())
+		}
+
+		if _, err := os.Stat(filepath.Join(help, relative)); err != nil {
+			t.Fatalf("%q did not install into the --path value: %v", args, err)
+		}
+
+		for _, args := range [][]string{
+			{skillCommand, "unknown", help},
+			{skillCommand, "--", help},
+			{skillCommand, installCommand, "--unknown", help},
+			{skillCommand, installCommand, "--agent", help},
+			{skillCommand, installCommand, "--agent", skill.AgentGeneric, "--", help},
+			{skillCommand, installCommand, "positional", help},
+		} {
+			stdout.Reset()
+			stderr.Reset()
+
+			if code := run(args, "test", &stdout, &stderr); code != exitUsage || stdout.Len() != 0 {
+				t.Fatalf("%q: exit = %d, stdout = %q, stderr = %q",
+					args, code, stdout.String(), stderr.String())
+			}
+		}
+	}
+
+	if _, err := os.Stat(relative); !os.IsNotExist(err) {
+		t.Fatalf("invalid skill arguments installed into the working directory: %v", err)
+	}
+}
+
+func TestForceHelpDescribesTheCommandsOverwritePolicy(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{characteriseCommand, helpShortFlag}, "Replace generated files nobody has edited"},
+		{[]string{skillCommand, helpShortFlag}, "Overwrite user-edited skill files"},
+		{[]string{skillCommand, installCommand, helpShortFlag}, "Overwrite user-edited skill files"},
+	} {
+		stdout := bytes.Buffer{}
+		stderr := bytes.Buffer{}
+
+		if code := run(test.args, "test", &stdout, &stderr); code != exitSuccess {
+			t.Fatalf("%q exited %d: %s", test.args, code, stderr.String())
+		}
+
+		if !strings.Contains(stdout.String(), test.want) {
+			t.Fatalf("%q help lacks overwrite policy %q: %s", test.args, test.want, stdout.String())
+		}
+	}
+}
+
+func TestTierHelpShowsItsRequiredValue(t *testing.T) {
+	t.Parallel()
+
+	for _, args := range [][]string{
+		{helpLongFlag},
+		{runCommand, helpShortFlag},
+		{previewCommand, helpShortFlag},
+		{suggestCommand, helpShortFlag},
+		{generateReferenceFlag},
+	} {
+		stdout := bytes.Buffer{}
+		stderr := bytes.Buffer{}
+
+		if code := run(args, "test", &stdout, &stderr); code != exitSuccess {
+			t.Fatalf("%q exited %d: %s", args, code, stderr.String())
+		}
+
+		if !strings.Contains(stdout.String(), "--tier LEVEL") {
+			t.Fatalf("%q help lacks the --tier value: %s", args, stdout.String())
+		}
 	}
 }
 

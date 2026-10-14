@@ -135,9 +135,6 @@ func run(args []string, buildVersion string, stdout, stderr io.Writer) int {
 		return fail(stderr, usage)
 	}
 
-	// Explicit help exits 0; every other misuse exits 2. The interception
-	// sits ahead of flag parsing because Go's flag package answers -h with a
-	// usage dump to standard error and a parse error.
 	if args[0] == generateReferenceFlag {
 		// Fprint, not Fprintln: the rendered page already ends in exactly one
 		// newline, and the golden test holds the committed page byte-equal.
@@ -154,8 +151,20 @@ func run(args []string, buildVersion string, stdout, stderr io.Writer) int {
 
 	switch args[0] {
 	case versionCommand, versionFlag:
-		if wantsHelp(args[1:]) {
-			return printHelp(stdout, commandHelp(versionCommand))
+		set := flag.NewFlagSet("tf-mut version", flag.ContinueOnError)
+		set.SetOutput(stderr)
+		set.Usage = func() {}
+
+		if err := set.Parse(args[1:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return printHelp(stdout, commandHelp(versionCommand))
+			}
+
+			return exitUsage
+		}
+
+		if set.NArg() > 0 {
+			return fail(stderr, "tf-mut version takes no arguments")
 		}
 
 		if _, err := fmt.Fprintln(stdout, buildinfo.Resolve(buildVersion)); err != nil {
@@ -165,16 +174,8 @@ func run(args []string, buildVersion string, stdout, stderr io.Writer) int {
 		return exitSuccess
 	case runCommand, previewCommand, suggestCommand, characteriseCommand,
 		todosCommand, curateCommand:
-		if wantsHelp(args[1:]) {
-			return printHelp(stdout, commandHelp(args[0]))
-		}
-
 		return execute(args[0], buildVersion, args[1:], stdout, stderr)
 	case skillCommand:
-		if wantsHelp(args[1:]) {
-			return printHelp(stdout, commandHelp(skillCommand))
-		}
-
 		return skillInstall(args[1:], buildVersion, stdout, stderr)
 	default:
 		return fail(stderr, usage)
@@ -366,7 +367,7 @@ func declareOutputFlag(set *flag.FlagSet) *outputFlag {
 func declareSkillFlags(set *flag.FlagSet) (agent, path *string, force *bool) {
 	agent = set.String(agentFlag, skill.AgentClaude, helpText(agentFlag))
 	path = set.String(pathFlag, ".", helpText(pathFlag))
-	force = set.Bool(forceFlag, false, helpText(forceFlag))
+	force = set.Bool(forceFlag, false, skillFlagDocs[forceFlag].description)
 
 	return agent, path, force
 }
@@ -390,6 +391,7 @@ var overrideOf = map[string]engine.Setting{
 func parse(command, buildVersion string, args []string, stderr io.Writer) (options, error) {
 	set := flag.NewFlagSet("tf-mut "+command, flag.ContinueOnError)
 	set.SetOutput(stderr)
+	set.Usage = func() {}
 
 	values := declareFlags(set)
 
@@ -789,17 +791,30 @@ func modulePathArgument(set *flag.FlagSet) (string, error) {
 // fourth recorded exception, performed by internal/skill under its
 // preserve-user-edits protocol.
 func skillInstall(args []string, buildVersion string, stdout, stderr io.Writer) int {
-	if len(args) == 0 || args[0] != installCommand {
-		return fail(stderr, "usage: tf-mut skill install [--agent claude|generic] [--path .] [--force]")
-	}
-
 	set := flag.NewFlagSet("tf-mut skill install", flag.ContinueOnError)
 	set.SetOutput(stderr)
+	set.Usage = func() {}
+
+	if len(args) == 0 || args[0] != installCommand {
+		if err := set.Parse(args); errors.Is(err, flag.ErrHelp) {
+			return printHelp(stdout, commandHelp(skillCommand))
+		}
+
+		return fail(stderr, "usage: tf-mut skill install [--agent claude|generic] [--path .] [--force]")
+	}
 
 	agent, path, force := declareSkillFlags(set)
 
 	if err := set.Parse(args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return printHelp(stdout, commandHelp(skillCommand))
+		}
+
 		return report.ExitOperational
+	}
+
+	if set.NArg() > 0 {
+		return fail(stderr, "tf-mut skill install takes no positional arguments")
 	}
 
 	results, err := skill.Install(*path, *agent, buildinfo.Resolve(buildVersion), *force)
@@ -823,6 +838,10 @@ func skillInstall(args []string, buildVersion string, stdout, stderr io.Writer) 
 func execute(command, buildVersion string, args []string, stdout, stderr io.Writer) int {
 	parsed, err := parse(command, buildVersion, args, stderr)
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return printHelp(stdout, commandHelp(command))
+		}
+
 		return fail(stderr, err.Error())
 	}
 

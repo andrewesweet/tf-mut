@@ -33,7 +33,7 @@ Arguments: `PATH  The module directory to mutate (default ".")`
 | `--fail-on-new` | Fail on findings the baseline does not accept | — |
 | `--write-baseline` | Accept the current findings as the baseline | — |
 | `--baseline PATH` | Baseline file | `".tf-mut-baseline.json"` |
-| `--tier` | Operator breadth: smoke, standard or deep | `standard` |
+| `--tier LEVEL` | Operator breadth: smoke, standard or deep | `standard` |
 | `--since REF` | Run only mutants in configuration changed since REF, including staged, unstaged and untracked changes | — |
 | `--sample N` | Run a deterministic N% sample (non-authoritative) | — |
 | `--seed N` | Seed for --sample | `0` |
@@ -73,7 +73,7 @@ Arguments: `PATH  The module directory to preview (default ".")`
 | `--cpu-profile PATH` | Write a CPU profile of tf-mut itself | — |
 | `--otlp-endpoint URL` | Export run, mutant and phase spans over OTLP/HTTP (OTEL_EXPORTER_OTLP_ENDPOINT is honoured when unset) | — |
 | `--failure-trip N` | Stop the run after this many consecutive operational failures; the report names the trip and the first failure, and the score is marked incomplete | `5` |
-| `--tier` | Operator breadth: smoke, standard or deep | `standard` |
+| `--tier LEVEL` | Operator breadth: smoke, standard or deep | `standard` |
 | `--since REF` | Run only mutants in configuration changed since REF, including staged, unstaged and untracked changes | — |
 | `--sample N` | Run a deterministic N% sample (non-authoritative) | — |
 | `--seed N` | Seed for --sample | `0` |
@@ -120,7 +120,7 @@ Arguments: `PATH  The module directory to suggest for (default ".")`
 | `--fail-on-new` | Fail on findings the baseline does not accept | — |
 | `--write-baseline` | Accept the current findings as the baseline | — |
 | `--baseline PATH` | Baseline file | `".tf-mut-baseline.json"` |
-| `--tier` | Operator breadth: smoke, standard or deep | `standard` |
+| `--tier LEVEL` | Operator breadth: smoke, standard or deep | `standard` |
 | `--since REF` | Run only mutants in configuration changed since REF, including staged, unstaged and untracked changes | — |
 | `--sample N` | Run a deterministic N% sample (non-authoritative) | — |
 | `--seed N` | Seed for --sample | `0` |
@@ -260,7 +260,7 @@ Arguments: `install  The only skill subcommand: install the skills into the proj
 | --- | --- | --- |
 | `--agent claude|generic` | Target agent for the installed skills | `"claude"` |
 | `--path DIR` | The project root to install into | `"."` |
-| `--force` | Replace generated files nobody has edited | — |
+| `--force` | Overwrite user-edited skill files | — |
 
 Example:
 ```bash
