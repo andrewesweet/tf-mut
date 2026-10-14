@@ -14,7 +14,7 @@ below reproduces the CI environment on your machine.
 > against real Terraform, and every surviving mutant carries exactly one diagnosis: whether the
 > fix is an assertion, a mock default, a different input, or acceptance. The oracle never claims
 > an equality it cannot prove: an unknown value in the mutation's forward cone — judged under the
-> fail-closed address adapters, with the M2 whole-payload rule as the floor wherever a mapping
+> fail-closed address adapters, with a whole-payload unknown check wherever a mapping
 > fails — or volatility it could not decompose, makes the comparison indeterminate rather than
 > identical.
 > `tf-mut suggest` generates and *verifies* the assertions that kill the survivors, and
@@ -65,11 +65,12 @@ is one of the commands the CI workflow runs, with the result to expect:
 
    Expected result: every recipe passes, matching the CI result for the same commit.
 
-After bootstrap, Just is the shared local/CI control plane. `just --list` documents focused
-format, lint, type, test, fuzz, mutation, and security recipes for Go, Bash, JSON, YAML, TOML,
-Terraform, and GitHub Actions. `just security` is intentionally separate from the reproducible
-`just ci` gate because vulnerability databases change over time. CodeQL additionally analyses
-every language it supports here (Go and GitHub Actions) in GitHub's code-scanning environment.
+After bootstrap, Just is the shared local/CI control plane. `mise exec -- just --list`
+documents focused format, lint, type, test, fuzz, mutation, and security recipes for Go,
+Bash, JSON, YAML, TOML, Terraform, and GitHub Actions. `just security` is intentionally
+separate from the reproducible `just ci` gate because vulnerability databases change over time.
+CodeQL additionally analyses every language it supports here (Go and GitHub Actions) in
+GitHub's code-scanning environment.
 
 ## Using it
 
@@ -87,18 +88,23 @@ tf-mut version                   # print the build version
 `[PATH]` in the synopsis is the module directory: the brackets are not typed, and leaving the
 argument out measures the current directory.
 
+The build writes `.artifacts/bin/tf-mut`. Run the examples below from this checkout's root;
+`mise exec` supplies the pinned Terraform and other tools.
+
 The three commands a first run needs are `preview`, which lists the mutants as diffs without
 executing anything; `run`, which mutates the module and reports what the suite does not check;
 and `suggest`, which generates and verifies the assertions that kill the survivors:
 
 ```bash
-tf-mut preview ./module
-tf-mut run ./module
-tf-mut suggest ./module
+mise exec -- ./.artifacts/bin/tf-mut preview ./module
+mise exec -- ./.artifacts/bin/tf-mut run ./module
+mise exec -- ./.artifacts/bin/tf-mut suggest ./module
 ```
 
-Each command documents its own flags with defaults: `tf-mut <command> -h` prints them. Start
-with `tf-mut run -h`. The one flag the rest of this page assumes is the output format:
+Each command documents its own flags with defaults:
+`mise exec -- ./.artifacts/bin/tf-mut <command> -h` prints them. Start with
+`mise exec -- ./.artifacts/bin/tf-mut run -h`. The one flag the rest of this page assumes is
+the output format:
 
 | Flag | Purpose |
 | --- | --- |
@@ -165,10 +171,11 @@ preserving the OpenTelemetry SDK's fallback behaviour.
 
 Use a new file outside the module directory for `--cpu-profile`. Its parent directory must
 exist. tf-mut refuses existing files and symlinks, and warns on stderr if profile output fails
-after profiling starts. For example, from the directory containing `module`:
+after profiling starts. For example, with `module` under this checkout's root:
 
 ```bash
-tf-mut run --no-cache --reporter json --cpu-profile cpu.pprof \
+mise exec -- ./.artifacts/bin/tf-mut run --no-cache --reporter json \
+  --cpu-profile cpu.pprof \
   --otlp-endpoint http://localhost:4318 ./module > report.json
 ```
 
