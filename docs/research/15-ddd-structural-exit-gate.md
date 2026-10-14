@@ -659,8 +659,9 @@ This records the naming choice at `fd5a2d3`; §3.3 points to the subsequent deci
   needed today.
 - **The bootstrap and an ambient `GOROOT`.** Ten of the programme's pull requests record
   having to unset a shell-profile `GOROOT`/`GOBIN` pointing at Go 1.24.13 before the pinned
-  1.26.6 toolchain would build, and `scripts/doctor`'s exact mise pin (2026.8.6) fails on a
-  host with 2026.8.8 unless the pinned binary under `.artifacts/mise-bin` is on the path.
+  1.26.6 toolchain would build. At that time, `scripts/doctor`'s exact mise pin (2026.8.6)
+  failed on a host with 2026.8.8 unless the pinned binary under `.artifacts/mise-bin` was on
+  the path.
   Neither is a finding about the product; both cost every ticket minutes. The record does not
   propose a fix, and this document does not either.
 
