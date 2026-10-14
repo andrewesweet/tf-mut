@@ -93,7 +93,7 @@ installed. The initial proposal used the following snapshot. The Go row points t
 | Tool | Snapshot | Authority | Role |
 | --- | --- | --- | --- |
 | Go | See lock | [`mise.lock`](../../mise.lock) | compiler, tests, race and native fuzz driver |
-| mise | `2026.8.6` | bootstrap pin | provisioning layer; cannot manage itself |
+| mise | `2026.10.7` | bootstrap pin | provisioning layer; cannot manage itself |
 | Just | `1.58.0` | `mise.lock` | sole public task interface after bootstrap |
 | Terraform | `1.15.8` | `mise.lock` | executable required by the fixed test seam |
 | golangci-lint | `2.12.2` | `mise.lock` | lint, gosec and coordinated safe autofixes |
@@ -173,7 +173,7 @@ requirements/documentation, but Go may not silently download a second, unlocked 
 Bootstrap has exactly two direct commands before Just can become the interface, followed by one
 Just recipe:
 
-1. install/update mise itself to the separately pinned 2026.8.6 release;
+1. install/update mise itself to the separately pinned 2026.10.7 release;
 2. run `mise install` directly, under project-scoped strict locking, to install Just and the
    other prebuilt tools;
 3. use the now-installed Just to run `just tools-install`, download/build the isolated source

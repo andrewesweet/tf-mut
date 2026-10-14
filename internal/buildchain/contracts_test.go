@@ -460,15 +460,15 @@ func TestMiseMinimumVersionUsesActiveTOML(t *testing.T) {
 	t.Parallel()
 
 	for _, contents := range []string{
-		"# min_version = \"2026.1.0\"\nmin_version = \"2026.8.6\"\n",
-		"min_version = '2026.8.6'\n",
-		"\"min_version\" = \"2026.8.6\"\n",
+		"# min_version = \"2026.1.0\"\nmin_version = \"2026.10.7\"\n",
+		"min_version = '2026.10.7'\n",
+		"\"min_version\" = \"2026.10.7\"\n",
 	} {
 		t.Run(contents, func(t *testing.T) {
 			t.Parallel()
 
-			if got := miseMinimumVersion(t, contents); got != "2026.8.6" {
-				t.Fatalf("active min_version = %q, want 2026.8.6", got)
+			if got := miseMinimumVersion(t, contents); got != "2026.10.7" {
+				t.Fatalf("active min_version = %q, want 2026.10.7", got)
 			}
 		})
 	}

@@ -37,7 +37,7 @@ jobs:
       # No cache: a release pipeline does not trust a cached toolchain.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
-          version: 2026.8.6
+          version: 2026.10.7
           install: false
           cache: false
       - name: Install exact locked tools
@@ -116,7 +116,7 @@ jobs:
       # No cache: a release pipeline does not trust a cached toolchain.
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4
         with:
-          version: 2026.8.6
+          version: 2026.10.7
           install: false
           cache: false
       - name: Install exact locked tools
