@@ -7,12 +7,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/tracing"
 )
 
-// Dependencies is the composition root: everything the engine constructs
-// around the request, held as values rather than built inline. Each field
-// replaces an existing construction on the Run path — a field that replaced
-// nothing would be a seam control by another name, and the audit beside
-// TestExportedEngineTypesDeclareNoSeamControls holds every exported field
-// honest on that point.
+// Dependencies supplies the checkout resolver and tracer factory used by New.
 type Dependencies struct {
 	// CheckoutRoot resolves the git work tree containing a directory. It
 	// replaces the checkoutRoot call in discovery; nil selects checkoutRoot.
@@ -34,8 +29,7 @@ func DefaultDependencies() Dependencies {
 	}
 }
 
-// Engine is a wired engine: dependencies in, Run out. New is the only way to
-// build one, and Run is the only thing one does.
+// Engine runs requests with the dependencies supplied to New.
 type Engine struct {
 	dependencies Dependencies
 }
