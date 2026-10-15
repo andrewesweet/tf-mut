@@ -5,7 +5,7 @@ Programme: [#86](https://github.com/andrewesweet/tf-mut/issues/86) · Decision r
 [ADR-0004](../adr/0004-expression-boundary-and-atomic-replacement.md)
 
 Standing rule 4 applied to a representation choice: before the discovery boundary's
-expression type moves, measure which consumers actually need the concrete type. The
+expression type moves, measure which consumers need the concrete type. The
 measurement is compiler-derived — the compiler produces the classification, not a reading
 of the code — and it was performed in throwaway scratch commits, then reverted. Nothing in
 this document changes production behaviour; `Attribute.Expr` and `Validation.Condition`
@@ -169,7 +169,7 @@ producer/construction sites — and 4 genuinely native.
   `.tf.json` variable whose type constraint or validation condition does not re-parse into
   native syntax is dropped at the boundary (`jsonconfig.go:460`, `:532` — fail-closed, but
   not the same as reading it). Under the interface boundary those sites can publish what
-  the declaration actually says and let each consumer decide with `Value` — the four
+  the declaration says and let each consumer decide with `Value` — the four
   genuine sites above would then answer `NativeExpression` → `false` and fail closed
   individually, which is #86 story 36's behaviour. That change belongs to the migration
   tickets, not this one; this measurement is its evidence base.

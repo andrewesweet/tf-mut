@@ -405,7 +405,7 @@ Every previous round's lesson was about a property nobody asserted. This one is 
 **evidence that was not collected where it was claimed**: a gate green because its cases
 skipped, a function table green because nothing called it, a measurement true in a sentence
 that mis-stated its scope. The instruction that follows is narrower than "test the property" —
-**check what the green actually executed**, because a skip and a pass are the same colour.
+**check what the green executed**, because a skip and a pass are the same colour.
 
 ## 13. What the fifth adversarial review changed
 

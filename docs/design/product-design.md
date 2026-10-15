@@ -333,7 +333,7 @@ verified against v1.15.8 in the spike fixtures; milestones refer to §12.
 ## 4. Mutant states
 
 Extends Stryker's standard model with three Terraform-specific states. Report consumers get
-the vocabulary they already know, plus the distinctions Terraform actually needs.
+the vocabulary they already know, plus the distinctions Terraform needs.
 
 Per-run outcomes (`pass`/`fail`/`error`/`timeout` per executed run block) are recorded
 orthogonally, and the mutant's single aggregate state is assigned by **explicit precedence,
@@ -358,7 +358,7 @@ M2-2). The unknown rule gates *equality claims*, not difference claims: a surviv
 masked delta is diagnosed from that delta, and the indeterminacy diagnoses apply where the
 oracle would otherwise have to claim identity. And a path that is stable in the baseline but
 volatile only under the mutant is *undecidable*, not maskable — masking it on both sides would
-erase the very difference the mutation made, so the C4 rule's "residual undecidability" clause
+erase the difference the mutation made, so the C4 rule's "residual undecidability" clause
 governs it.
 
 A test deadline remains visible even when an earlier failure determines the mutant's verdict.
@@ -487,7 +487,7 @@ survived. Covered by a plan, asserted on by nothing.
 `tf-mut --help` prints. This section records the design and the cost model that gates it.
 
 From the verbose baseline's `resource_changes` (which resources each run block plans) and the
-assertion inventory (which addresses the assertions actually read — parsed from the
+assertion inventory (which addresses the assertions read — parsed from the
 `.tftest.hcl` AST), `tf-mut` can emit the coverage report Terraform does not have.
 **Not** from `relevant_attributes`: the review (C2) established that field is the
 refresh/targeting dependency set — identical across run blocks and blind to assertion reads —

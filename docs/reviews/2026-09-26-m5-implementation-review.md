@@ -51,7 +51,7 @@ not admit. The shipped entry set is pinned by
 deliberately kept as the census's ten plus the widen-cidr admission's own list so the
 eight-hour admission measurement never re-runs to add one entry (#183's decision 2).
 
-**The whole-milestone invariance authorises the stamp movement the milestone actually
+**The whole-milestone invariance authorises the stamp movement the milestone
 made.** The spec expected one authorised difference (`schema_version`, `origins` absent
 with no pack); the milestone made two bumps, 2.3.0 → 2.4.0 (#169) → 2.5.0 (#183), so
 `TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone` pins base

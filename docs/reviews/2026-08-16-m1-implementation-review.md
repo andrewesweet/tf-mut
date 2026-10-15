@@ -58,7 +58,7 @@ to any of them.
    it was meant to rescue. Three experiments would settle it, all on the existing `aws-mocked`
    fixture: one invocation with *n* run blocks against *n* invocations of one; the marginal
    cost of `-verbose` measured through this harness rather than inferred from C1; and how many
-   run blocks instantiation-reachability selection actually removes from a realistic suite.
+   run blocks instantiation-reachability selection removes from a realistic suite.
    Sequencing them **before** the splitting design is standing process rule 1 applied forwards.
 2. **M2's exit gate names a feature scheduled for M3.** "A `--since`-scoped run … inside the
    stated time envelope" cannot be met by a milestone that does not contain `--since`. Either

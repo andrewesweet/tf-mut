@@ -122,7 +122,7 @@ per the existing pattern.
 - The ~1.6 s per-mutant floor, the gate truth table, verdict invariance, and the withdrawn
   `mock-masked` diagnosis: unchanged, untouched.
 - The M3-era conservatisms revisited exactly as specified: the evaluator's
-  fail-closed-on-JSON-auto-vars lifts only for files the slice actually read; a changed
+  fail-closed-on-JSON-auto-vars lifts only for files the slice read; a changed
   `.tf.json` still forces the full `--since` population; the cache key hashes all JSON
   classes (now including read configuration and test files, additively).
 - Schema `report-2.2.0` published and validated; 2.1.0 and earlier remain published; the
