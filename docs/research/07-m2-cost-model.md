@@ -2,7 +2,7 @@
 
 Issue [#19](https://github.com/andrewesweet/tf-mut/issues/19), the pre-work M2 was blocked on.
 Three experiments, run against `internal/engine/testdata/aws-mocked` through the engine's own
-execution path, to establish what the planned speed levers would actually buy before either is
+execution path, to establish what the planned speed levers would buy before either is
 designed.
 
 The short version: **run-block file splitting is a tax, not a lever, and the milestone as
@@ -139,7 +139,7 @@ within a module, so it cannot say how much more.
 
 ---
 
-## 4. Where the time actually goes
+## 4. Where the time goes
 
 Putting the three together, the per-mutant cost of a mutation run against a real provider is:
 

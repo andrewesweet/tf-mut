@@ -22,13 +22,12 @@ import (
 // Two narrow exceptions, recorded here rather than taken quietly:
 //
 //   - docs/research and docs/reviews are dated records — exit-gate decisions
-//     and review dispositions — whose language is anchored to their date, and
-//     whose quotations record the words under review; rewriting either would
-//     falsify the record.
+//     and review dispositions — whose temporal language is anchored to their
+//     date, and whose quotations record the words under review; rewriting
+//     either would falsify the record.
 //   - Quoted diagnostics stay verbatim: the Terraform error the operator
 //     catalogue quotes ("must refer to var.<name> in order to test incoming
-//     values") keeps its wording, so double-quoted spans are not prose and
-//     are skipped the same way fenced code blocks are.
+//     values") keeps its wording.
 func TestTheDocumentsAvoidTheBannedPhrases(t *testing.T) {
 	t.Parallel()
 
@@ -37,11 +36,11 @@ func TestTheDocumentsAvoidTheBannedPhrases(t *testing.T) {
 		t.Fatal("repository root not found")
 	}
 
-	for _, name := range []string{"README.md", "CONTEXT.md", "ACTION.md"} {
-		assertDocumentAvoidsTheBannedPhrases(t, filepath.Join(root, name))
+	for _, name := range []string{"README.md", "CONTEXT.md", "ACTION.md", "research/spikes/README.md"} {
+		assertDocumentAvoidsTheBannedPhrases(t, filepath.Join(root, name), false)
 	}
 	for _, tree := range []string{
-		"docs/adr", "docs/agents", "docs/design", "docs/reference", "internal/skill/content",
+		"docs/adr", "docs/agents", "docs/design", "docs/reference", "docs/research", "docs/reviews", "internal/skill/content",
 	} {
 		entries, err := os.ReadDir(filepath.Join(root, tree))
 		if err != nil {
@@ -51,14 +50,15 @@ func TestTheDocumentsAvoidTheBannedPhrases(t *testing.T) {
 			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
 				continue
 			}
-			assertDocumentAvoidsTheBannedPhrases(t, filepath.Join(root, tree, entry.Name()))
+			assertDocumentAvoidsTheBannedPhrases(t, filepath.Join(root, tree, entry.Name()),
+				tree == "docs/research" || tree == "docs/reviews")
 		}
 	}
 }
 
 // assertDocumentAvoidsTheBannedPhrases reports every banned hit outside a
 // fenced code block, so one run names every line to restate.
-func assertDocumentAvoidsTheBannedPhrases(t *testing.T, document string) {
+func assertDocumentAvoidsTheBannedPhrases(t *testing.T, document string, datedRecord bool) {
 	t.Helper()
 
 	content, err := os.ReadFile(document) //nolint:gosec // a repository-owned path.
@@ -67,24 +67,34 @@ func assertDocumentAvoidsTheBannedPhrases(t *testing.T, document string) {
 	}
 
 	lines := strings.Split(string(content), "\n")
-	for _, number := range bannedPhraseLines(lines) {
+	for _, number := range bannedPhraseLines(lines, datedRecord) {
 		t.Errorf("%s:%d names a banned phrase: %q",
 			document, number, strings.TrimSpace(lines[number-1]))
 	}
 }
 
-func bannedPhraseLines(lines []string) []int {
+func bannedPhraseLines(lines []string, datedRecord bool) []int {
 	// Whole words only, so "concurrently" and "nowhere" pass; any case, so a
-	// sentence-initial "Not yet" cannot hide. Double-quoted spans are quoted
-	// diagnostics, not prose, so the quoted Terraform error keeps its wording.
-	banned := regexp.MustCompile(`(?i)\b(currently|now|soon|not yet|actually|very|in order to|see above|see below)\b`)
-	quoted := regexp.MustCompile(`"[^"]*"`)
+	// sentence-initial "Not yet" cannot hide.
+	phrases := "actually|very|in order to|see above|see below"
+	quotedPattern := `<samp>.*?</samp>`
+	if !datedRecord {
+		phrases += "|currently|now|soon|not yet"
+	} else {
+		quotedPattern += `|<q>.*?</q>`
+	}
+	banned := regexp.MustCompile(`(?i)\b(` + phrases + `)\b`)
+	quoted := regexp.MustCompile(quotedPattern)
 
 	var hits []int
 	var paragraph []string
 	var startLine int
 	checkParagraph := func() {
-		matches := banned.FindAllStringIndex(strings.Join(paragraph, " "), -1)
+		prose := strings.Join(paragraph, " ")
+		for _, span := range quoted.FindAllStringIndex(prose, -1) {
+			prose = prose[:span[0]] + strings.Repeat(" ", span[1]-span[0]) + prose[span[1]:]
+		}
+		matches := banned.FindAllStringIndex(prose, -1)
 		offset := 0
 		for index, line := range paragraph {
 			end := offset + len(line)
@@ -99,17 +109,25 @@ func bannedPhraseLines(lines []string) []int {
 		paragraph = paragraph[:0]
 	}
 
-	inFence := false
+	var fence string
 	for number, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+		trimmed := strings.TrimSpace(line)
+		if fence != "" {
+			if strings.HasPrefix(trimmed, fence) && strings.Trim(trimmed, fence[:1]) == "" {
+				fence = ""
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
 			checkParagraph()
-			inFence = !inFence
+			fence = trimmed[:len(trimmed)-len(strings.TrimLeft(trimmed, trimmed[:1]))]
 			continue
 		}
-		if inFence {
+		if datedRecord && strings.HasPrefix(trimmed, ">") {
+			checkParagraph()
 			continue
 		}
-		normalized := strings.Join(strings.Fields(quoted.ReplaceAllString(line, "")), " ")
+		normalized := strings.Join(strings.Fields(line), " ")
 		if normalized == "" {
 			checkParagraph()
 			continue
@@ -127,9 +145,10 @@ func TestTheTimelessLanguageGuardNormalizesParagraphWhitespace(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
-		name    string
-		content string
-		lines   []int
+		name        string
+		content     string
+		lines       []int
+		datedRecord bool
 	}{
 		{name: "ordinary prose", content: "No licence is specified.\nConcurrently, nowhere.", lines: nil},
 		{name: "all phrases", content: "Currently.\nNow.\nSoon.\nNot yet.", lines: []int{1, 2, 3, 4}},
@@ -147,14 +166,47 @@ func TestTheTimelessLanguageGuardNormalizesParagraphWhitespace(t *testing.T) {
 		{name: "fence boundary", content: "It is not\n```text\ncurrently now soon not yet\n```\nyet supported.", lines: nil},
 		{name: "after fence", content: "```text\nnot yet\n```\nIt is not\nyet supported.", lines: []int{4}},
 		{name: "before fence", content: "It is not\nyet supported.\n```text\nnot yet\n```", lines: []int{1}},
+		{name: "tilde fence", content: "~~~text\nactually very in order to see above\n~~~\nSee below.", lines: []int{4}},
+		{name: "long fence", content: "````text\n```\nvery useful\n````\nActually.", lines: []int{5}},
 		{name: "filler words", content: "It actually generates very few mutants.\nSee above.", lines: []int{1, 2}},
 		{name: "in order to", content: "What it inspects in order\nto kill it.", lines: []int{1}},
-		{name: "quoted diagnostic", content: "It rejects (\"must refer to var.<name> in order to test\").", lines: nil},
+		{name: "quoted diagnostic", content: "It rejects (<samp>\"must refer to var.<name> in order to test incoming values\"</samp>).", lines: nil},
+		{
+			name:    "wrapped diagnostic",
+			content: "It rejects (<samp>\"must refer to var.<name> in order\nto test incoming values\"</samp>).",
+			lines:   nil,
+		},
+		{name: "CRLF diagnostic", content: "It rejects (<samp>\"in order\r\nto test\"</samp>).\r\nActually.", lines: []int{3}},
+		{
+			name:    "prose around wrapped diagnostic",
+			content: "Actually, it rejects (<samp>\"must refer to var.<name> in order\nto test incoming values\"</samp>).\nThe check is very useful.",
+			lines:   []int{1, 3},
+		},
+		{name: "ordinary quoted prose", content: "The suite is \"very useful\".", lines: []int{1}},
+		{name: "wrapped quoted prose", content: "The suite is \"very\nuseful\".", lines: []int{1}},
+		{name: "curly quoted prose", content: "The suite is “very useful”.", lines: []int{1}},
+		{name: "unclosed diagnostic", content: "It rejects (<samp>\"in order to test\").", lines: []int{1}},
+		{name: "diagnostic boundary", content: "It checks in <samp>\"in order to test\"</samp> order to fail.", lines: nil},
+		{name: "current quotation", content: "The suite is <q>very useful</q>.", lines: []int{1}},
+		{name: "current blockquote", content: "> The suite is very useful.", lines: []int{1}},
+		{name: "dated temporal prose", content: "Currently. Now. Soon. Not yet.", datedRecord: true, lines: nil},
+		{name: "dated filler prose", content: "Actually, very useful in order to test.\nSee above. See below.", datedRecord: true, lines: []int{1, 2}},
+		{name: "dated wrapped filler", content: "It checks in order\nto fail.", datedRecord: true, lines: []int{1}},
+		{name: "dated quoted prose", content: "The suite is \"very useful\".", datedRecord: true, lines: []int{1}},
+		{name: "dated source quotation", content: "The review states <q>actually very\nuseful in order to test</q>.", datedRecord: true, lines: nil},
+		{name: "dated source blockquote", content: "> Actually, very useful in order to test.", datedRecord: true, lines: nil},
+		{name: "dated diagnostic", content: "It rejects (<samp>\"in order\nto test\"</samp>).", datedRecord: true, lines: nil},
+		{
+			name:        "prose around dated quotation",
+			content:     "Actually, the review states <q>very\nuseful</q>.\nSee below.",
+			datedRecord: true,
+			lines:       []int{1, 3},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			hits := bannedPhraseLines(strings.Split(test.content, "\n"))
+			hits := bannedPhraseLines(strings.Split(test.content, "\n"), test.datedRecord)
 			if !slices.Equal(hits, test.lines) {
 				t.Fatalf("banned phrase source lines = %v, want %v", hits, test.lines)
 			}

@@ -7,7 +7,7 @@ questions before committing to a design:
 1. How do you isolate a mutant without touching the source tree?
 2. Can `.terraform` be shared, and does sharing break mutations in child modules?
 3. Can equivalent (unobservable) mutants be detected automatically?
-4. How fast is this, actually?
+4. How fast is this?
 
 ## Fixtures
 
@@ -111,7 +111,7 @@ tool's most important piece of honesty.
 `test_plan` payload's `relevant_attributes` was "a coverage map… exactly what test selection
 needs". Re-examination showed it is the refresh/targeting dependency set — identical across
 all three `fixture-b` run blocks, containing only the cross-resource `id` reference and not
-the `triggers.tier` attribute the assertions actually read. It cannot support test selection
+the `triggers.tier` attribute the assertions read. It cannot support test selection
 or coverage reporting; the assertion inventory parsed from the test-file AST can.
 
 ### The fingerprint has to be normalised first

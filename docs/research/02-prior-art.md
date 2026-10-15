@@ -44,7 +44,7 @@ copying.
 **Extreme mutation (Descartes).** Instead of mutating individual instructions, delete whole
 method bodies and see if anything notices. It generates an order of magnitude fewer mutants,
 runs much faster, and surfaces *pseudo-tested* methods — code that is covered by tests but
-whose behaviour nothing actually asserts on. Across 19 open-source projects the median
+whose behaviour nothing asserts on. Across 19 open-source projects the median
 proportion of pseudo-tested methods was ~10%.
 
 This is the most transferable idea in the whole field for Terraform, because Terraform

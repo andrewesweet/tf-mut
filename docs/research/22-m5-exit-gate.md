@@ -49,7 +49,7 @@ stated rule.** Met.
   dispositioned **not planned** with a recorded revisit condition (a corpus where the rung
   is reached and never fires outside the public, validator-shaped stratum).
 
-**Gate 2 — `gate-m5` green with its honesty pair and its offline site witnesses actually
+**Gate 2 — `gate-m5` green with its honesty pair and its offline site witnesses
 executed.** Met. The gate ran green on this tree at 115 tests, 1 skipped; the skip is
 `TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperators`, whose own
 skip reason is that this tree *is* the merge-base — the two legs are one commit apart and

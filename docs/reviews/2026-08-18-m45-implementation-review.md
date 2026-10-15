@@ -201,7 +201,7 @@ honoured in one place is not honoured anywhere else.** Every boundary this round
 already been crossed correctly somewhere in the repository, by an earlier protocol nobody
 extracted.
 
-The fifth is the fourth review's: **check what the green actually executed.** A gate whose
+The fifth is the fourth review's: **check what the green executed.** A gate whose
 cases skip, and a table nothing calls, both report success — and success that was never
 computed is the one kind of evidence no amount of asserting the right property will catch.
 

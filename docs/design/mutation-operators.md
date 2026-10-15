@@ -258,7 +258,7 @@ tier, because the contract is precisely what consumers depend on.
 
 Two review corrections (M12) are load-bearing here. `VAR-VALIDATION-WEAKEN` cannot be
 `condition = true`: Terraform rejects a validation condition that does not reference its
-variable ("must refer to var.<name> in order to test incoming values"), so that form is 100%
+variable (<samp>"must refer to var.&lt;name&gt; in order to test incoming values"</samp>), so that form is 100%
 `Invalid` — `can(var.<name>)` is the always-true form that validates. And `VAR-TYPE-LOOSEN`
 (`type = string` → `any`) has been **deleted from the catalogue**: its proposed killer was a
 test passing a wrongly-typed value under `expect_failures`, but `expect_failures` cannot
