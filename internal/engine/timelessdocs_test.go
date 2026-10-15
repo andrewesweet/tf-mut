@@ -86,22 +86,7 @@ func bannedPhraseLines(lines []string, datedRecord bool) []int {
 	var paragraph []string
 	var startLine int
 	checkParagraph := func() {
-		prose := strings.Join(paragraph, " ")
-		for _, span := range quoted.FindAllStringIndex(prose, -1) {
-			prose = prose[:span[0]] + strings.Repeat(" ", span[1]-span[0]) + prose[span[1]:]
-		}
-		matches := banned.FindAllStringIndex(prose, -1)
-		offset := 0
-		for index, line := range paragraph {
-			end := offset + len(line)
-			if len(matches) > 0 && matches[0][0] < end {
-				hits = append(hits, startLine+index)
-			}
-			for len(matches) > 0 && matches[0][0] < end {
-				matches = matches[1:]
-			}
-			offset = end + 1
-		}
+		hits = append(hits, bannedParagraphLines(paragraph, startLine, banned, quoted)...)
 		paragraph = paragraph[:0]
 	}
 
@@ -133,15 +118,38 @@ func bannedPhraseLines(lines []string, datedRecord bool) []int {
 	return hits
 }
 
+func bannedParagraphLines(paragraph []string, startLine int, banned, quoted *regexp.Regexp) []int {
+	prose := strings.Join(paragraph, " ")
+	for _, span := range quoted.FindAllStringIndex(prose, -1) {
+		prose = prose[:span[0]] + strings.Repeat(" ", span[1]-span[0]) + prose[span[1]:]
+	}
+	matches := banned.FindAllStringIndex(prose, -1)
+	var hits []int
+	offset := 0
+	for index, line := range paragraph {
+		end := offset + len(line)
+		if len(matches) > 0 && matches[0][0] < end {
+			hits = append(hits, startLine+index)
+		}
+		for len(matches) > 0 && matches[0][0] < end {
+			matches = matches[1:]
+		}
+		offset = end + 1
+	}
+	return hits
+}
+
+type bannedPhraseCase struct {
+	name        string
+	content     string
+	lines       []int
+	datedRecord bool
+}
+
 func TestTheTimelessLanguageGuardNormalizesParagraphWhitespace(t *testing.T) {
 	t.Parallel()
 
-	for _, test := range []struct {
-		name        string
-		content     string
-		lines       []int
-		datedRecord bool
-	}{
+	assertBannedPhraseCases(t, []bannedPhraseCase{
 		{name: "ordinary prose", content: "No licence is specified.\nConcurrently, nowhere.", lines: nil},
 		{name: "all phrases", content: "Currently.\nNow.\nSoon.\nNot yet.", lines: []int{1, 2, 3, 4}},
 		{name: "spaces", content: "It is not  yet supported.", lines: []int{1}},
@@ -162,17 +170,45 @@ func TestTheTimelessLanguageGuardNormalizesParagraphWhitespace(t *testing.T) {
 		{name: "long fence", content: "````text\n```\nvery useful\n````\nActually.", lines: []int{5}},
 		{name: "filler words", content: "It actually generates very few mutants.\nSee above.", lines: []int{1, 2}},
 		{name: "in order to", content: "What it inspects in order\nto kill it.", lines: []int{1}},
-		{name: "quoted diagnostic", content: "It rejects (<samp>\"must refer to var.<name> in order to test incoming values\"</samp>).", lines: nil},
+		{
+			name:    "wrapped callout phrases",
+			content: "> It checks in order\n> to fail.\n>\n> See\n> above.\n>\n> See\n> below.",
+			lines:   []int{1, 4, 7},
+		},
+		{name: "nested callout", content: "\t> > It checks in order\n\t> > to fail.", lines: []int{1}},
+		{name: "callout paragraph boundary", content: "> It checks in\n>\n> order to fail.", lines: nil},
+		{
+			name:    "callout fence",
+			content: "> ~~~text\n> actually very in order to see above\n> ~~~\n> See below.",
+			lines:   []int{4},
+		},
+	})
+}
+
+func TestTheTimelessLanguageGuardPreservesQuotedDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	assertBannedPhraseCases(t, []bannedPhraseCase{
+		{
+			name:    "quoted diagnostic",
+			content: "It rejects (<samp>\"must refer to var.<name> in order to test incoming values\"</samp>).",
+			lines:   nil,
+		},
 		{
 			name:    "wrapped diagnostic",
 			content: "It rejects (<samp>\"must refer to var.<name> in order\nto test incoming values\"</samp>).",
 			lines:   nil,
 		},
-		{name: "CRLF diagnostic", content: "It rejects (<samp>\"in order\r\nto test\"</samp>).\r\nActually.", lines: []int{3}},
 		{
-			name:    "prose around wrapped diagnostic",
-			content: "Actually, it rejects (<samp>\"must refer to var.<name> in order\nto test incoming values\"</samp>).\nThe check is very useful.",
-			lines:   []int{1, 3},
+			name:    "CRLF diagnostic",
+			content: "It rejects (<samp>\"in order\r\nto test\"</samp>).\r\nActually.",
+			lines:   []int{3},
+		},
+		{
+			name: "prose around wrapped diagnostic",
+			content: "Actually, it rejects (<samp>\"must refer to var.<name> in order\n" +
+				"to test incoming values\"</samp>).\nThe check is very useful.",
+			lines: []int{1, 3},
 		},
 		{name: "ordinary quoted prose", content: "The suite is \"very useful\".", lines: []int{1}},
 		{name: "wrapped quoted prose", content: "The suite is \"very\nuseful\".", lines: []int{1}},
@@ -181,22 +217,41 @@ func TestTheTimelessLanguageGuardNormalizesParagraphWhitespace(t *testing.T) {
 		{name: "diagnostic boundary", content: "It checks in <samp>\"in order to test\"</samp> order to fail.", lines: nil},
 		{name: "current quotation", content: "The suite is <q>very useful</q>.", lines: []int{1}},
 		{name: "current blockquote", content: "> The suite is very useful.", lines: []int{1}},
+		{name: "callout diagnostic", content: "> <samp>\"in order\n> to test\"</samp>.\n> Actually.", lines: []int{3}},
+	})
+}
+
+func TestTheTimelessLanguageGuardChecksDatedRecords(t *testing.T) {
+	t.Parallel()
+
+	assertBannedPhraseCases(t, []bannedPhraseCase{
 		{name: "dated temporal prose", content: "Currently. Now. Soon. Not yet.", datedRecord: true, lines: nil},
-		{name: "dated filler prose", content: "Actually, very useful in order to test.\nSee above. See below.", datedRecord: true, lines: []int{1, 2}},
+		{
+			name:        "dated filler prose",
+			content:     "Actually, very useful in order to test.\nSee above. See below.",
+			datedRecord: true,
+			lines:       []int{1, 2},
+		},
 		{name: "dated wrapped filler", content: "It checks in order\nto fail.", datedRecord: true, lines: []int{1}},
 		{name: "dated quoted prose", content: "The suite is \"very useful\".", datedRecord: true, lines: []int{1}},
-		{name: "dated source quotation", content: "The review states <q>actually very\nuseful in order to test</q>.", datedRecord: true, lines: nil},
-		{name: "dated authored blockquote", content: "> Actually, very useful in order to test.", datedRecord: true, lines: []int{1}},
 		{
-			name:        "dated measurement callout",
-			content:     "A heading\n\n> Everything actually measured here was executed against `Terraform v1.15.8 on linux_amd64` with the\n> engine at the commit that introduced this file.",
+			name:        "dated source quotation",
+			content:     "The review states <q>actually very\nuseful in order to test</q>.",
 			datedRecord: true,
-			lines:       []int{3},
+			lines:       nil,
 		},
 		{
-			name:    "wrapped callout phrases",
-			content: "> It checks in order\n> to fail.\n>\n> See\n> above.\n>\n> See\n> below.",
-			lines:   []int{1, 4, 7},
+			name:        "dated authored blockquote",
+			content:     "> Actually, very useful in order to test.",
+			datedRecord: true,
+			lines:       []int{1},
+		},
+		{
+			name: "dated measurement callout",
+			content: "A heading\n\n> Everything actually measured here was executed against " +
+				"`Terraform v1.15.8 on linux_amd64` with the\n> engine at the commit that introduced this file.",
+			datedRecord: true,
+			lines:       []int{3},
 		},
 		{
 			name:        "dated wrapped callout phrases",
@@ -204,9 +259,12 @@ func TestTheTimelessLanguageGuardNormalizesParagraphWhitespace(t *testing.T) {
 			datedRecord: true,
 			lines:       []int{1, 4, 7},
 		},
-		{name: "nested callout", content: "\t> > It checks in order\n\t> > to fail.", lines: []int{1}},
-		{name: "dated nested callout", content: "\t> > It checks in order\n\t> > to fail.", datedRecord: true, lines: []int{1}},
-		{name: "callout paragraph boundary", content: "> It checks in\n>\n> order to fail.", lines: nil},
+		{
+			name:        "dated nested callout",
+			content:     "\t> > It checks in order\n\t> > to fail.",
+			datedRecord: true,
+			lines:       []int{1},
+		},
 		{name: "dated temporal callout", content: "> Currently. Now. Soon. Not yet.", datedRecord: true, lines: nil},
 		{
 			name:        "marked callout quotation",
@@ -214,17 +272,31 @@ func TestTheTimelessLanguageGuardNormalizesParagraphWhitespace(t *testing.T) {
 			datedRecord: true,
 			lines:       []int{3},
 		},
-		{name: "callout diagnostic", content: "> <samp>\"in order\n> to test\"</samp>.\n> Actually.", lines: []int{3}},
-		{name: "callout fence", content: "> ~~~text\n> actually very in order to see above\n> ~~~\n> See below.", lines: []int{4}},
-		{name: "dated callout fence", content: "> ```text\n> actually very in order to see above\n> ```\n> See below.", datedRecord: true, lines: []int{4}},
-		{name: "dated diagnostic", content: "It rejects (<samp>\"in order\nto test\"</samp>).", datedRecord: true, lines: nil},
+		{
+			name:        "dated callout fence",
+			content:     "> ```text\n> actually very in order to see above\n> ```\n> See below.",
+			datedRecord: true,
+			lines:       []int{4},
+		},
+		{
+			name:        "dated diagnostic",
+			content:     "It rejects (<samp>\"in order\nto test\"</samp>).",
+			datedRecord: true,
+			lines:       nil,
+		},
 		{
 			name:        "prose around dated quotation",
 			content:     "Actually, the review states <q>very\nuseful</q>.\nSee below.",
 			datedRecord: true,
 			lines:       []int{1, 3},
 		},
-	} {
+	})
+}
+
+func assertBannedPhraseCases(t *testing.T, cases []bannedPhraseCase) {
+	t.Helper()
+
+	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
