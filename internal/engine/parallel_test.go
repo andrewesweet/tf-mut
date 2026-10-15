@@ -10,6 +10,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 const (
@@ -102,9 +103,7 @@ fi
 exec terraform "$@"
 `
 
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec // the wrapper must run.
-		t.Fatalf("writing terraform wrapper: %v", err)
-	}
+	testsupport.WriteExecutable(t, path, script)
 
 	return path
 }

@@ -43,9 +43,7 @@ exec terraform "$@"
 
 	path := filepath.Join(t.TempDir(), "terraform-sleeping")
 
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec // the wrapper must run.
-		t.Fatalf("writing terraform wrapper: %v", err)
-	}
+	testsupport.WriteExecutable(t, path, script)
 
 	return path
 }
@@ -372,10 +370,7 @@ if [ "$3" = diff ]; then sleep 60; fi
 exec ` + realGit + ` "$@"
 `
 
-	writeErr := os.WriteFile(filepath.Join(shimDir, "git"), []byte(script), 0o700) //nolint:gosec // the shim must run.
-	if writeErr != nil {
-		t.Fatalf("writing git shim: %v", writeErr)
-	}
+	testsupport.WriteExecutable(t, filepath.Join(shimDir, "git"), script)
 
 	engine.SetGitTimeout(t, 500*time.Millisecond)
 	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -458,11 +453,8 @@ func runGitLookupFallbackCase(t *testing.T, testCase gitLookupFallbackCase, dead
 		action = "sleep 60"
 	}
 	shim := filepath.Join(shimDir, "git")
-	testsupport.WriteFile(t, shim, "#!/usr/bin/env bash\nif "+testCase.condition+"; then "+action+
+	testsupport.WriteExecutable(t, shim, "#!/usr/bin/env bash\nif "+testCase.condition+"; then "+action+
 		"; fi\nexec \"$TF_MUT_REAL_GIT\" \"$@\"\n")
-	if chmodErr := os.Chmod(shim, 0o700); chmodErr != nil { //nolint:gosec // fixed test-written Git shim must run.
-		t.Fatal(chmodErr)
-	}
 	t.Setenv("TF_MUT_REAL_GIT", realGit)
 	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	engine.SetGitTimeout(t, 500*time.Millisecond)

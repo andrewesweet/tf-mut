@@ -964,13 +964,7 @@ exit "$status"
 `, shellQuote(log), shellQuote(realTerraform), shellQuote(count), shellQuote(count),
 		shellQuote(count), streams, shellQuote(realTerraform))
 
-	if err := os.WriteFile(wrapper, []byte(script), 0o600); err != nil {
-		t.Fatalf("writing Terraform recorder: %v", err)
-	}
-
-	if err := os.Chmod(wrapper, 0o700); err != nil { //nolint:gosec // A test-owned command wrapper must execute.
-		t.Fatalf("making Terraform recorder executable: %v", err)
-	}
+	testsupport.WriteExecutable(t, wrapper, script)
 
 	return repairRecorder{logDir: root, binary: wrapper}
 }
