@@ -296,13 +296,6 @@ type instrumentation struct {
 // CPU-profile warnings share the request's progress writer, under the run
 // identifier's prefix — never a report sink — and a nil writer drops them.
 func (e Engine) instrument(ctx context.Context, s *settings) (instrumentation, context.Context, error) {
-	// The request's progress writer is the run's warning channel; the
-	// dependencies name the fallback when the request carries none. Nil
-	// stays nil under the default wiring, which drops the lines as today.
-	if s.Progress == nil {
-		s.Progress = e.dependencies.WarningWriter
-	}
-
 	output, outputErr := prepareRunOutput(s)
 	if outputErr != nil {
 		return instrumentation{}, nil, outputErr
@@ -468,12 +461,7 @@ type probed struct {
 func (e Engine) probe(
 	ctx context.Context, s settings, moduleDir string, collector *runCollector,
 ) (probed, error) {
-	// The request settings own the binary and the environment; the template
-	// carries everything else. Under the default wiring the template is
-	// zero, which is exactly the literal construction this replaced.
-	runner := e.dependencies.Runner
-	runner.Binary = s.TerraformBinary
-	runner.Env = s.Env
+	runner := tfexec.Runner{Binary: s.TerraformBinary, Env: s.Env}
 
 	versionPhase := collector.phase(phaseVersion)
 	version, err := checkVersion(ctx, runner, moduleDir, s.preflightCap())
