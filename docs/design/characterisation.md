@@ -8,7 +8,7 @@ untested configuration with confidence, and you cannot write tests for behaviour
 remembers specifying.
 
 This is precisely the situation Michael Feathers' *Working Effectively with Legacy Code*
-addresses with **characterisation tests**: tests that document what the code *actually does*
+addresses with **characterisation tests**: tests that document what the code *does*
 today, not what it should do. Feathers' loop is:
 
 1. Write a test you know will fail, with a dummy expected value.

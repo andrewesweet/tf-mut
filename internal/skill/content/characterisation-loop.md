@@ -15,7 +15,7 @@ all — and no safe way to start, because writing the first suite means
 discovering every mock, every input and every value the plan produces.
 `tf-mut characterise` does that discovery deterministically and with no
 language model anywhere: it plans a mock per provider configuration, runs an
-assertion-less scenario twice, and pins what it actually observed.
+assertion-less scenario twice, and pins what it observed.
 
 Your job in this loop is judgement — the values the tool refuses to guess at,
 and the scenarios only somebody who knows the system would think to add. The

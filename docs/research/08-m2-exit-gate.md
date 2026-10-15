@@ -42,7 +42,7 @@ false. They are the milestone.
 | C1 | That diagnoses can be assigned in any order. Where two predicates hold, the higher one wins | `TestTheHigherDiagnosisWinsWhenTwoPredicatesHold` |
 | Volume | That every mutant can afford a fingerprint. Phase two runs for phase-one survivors and for nothing else | `TestPhaseTwoRunsOnlyForPhaseOneSurvivors` |
 | Open question 6 | That a payload can be read without checking its version. A `plan_format_version` outside the pinned range is an operational failure, never a verdict | `TestAPayloadOutsideThePinnedVersionRangeIsAnOperationalFailure` |
-| M5 | That the decoder can buffer. See below | `TestVerboseDecodeOfALargeStreamStaysWithinTheHeapCeiling` |
+| M5 | That the decoder can buffer — the `The streaming memory bound` measurements | `TestVerboseDecodeOfALargeStreamStaysWithinTheHeapCeiling` |
 | M5, converse | That a truncated or malformed stream can be classified | `TestTruncatedStreamIsAnErrorRatherThanAnEmptyResult`, `TestMalformedStreamIsAnErrorRatherThanAnEmptyResult` |
 
 ## Measurements

@@ -9,11 +9,11 @@ Every operator obeys the same five rules.
 2. **Type-preserving where the language demands it.** A mutant that cannot pass
    `terraform validate` is wasted work. Operators that would change an expression's type are
    either omitted or guarded by a static type check.
-3. **Fault-realistic.** Each operator models a mistake a competent engineer actually makes.
+3. **Fault-realistic.** Each operator models a mistake a competent engineer makes.
    "Replace this string with `zzz`" is not a fault model; "drop the `if` clause from a `for`
    expression" is.
 4. **Declares its expected killer.** Every operator states what an assertion would have to
-   inspect in order to kill it. This is what powers the survivor diagnosis and the suggested
+   inspect to kill it. This is what powers the survivor diagnosis and the suggested
    assertion (see `product-design.md` §7).
 5. **Tiered.** Operators belong to `smoke`, `standard` or `deep`. Tiers exist so the tool can
    be fast by default and thorough on request. The pack form operators belong to Tier 5, which
@@ -39,8 +39,8 @@ no operator generates against them.
 
 ## Tier 0 — Extreme (`smoke`)
 
-The Terraform analogue of Descartes' extreme mutation. These generate very few mutants, run in
-seconds, and answer the question that Oasis's benchmark says actually matters: *is this
+The Terraform analogue of Descartes' extreme mutation. These generate few mutants, run in
+seconds, and answer the question that Oasis's benchmark says matters: *is this
 resource tested at all, or merely covered?*
 
 | ID | Site | Mutation | Kills when |
@@ -190,7 +190,7 @@ ways that are easy to get wrong and almost never asserted on — `toset` in part
 
 ### The generated function families (M3e, opt-in)
 
-Each family is a justified fault model — functions an author actually confuses — never a
+Each family is a justified fault model — functions an author confuses — never a
 signature grouping. Members are real Terraform functions; `setsubtract` is substituted only
 at its exact arity of two.
 
@@ -387,7 +387,7 @@ From the M2 spec review (C5, M2): "type-preserving where decidable" is a design 
 applicability specification, and per-operator error counts over an unspecified catalogue
 measure specification gaps rather than operator quality. This is that specification. One row
 per enabled operator: the exact source forms it accepts, the type or schema evidence it needs
-in order to fire, any coordinated rewrite it performs, the cases it skips and why, and the
+to fire, any coordinated rewrite it performs, the cases it skips and why, and the
 classification its mutants are expected to reach.
 
 Every row is fixture-backed. `internal/engine/testdata/operators` carries a generation site for

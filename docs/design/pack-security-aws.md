@@ -45,7 +45,7 @@ For every enabled entry, three counts are published, as the census requires:
 
 - **Pre** — mutants whose bytes the entry produced, before cross-catalogue deduplication;
 - **Post/origin** — rows carrying the entry as an origin, after deduplication;
-- **Owned** — rows the pack operators own (always 0; see above).
+- **Owned** — rows the pack operators own (always 0; see `What ships`).
 
 The two catalogues overlap exactly on the enabled set: each Checkov entry and its Trivy twin
 produce identical bytes, so both entries become origins of every row their shared bytes

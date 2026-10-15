@@ -11,17 +11,24 @@ import (
 
 // The timeless-language contract, enforced rather than described: the documents
 // a reader takes as current — README, CONTEXT, ACTION, the ADRs, the design and
-// agent pages, the shipped skills — state their claims in the present tense, so
-// the words that let a document rot are banned from them by test. Ticket T5 of
-// the technical-documentation review seeds the list with the four temporal
-// phrases; ticket T7's filler words join the same list when that ticket lands.
+// agent pages, the generated reference, the shipped skills — state their claims
+// in the present tense and without filler, so the words that let a document rot
+// or pad are banned from them by test. Ticket T5 of the
+// technical-documentation review seeds the list with the four temporal
+// phrases; ticket T7 joins the same list with the filler words ("actually",
+// "very", "in order to") and the positional references ("see above",
+// "see below").
 //
-// One narrow exception, recorded here rather than taken quietly:
+// Two narrow exceptions, recorded here rather than taken quietly:
 //
 //   - docs/research and docs/reviews are dated records — exit-gate decisions
-//     and review dispositions — whose temporal language is anchored to their
-//     date, and whose quotations record the words under review; rewriting
-//     either would falsify the record.
+//     and review dispositions — whose language is anchored to their date, and
+//     whose quotations record the words under review; rewriting either would
+//     falsify the record.
+//   - Quoted diagnostics stay verbatim: the Terraform error the operator
+//     catalogue quotes ("must refer to var.<name> in order to test incoming
+//     values") keeps its wording, so double-quoted spans are not prose and
+//     are skipped the same way fenced code blocks are.
 func TestTheDocumentsAvoidTheBannedPhrases(t *testing.T) {
 	t.Parallel()
 
@@ -34,7 +41,7 @@ func TestTheDocumentsAvoidTheBannedPhrases(t *testing.T) {
 		assertDocumentAvoidsTheBannedPhrases(t, filepath.Join(root, name))
 	}
 	for _, tree := range []string{
-		"docs/adr", "docs/agents", "docs/design", "internal/skill/content",
+		"docs/adr", "docs/agents", "docs/design", "docs/reference", "internal/skill/content",
 	} {
 		entries, err := os.ReadDir(filepath.Join(root, tree))
 		if err != nil {
@@ -61,15 +68,17 @@ func assertDocumentAvoidsTheBannedPhrases(t *testing.T, document string) {
 
 	lines := strings.Split(string(content), "\n")
 	for _, number := range bannedPhraseLines(lines) {
-		t.Errorf("%s:%d names a banned temporal phrase: %q",
+		t.Errorf("%s:%d names a banned phrase: %q",
 			document, number, strings.TrimSpace(lines[number-1]))
 	}
 }
 
 func bannedPhraseLines(lines []string) []int {
 	// Whole words only, so "concurrently" and "nowhere" pass; any case, so a
-	// sentence-initial "Not yet" cannot hide.
-	banned := regexp.MustCompile(`(?i)\b(currently|now|soon|not yet)\b`)
+	// sentence-initial "Not yet" cannot hide. Double-quoted spans are quoted
+	// diagnostics, not prose, so the quoted Terraform error keeps its wording.
+	banned := regexp.MustCompile(`(?i)\b(currently|now|soon|not yet|actually|very|in order to|see above|see below)\b`)
+	quoted := regexp.MustCompile(`"[^"]*"`)
 
 	var hits []int
 	var paragraph []string
@@ -100,7 +109,7 @@ func bannedPhraseLines(lines []string) []int {
 		if inFence {
 			continue
 		}
-		normalized := strings.Join(strings.Fields(line), " ")
+		normalized := strings.Join(strings.Fields(quoted.ReplaceAllString(line, "")), " ")
 		if normalized == "" {
 			checkParagraph()
 			continue
@@ -138,6 +147,9 @@ func TestTheTimelessLanguageGuardNormalizesParagraphWhitespace(t *testing.T) {
 		{name: "fence boundary", content: "It is not\n```text\ncurrently now soon not yet\n```\nyet supported.", lines: nil},
 		{name: "after fence", content: "```text\nnot yet\n```\nIt is not\nyet supported.", lines: []int{4}},
 		{name: "before fence", content: "It is not\nyet supported.\n```text\nnot yet\n```", lines: []int{1}},
+		{name: "filler words", content: "It actually generates very few mutants.\nSee above.", lines: []int{1, 2}},
+		{name: "in order to", content: "What it inspects in order\nto kill it.", lines: []int{1}},
+		{name: "quoted diagnostic", content: "It rejects (\"must refer to var.<name> in order to test\").", lines: nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

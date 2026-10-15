@@ -1,7 +1,7 @@
 # Failure modes, and design for agent drivability
 
 Two questions are answered here. First, where does the characterisation approach (and the
-mutation loop it rests on) actually fail? Second, given that some of those failures are
+mutation loop it rests on) fail? Second, given that some of those failures are
 resolvable only by judgement — and the tool itself will **never make an LLM call** — how is it
 designed so that a coding agent driving it can supply that judgement instead?
 
@@ -20,7 +20,7 @@ it is planned, harvested, and measured like anything else. Agent errors become t
 
 ## 1. Failure-mode taxonomy
 
-Each failure mode lists how the tool detects it, what it does, and who can actually resolve
+Each failure mode lists how the tool detects it, what it does, and who can resolve
 it: **T** = the tool alone, **A** = a driving agent, **H** = a human. Modes marked A are the
 design targets for §2.
 
@@ -59,7 +59,7 @@ design targets for §2.
 | --- | --- | --- | --- | --- |
 | D1 | Set-cover pruning overfits the operator catalogue: an assertion kills nothing *under current mutants* but guards a fault class the catalogue does not model | Inherent — the kill-set is only as rich as the catalogue | `curate` **reports; it never auto-deletes.** Pruning requires an explicit apply, and the report says which operators the retained evidence comes from | **A**/H judge each prune |
 | D2 | `--until-dry` oscillation: each pinned assertion perturbs kill-sets; loop may not reach a fixed point | Iteration counter | Bounded iterations (default 5) with a convergence report | T |
-| D3 | Score plateau read as completeness: survivors classified `unobservable-under-current-inputs` mean the *inputs* are the gap, not the assertions | Already a distinct diagnosis | The until-dry loop surfaces these as "new run block needed", with the mutation site and the inputs every existing run supplied | **A** proposes the discriminating input; tool verifies it actually changes the fingerprint |
+| D3 | Score plateau read as completeness: survivors classified `unobservable-under-current-inputs` mean the *inputs* are the gap, not the assertions | Already a distinct diagnosis | The until-dry loop surfaces these as "new run block needed", with the mutation site and the inputs every existing run supplied | **A** proposes the discriminating input; tool verifies it changes the fingerprint |
 
 The pattern across every **A** row is identical: the tool detects the gap precisely, packages
 the evidence, and can verify any proposed answer — it just cannot invent the answer. That is
@@ -119,7 +119,7 @@ agent supplies decisions the same way a CI file would:
 | Granularity per run block | `--pin outputs\|counts\|configured`, overridable per run in `.tf-mut.hcl` |
 | Day-2 scenarios (C3) | An agent writes an ordinary second run block; the tool harvests and pins it like its own |
 | Prune approvals (D1) | Deferred: M4.5's `curate` is report-only (M4.5 spec review, M6) — an agent acts on its findings by editing the test files directly. A `curate --apply` returns only if it earns its own recorded write exception with the full protocol; when it does, it is explicit IDs only, never a bulk apply |
-| Discriminating inputs (D3) | An agent adds a run block with the proposed inputs; the tool reports whether it changed the fingerprint, i.e. whether the proposal actually discriminates |
+| Discriminating inputs (D3) | An agent adds a run block with the proposed inputs; the tool reports whether it changed the fingerprint, i.e. whether the proposal discriminates |
 
 ### 2.4 The verification loop is the safety property
 

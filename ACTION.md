@@ -77,7 +77,7 @@ preserved** — the final step still exits with the captured code. Nothing about
 shape can turn a red run green or a green run red. The step summary is unaffected by token
 shape entirely.
 
-What actually degrades is measured, not assumed: on pull-request events GitHub accepts the
+What degrades is measured, not assumed: on pull-request events GitHub accepts the
 SARIF upload from a read-only token — the platform scopes that write itself, so annotations
 survive even on fork PRs. On non-PR events a read-only token refuses the SARIF upload.
 
