@@ -111,7 +111,7 @@ func bannedPhraseLines(lines []string, datedRecord bool) []int {
 
 	var fence string
 	for number, line := range lines {
-		trimmed := strings.TrimSpace(line)
+		trimmed := strings.TrimLeft(strings.TrimSpace(line), "> \t")
 		if fence != "" {
 			if strings.HasPrefix(trimmed, fence) && strings.Trim(trimmed, fence[:1]) == "" {
 				fence = ""
@@ -123,11 +123,7 @@ func bannedPhraseLines(lines []string, datedRecord bool) []int {
 			fence = trimmed[:len(trimmed)-len(strings.TrimLeft(trimmed, trimmed[:1]))]
 			continue
 		}
-		if datedRecord && strings.HasPrefix(trimmed, ">") {
-			checkParagraph()
-			continue
-		}
-		normalized := strings.Join(strings.Fields(line), " ")
+		normalized := strings.Join(strings.Fields(trimmed), " ")
 		if normalized == "" {
 			checkParagraph()
 			continue
@@ -194,7 +190,37 @@ func TestTheTimelessLanguageGuardNormalizesParagraphWhitespace(t *testing.T) {
 		{name: "dated wrapped filler", content: "It checks in order\nto fail.", datedRecord: true, lines: []int{1}},
 		{name: "dated quoted prose", content: "The suite is \"very useful\".", datedRecord: true, lines: []int{1}},
 		{name: "dated source quotation", content: "The review states <q>actually very\nuseful in order to test</q>.", datedRecord: true, lines: nil},
-		{name: "dated source blockquote", content: "> Actually, very useful in order to test.", datedRecord: true, lines: nil},
+		{name: "dated authored blockquote", content: "> Actually, very useful in order to test.", datedRecord: true, lines: []int{1}},
+		{
+			name:        "dated measurement callout",
+			content:     "A heading\n\n> Everything actually measured here was executed against `Terraform v1.15.8 on linux_amd64` with the\n> engine at the commit that introduced this file.",
+			datedRecord: true,
+			lines:       []int{3},
+		},
+		{
+			name:    "wrapped callout phrases",
+			content: "> It checks in order\n> to fail.\n>\n> See\n> above.\n>\n> See\n> below.",
+			lines:   []int{1, 4, 7},
+		},
+		{
+			name:        "dated wrapped callout phrases",
+			content:     "> It checks in order\n> to fail.\n>\n> See\n> above.\n>\n> See\n> below.",
+			datedRecord: true,
+			lines:       []int{1, 4, 7},
+		},
+		{name: "nested callout", content: "\t> > It checks in order\n\t> > to fail.", lines: []int{1}},
+		{name: "dated nested callout", content: "\t> > It checks in order\n\t> > to fail.", datedRecord: true, lines: []int{1}},
+		{name: "callout paragraph boundary", content: "> It checks in\n>\n> order to fail.", lines: nil},
+		{name: "dated temporal callout", content: "> Currently. Now. Soon. Not yet.", datedRecord: true, lines: nil},
+		{
+			name:        "marked callout quotation",
+			content:     "> <q>Actually, very useful in order\n> to test.</q>\n> See below.",
+			datedRecord: true,
+			lines:       []int{3},
+		},
+		{name: "callout diagnostic", content: "> <samp>\"in order\n> to test\"</samp>.\n> Actually.", lines: []int{3}},
+		{name: "callout fence", content: "> ~~~text\n> actually very in order to see above\n> ~~~\n> See below.", lines: []int{4}},
+		{name: "dated callout fence", content: "> ```text\n> actually very in order to see above\n> ```\n> See below.", datedRecord: true, lines: []int{4}},
 		{name: "dated diagnostic", content: "It rejects (<samp>\"in order\nto test\"</samp>).", datedRecord: true, lines: nil},
 		{
 			name:        "prose around dated quotation",
