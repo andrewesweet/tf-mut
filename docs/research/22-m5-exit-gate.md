@@ -187,7 +187,7 @@ benchmark, and the safety posture.
 | Snapshot rules: edited user pack is a cache miss; stale verified suggestion refused; changed pack forces the full population under `--since`, in or out of the closure (M5c.1) | `TestAnEditedUserPackIsACacheMiss`, `TestAStaleVerifiedPackSuggestionIsRefused`, `TestAChangedPackFileForcesTheFullPopulationUnderSince`, `TestAChangedPackOutsideTheClosureForcesTheFullPopulationUnderSince` |
 | Shipped `security-aws` = exactly the admitted entries; resolves unregistered (M5c.2) | `TestTheShippedSecurityAWSPackShipsExactlyTheAdmittedEntries`, `TestTheShippedSecurityAWSPackResolvesWithoutRegistration` |
 | Shipped entries witnessed on the real provider (M5-0.3, integration) | `TestEveryEnabledSecurityAWSEntryHasARealProviderWitness`, `TestEveryWidenCIDREntryHasARealProviderWitness`, `TestTheShippedSecurityAWSPackIsWitnessedOnAWSMocked` |
-| Schema validated on real reports; `origins` without a pack rejected (schema 2.4.0) | `TestARealPackReportValidatesAgainstThePublishedSchema` |
+| Schema validated on real reports; `origins` without a pack rejected (M5 exit schema 2.5.0) | `TestARealPackReportValidatesAgainstThePublishedSchema` |
 | Row vocabulary total and stage-ordered (M5d) | `TestTheRowVocabularyMapsEveryStageSentinel` |
 | Preview decides population, independently of run (M5d) | `TestTheThreePreviewRefusalsLeaveThePopulationUnknown`, `TestAPreviewThatFailsOperationallyWhileTheRunSucceeds`, `TestTheGatedPreviewFixtureHasAKnownPopulationAndAnUnsandboxedEffectsRow` |
 | Both denominators; pooled sums over `scored`; unweighted median (M5d) | `TestTheBenchmarkAggregationPoolsScoredModulesAndKeepsBothDenominators`, `TestTheBenchmarkMedianIsUnweightedAcrossModules` |

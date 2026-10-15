@@ -150,7 +150,7 @@ gate-m45:
       -json -count=1 -run '^(TestACheckScopedDataSourceReachesTheProviderInventory|TestACheckScopedDataSourceReachesTheEffectInventory|TestARemovedBlockReachesTheProviderInventory|TestARemovedBlockProvisionerReachesTheEffectInventoryAndNeverExecutes|TestACheckScopedDataSourceInJSONReachesTheEffectInventory|TestACheckScopedDataSourceInJSONReachesTheProviderInventory|TestARemovedBlockInJSONReachesTheEffectInventory|TestARemovedBlockInJSONReachesTheProviderInventory|TestAMovedBlockRunsLikeAnyOtherModule|TestAnImportBlockIsRefusedInHCL|TestAMovedBlockInJSONIsReadRatherThanRefused|TestAnImportBlockInJSONIsRefusedByName|TestAnUntestedAliasedProviderModuleCharacterisesWithNoOptIn|TestAMissingAliasMockRefusesBeforeExecution|TestTheDefaultCharacterisationWritesNothing|TestAWrittenSuiteIsGreenAndRegistered|TestASecondWriteIsRefusedAsACollision|TestForceReplacesOnlyUnmodifiedGeneratedFiles|TestScenariosCarryDistinctStateKeys|TestAZeroOutputModuleEscalatesAndSaysSo|TestARungThatPinsNothingIsNeverComplete|TestTheConfiguredRungPinsOnlyWhatTheConfigurationDetermined|TestAnUnknownRungIsRefused|TestASensitiveValueReachesNoGeneratedArtefact|TestARealCharacterisationReportValidatesAgainstThePublishedSchema|TestBranchExpansionPinsBothSidesOfAConditional|TestScenarioPinsAreInvariantUnderFileOrder|TestUntilDryConvergesWithoutWritingAByte|TestUntilDryRespectsTheGranularityLadder|TestCurateRefusesAPartialPopulationAtConfigurationTime|TestCurateReportsAnEmptyKillSetWithItsEvidence|TestCurateWritesNothing|TestOneMutantFailingTwoAssertionsAttributesBoth|TestUnassertableConstructsBecomeNonExecutableScaffolds|TestAnUnsynthesizableInputBecomesANonExecutableArtefact|TestAnAnsweredTodoIsPromotedAndTheSuiteIsGreen|TestTodosListsTheOpenJudgementPointsWithTheirEvidence|TestASecretInAFailedAttemptReachesNoArtefact|TestCharacteriseIsWiredThroughTheCommandLine|TestCharacteriseRefusesArgumentsAfterTheModulePath|TestTheTodoSurfacesAreWiredInBothArgumentOrders|TestTodosRefusesArgumentsAfterTheModulePath|TestTheInstalledSkillsWalkthroughExecutes|TestASeededWrongFlagInTheSkillTurnsTheGateRed|TestARefutedAnswerIsRejectedRatherThanAnOperationalFailure|TestAClosureChangeAtTheProbeYieldsZeroWrites|TestNoTerraformRunPrecedesAStagedGateRefusal|TestCurateIsWiredThroughTheCommandLine|TestCurateRefusesArgumentsAfterTheModulePath|TestAMinedValidationResolvesAnInputWithNoDefault|TestASensitiveAnswerIsVerifiedAndStillWithheld|TestANewClosureFileAtTheProbeYieldsZeroWrites|TestAPartialCommitReportsWhatItWrote|TestAnAnsweredScaffoldIsVerifiedBeforeItIsPromoted|TestCurateDrawsNoConclusionAboutItsOwnGeneratedAssertions|TestTheFinalPinSetIsVerifiedBeforeAnyWrite|TestEveryTestNameADocumentClaimsExists|TestAPartialSkillInstallReportsWhatLanded|TestAStagedPathCannotEscapeTheSandbox|TestAScaffoldAnswerCannotInjectConfiguration|TestAForeignRegistryIsNeverReplaced|TestARegistryFailureReportsThePartialState|TestAClosureChangeInsideTheRenameWindowIsCaught|TestConfigurationAliasesAreMockedAndGated|TestTheValidationFunctionTable|TestAMovedBlockRunsLikeAnyOtherModule|TestAMovedBlockInJSONIsReadRatherThanRefused|TestASeededInitialPinDefectIsRejectedBeforeAnythingIsWritten|TestAJSONDeclaredVariableReachesTheScaffold|TestForEachKeysNeedingEscapesStillRenderAGreenSuite|TestAJSONDeclaredDirectiveConditionReachesTheScaffold|TestUntilDryRefusesANarrowedPopulation|TestARealCurateReportValidatesAgainstThePublishedSchema|TestCurateHonoursTheGateFlagsItAccepts|TestNoReportFieldVariesWithTheSensitiveAnswer|TestACharacterisationFlagIsRefusedByAGradingCommand|TestAReporterThatCannotCarryACharacterisationIsRefused|TestTheInstalledWalkthroughDrainsAJudgementPoint|TestASeededWrongFlagInTheJudgementPointWalkthroughTurnsItRed|TestTheGranularityFlagReachesTheEngine)$'
 
 # Research-tagged reproductions remain offline; corpus measurements require integration.
-# Run the M5 offline gates: the Tier 4 lifecycle witnesses (M5a), the pack mechanism and contract (M5c.1), and the shipped security-aws pack (M5c.2).
+# Run the M5 offline gates: the Tier 4 lifecycle witnesses (M5a), the pack mechanism and contract (M5c.1), the shipped security-aws pack (M5c.2), and the M5-0.5 census and M5d benchmark offline checks.
 gate-m5:
     mkdir -p "{{ artifact_dir }}/test"
     mise exec -- gotestsum --format testname --junitfile "{{ artifact_dir }}/test/gate-m5.xml" \
@@ -217,66 +217,72 @@ measure-synthesis:
     mise exec -- go test -tags=integration,research ./internal/engine/ -count=1 -v \
       -run '^TestTheSynthesisRateOverThePinnedCorpus$'
 
-# Run the M5-0.4 module-admission census over the pinned benchmark corpus.
 # Network-gated: the variable licenses archive fetching and nothing else —
 # no census request bypasses a safety gate. Runs can take hours; the timeout
 # is generous on purpose.
+
+# Run the M5-0.4 module-admission census over the pinned benchmark corpus.
 measure-census:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mkdir -p "{{ artifact_dir }}/measurement"
     mise exec -- go test -tags=integration,research ./internal/engine/ -count=1 -v \
       -timeout 12h -run '^TestTheBenchmarkCorpusCensus$'
 
-# Run the M5d public benchmark (#164) over the pinned corpus: the pinned
-# protocol's cold leg then warm leg per module, publishing the
+# The pinned protocol's cold leg then warm leg per module, publishing the
 # module-admission and mutant-level tables, the side-car resume file and the
 # protocol block under .artifacts/measurement/. A separate measurement from
 # the census — its own side-car and published files, never the census's.
 # Network-gated: the variable licenses archive fetching and nothing else —
 # no benchmark request bypasses a safety gate. Runs take hours; the timeout
 # is generous on purpose.
+
+# Run the M5d public benchmark (#164) over the pinned corpus.
 benchmark:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mkdir -p "{{ artifact_dir }}/measurement"
     mise exec -- go test -tags=integration,research ./internal/engine/ -count=1 -v \
       -timeout 48h -run '^TestTheBenchmarkOverThePinnedCorpus$'
 
-# Re-execute the M5-0.3 security-aws seed census, admission measurement,
-# checked-in real-provider witnesses, and the M5c.2 shipped-pack acceptance
-# witness. Network-gated because the gate loads the
+# Covers the checked-in real-provider witnesses and the M5c.2 shipped-pack
+# acceptance witness. Network-gated because the gate loads the
 # realistically sized hashicorp/aws schema; no request bypasses a safety gate.
+
+# Re-execute the M5-0.3 security-aws seed census and admission measurement.
 measure-security-aws:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mkdir -p "{{ artifact_dir }}/measurement"
     mise exec -- go test -tags=integration,research ./internal/engine/ -count=1 -v \
       -timeout 12h -run '^(TestTheSecurityAWSCandidatePackIsLoadableAndHasStableIdentities|TestTheSecurityAWSPackAdmissionMeasurement|TestEveryEnabledSecurityAWSEntryHasARealProviderWitness|TestTheShippedSecurityAWSPackIsWitnessedOnAWSMocked)$'
 
-# Re-execute the #176 PACK-WIDEN-CIDR admission over the same six targets as
-# measure-security-aws, held to the same decision rule. Generation is narrowed
-# to the new form, so a run grades the baseline plus the widen rows and the
-# wall clock is minutes, not hours. Also re-executes the checked-in
+# Held to the same decision rule as measure-security-aws. Generation is
+# narrowed to the new form, so a run grades the baseline plus the widen rows
+# and the wall clock is minutes, not hours. Also re-executes the checked-in
 # aws-mocked witness for the admitted entry. Network-gated: the gate loads
 # the realistically sized hashicorp/aws schema; no request bypasses a safety
 # gate.
+
+# Re-execute the #176 PACK-WIDEN-CIDR admission over the same six targets as measure-security-aws.
 measure-widen-cidr:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mkdir -p "{{ artifact_dir }}/measurement"
     mise exec -- go test -tags=integration,research ./internal/engine/ -count=1 -v \
       -timeout 2h -run '^(TestTheWidenCIDRCandidatePackIsLoadableAndHasStableIdentities|TestTheWidenCIDRPackAdmissionMeasurement|TestEveryWidenCIDREntryHasARealProviderWitness)$'
 
-# Run the M5-0.5a opportunity census and mined-rung count over both pinned
-# corpora. Network-gated: the variable licenses archive fetching and nothing
+# Network-gated: the variable licenses archive fetching and nothing
 # else — the todos posture runs no Terraform at all. The wall clock is the
 # archives; the timeout is generous on purpose.
+
+# Run the M5-0.5a opportunity census and mined-rung count over both pinned corpora.
 measure-opportunities:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mkdir -p "{{ artifact_dir }}/measurement"
     mise exec -- go test -tags=integration,research ./internal/engine/ -count=1 -v \
       -timeout 2h -run '^TestTheOpportunityCensusOverThePinnedCorpora$'
 
-# Run the M5-0.5b throwaway repair table over the 14 pinned opportunities.
 # Network-gated: the variable licenses archive fetching and nothing else —
 # each staged characterisation keeps both product safety opt-ins false.
+
+# Run the M5-0.5b throwaway repair table over the 14 pinned opportunities.
 measure-repair:
     test "${TF_MUT_ALLOW_REAL_INFRASTRUCTURE:-}" = "1"
     mkdir -p "{{ artifact_dir }}/measurement"
