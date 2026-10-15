@@ -224,6 +224,7 @@ contexts and glossary, start with [`CONTEXT.md`](CONTEXT.md).
 | [`docs/adr/`](docs/adr/) | Numbered architectural decision records, including superseded decisions |
 | [`docs/agents/`](docs/agents/) | Agent operating notes: the issue tracker, triage labels, and domain pointers |
 | [`docs/design/`](docs/design/) | Architecture, the operator catalogue, characterisation, agent integration, and pack design — start with [`product-design.md`](docs/design/product-design.md) |
+| [`docs/reference/`](docs/reference/) | Generated command-line reference — [`cli.md`](docs/reference/cli.md) renders the same help table as `tf-mut --help` |
 | [`docs/research/`](docs/research/) | Numbered research notes, measurements, and milestone exit gates |
 | [`docs/reviews/`](docs/reviews/) | Adversarial and implementation reviews with their dispositions, which outrank design prose on conflict |
 | [`docs/schema/`](docs/schema/) | Versioned report schemas and the vendored external schemas that outputs are validated against — the `json` reporter emits [`report-2.12.0.json`](docs/schema/report-2.12.0.json) |

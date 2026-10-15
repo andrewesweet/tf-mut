@@ -673,7 +673,7 @@ func supportedReportersFromUsage(t *testing.T) []string {
 	t.Helper()
 
 	match := regexp.MustCompile(
-		`(?m)^  --reporter FORMAT +([a-z|]+) \(default [a-z]+\)$`,
+		`(?m)^  --reporter FORMAT +([a-z|]+)`,
 	).FindStringSubmatch(usage)
 	if match == nil {
 		t.Fatal("binary usage has no supported reporter list")

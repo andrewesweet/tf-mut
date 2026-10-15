@@ -222,6 +222,7 @@ agent instructions or muscle memory.
 | `just tools-update` | Resolve latest development tools, refresh Linux lock metadata/provenance, install and verify. Writes version metadata only. |
 | `just providers-update` | Resolve reviewed provider updates and regenerate exact constraints, `linux_amd64` hashes and the mirror. |
 | `just build` | `CGO_ENABLED=0 go build -trimpath -buildvcs=true -mod=readonly`; write `.artifacts/bin/tf-mut`. |
+| `just reference` | Regenerate the [command-line reference](../reference/cli.md) from the binary's help table. |
 | `just fmt` | Apply canonical Go, Bash, JSON, YAML, TOML and explicitly rooted Terraform formatting. |
 | `just fmt-check` | Diff-only equivalent of `fmt`; never changes the tree. |
 | `just lint` | Run the exact pinned aggressive Go, Bash, data-file and GitHub Actions lint configuration; no fixes. |

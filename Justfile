@@ -69,6 +69,11 @@ build:
     mise exec -- env CGO_ENABLED=0 go build -trimpath -buildvcs=true -mod=readonly \
       -ldflags "-X main.version={{ version }}" -o "{{ binary }}" ./cmd/tf-mut
 
+# Regenerate the command-line reference from the binary's help table.
+reference:
+    mkdir -p docs/reference
+    mise exec -- go run ./cmd/tf-mut --generate-reference > docs/reference/cli.md
+
 # Apply canonical Go, Bash, JSON, YAML, TOML, and Terraform formatting.
 fmt:
     mise exec -- scripts/format write
@@ -122,7 +127,6 @@ gate:
     mise exec -- gotestsum --format testname --junitfile "{{ artifact_dir }}/test/gate.xml" \
       --raw-command -- go test ./internal/engine/ ./internal/fingerprint/ ./internal/tfexec/ \
       -json -count=1 -run '^(TestUnknownRefinementSurvivesRatherThanBeingExcluded|TestAKnownPayloadLetsTheOracleProveUnobservability|TestAVolatileTemplateStillYieldsAFindingOnItsStableSuffix|TestADeterministicIdentifierIsNeverMasked|TestVolatilityFixturesClassifyIdenticallyAcrossRepeatedRuns|TestVolatilityIntroducedOnlyByTheMutantIsDecidedByARerun|TestStateAndDiagnosisAreIndependentOfOrderAndParallelism|TestADeltaSeenOnlyThroughALocalAndAnOutputIsNotNoAssertion|TestADefeatedClosureDiagnosesUnassertedAndNamesTheConstruct|TestConstructsWithNoProjectionAreStructurallyUnassertable|TestTheHigherDiagnosisWinsWhenTwoPredicatesHold|TestPhaseTwoRunsOnlyForPhaseOneSurvivors|TestAPayloadOutsideThePinnedVersionRangeIsAnOperationalFailure|TestVerboseDecodeOfALargeStreamStaysWithinTheHeapCeiling|TestTruncatedStreamIsAnErrorRatherThanAnEmptyResult|TestMalformedStreamIsAnErrorRatherThanAnEmptyResult)$'
-
 
 # Run the M3 offline gates: graph soundness, the count levers, the gate table.
 gate-m3:
