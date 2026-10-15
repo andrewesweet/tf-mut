@@ -14,20 +14,16 @@ import (
 // agent pages, the generated reference, the shipped skills — state their claims
 // in the present tense and without filler, so the words that let a document rot
 // or pad are banned from them by test. Ticket T5 of the
-// technical-documentation review seeds the list with the four temporal
-// phrases; ticket T7 joins the same list with the filler words ("actually",
-// "very", "in order to") and the positional references ("see above",
-// "see below").
+// technical-documentation review seeds the list with temporal phrases;
+// ticket T7 adds filler words and positional references.
 //
 // Two narrow exceptions, recorded here rather than taken quietly:
 //
 //   - docs/research and docs/reviews are dated records — exit-gate decisions
 //     and review dispositions — whose temporal language is anchored to their
-//     date, and whose quotations record the words under review; rewriting
-//     either would falsify the record.
-//   - Quoted diagnostics stay verbatim: the Terraform error the operator
-//     catalogue quotes ("must refer to var.<name> in order to test incoming
-//     values") keeps its wording.
+//     date. Source quotations marked with <q> stay verbatim so the words under
+//     review are preserved; authored blockquotes still follow the filler rule.
+//   - Quoted diagnostics marked with <samp> stay verbatim in all documents.
 func TestTheDocumentsAvoidTheBannedPhrases(t *testing.T) {
 	t.Parallel()
 
@@ -56,8 +52,8 @@ func TestTheDocumentsAvoidTheBannedPhrases(t *testing.T) {
 	}
 }
 
-// assertDocumentAvoidsTheBannedPhrases reports every banned hit outside a
-// fenced code block, so one run names every line to restate.
+// assertDocumentAvoidsTheBannedPhrases applies the language contract, so one
+// run names every line to restate.
 func assertDocumentAvoidsTheBannedPhrases(t *testing.T, document string, datedRecord bool) {
 	t.Helper()
 
