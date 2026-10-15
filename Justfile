@@ -128,7 +128,6 @@ gate:
       --raw-command -- go test ./internal/engine/ ./internal/fingerprint/ ./internal/tfexec/ \
       -json -count=1 -run '^(TestUnknownRefinementSurvivesRatherThanBeingExcluded|TestAKnownPayloadLetsTheOracleProveUnobservability|TestAVolatileTemplateStillYieldsAFindingOnItsStableSuffix|TestADeterministicIdentifierIsNeverMasked|TestVolatilityFixturesClassifyIdenticallyAcrossRepeatedRuns|TestVolatilityIntroducedOnlyByTheMutantIsDecidedByARerun|TestStateAndDiagnosisAreIndependentOfOrderAndParallelism|TestADeltaSeenOnlyThroughALocalAndAnOutputIsNotNoAssertion|TestADefeatedClosureDiagnosesUnassertedAndNamesTheConstruct|TestConstructsWithNoProjectionAreStructurallyUnassertable|TestTheHigherDiagnosisWinsWhenTwoPredicatesHold|TestPhaseTwoRunsOnlyForPhaseOneSurvivors|TestAPayloadOutsideThePinnedVersionRangeIsAnOperationalFailure|TestVerboseDecodeOfALargeStreamStaysWithinTheHeapCeiling|TestTruncatedStreamIsAnErrorRatherThanAnEmptyResult|TestMalformedStreamIsAnErrorRatherThanAnEmptyResult)$'
 
-
 # Run the M3 offline gates: graph soundness, the count levers, the gate table.
 gate-m3:
     mkdir -p "{{ artifact_dir }}/test"

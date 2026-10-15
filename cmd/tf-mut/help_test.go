@@ -14,6 +14,11 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/skill"
 )
 
+const (
+	helpSingleDashFlag = "-help"
+	unknownFlag        = "--unknown"
+)
+
 // TestReferencePageMatchesCommittedPage is technical-documentation ticket
 // T6's drift guard: docs/reference/cli.md is rendered from the same
 // description table as --help, and this test fails when the committed page
@@ -51,7 +56,7 @@ func TestReferenceFlagTablesPreserveTheirThreeColumns(t *testing.T) {
 
 	agentRows := 0
 
-	for _, line := range strings.Split(stdout.String(), "\n") {
+	for line := range strings.SplitSeq(stdout.String(), "\n") {
 		if !strings.HasPrefix(line, "| `--") {
 			continue
 		}
@@ -103,7 +108,7 @@ func TestExplicitHelpExitsZeroAndUsageErrorsExitTwo(t *testing.T) {
 		{helpShortFlag},
 		{runCommand, helpShortFlag},
 		{runCommand, helpLongFlag},
-		{runCommand, "--test-directory", "tests", "--jobs", "1", helpShortFlag},
+		{runCommand, "--test-directory", "tests", "--" + jobsFlag, "1", helpShortFlag},
 		{previewCommand, helpLongFlag},
 		{suggestCommand, helpShortFlag},
 		{characteriseCommand, helpLongFlag},
@@ -158,14 +163,14 @@ func TestHelpRespectsEngineFlagParsing(t *testing.T) {
 	for _, command := range []string{
 		runCommand, previewCommand, suggestCommand, characteriseCommand, todosCommand, curateCommand,
 	} {
-		for _, help := range []string{helpShortFlag, helpLongFlag, "-help"} {
+		for _, help := range []string{helpShortFlag, helpLongFlag, helpSingleDashFlag} {
 			for _, test := range []struct {
 				args []string
 				want string
 			}{
-				{[]string{"--test-directory", help, "--unknown"}, "flag provided but not defined"},
-				{[]string{"--jobs", help}, "invalid value"},
-				{[]string{"--unknown", help}, "flag provided but not defined"},
+				{[]string{"--test-directory", help, unknownFlag}, "flag provided but not defined"},
+				{[]string{"--" + jobsFlag, help}, "invalid value"},
+				{[]string{unknownFlag, help}, "flag provided but not defined"},
 				{[]string{module, help}, errTrailingArguments.Error()},
 				{[]string{"--", module, help}, errTrailingArguments.Error()},
 				{[]string{"--", help, module}, errTrailingArguments.Error()},
@@ -191,7 +196,7 @@ func TestHelpRespectsVersionFlagParsing(t *testing.T) {
 	t.Parallel()
 
 	for _, command := range []string{versionCommand, versionFlag} {
-		for _, help := range []string{helpShortFlag, helpLongFlag, "-help"} {
+		for _, help := range []string{helpShortFlag, helpLongFlag, helpSingleDashFlag} {
 			for _, args := range [][]string{
 				{command, "--", help},
 				{command, "positional", help},
@@ -208,7 +213,7 @@ func TestHelpRespectsVersionFlagParsing(t *testing.T) {
 
 			stdout := bytes.Buffer{}
 			stderr := bytes.Buffer{}
-			args := []string{command, "--unknown", help}
+			args := []string{command, unknownFlag, help}
 
 			if code := run(args, "test", &stdout, &stderr); code != exitUsage ||
 				stdout.Len() != 0 || !strings.Contains(stderr.String(), "flag provided but not defined") {
@@ -219,6 +224,7 @@ func TestHelpRespectsVersionFlagParsing(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // t.Chdir changes the process working directory and forbids parallel execution.
 func TestHelpRespectsSkillFlagParsing(t *testing.T) {
 	t.Chdir(t.TempDir())
 
@@ -227,10 +233,10 @@ func TestHelpRespectsSkillFlagParsing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, help := range []string{helpShortFlag, helpLongFlag, "-help"} {
+	for _, help := range []string{helpShortFlag, helpLongFlag, helpSingleDashFlag} {
 		stdout := bytes.Buffer{}
 		stderr := bytes.Buffer{}
-		args := []string{skillCommand, installCommand, "--agent", skill.AgentGeneric, "--path", help}
+		args := []string{skillCommand, installCommand, "--" + agentFlag, skill.AgentGeneric, "--path", help}
 
 		if code := run(args, "test", &stdout, &stderr); code != exitSuccess || stderr.Len() != 0 {
 			t.Fatalf("%q: exit = %d, stderr = %q", args, code, stderr.String())
@@ -243,9 +249,9 @@ func TestHelpRespectsSkillFlagParsing(t *testing.T) {
 		for _, args := range [][]string{
 			{skillCommand, "unknown", help},
 			{skillCommand, "--", help},
-			{skillCommand, installCommand, "--unknown", help},
-			{skillCommand, installCommand, "--agent", help},
-			{skillCommand, installCommand, "--agent", skill.AgentGeneric, "--", help},
+			{skillCommand, installCommand, unknownFlag, help},
+			{skillCommand, installCommand, "--" + agentFlag, help},
+			{skillCommand, installCommand, "--" + agentFlag, skill.AgentGeneric, "--", help},
 			{skillCommand, installCommand, "positional", help},
 		} {
 			stdout.Reset()
