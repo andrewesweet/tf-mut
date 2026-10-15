@@ -852,7 +852,7 @@ func execute(command, buildVersion string, args []string, stdout, stderr io.Writ
 		stop()
 	}()
 
-	result, err := engine.Run(ctx, parsed.config)
+	result, err := engine.New(engine.DefaultDependencies()).Run(ctx, parsed.config)
 	if err == nil {
 		err = ctx.Err()
 	}

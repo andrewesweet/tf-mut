@@ -9,6 +9,13 @@
 // it, so the map moves with the files. The audit itself lives beside the
 // other document audits in audit_test.go.
 //
+// # Composition root
+//
+// dependencies.go declares Dependencies — the runner template, checkout
+// resolver, tracer factory and warning writer — with DefaultDependencies,
+// New and Engine. Run (engine.go) is the default wiring over them and
+// remains the seam.
+//
 // # Requests and settings
 //
 // request.go declares the closed request set — RunRequest, PreviewRequest,
