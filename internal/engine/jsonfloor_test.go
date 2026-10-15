@@ -3,15 +3,14 @@ package engine_test
 import (
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // The M4.0 floor set. Every case here is one of the seven the C1 disposition
@@ -330,7 +329,6 @@ func recordingTerraform(t *testing.T, log string) string {
 
 	path := filepath.Join(t.TempDir(), "terraform-recording")
 	script := "#!/usr/bin/env bash\n" +
-		"if [ \"${1:-}\" = \"--tf-mut-probe\" ]; then exit 0; fi\n" +
 		"for argument in \"$@\"; do\n" +
 		"  case \"$argument\" in\n" +
 		"    -*) continue ;;\n" +
@@ -339,35 +337,10 @@ func recordingTerraform(t *testing.T, log string) string {
 		"done\n" +
 		"exec terraform \"$@\"\n"
 
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec // the wrapper must be executable.
-		t.Fatalf("writing the recording terraform wrapper: %v", err)
-	}
+	testsupport.WriteExecutable(t, path, script)
 
-	// Linux reports ETXTBSY for a freshly written executable while any process
-	// in this test binary is between fork and exec, and these tests run in
-	// parallel. Probe until the kernel lets the wrapper run; the probe argument
-	// records nothing and executes nothing.
-	for range probeAttempts {
-		//nolint:gosec // a test-owned wrapper script.
-		if err := exec.CommandContext(t.Context(), path, "--tf-mut-probe").Run(); err == nil {
-			return path
-		}
-
-		// Real elapsed time: only the kernel knows when ETXTBSY lifts; the
-		// interval paces retries instead of spinning.
-		time.Sleep(probeInterval)
-	}
-
-	t.Fatal("the recording terraform wrapper never became executable")
-
-	return ""
+	return path
 }
-
-// The bounds of the executable probe above.
-const (
-	probeAttempts = 200
-	probeInterval = 10 * time.Millisecond
-)
 
 func terraformInvocations(t *testing.T, log string) []string {
 	t.Helper()

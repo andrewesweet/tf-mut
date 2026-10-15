@@ -11,6 +11,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // The suggestion-soundness gate (M4b.1). Both verification legs, both seeded
@@ -304,9 +305,7 @@ func TestVerificationCountsOnlyStartedIsolatedRuns(t *testing.T) {
 			request := suggestRequest(t, copyFixture(t, suggestBasicFixture))
 			wrapper := filepath.Join(t.TempDir(), "terraform-verification")
 			script := "#!/usr/bin/env bash\n" + test.script + "exec terraform \"$@\"\n"
-			if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil { //nolint:gosec // test-owned executable.
-				t.Fatalf("writing the Terraform wrapper: %v", err)
-			}
+			testsupport.WriteExecutable(t, wrapper, script)
 
 			request.TerraformBinary = wrapper
 			result := runSuggest(t, request)

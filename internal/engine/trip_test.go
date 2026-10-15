@@ -58,9 +58,7 @@ fi
 exec terraform "$@"
 `
 
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec // the wrapper must run.
-		t.Fatalf("writing terraform wrapper: %v", err)
-	}
+	testsupport.WriteExecutable(t, path, script)
 
 	return path
 }
@@ -377,9 +375,7 @@ if [ "$2" = "test" ] || [ "$2" = "validate" ]; then
 fi
 exec terraform "$@"
 `
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec // the wrapper must run.
-		t.Fatalf("writing terraform wrapper: %v", err)
-	}
+	testsupport.WriteExecutable(t, path, script)
 
 	config := baseConfig(t, tripModule(t, 10))
 	config.Jobs = 3

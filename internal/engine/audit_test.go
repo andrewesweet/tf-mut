@@ -71,7 +71,18 @@ func TestTheHonestyGateNamesOnlyTestsThatExist(t *testing.T) {
 func TestExportedEngineTypesDeclareNoSeamControls(t *testing.T) {
 	t.Parallel()
 
-	auditExportedEngineTypes(t, compiledEnginePackage(t))
+	compiled := compiledEnginePackage(t)
+	auditExportedEngineTypes(t, compiled)
+
+	// Dependencies is covered by the sweep above, and named here so the
+	// composition root cannot stop being an exported engine type without
+	// this test saying so.
+	dependencies, found := compiled.Scope().Lookup("Dependencies").(*types.TypeName)
+	if !found || dependencies == nil {
+		t.Fatal("engine.Dependencies is not an exported type")
+	}
+
+	auditExportedEngineType(t, "Dependencies", dependencies.Type(), map[*types.Struct]bool{})
 }
 
 // TestThePackageCommentMapsEveryEngineFile holds doc.go's package comment

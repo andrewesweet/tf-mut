@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // TestASigintCancelledRunRemovesItsWorkRootAndExitsOperationally holds the
@@ -49,11 +50,7 @@ fi
 exec ` + realTerraform + ` "$@"
 `
 
-	err = os.WriteFile(filepath.Join(wrapperDir, "terraform"), //nolint:gosec // the wrapper must run.
-		[]byte(script), 0o700)
-	if err != nil {
-		t.Fatalf("writing terraform wrapper: %v", err)
-	}
+	testsupport.WriteExecutable(t, filepath.Join(wrapperDir, "terraform"), script)
 
 	//nolint:gosec,noctx // re-executing this test binary is the standard helper-process pattern.
 	command := exec.Command(os.Args[0],

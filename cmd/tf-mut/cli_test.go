@@ -85,9 +85,7 @@ if [ "$2" = "test" ] || [ "$2" = "validate" ]; then
 fi
 exec "$TF_MUT_REAL_TERRAFORM" "$@"
 `
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec // the wrapper must run.
-		t.Fatalf("writing Terraform wrapper: %v", err)
-	}
+	testsupport.WriteExecutable(t, path, script)
 	t.Setenv("TF_MUT_REAL_TERRAFORM", realTerraform)
 	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
 

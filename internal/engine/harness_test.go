@@ -14,6 +14,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 	"github.com/andrewesweet/tf-mut/internal/tracing"
 )
 
@@ -345,9 +346,7 @@ func stubTerraform(t *testing.T, version string) string {
 		"fi\n" +
 		"exit 1\n"
 
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil { //nolint:gosec // the stub must be executable.
-		t.Fatalf("writing terraform stub: %v", err)
-	}
+	testsupport.WriteExecutable(t, path, script)
 
 	return path
 }

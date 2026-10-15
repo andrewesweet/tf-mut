@@ -19,8 +19,6 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
-
-	"github.com/andrewesweet/tf-mut/internal/tracing"
 )
 
 // Minimum Terraform versions. The test framework arrived in 1.6 and provider
@@ -245,8 +243,16 @@ var (
 // died never hangs on the way out.
 const traceFlushTimeout = 5 * time.Second
 
-// Run executes the requested command and returns its report.
-func Run(ctx context.Context, request Request) (result report.Report, err error) {
+// Run executes the requested command and returns its report. It is the
+// default wiring — New(DefaultDependencies()).Run — so existing callers and
+// the testing seam are unchanged by the composition root.
+func Run(ctx context.Context, request Request) (report.Report, error) {
+	return New(DefaultDependencies()).Run(ctx, request)
+}
+
+// Run executes the requested command on the wired engine and returns its
+// report.
+func (e Engine) Run(ctx context.Context, request Request) (result report.Report, err error) {
 	started := time.Now()
 	var collector *runCollector
 	defer func() {
@@ -261,7 +267,7 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 		return report.Report{}, err
 	}
 
-	telemetry, runCtx, err := instrument(ctx, &s)
+	telemetry, runCtx, err := e.instrument(ctx, &s)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -270,7 +276,7 @@ func Run(ctx context.Context, request Request) (result report.Report, err error)
 	defer telemetry.stop()
 	ctx = runCtx
 
-	return dispatch(ctx, request, s, collector)
+	return e.dispatch(ctx, request, s, collector)
 }
 
 // instrumentation is what the telemetry setup hands the pipeline: the
@@ -289,14 +295,14 @@ type instrumentation struct {
 // recorded spans can still reach the collector; progress, tracing and
 // CPU-profile warnings share the request's progress writer, under the run
 // identifier's prefix — never a report sink — and a nil writer drops them.
-func instrument(ctx context.Context, s *settings) (instrumentation, context.Context, error) {
+func (e Engine) instrument(ctx context.Context, s *settings) (instrumentation, context.Context, error) {
 	output, outputErr := prepareRunOutput(s)
 	if outputErr != nil {
 		return instrumentation{}, nil, outputErr
 	}
 
 	// Telemetry records its own overhead without affecting verdicts.
-	tracer := tracing.New(ctx, s.OTLPEndpoint, s.Progress)
+	tracer := e.dependencies.NewTracer(ctx, s.OTLPEndpoint, s.Progress)
 	collector := newRunCollector(ctx, tracer)
 
 	runCtx := collector.beginRun(string(commandName(s.mode)))
@@ -326,7 +332,7 @@ func instrument(ctx context.Context, s *settings) (instrumentation, context.Cont
 // local inspection an agent calls every iteration, and making it unavailable
 // when Terraform is absent or broken would break the loop over a check it
 // never needed. For safety-gate ordering, see applyGates and gateStagedSuite.
-func dispatch(
+func (e Engine) dispatch(
 	ctx context.Context, request Request, s settings, collector *runCollector,
 ) (report.Report, error) {
 	s, moduleDir, err := configure(s)
@@ -336,15 +342,15 @@ func dispatch(
 
 	switch typed := request.(type) {
 	case TodosRequest, *TodosRequest:
-		return answerTodos(ctx, s, moduleDir)
+		return e.answerTodos(ctx, s, moduleDir)
 	case CurateRequest, *CurateRequest:
-		return curate(ctx, s, moduleDir, collector)
+		return e.curate(ctx, s, moduleDir, collector)
 	case CharacteriseRequest:
-		return characteriseFirstSuite(ctx, typed, s, moduleDir, collector)
+		return e.characteriseFirstSuite(ctx, typed, s, moduleDir, collector)
 	case *CharacteriseRequest:
-		return characteriseFirstSuite(ctx, *typed, s, moduleDir, collector)
+		return e.characteriseFirstSuite(ctx, *typed, s, moduleDir, collector)
 	default:
-		return grade(ctx, s, moduleDir, collector)
+		return e.grade(ctx, s, moduleDir, collector)
 	}
 }
 
@@ -374,10 +380,10 @@ func configure(s settings) (settings, string, error) {
 // answerTodos lists the open judgement points and the answers in force, over
 // the discovered configuration alone. It runs no Terraform, which is why
 // dispatch answers it before the version gate.
-func answerTodos(
+func (e Engine) answerTodos(
 	ctx context.Context, s settings, moduleDir string,
 ) (report.Report, error) {
-	listed, err := discoverConfiguration(ctx, moduleDir, s)
+	listed, err := e.discoverConfiguration(ctx, moduleDir, s)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -391,10 +397,10 @@ func answerTodos(
 
 // curate grades a full population and reports redundancy, through the same
 // version gate and discovery every Terraform-driving command shares.
-func curate(
+func (e Engine) curate(
 	ctx context.Context, s settings, moduleDir string, collector *runCollector,
 ) (report.Report, error) {
-	found, err := probe(ctx, s, moduleDir, collector)
+	found, err := e.probe(ctx, s, moduleDir, collector)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -406,14 +412,14 @@ func curate(
 // the same version gate and discovery every Terraform-driving command shares.
 // Characterisation judges its safety gates against the planned staged suite
 // rather than the one on disk.
-func characteriseFirstSuite(
+func (e Engine) characteriseFirstSuite(
 	ctx context.Context,
 	request CharacteriseRequest,
 	s settings,
 	moduleDir string,
 	collector *runCollector,
 ) (report.Report, error) {
-	found, err := probe(ctx, s, moduleDir, collector)
+	found, err := e.probe(ctx, s, moduleDir, collector)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -426,10 +432,10 @@ func characteriseFirstSuite(
 // carries in its settings decides preview's shortcuts and the suggest leg.
 // The population fact stays inside the application layer; the seam's
 // consumers receive its published report projection.
-func grade(
+func (e Engine) grade(
 	ctx context.Context, s settings, moduleDir string, collector *runCollector,
 ) (report.Report, error) {
-	found, err := probe(ctx, s, moduleDir, collector)
+	found, err := e.probe(ctx, s, moduleDir, collector)
 	if err != nil {
 		return report.Report{}, err
 	}
@@ -452,7 +458,7 @@ type probed struct {
 // order: the version gate, then configuration discovery. Each phase closes
 // before its error is judged, so a failed step still records the phase it
 // spent.
-func probe(
+func (e Engine) probe(
 	ctx context.Context, s settings, moduleDir string, collector *runCollector,
 ) (probed, error) {
 	runner := tfexec.Runner{Binary: s.TerraformBinary, Env: s.Env}
@@ -465,7 +471,7 @@ func probe(
 	}
 
 	discoveryPhase := collector.phase(phaseDiscovery)
-	configuration, err := discoverConfiguration(ctx, moduleDir, s)
+	configuration, err := e.discoverConfiguration(ctx, moduleDir, s)
 	discoveryPhase()
 	if err != nil {
 		return probed{}, err
@@ -474,8 +480,10 @@ func probe(
 	return probed{runner: runner, version: version, configuration: configuration}, nil
 }
 
-func discoverConfiguration(ctx context.Context, moduleDir string, s settings) (discovery.Configuration, error) {
-	root, err := checkoutRoot(ctx, moduleDir)
+func (e Engine) discoverConfiguration(
+	ctx context.Context, moduleDir string, s settings,
+) (discovery.Configuration, error) {
+	root, err := e.dependencies.CheckoutRoot(ctx, moduleDir)
 	if err != nil {
 		return discovery.Configuration{}, err
 	}

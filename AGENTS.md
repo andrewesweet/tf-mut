@@ -91,6 +91,13 @@ millisecond-fast; the one real-provider performance measurement is network-gated
 separate. The R1/R2 reproduction cases (recipes in review docs and issue #1) are mandatory
 fixtures.
 
+`engine.New(Dependencies)` is the composition root and `engine.Run(ctx, Request)` is
+its default wiring — `New(DefaultDependencies()).Run` — so the seam above is unchanged:
+tests drive product behaviour through either spelling. `Dependencies` holds the checkout
+resolver and tracer factory, and no runner. The runner stays the concrete `tfexec.Runner`
+(never an interface), built from the request's `TerraformBinary` and `Env`, so the
+no-fake-runner rule stands.
+
 **Recorded exceptions, each narrow, each here rather than taken quietly.** None may be
 widened without amending this section.
 

@@ -1,13 +1,19 @@
 // Package engine is the single seam of the tool: configuration in, report out.
 //
-// Everything the command line does is a thin shell over Run, and every test of
-// product behaviour drives this entry point against the real Terraform binary.
+// The command line constructs an Engine with New and calls Engine.Run. Product
+// behaviour tests drive this seam against the real Terraform binary.
 //
 // The rest of this comment maps the application layer by pipeline stage, and
 // the audit beside TestExportedEngineTypesDeclareNoSeamControls fails when a
 // non-test file in the package — this one, doc.go, included — is not named in
 // it, so the map moves with the files. The audit itself lives beside the
 // other document audits in audit_test.go.
+//
+// # Composition root
+//
+// dependencies.go declares Dependencies — the checkout resolver and tracer
+// factory — with DefaultDependencies, New and Engine. Run (engine.go) is the
+// default wiring over them and remains the seam.
 //
 // # Requests and settings
 //
@@ -21,7 +27,7 @@
 //
 // # The grading pipeline, in order
 //
-// Run (engine.go) obtains settings, starts instrumentation and delegates to
+// Engine.Run (engine.go) obtains settings, starts instrumentation and delegates to
 // dispatch. Its request type switch answers todos locally; other requests
 // reach the version check and discovery through probe.
 // The grading commands share mutate (engine.go), whose stages are owned
