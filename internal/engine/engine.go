@@ -1046,14 +1046,13 @@ func classifyRun(
 	})
 }
 
-// scopeLabel names the population a gate was evaluated over.
-func scopeLabel(full bool) string {
-	if full {
-		return "full"
-	}
-
-	return "selected"
-}
+// scopeFull and scopeSelected name the population a gate was evaluated over.
+// The call site states which population the gate saw by choosing one of the
+// two, so no boolean selects between them.
+const (
+	scopeFull     = "full"
+	scopeSelected = "selected"
+)
 
 // gateOutcomes records the gate table's outcomes for this run (2.1.0). The
 // fail-on-new and baseline rows arrive with the baseline file (M3b.3); the
@@ -1071,7 +1070,10 @@ func gateOutcomes(
 	partial := authErr != nil || shell.Sampling != nil ||
 		shell.Population.Cached > 0 ||
 		(shell.Selection.Mode == report.SelectionSince && shell.Selection.ForcedFull == "")
-	scope := scopeLabel(!partial)
+	scope := scopeSelected
+	if !partial {
+		scope = scopeFull
+	}
 
 	minScore := report.GateOutcome{
 		Evaluated: settings.HasMinScore,

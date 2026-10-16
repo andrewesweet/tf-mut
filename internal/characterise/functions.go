@@ -98,46 +98,88 @@ func affixFunction(matches func(text, affix string) bool) function.Function {
 }
 
 //nolint:gochecknoglobals // an immutable function value.
-var allTrueFunction = quantifierFunction(true)
+var allTrueFunction = allTrueQuantifier()
 
 //nolint:gochecknoglobals // an immutable function value.
-var anyTrueFunction = quantifierFunction(false)
+var anyTrueFunction = anyTrueQuantifier()
 
-// quantifierFunction builds `alltrue` and `anytrue`. They matter because the
-// idiomatic constraint over a collection is a `for` comprehension inside one
-// of them, and hclsyntax evaluates the comprehension itself.
-func quantifierFunction(universal bool) function.Function {
+// allTrueQuantifier builds `alltrue` and anyTrueQuantifier builds `anytrue`.
+// They matter because the idiomatic constraint over a collection is a `for`
+// comprehension inside one of them, and hclsyntax evaluates the comprehension
+// itself. Each names its own fold, so no boolean selects between them.
+func allTrueQuantifier() function.Function {
+	return quantifierFunction(quantifyAll)
+}
+
+func anyTrueQuantifier() function.Function {
+	return quantifierFunction(quantifyAny)
+}
+
+// quantifierFunction is the shared shape of `alltrue` and `anytrue`: one
+// dynamically-typed list in, one boolean out. The fold differs, so each
+// quantifier passes its own implementation.
+func quantifierFunction(fold func(cty.Value) cty.Value) function.Function {
 	return function.New(&function.Spec{ // the unset fields are cty's own defaults.
 		Params: []function.Parameter{{
 			Name: "list", Type: cty.DynamicPseudoType, AllowDynamicType: true,
 		}},
 		Type: function.StaticReturnType(cty.Bool),
 		Impl: func(args []cty.Value, _ cty.Type) (cty.Value, error) {
-			return quantify(args[0], universal), nil
+			return fold(args[0]), nil
 		},
 	})
 }
 
-func quantify(collection cty.Value, universal bool) cty.Value {
+// booleanElements reads the boolean elements of a collection for the
+// quantifiers. Anything else — null, unknown, uniterable, or an element
+// that is not a known boolean — is undecidable, which the quantifiers read
+// as false.
+func booleanElements(collection cty.Value) ([]bool, bool) {
 	if collection.IsNull() || !collection.IsKnown() || !collection.CanIterateElements() {
-		return cty.BoolVal(false)
+		return nil, false
 	}
 
-	result := universal
+	elements := []bool{}
 
 	for iterator := collection.ElementIterator(); iterator.Next(); {
 		_, element := iterator.Element()
 
 		if element.IsNull() || !element.IsKnown() || element.Type() != cty.Bool {
-			return cty.BoolVal(false)
+			return nil, false
 		}
 
-		if universal {
-			result = result && element.True()
-		} else {
-			result = result || element.True()
+		elements = append(elements, element.True())
+	}
+
+	return elements, true
+}
+
+func quantifyAll(collection cty.Value) cty.Value {
+	elements, ok := booleanElements(collection)
+	if !ok {
+		return cty.BoolVal(false)
+	}
+
+	for _, element := range elements {
+		if !element {
+			return cty.BoolVal(false)
 		}
 	}
 
-	return cty.BoolVal(result)
+	return cty.BoolVal(true)
+}
+
+func quantifyAny(collection cty.Value) cty.Value {
+	elements, ok := booleanElements(collection)
+	if !ok {
+		return cty.BoolVal(false)
+	}
+
+	for _, element := range elements {
+		if element {
+			return cty.BoolVal(true)
+		}
+	}
+
+	return cty.BoolVal(false)
 }
