@@ -120,8 +120,8 @@ const (
 	// Ignored marks a mutant a reasoned suppression or a configured exclusion
 	// removed from the population. Excluded, counted.
 	Ignored State = "Ignored"
-	// Pending marks a mutant that was generated but not executed, which is the
-	// state every mutant carries in a preview.
+	// Pending marks a mutant without a verdict. See the mutant-state table in
+	// docs/design/product-design.md for its reporting and scoring contract.
 	Pending State = "Pending"
 )
 
