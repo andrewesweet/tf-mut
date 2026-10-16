@@ -711,7 +711,7 @@ func artefactFile(path string, written, reported []byte) writtenFile {
 	}, written)
 }
 
-// writtenFileOf is the one place a generated file's report entry is built.
+// writtenFileOf pairs a generated file's report entry with its written bytes.
 //
 // The published digest covers the *reported* bytes, and the written bytes'
 // digest stays in the local write protocol. Publishing the executable digest
