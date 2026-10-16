@@ -316,22 +316,7 @@ func evaluateOne(
 	verdict report.Mutant,
 	telemetry *mutantCollector,
 ) (report.Mutant, oracle.Outcome, *report.ExecutionError) {
-	mutant := plan.generated[index]
-	target := filepath.Join(plan.workRoot, fmt.Sprintf("m%04d-%s", index, mutant.ID))
-
-	sandboxPhase := telemetry.phase(phaseSandbox)
-	built, err := sandbox.Materialise(sandbox.Spec{
-		SourceRoot: plan.configuration.ClosureRoot,
-		ModuleRel:  plan.configuration.RootRelative(),
-		Target:     target,
-		Mutations:  map[string][]byte{mutant.File: mutant.Mutated},
-		Share: &sandbox.Share{
-			DataDir:  plan.prepared.dataDir,
-			LockFile: plan.prepared.lockFile,
-		},
-		Hardlink: true,
-	})
-	sandboxPhase()
+	built, err := materialiseMutant(plan, index, telemetry)
 	if err != nil {
 		return verdict, plan.classified[index].Outcome, &report.ExecutionError{
 			MutantID: verdict.ID,
@@ -417,6 +402,27 @@ func evaluateOne(
 	}
 
 	return judge.observe(ctx, built, verdict, observation, outcome, telemetry)
+}
+
+func materialiseMutant(plan executionPlan, index int, telemetry *mutantCollector) (sandbox.Sandbox, error) {
+	mutant := plan.generated[index]
+	target := filepath.Join(plan.workRoot, fmt.Sprintf("m%04d-%s", index, mutant.ID))
+
+	sandboxPhase := telemetry.phase(phaseSandbox)
+	built, err := sandbox.Materialise(sandbox.Spec{
+		SourceRoot: plan.configuration.ClosureRoot,
+		ModuleRel:  plan.configuration.RootRelative(),
+		Target:     target,
+		Mutations:  map[string][]byte{mutant.File: mutant.Mutated},
+		Share: &sandbox.Share{
+			DataDir:  plan.prepared.dataDir,
+			LockFile: plan.prepared.lockFile,
+		},
+		Hardlink: true,
+	})
+	sandboxPhase()
+
+	return built, err
 }
 
 // phaseOneTruncation refuses a phase-one stream that stopped early: a non-zero
