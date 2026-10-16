@@ -35,12 +35,10 @@ import (
 // cacheFormatVersion invalidates every entry when verdict semantics, the
 // stored shape, or key derivation changes. Sandbox changes that affect
 // verdicts also require a bump. TestPreSandboxFixInvalidVerdictsAreNotReplayed
-// protects this upgrade boundary. The entry now stores the Oracle context's
-// own record — the document oracle.ParseRecord rebuilds outcomes from — so a
-// pre-bump entry, whose verdict was stored as published report DTOs, is a
-// miss, and the first run after upgrading recomputes every verdict once
-// (TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError).
-const cacheFormatVersion = "tf-mut-cache-5"
+// protects this upgrade boundary. An older-format entry is a miss, not an
+// error. Selected verdicts are recomputed under the current execution and
+// oracle rules (TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError).
+const cacheFormatVersion = "tf-mut-cache-6"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 

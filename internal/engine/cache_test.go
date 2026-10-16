@@ -252,7 +252,7 @@ func TestACachedReplayIsByteIdenticalToTheFreshRun(t *testing.T) {
 
 // previousCacheFormatVersion is the format one step behind the one this build
 // writes: an entry carrying it is a miss, never a parse error.
-const previousCacheFormatVersion = "tf-mut-cache-4"
+const previousCacheFormatVersion = "tf-mut-cache-5"
 
 // TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError is the symmetric
 // half of the format boundary: the first run after an upgrade finds every
@@ -261,13 +261,17 @@ const previousCacheFormatVersion = "tf-mut-cache-4"
 func TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError(t *testing.T) {
 	t.Parallel()
 
-	module := copyFixture(t, "all-killed")
+	module := copyFixture(t, "skeleton")
 	config := baseConfig(t, module)
 
 	first := cachedRun(t, config)
 	if first.Population.Cached != 0 {
 		t.Fatalf("the first run reported %d cached verdicts from an empty cache",
 			first.Population.Cached)
+	}
+
+	if first.Count(report.Survived) == 0 {
+		t.Fatal("the first run wrote no survivor verdicts to invalidate")
 	}
 
 	legacy := 0

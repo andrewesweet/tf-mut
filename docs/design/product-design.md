@@ -277,18 +277,26 @@ Per mutant, in parallel across up to `--jobs` workers (see [parallelism defaults
    loss (1.7 s on a mocked-AWS module, more than the test run it precedes); R2-6 then showed
    the planned post-hoc alternative is impossible, because static and dynamic failures emit
    byte-identical diagnostics in the test stream. The synthesis: `validate` runs **only after
-   a phase-one `error` result**, where it is the sole verified discriminator between
-   `Invalid` (validate fails too) and `KilledByError` (validate passes). Mutants that pass
-   or fail assertions — the majority — never pay for it.
+   a phase-one `error` result or zero executed runs, unless an assertion already caught
+   the mutant**. It distinguishes `Invalid` (validate fails) from `KilledByError`
+   (validate passes after a run-level error). Mutants that pass or fail assertions — the
+   majority — never pay for it.
 4. **Phase one:** `terraform -chdir=<sandbox> test -json -filter=<selected files>` — plain
    output, no `-verbose`. Killed mutants stop here (after lazy validation if they errored).
-5. **Phase two, non-killed mutants only:** re-run with `-verbose -json` to obtain the plan
+   After at least one run executes, phase one checks completeness unless the invocation
+   times out or reports a failing or erroring run. A non-zero exit is an execution error.
+   So is an executed-run count below the baseline's, unless an explicit test-file filter
+   is selected. These checks run before phase two. A zero-run result goes through lazy
+   validation: if valid and not timed out, it is refused without a verdict. A `-filter`
+   matching nothing exits zero, so this is a per-mutant invariant, not a baseline-only
+   check. Execution errors leave the mutant `Pending`,
+   exclude it from scoring and caching, and make the command exit `2`.
+5. **Phase two, phase-one survivors only:** re-run with `-verbose -json` to obtain the plan
    fingerprint for the fingerprint-dependent states (`Survived` and its diagnoses,
    `StructurallyUnassertable`, `Unobservable`) and suggestion generation. This two-phase split exists because `-verbose` embeds the full
    provider schema per run-block message (C1) — a 26× marginal cost with `hashicorp/aws` —
-   and only the non-killed minority needs fingerprints.
-6. Assert the executed-run count is non-zero (a `-filter` matching nothing exits 0 — this is
-   a **per-mutant invariant**, not a baseline-only check), classify, delete the sandbox.
+   and only the surviving minority needs fingerprints.
+6. Classify the mutant and delete the sandbox.
 
 Mutation evaluation stops dispatching after consecutive operational failures reach
 the `--failure-trip` limit, capped at the pending population at the start of execution.
@@ -342,7 +350,7 @@ fail one run and error another; changing file order must not change the verdict)
 
 | Precedence | State | Assigned when | Counts toward score? |
 | --- | --- | --- | --- |
-| 1 | `Invalid` | Lazy `validate` fails after an `error` result | **Excluded** |
+| 1 | `Invalid` | Lazy `validate` fails after an `error` result or zero executed runs | **Excluded** |
 | 2 | `Killed` | ≥ 1 executed run reports `fail` — an **assertion** caught it | Numerator |
 | 3 | `KilledByError` | No `fail`, ≥ 1 run reports `error`, lazy `validate` passes — **Terraform** caught it | Numerator, always reported separately |
 | 4 | `Timeout` | No kill; the mutant's test invocation exceeded `max(factor × baseline, 30 s)` | **Denominator** — and any timeout marks the whole score *incomplete* |
@@ -351,7 +359,7 @@ fail one run and error another; changing file order must not change the verdict)
 | 7 | `Unobservable` | Fingerprint identical, the construct projects, **and no unknown value lies in the mutation's forward cone** (M3a delivered the path-scoped upgrade of the M2-spec-review C2 rule: unknowns are judged by whether the mutation can reach them, under the fail-closed address adapters, and the whole-payload test remains the floor wherever a mapping fails). A mutant whose cone reaches nothing observable at all — no resource, data source, output, check or contract construct — is classified statically, guarded by the structural-state precedence | **Excluded** |
 | 8 | `NoCoverage` | No run block instantiates the mutated block (assigned statically, before execution) | Denominator (reported separately) |
 | — | `Ignored` | Suppressed by config, comment or baseline | **Excluded** |
-| — | `Pending` | Generated but not executed, as in a preview | Not scored |
+| — | `Pending` | Generated without a verdict, as in a preview or an execution error | Not scored |
 
 **Implemented, with two readings settled by reproduction** (M2 implementation review, M2-1 and
 M2-2). The unknown rule gates *equality claims*, not difference claims: a survivor with a proven
