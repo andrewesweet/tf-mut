@@ -146,9 +146,14 @@ func applyBaselineGate(
 	}
 
 	gates.Baseline = &gate
+	scope := scopeSelected
+	if full {
+		scope = scopeFull
+	}
+
 	gates.FailOnNew = report.GateOutcome{
 		Evaluated: settings.FailOnNew,
-		Scope:     scopeLabel(full),
+		Scope:     scope,
 		Partial:   !full,
 		Passed:    len(gate.New) == 0,
 		Refused:   "",

@@ -272,7 +272,7 @@ func verifyScaffoldAnswer(
 		}
 	}
 
-	return generatedFile(path, content, content, true), nil
+	return executableFile(path, content, content), nil
 }
 
 // scaffoldSet is the context-side record of the scaffolds the loop discovers,

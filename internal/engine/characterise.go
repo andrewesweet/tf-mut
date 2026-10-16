@@ -220,7 +220,7 @@ func prepareStage(
 	// A characterisation reads the whole module: there is no count lever it
 	// could have been scoped by, and saying so keeps the population contract
 	// the same shape for every command.
-	result.Selection = report.Selection{Mode: scopeLabel(true), Ref: "", ForcedFull: ""}
+	result.Selection = report.Selection{Mode: scopeFull, Ref: "", ForcedFull: ""}
 
 	stage.prepared = prepared
 	stage.workRoot = workRoot
@@ -662,9 +662,9 @@ func artefactFiles(
 		// The artefact is redacted in both views: it is the editable surface,
 		// and nothing in it is ever planned.
 		content := characterise.RenderArtefact(scaffold, scenario, todos)
-		files = append(files, generatedFile(
+		files = append(files, artefactFile(
 			characterise.ArtefactFile(scaffold.Options.TestDirRel, scenario.Name()),
-			content, content, false,
+			content, content,
 		))
 	}
 
@@ -682,11 +682,36 @@ type writtenFile struct {
 	bytes []byte
 	// digest is the written bytes' digest, which the provenance registry
 	// records and the collision protocol compares against what is on disk. It
-	// is deliberately not published: see generatedFile.
+	// is deliberately not published: see writtenFileOf.
 	digest string
 }
 
-// generatedFile is the one place a generated file's report entry is built.
+// executableFile builds a generated file's report entry for an executable
+// suite file: the suite Terraform plans and the report publishes.
+func executableFile(path string, written, reported []byte) writtenFile {
+	return writtenFileOf(report.GeneratedFile{
+		Path:       path,
+		Content:    string(reported),
+		Digest:     characterise.Digest(reported),
+		Executable: true,
+		Written:    false,
+	}, written)
+}
+
+// artefactFile builds a generated file's report entry for a non-executable
+// artefact: the editable surface, redacted in both views, that Terraform
+// never plans.
+func artefactFile(path string, written, reported []byte) writtenFile {
+	return writtenFileOf(report.GeneratedFile{
+		Path:       path,
+		Content:    string(reported),
+		Digest:     characterise.Digest(reported),
+		Executable: false,
+		Written:    false,
+	}, written)
+}
+
+// writtenFileOf pairs a generated file's report entry with its written bytes.
 //
 // The published digest covers the *reported* bytes, and the written bytes'
 // digest stays in the local write protocol. Publishing the executable digest
@@ -696,15 +721,9 @@ type writtenFile struct {
 // The mandatory fixture's answer space is thirty-two bits. A report field that
 // varies with a value the report exists not to carry is a disclosure whatever
 // else it is useful for.
-func generatedFile(path string, written, reported []byte, executable bool) writtenFile {
+func writtenFileOf(entry report.GeneratedFile, written []byte) writtenFile {
 	return writtenFile{
-		entry: report.GeneratedFile{
-			Path:       path,
-			Content:    string(reported),
-			Digest:     characterise.Digest(reported),
-			Executable: executable,
-			Written:    false,
-		},
+		entry:  entry,
 		bytes:  written,
 		digest: characterise.Digest(written),
 	}
@@ -733,9 +752,9 @@ func scaffoldArtefact(
 
 	content := characterise.RenderScaffolds(scaffold, outstanding)
 
-	return []writtenFile{generatedFile(
+	return []writtenFile{artefactFile(
 		characterise.ArtefactFile(scaffold.Options.TestDirRel, scaffoldScenario),
-		content, content, false,
+		content, content,
 	)}
 }
 
@@ -749,9 +768,9 @@ func pinnedFiles(
 
 	for _, scenario := range scenarios {
 		one := []characterise.Scenario{scenario}
-		files = append(files, generatedFile(scenario.File(),
+		files = append(files, executableFile(scenario.File(),
 			characterise.Render(scaffold, one, pins, characterise.Executable),
-			characterise.Render(scaffold, one, pins, characterise.Redacted), true))
+			characterise.Render(scaffold, one, pins, characterise.Redacted)))
 	}
 
 	return files

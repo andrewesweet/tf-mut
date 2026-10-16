@@ -215,7 +215,8 @@ type GeneratedFile struct {
 	// reporter owns standard output, so the caller never has to reconstruct
 	// what would have been printed.
 	Content string `json:"content"`
-	// Digest is the content digest the write protocol commits against.
+	// Digest covers Content, including any redaction; see the report schema's
+	// generated_file definition for the publication contract.
 	Digest string `json:"digest"`
 	// Executable is false for the non-executable artefact class — the files
 	// `terraform test` never reads.

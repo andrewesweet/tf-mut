@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -229,9 +230,9 @@ func (o *outputFlag) Set(value string) error {
 // flagValues collects the parsed flag pointers, so declaring the surface and
 // reading it can be two short functions instead of one long one. The request
 // context the parser derives — the build version, the module directory, the
-// flags the caller actually set, whether the score and sample flags were
-// given, and the progress writer — rides on the same value, so the request
-// method reads one receiver instead of a positional list of its parts.
+// flags the caller actually set, and the progress writer — rides on the same
+// value, so the request method reads one receiver instead of a positional
+// list of its parts.
 type flagValues struct {
 	testDirectory, reporter, sarifPath, tier *string
 	operators, excludeOperators              *string
@@ -257,13 +258,13 @@ type flagValues struct {
 
 	// The request context: filled in by parse once the flag set is parsed and
 	// the positional argument resolved, and read by request and its helpers.
-	buildVersion      string
-	moduleDir         string
-	given             []string
-	overrides         engine.Overrides
-	minScoreRequested bool
-	sampleRequested   bool
-	progress          io.Writer
+	// Whether the score and sample flags were given is read off given, so no
+	// boolean threads that fact from the parser to the projections.
+	buildVersion string
+	moduleDir    string
+	given        []string
+	overrides    engine.Overrides
+	progress     io.Writer
 }
 
 // answerFlag collects repeatable todo-<id>=<value> answers.
@@ -413,8 +414,6 @@ func parse(command, buildVersion string, args []string, stderr io.Writer) (optio
 		return options{}, err
 	}
 
-	requested := false
-	sampled := false
 	given := []string{}
 	overrides := engine.Overrides{}
 
@@ -423,14 +422,6 @@ func parse(command, buildVersion string, args []string, stderr io.Writer) (optio
 
 		if setting, overridden := overrideOf[flagged.Name]; overridden {
 			overrides[setting] = true
-		}
-
-		if flagged.Name == minScoreFlag {
-			requested = true
-		}
-
-		if flagged.Name == sampleFlagName {
-			sampled = true
 		}
 	})
 
@@ -446,15 +437,13 @@ func parse(command, buildVersion string, args []string, stderr io.Writer) (optio
 	values.moduleDir = moduleDir
 	values.given = given
 	values.overrides = overrides
-	values.minScoreRequested = requested
-	values.sampleRequested = sampled
 	values.progress = stderr
 
 	return options{
 		config: values.request(command),
 		gate: report.Gate{
 			MinScore:             *values.minScore,
-			HasMinScore:          requested,
+			HasMinScore:          values.givenFlag(minScoreFlag),
 			AllowIncompleteScore: *values.allowIncomplete,
 			FailOnNew:            *values.failOnNew,
 		},
@@ -657,6 +646,13 @@ func (values flagValues) request(command string) engine.Request {
 	}
 }
 
+// givenFlag reports whether the named flag was given on the command line,
+// so the request projections read the recorded flag set instead of taking
+// the answer as a separate boolean parameter.
+func (values flagValues) givenFlag(name string) bool {
+	return slices.Contains(values.given, name)
+}
+
 // population projects the population flags onto the Population embed
 // the run, preview and suggest requests carry.
 func (values flagValues) population() engine.Population {
@@ -668,7 +664,7 @@ func (values flagValues) population() engine.Population {
 		ExcludeResources:   commaSeparated(*values.excludeResources),
 		Since:              *values.since,
 		SamplePercent:      *values.sample,
-		HasSample:          values.sampleRequested,
+		HasSample:          values.givenFlag(sampleFlagName),
 		SampleSeed:         *values.seed,
 		GeneratedFunctions: *values.generatedFunctions,
 		Packs:              commaSeparated(*values.packs),
@@ -680,7 +676,7 @@ func (values flagValues) population() engine.Population {
 func (values flagValues) gate() engine.Gate {
 	return engine.Gate{
 		MinScore:             *values.minScore,
-		HasMinScore:          values.minScoreRequested,
+		HasMinScore:          values.givenFlag(minScoreFlag),
 		AllowIncompleteScore: *values.allowIncomplete,
 		AllowSampledGate:     *values.allowSampledGate,
 		FailOnNew:            *values.failOnNew,

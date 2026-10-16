@@ -124,7 +124,7 @@ func listTodos(
 	result := reportShell(configuration, settings, version, configuration.ModuleDir,
 		warmWorkspace{}, []string{}) // nothing was prepared: this surface runs no Terraform.
 	result.Command = report.CommandTodos
-	result.Selection = report.Selection{Mode: scopeLabel(true), Ref: "", ForcedFull: ""}
+	result.Selection = report.Selection{Mode: scopeFull, Ref: "", ForcedFull: ""}
 	result.Metrics = emptyMetrics()
 	block := &report.Characterisation{ // a listing carries no scaffold.
 		Rung: string(rung), Complete: false, Scenarios: projectScenarios(scenarios),
