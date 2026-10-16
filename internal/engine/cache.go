@@ -40,7 +40,7 @@ import (
 // pre-bump entry, whose verdict was stored as published report DTOs, is a
 // miss, and the first run after upgrading recomputes every verdict once
 // (TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError).
-const cacheFormatVersion = "tf-mut-cache-5"
+const cacheFormatVersion = "tf-mut-cache-6"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
