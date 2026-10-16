@@ -370,6 +370,20 @@ func evaluateOne(
 	// report shows both.
 	verdict.DeadlineReached = result.TimedOut
 
+	// D18: a stream that stopped early is not a survival. A non-zero exit
+	// with no failing or erroring run reuses the baseline's own exit-status
+	// rule, and fewer executed runs than the baseline fingerprinted refuses
+	// even at exit zero. Both are execution errors, never Killed or Survived.
+	if message, refused := phaseOneTruncation(
+		result, plan.prepared.baselineRuns, len(plan.settings.TestSelection) > 0,
+	); refused {
+		return verdict, plan.classified[index].Outcome, &report.ExecutionError{
+			MutantID: verdict.ID,
+			Site:     verdict.Site,
+			Message:  message,
+		}
+	}
+
 	judge := executionOracle{plan: plan}
 	observation := judge.observation(index, verdict, observed, result, budget)
 
@@ -403,6 +417,53 @@ func evaluateOne(
 	}
 
 	return judge.observe(ctx, built, verdict, observation, outcome, telemetry)
+}
+
+// phaseOneTruncation refuses a phase-one stream that stopped early: a non-zero
+// Terraform exit with no failing or erroring run, or fewer executed runs than
+// the baseline fingerprinted. Either proves nothing about the mutant, so the
+// refusal is an execution error, never Killed or Survived.
+//
+// The exit-status rule is the baseline's own (baseline.go): the baseline
+// refuses a non-zero exit with no failing or erroring run as red, and phase
+// one does the same per mutant. The count rule catches the truncation an exit
+// of zero would otherwise miss. A failing or erroring run keeps its verdict —
+// the rules target false survivals, not proven kills — and a timeout keeps
+// its deadline handling. Zero runs stay with the existing zero-run refusal,
+// and a filtered selection legitimately runs fewer than the unfiltered
+// baseline, so the count rule applies only unfiltered. A phase-one exit 11 —
+// a Terraform crash, not a test verdict — lands here as an execution error
+// through the non-zero exit arm.
+func phaseOneTruncation(result tfexec.TestResult, baselineRuns int, filtered bool) (string, bool) {
+	if result.TimedOut {
+		return "", false
+	}
+
+	if result.ExecutedRuns() == 0 {
+		return "", false
+	}
+
+	if result.HasStatus(tfexec.StatusFail) || result.HasStatus(tfexec.StatusError) {
+		return "", false
+	}
+
+	if result.ExitCode != 0 {
+		return fmt.Sprintf(
+			"terraform test exited %d after %d run block(s) with no failing or erroring run, "+
+				"so no verdict is possible",
+			result.ExitCode, result.ExecutedRuns(),
+		), true
+	}
+
+	if !filtered && baselineRuns > 0 && result.ExecutedRuns() < baselineRuns {
+		return fmt.Sprintf(
+			"only %d of %d baseline run block(s) executed with no failing or erroring run, "+
+				"so no verdict is possible",
+			result.ExecutedRuns(), baselineRuns,
+		), true
+	}
+
+	return "", false
 }
 
 // validate records the terraform validate verdict into the observation where
