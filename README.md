@@ -227,7 +227,7 @@ contexts and glossary, start with [`CONTEXT.md`](CONTEXT.md).
 | [`docs/reference/`](docs/reference/) | Generated command-line reference — [`cli.md`](docs/reference/cli.md) renders the same help table as `tf-mut --help` |
 | [`docs/research/`](docs/research/) | Numbered research notes, measurements, and milestone exit gates |
 | [`docs/reviews/`](docs/reviews/) | Adversarial and implementation reviews with their dispositions, which outrank design prose on conflict |
-| [`docs/schema/`](docs/schema/) | Versioned report schemas and the vendored external schemas that outputs are validated against — the `json` reporter emits [`report-2.12.0.json`](docs/schema/report-2.12.0.json) |
+| [`docs/schema/`](docs/schema/) | Versioned report schemas and the vendored external schemas that outputs are validated against — the `json` reporter emits [`report-2.13.0.json`](docs/schema/report-2.13.0.json) |
 
 ## Findings that shaped the design
 
