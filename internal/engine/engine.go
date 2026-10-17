@@ -140,6 +140,10 @@ type settings struct {
 	// NoCache disables cache reads and writes: the documented mitigation for
 	// the plan-values-on-disk risk, and the escape hatch for a shared cache.
 	NoCache bool
+	// stores are the run's resolved persistence ports, attached by Run from
+	// the engine's Dependencies. A zero value selects the filesystem
+	// defaults, so a hand-built settings behaves like the default wiring.
+	stores stores
 	// FailOnNew fails the run on any finding the baseline does not accept.
 	FailOnNew bool
 	// WriteBaseline accepts the current findings as the baseline; permitted
@@ -267,6 +271,8 @@ func (e Engine) Run(ctx context.Context, request Request) (result report.Report,
 	if err != nil {
 		return report.Report{}, err
 	}
+
+	s.stores = stores{verdicts: e.dependencies.NewVerdictStore}
 
 	telemetry, runCtx, err := e.instrument(ctx, &s)
 	if err != nil {
@@ -874,7 +880,7 @@ func executeWithCache(
 
 	storePhase := plan.collector.phase(phaseCacheStore)
 	if cache != nil {
-		cache.store(evaluated.rows, evaluated.classified)
+		cache.persist(evaluated.rows, evaluated.classified)
 	}
 
 	storePhase()
