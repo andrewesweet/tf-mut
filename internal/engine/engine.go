@@ -140,9 +140,8 @@ type settings struct {
 	// NoCache disables cache reads and writes: the documented mitigation for
 	// the plan-values-on-disk risk, and the escape hatch for a shared cache.
 	NoCache bool
-	// stores are the run's resolved persistence ports, attached by Run from
-	// the engine's Dependencies. A zero value selects the filesystem
-	// defaults, so a hand-built settings behaves like the default wiring.
+	// stores holds the persistence factories selected by New and attached
+	// by Run from the engine's Dependencies.
 	stores stores
 	// FailOnNew fails the run on any finding the baseline does not accept.
 	FailOnNew bool

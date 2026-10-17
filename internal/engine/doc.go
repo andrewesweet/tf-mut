@@ -11,9 +11,9 @@
 //
 // # Composition root
 //
-// dependencies.go declares Dependencies — the checkout resolver and tracer
-// factory — with DefaultDependencies, New and Engine. Run (engine.go) is the
-// default wiring over them and remains the seam.
+// dependencies.go declares Dependencies, its production defaults and the
+// composition root (New and Engine). Run (engine.go) is the default wiring
+// over them and remains the seam.
 //
 // # Requests and settings
 //

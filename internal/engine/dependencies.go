@@ -13,7 +13,7 @@ import (
 // Dependencies supplies the checkout resolver, tracer factory and store
 // factories used by New. The runner stays the concrete tfexec.Runner — it is
 // never wired here — and the store factories are the only persistence
-// seam: the engine owns every key, path and document shape.
+// seam. The ports are documented beside the engine policies that use them.
 type Dependencies struct {
 	// CheckoutRoot resolves the git work tree containing a directory. It
 	// replaces the checkoutRoot call in discovery; nil selects checkoutRoot.
@@ -34,9 +34,8 @@ type Dependencies struct {
 	NewRegistryStore func() RegistryStore
 }
 
-// stores are the run's resolved persistence ports, carried on the settings
-// value the request produced. The engine owns what is stored and where;
-// these are only the mechanisms, resolved once per run.
+// stores are the persistence factories selected by New and attached by Run
+// to the settings value the request produced.
 type stores struct {
 	verdicts func(dir string) (VerdictStore, error)
 	baseline func() BaselineStore

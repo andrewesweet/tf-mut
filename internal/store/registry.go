@@ -39,9 +39,7 @@ func EmptyRegistry() Registry {
 // FileRegistry is the filesystem provenance registry.
 type FileRegistry struct{}
 
-// NewFileRegistry builds the filesystem provenance-registry store. The
-// document's format version is the package's declared constant: FileRegistry
-// writes it on every save and reads a foreign-version document as empty.
+// NewFileRegistry builds the filesystem provenance-registry store.
 func NewFileRegistry() FileRegistry {
 	return FileRegistry{}
 }

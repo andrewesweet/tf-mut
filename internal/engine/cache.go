@@ -745,14 +745,6 @@ func rehydrated(mutant *report.Mutant, classified *oracle.Classified, entry stor
 	return true
 }
 
-// persist stores the fresh executed verdicts, then evicts deterministically.
-// A Timeout is never stored: a budget overrun is not a fact about the module.
-// Each verdict is stored as the Oracle context's own record, taken from the
-// classified outcome — never from the published projection — so what the
-// cache holds is what the context stored, and ParseRecord can rebuild it
-// exactly. Where the outcome carries its diagnostics as evidence, the run's
-// own observations stand down: the record is their only carrier, and replay
-// must have one writer per field.
 // observedRun is the run's own observation document, stored beside the
 // verdict's record and never part of it: the runs as executed, their
 // diagnostics where the record does not carry them as evidence, and the
@@ -770,6 +762,14 @@ type observedRun struct {
 	DeadlineReached bool                `json:"deadline_reached"`
 }
 
+// persist stores the fresh executed verdicts, then evicts deterministically.
+// A Timeout is never stored: a budget overrun is not a fact about the module.
+// Each verdict is stored as the Oracle context's own record, taken from the
+// classified outcome — never from the published projection — so what the
+// cache holds is what the context stored, and ParseRecord can rebuild it
+// exactly. Where the outcome carries its diagnostics as evidence, the run's
+// own observations stand down: the record is their only carrier, and replay
+// must have one writer per field.
 func (c *verdictCache) persist(mutants []report.Mutant, classified []oracle.Classified) {
 	unlock, err := c.store.Lock()
 	if err != nil {

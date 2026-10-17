@@ -10,8 +10,7 @@ import (
 // BaselineFormatVersion is the acceptance list's file format contract.
 const BaselineFormatVersion = "tf-mut-baseline-1"
 
-// baselineFileMode keeps the acceptance list owner-writable and world-read
-// only through the repository's own permissions.
+// baselineFileMode requests owner-only permissions for a new acceptance list.
 const baselineFileMode = 0o600
 
 // ErrBaselineFile reports a baseline file that could not be read: a corrupt
@@ -72,8 +71,8 @@ func (BaselineFile) Load(path string) ([]AcceptanceEntry, error) {
 	return decoded.Entries, nil
 }
 
-// Save persists the accepted list at path, owner-only and indented for the
-// human who edits it.
+// Save writes an indented acceptance list at path, creating new files with
+// owner-only permissions.
 func (BaselineFile) Save(path string, entries []AcceptanceEntry) error {
 	encoded, err := json.MarshalIndent(baselineFile{
 		FormatVersion: BaselineFormatVersion,

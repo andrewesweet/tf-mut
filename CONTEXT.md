@@ -25,7 +25,7 @@ which no longer imports `internal/report`.
 | Mutation Catalogue | Supporting | `internal/mutation` | operator identity, applicability, site, generated mutant, diff |
 | Suggestion | Supporting | `internal/suggest` | candidate to verified/refuted/skipped, verification evidence, apply plan |
 | Characterisation | Supporting | `internal/characterise` | scenario, input provenance, judgement point, pin, scaffold promotion, convergence, curation finding |
-| Persistence | Generic / ACL | `internal/store` | the verdict cache, acceptance list and provenance-registry documents: on-disk formats, permission correction and symlink refusal, corruption-as-miss reads, atomic writes, the size cap, the advisory lock, the rename-window write |
+| Persistence | Generic / ACL | `internal/store` | verdict cache, acceptance list and provenance-registry documents; see the [filesystem contract](internal/store/doc.go) |
 | Terraform Boundary | Generic / ACL | `internal/discovery`, `internal/tfexec`, `internal/sandbox` | HCL and JSON discovery, canonical configuration snapshot, Terraform process and result translation, sandbox materialisation |
 | Publication | Generic / ACL | `internal/report`, `internal/skill` | versioned report DTOs, schema mapping, the seven renderings, shipped agent documents |
 
