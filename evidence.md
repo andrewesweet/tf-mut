@@ -41,7 +41,8 @@ invocation materialises a different directory. The masked fingerprint changes.
 The cache now replaces the warm closure path with a stable marker after masking,
 including canonical scalar values and map-key paths. This replacement applies
 only to cache identity. The report and oracle retain their original payloads.
-The cache format advances to version 7 because its key derivation changes.
+The initial normalization advanced the cache format to version 7. The escaped
+address correction below advances it to version 8.
 
 ## Regression contracts
 
@@ -50,8 +51,10 @@ through the engine seam. Its independent oracle is the unchanged-suite reuse
 contract: the second invocation must replay every verdict executed by the first,
 even though the reported baseline fingerprint retains the changed path. It covers
 plan and state, scalar and embedded values, map keys, an escaped work-directory
-name, and a sibling module above the module directory. Hashing the unnormalised
-masked output fails this contract.
+name, and a sibling module above the module directory. Both root and sibling
+modules also have resources indexed by their absolute paths, exercising escaped
+instance paths and the additionally quoted address scalars. Hashing the
+unnormalised masked output fails this contract.
 
 `TestCacheDebugLogsAreReachableThroughTheCLI` starts subprocesses through `main`
 for both `run` and `suggest`. Its oracle is the public opt-in contract: unset
@@ -73,3 +76,33 @@ test skipped in the parent and executed in its subprocesses.
 Full test and lint suites remain the outer executor's phases. The pre-fix probe
 and focused verification logs are retained locally under
 `.artifacts/cache-review/`.
+
+## Escaped instance-address reproduction
+
+The next review identified an uncovered representation. With `WorkDir` containing
+a quote, index the probe's resource by `for_each = toset([abspath(path.root)])`
+and read its input through `one(values(terraform_data.app)).input`. Before the
+escaped-address correction, both invocations execute nine fresh verdicts and
+replay none, in plan and apply. The baseline component digests change:
+
+| Command | First baseline component digest | Second baseline component digest |
+| --- | --- | --- |
+| plan | `cce5bedb3847f9bd0a789483f3f178d3706cab33c270b7294a630fd800dc462c` | `9028cc912d7407bfbc7d056e881fcf78b5a437f3a9711c058ac3216a2c154322` |
+| apply | `0be2db1c9a20815f774033aaec488c6712a7040109dace426543669310284b7d` | `4ec8e355e01680b64179a375cb05b06d89889b284ef34e3f3e71f320d12b991e` |
+
+Terraform escapes the instance key inside each resource address. Canonical
+payload paths retain that escaped address; canonical address scalars quote it
+again. The cache boundary now normalizes all three forms in both payload paths
+and scalar values, matching the most escaped form first. Oracle payloads, report
+fingerprints and environment keying retain their previous behavior.
+
+The repeated CLI-debug finding has no residual defect: `main` still installs the
+debug-enabled stderr handler before command dispatch when `TF_MUT_DEBUG=1`.
+The subprocess regression exercises that entry point for both run and suggest.
+
+The focused rerun passed all four extended fixture/command cases, unchanged-run
+reuse, volatile-apply reuse, key-dimension invalidation, the version-7-to-8 cache
+upgrade, component logging, and the run/suggest CLI debug tests. Its log is
+`.artifacts/cache-review/escaped-verification.log`; the pre-correction probe is
+`.artifacts/cache-review/escaped-before.log`. Full test and lint suites were not
+run in this review phase.

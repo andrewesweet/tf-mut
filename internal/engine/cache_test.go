@@ -252,7 +252,7 @@ func TestACachedReplayIsByteIdenticalToTheFreshRun(t *testing.T) {
 
 // previousCacheFormatVersion is the format one step behind the one this build
 // writes: an entry carrying it is a miss, never a parse error.
-const previousCacheFormatVersion = "tf-mut-cache-6"
+const previousCacheFormatVersion = "tf-mut-cache-7"
 
 // TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError is the symmetric
 // half of the format boundary: the first run after an upgrade finds every
@@ -574,8 +574,15 @@ func TestWarmDirectoryPathsReuseVerdictsAcrossInvocations(t *testing.T) {
 
 				module := copyFixture(t, fixture)
 				if fixture == "upward" {
-					appendFile(t, filepath.Join(module, "shared", mainFile),
-						"\noutput \"value\" { value = abspath(path.module) }\n")
+					appendFile(t, filepath.Join(module, "shared", mainFile), `
+output "value" {
+  value = abspath(path.module)
+}
+resource "terraform_data" "indexed_path" {
+  for_each = toset([abspath(path.module)])
+  input    = "kept"
+}
+`)
 					module = filepath.Join(module, "root")
 					appendFile(t, filepath.Join(module, mainFile),
 						"\noutput \"child_path\" { value = module.shared.value }\n")
@@ -590,6 +597,10 @@ output "embedded" {
 }
 output "keyed" {
   value = { (abspath(path.root)) = "kept" }
+}
+resource "terraform_data" "indexed_path" {
+  for_each = toset([abspath(path.root)])
+  input    = "kept"
 }
 `)
 				testFile := filepath.Join(module, "tests", "unit.tftest.hcl")

@@ -41,7 +41,7 @@ import (
 // protects this upgrade boundary. An older-format entry is a miss, not an
 // error. Selected verdicts are recomputed under the current execution and
 // oracle rules (TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError).
-const cacheFormatVersion = "tf-mut-cache-7"
+const cacheFormatVersion = "tf-mut-cache-8"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
@@ -240,14 +240,20 @@ func cacheBaselineFingerprint(configuration discovery.Configuration, prepared wa
 
 	warmRoot := filepath.Clean(filepath.Join(prepared.moduleDir, rel))
 	quotedWarm := strconv.Quote(warmRoot)
+	escapedWarm := quotedWarm[1 : len(quotedWarm)-1]
+	quotedEscapedWarm := strconv.Quote(escapedWarm)
 	const warmRootMarker = "\x00tf-mut-warm"
-	values := strings.NewReplacer(quotedWarm[1:len(quotedWarm)-1], warmRootMarker)
+	normalise := strings.NewReplacer(
+		quotedEscapedWarm[1:len(quotedEscapedWarm)-1], warmRootMarker,
+		escapedWarm, warmRootMarker,
+		warmRoot, warmRootMarker,
+	)
 	masked := maskedBaseline(prepared)
 
 	for index, payload := range masked {
 		normalised := make(map[string]string, len(payload.Values))
 		for path, value := range payload.Values {
-			normalised[strings.ReplaceAll(path, warmRoot, warmRootMarker)] = values.Replace(value)
+			normalised[normalise.Replace(path)] = normalise.Replace(value)
 		}
 
 		masked[index].Values = normalised
