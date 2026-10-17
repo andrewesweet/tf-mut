@@ -529,6 +529,41 @@ func TestMaskedBaselineFingerprintIsAKeyDimension(t *testing.T) {
 	}
 }
 
+// TestVolatileApplyValuesReuseVerdictsAcrossInvocations (D17 step two): two
+// prepared baselines differing only in masked-volatile values produce the
+// same key. The volatile fixture applies a uuid() input on every run, so its
+// raw baseline values differ on every invocation by construction; the mask —
+// the two-run diff plus the static scan — must keep the key, and the
+// verdicts, stable. A miss here names the baseline fingerprint as the varying
+// component through the step-one debug log.
+func TestVolatileApplyValuesReuseVerdictsAcrossInvocations(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "volatile")
+	config := baseConfig(t, module)
+
+	first := cachedRun(t, config)
+	if first.Population.Cached != 0 {
+		t.Fatalf("the first run reported %d cached verdicts from an empty cache",
+			first.Population.Cached)
+	}
+
+	if first.Baseline.Fingerprint == "" {
+		t.Fatal("the baseline fingerprint is empty; the key cannot include it")
+	}
+
+	second := cachedRun(t, config)
+	if second.Population.Cached == 0 || second.Population.Fresh != 0 {
+		t.Fatalf("masked-volatile apply values changed the key: %+v", second.Population)
+	}
+
+	if second.CacheMiss != nil {
+		t.Fatalf("a cache hit carries a miss explanation: %+v", second.CacheMiss)
+	}
+
+	assertVerdictInvariance(t, first, second)
+}
+
 // TestCacheIsRefusedUnderTheUnsafeOptIns: external state cannot be keyed
 // soundly, so both opt-ins disable reads and writes.
 func TestCacheIsRefusedUnderTheUnsafeOptIns(t *testing.T) {
