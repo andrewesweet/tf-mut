@@ -63,12 +63,9 @@ type Runner struct {
 // process, read from the rusage the kernel reports when the process is
 // reaped.
 //
-// The numbers cover the terraform process and the descendants it waited for
-// before exiting: on Linux, a child's rusage includes its own reaped
-// children. Terraform starts each provider plugin and reaps it before
-// exiting, so provider CPU and memory are counted here. What the numbers do
-// not cover is a descendant the child never waited on — there is none in a
-// terraform invocation — and anything still running at timeout kill time.
+// The accounting scope is documented under process_usage in
+// docs/schema/report-2.13.0.json. Killing a leftover provider with ReapGroup
+// does not add that provider's usage to the reaped Terraform process.
 type Usage struct {
 	// UserCPU and SystemCPU are the child's user and system processor time.
 	UserCPU   time.Duration

@@ -82,9 +82,8 @@ type outcome struct {
 // taken first loses a failing child's diagnostics under load.
 func completed(ctx context.Context, command *exec.Cmd, started time.Time, stderr *bytes.Buffer) outcome {
 	waitErr := command.Wait()
-	// The child is reaped; anything it left behind in its group — provider
-	// plugins Terraform abandoned on a normal exit — is killed now, so no
-	// descendant outlives the command whatever way it finished.
+	// Terraform may leave provider plugins in its process group after a normal
+	// exit. Clean up the group after Wait even when cancellation never ran.
 	ReapGroup(command)
 
 	result := Result{

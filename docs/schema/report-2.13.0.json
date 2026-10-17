@@ -1761,7 +1761,7 @@
         "user_cpu_ms": {
           "type": "integer",
           "minimum": 0,
-          "description": "User processor time in milliseconds, covering the terraform process and the descendants it waited for (Terraform reaps its provider plugins, so they are included)."
+          "description": "User processor time in milliseconds, covering the Terraform process and only the descendants it waited for before exiting. Provider plugins left running at normal exit or timeout are excluded, including those later killed by tf-mut."
         },
         "system_cpu_ms": {
           "type": "integer",
