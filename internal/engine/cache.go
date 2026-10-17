@@ -41,7 +41,7 @@ import (
 // protects this upgrade boundary. An older-format entry is a miss, not an
 // error. Selected verdicts are recomputed under the current execution and
 // oracle rules (TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError).
-const cacheFormatVersion = "tf-mut-cache-10"
+const cacheFormatVersion = "tf-mut-cache-11"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
@@ -248,14 +248,15 @@ func cacheBaselineFingerprint(configuration discovery.Configuration, prepared wa
 		return "", err
 	}
 
-	quotedWarm := strconv.Quote(warmRoot)
-	escapedWarm := quotedWarm[1 : len(quotedWarm)-1]
-	quotedEscapedWarm := strconv.Quote(escapedWarm)
-	const warmRootMarker = "\x00tf-mut-warm"
+	invocationRoot := filepath.Dir(warmRoot)
+	quotedInvocation := strconv.Quote(invocationRoot)
+	escapedInvocation := quotedInvocation[1 : len(quotedInvocation)-1]
+	quotedEscapedInvocation := strconv.Quote(escapedInvocation)
+	const invocationMarker = "\x00tf-mut-invocation"
 	normalise := strings.NewReplacer(
-		quotedEscapedWarm[1:len(quotedEscapedWarm)-1], warmRootMarker,
-		escapedWarm, warmRootMarker,
-		warmRoot, warmRootMarker,
+		quotedEscapedInvocation[1:len(quotedEscapedInvocation)-1], invocationMarker,
+		escapedInvocation, invocationMarker,
+		invocationRoot, invocationMarker,
 	)
 	masked := maskedBaseline(prepared)
 
@@ -268,7 +269,7 @@ func cacheBaselineFingerprint(configuration discovery.Configuration, prepared wa
 		masked[index].Values = normalised
 	}
 
-	parent := filepath.Dir(filepath.Dir(warmRoot))
+	parent := filepath.Dir(invocationRoot)
 
 	return hashBytes([]byte(parent + "\x00" + fingerprint.Fingerprint(masked))), nil
 }

@@ -252,7 +252,7 @@ func TestACachedReplayIsByteIdenticalToTheFreshRun(t *testing.T) {
 
 // previousCacheFormatVersion is the format one step behind the one this build
 // writes: an entry carrying it is a miss, never a parse error.
-const previousCacheFormatVersion = "tf-mut-cache-9"
+const previousCacheFormatVersion = "tf-mut-cache-10"
 
 // TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError is the symmetric
 // half of the format boundary: the first run after an upgrade finds every
@@ -580,7 +580,7 @@ output "value" {
   value = abspath(path.module)
 }
 resource "terraform_data" "indexed_path" {
-  for_each = toset([abspath(path.module)])
+  for_each = toset([abspath(path.module), dirname(abspath(path.module))])
   input    = "kept"
 }
 `)
@@ -593,14 +593,20 @@ resource "terraform_data" "indexed_path" {
 output "value" {
   value = abspath(path.root)
 }
+output "parent_path" {
+  value = dirname(abspath(path.root))
+}
 output "embedded" {
   value = "before:${abspath(path.root)}/after"
 }
 output "keyed" {
-  value = { (abspath(path.root)) = "kept" }
+  value = {
+    (abspath(path.root))          = "kept"
+    (dirname(abspath(path.root))) = "kept"
+  }
 }
 resource "terraform_data" "indexed_path" {
-  for_each = toset([abspath(path.root)])
+  for_each = toset([abspath(path.root), dirname(abspath(path.root))])
   input    = "kept"
 }
 `)

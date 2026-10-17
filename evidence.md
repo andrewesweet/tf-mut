@@ -45,6 +45,7 @@ The initial normalization advanced the cache format to version 7. The escaped
 address correction below advances it to version 8.
 The physical-directory correction uses version 9.
 The stable-parent correction uses version 10.
+The derived-path correction uses version 11.
 
 ## Regression contracts
 
@@ -180,3 +181,30 @@ unchanged-parent path cases, plus ordinary cache reuse, volatile-apply reuse,
 key-dimension invalidation, the version-9-to-10 upgrade, component logging, and
 both CLI debug cases. The log is `.artifacts/cache-review/parent-verification.log`.
 Full test and lint suites remain the outer executor's phases.
+
+## Derived parent-path reproduction
+
+Replace the original probe's unasserted output with
+`value = dirname(abspath(path.root))`. Before the derived-path correction, both
+plan and apply execute six fresh verdicts and replay none on each invocation.
+The baseline component changes:
+
+| Command | First baseline component digest | Second baseline component digest |
+| --- | --- | --- |
+| plan | `8f8755baefbe9d717ad49ec6f37c938bab002df2c8f8e16a078f58a64e724be8` | `feb1bfaa304092863bb01cecc5a51c773f51851be0b47cfa769437f1c2ff09fb` |
+| apply | `0a50fe1c6876d76243ec481f319cbb33561414a5f26c40c5a9991745cdfb3470` | `a8ae49a0a03b06613f79723d88e0c70ad85d36a99bf86e269f582769a0499ec3` |
+
+The output retains the random invocation directory but omits its `warm` child.
+The cache boundary now normalizes the resolved invocation-directory prefix,
+covering that directory itself and paths beneath it with the same three escaped
+forms. The stable parent is still hashed unconditionally. The existing matrix
+adds a parent-path output and derives map keys and resource instance keys from
+both the module path and its parent. It retains plan/apply, root/sibling module,
+direct/symlink parent, quoted-directory, and raw report-fingerprint coverage.
+The pre-correction probe log is `.artifacts/cache-review/derived-before.log`.
+
+The focused rerun passed all eight expanded path cases and all eight parent-change
+cases, plus ordinary and volatile cache reuse, key-dimension invalidation, the
+version-10-to-11 upgrade, component logging, and both CLI debug cases. The log is
+`.artifacts/cache-review/derived-verification.log`. Full test and lint suites
+remain the outer executor's phases.
