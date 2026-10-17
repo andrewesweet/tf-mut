@@ -538,8 +538,12 @@ func TestInterleavedFailuresAndVerdictsNeverTrip(t *testing.T) {
 
 	assertNoTripWarning(t, result)
 
-	if result.Metrics.Incomplete {
-		t.Fatalf("metrics incomplete = true, want false: %+v", result.Metrics)
+	// D18 second half: the five errored rows never tripped the run, but
+	// each one left its verdict unobserved, so the score is incomplete even
+	// though every other mutant scored.
+	if !result.Metrics.Incomplete {
+		t.Fatalf("metrics incomplete = false, want true with %d errored rows: %+v",
+			len(result.Errors), result.Metrics)
 	}
 
 	for _, mutant := range result.Mutants {

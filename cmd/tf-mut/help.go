@@ -153,8 +153,8 @@ var flagDocs = map[string]flagDoc{ //nolint:gochecknoglobals // the immutable he
 	},
 	allowIncompleteFlag: {
 		"",
-		"Let an untrustworthy score satisfy --min-score (timeout, nothing scored, " +
-			"Invalid-dominated)",
+		"Let an untrustworthy score satisfy --min-score (timeout, consecutive-failure trip, " +
+			"unexecuted mutants, execution errors, nothing scored, Invalid-dominated)",
 	},
 
 	allowSampledGateFlag:  {"", "Let a sampled run satisfy --min-score (unsafe)"},

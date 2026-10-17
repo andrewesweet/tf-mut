@@ -466,6 +466,7 @@ func writeMetrics(builder *strings.Builder, value Report) {
 	if metrics.Incomplete {
 		builder.WriteString("\n  Score is INCOMPLETE: the population does not support this score.\n" +
 			"  An operational-failure trip stopped execution, a mutant timed out, " +
+			"a mutant hit an execution error, " +
 			"nothing in the population could be scored, or a high share " +
 			"of judged mutants were rejected by terraform validate.\n")
 	}
