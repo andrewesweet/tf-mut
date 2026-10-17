@@ -68,7 +68,7 @@ func (c Configuration) SuiteSuppliedVariable(env, selection []string, name strin
 		nullable = value.True()
 	}
 
-	if hasAnyVariableOverride(env) {
+	if hasAnyVariableOverride(env) || hasInjectedTestArguments(env) {
 		return false
 	}
 
@@ -131,6 +131,18 @@ func hasAnyVariableOverride(env []string) bool {
 	}
 
 	return false
+}
+
+func hasInjectedTestArguments(env []string) bool {
+	arguments := os.Getenv("TF_CLI_ARGS_test")
+
+	for _, entry := range env {
+		if value, assigned := strings.CutPrefix(entry, "TF_CLI_ARGS_test="); assigned {
+			arguments = value
+		}
+	}
+
+	return arguments != ""
 }
 
 func (c Configuration) selectedRunsEvaluatingModuleUnderTest(selection []string) []RunBlock {

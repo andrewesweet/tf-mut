@@ -703,3 +703,55 @@ func TestStaticallyDecidedDefaultsCountAsFresh(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentInjectedTestFiltersKeepDefaultMutantsExecuting(t *testing.T) {
+	const injected = "TF_CLI_ARGS_test=-filter=tests/omitting.tftest.hcl"
+	const cleared = "TF_CLI_ARGS_test="
+	const filter = "-filter=tests/omitting.tftest.hcl"
+
+	for _, test := range []struct {
+		name    string
+		ambient string
+		env     []string
+		static  bool
+	}{
+		{name: "configured filter", env: []string{injected}},
+		{name: "ambient filter", ambient: filter},
+		{name: "configured empty overrides ambient", ambient: filter, env: []string{cleared}, static: true},
+		{name: "last configured filter wins", env: []string{cleared, injected}},
+		{name: "last configured empty wins", ambient: filter, env: []string{injected, cleared}, static: true},
+		{name: "no injected filter", static: true},
+	} {
+		t.Setenv("TF_CLI_ARGS_test", test.ambient)
+
+		request := baseConfig(t, copyFixture(t, "suite-supplied-var-selected"))
+		request.TestSelection = []string{"tests/good.tftest.hcl"}
+		request.IncludeOperators = []string{"VAR-DEFAULT-CHANGE", "VAR-DEFAULT-REMOVE", "VAR-DEFAULT-NULL"}
+		request.Env = append(request.Env, test.env...)
+
+		result, err := engine.Run(t.Context(), request)
+		if err != nil {
+			t.Fatalf("%s: run: %v", test.name, err)
+		}
+
+		for _, mutant := range defaultMutantsAt(t, result, ".") {
+			if test.static {
+				if mutant.State != report.Unobservable || mutant.ExecutedRuns != 0 {
+					t.Errorf("%s: %s state %s after %d runs; only the setter is selected",
+						test.name, mutant.Operator, mutant.State, mutant.ExecutedRuns)
+				}
+
+				continue
+			}
+
+			if mutant.State == report.Unobservable || mutant.ExecutedRuns == 0 {
+				t.Errorf("%s: %s state %s after %d runs; injected filter selects the default reader",
+					test.name, mutant.Operator, mutant.State, mutant.ExecutedRuns)
+			}
+
+			if mutant.Operator == "VAR-DEFAULT-CHANGE" && mutant.State != report.Killed {
+				t.Errorf("%s: changed default state %s, want Killed by the omitter's assertion", test.name, mutant.State)
+			}
+		}
+	}
+}
