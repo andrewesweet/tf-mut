@@ -36,6 +36,8 @@ const (
 	unassertableSite = "output.value"
 )
 
+const sampleNumericOperator = "NUM-OFF-BY-ONE"
+
 // Literals the cache-miss rendering tests share: the variable names behind
 // an explained miss, never their values.
 const (
@@ -731,7 +733,7 @@ func sitesReport() report.Report {
 		line     int
 		status   string
 	}{
-		{"aaaa00000001", "NUM-OFF-BY-ONE", report.Survived, "local.locations", sampleFile, 21, statusNew},
+		{"aaaa00000001", sampleNumericOperator, report.Survived, "local.locations", sampleFile, 21, statusNew},
 		{"aaaa00000002", "BOOL-FLIP", report.Survived, "local.locations", sampleFile, 23, statusAccepted},
 		{"aaaa00000003", "STR-CASE", report.Survived, "var.type", "variables.tf", 9, statusAccepted},
 		{"aaaa00000004", "EXT-BODY-BLANK", report.StructurallyUnassertable, unassertableSite, "outputs.tf", 5, ""},
@@ -1012,7 +1014,7 @@ func TestMarkdownTruncationNamesEveryHiddenSite(t *testing.T) {
 	for index := range 27 {
 		mutants = append(mutants, report.Mutant{ // the rendered subset.
 			ID:       fmt.Sprintf("aaaa%08d", index),
-			Operator: "NUM-OFF-BY-ONE",
+			Operator: sampleNumericOperator,
 			Tier:     smokeTier,
 			Module:   ".",
 			Site:     fmt.Sprintf("resource_%02d.attr", index),
