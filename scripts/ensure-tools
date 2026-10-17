@@ -23,16 +23,26 @@ source_module_specs=(
   'govulncheck golang.org/x/vuln'
 )
 
-# source_tools_fresh mirrors the binary checks in scripts/doctor: every
-# repo-local binary must exist and report the module version its go.mod pins.
 source_tools_fresh() {
-  local spec binary module expected
+  local spec binary module compiler expected actual
+  export GOTOOLCHAIN=local GOWORK=off
+  compiler=$(mise exec -- go env GOVERSION) || return 1
   for spec in "${source_module_specs[@]}"; do
     read -r binary module <<<"$spec"
     test -x "$repo_root/.tools/bin/$binary" || return 1
-    expected=$(cd "$repo_root/tools/$binary" && mise exec -- go list -m -f '{{.Version}}' "$module") || return 1
-    mise exec -- go version -m "$repo_root/.tools/bin/$binary" \
-      | grep -Fq $'\tmod\t'"$module"$'\t'"$expected"$'\t' || return 1
+    expected=$(cd "$repo_root/tools/$binary" && mise exec -- go list -mod=readonly -m -json all | mise exec -- jq -s '.') || return 1
+    actual=$(mise exec -- go version -m -json "$repo_root/.tools/bin/$binary") || return 1
+    mise exec -- jq -en --arg compiler "$compiler" --arg module "$module" \
+      --argjson expected "$expected" --argjson actual "$actual" '
+      def identity:
+        {Path, Version, Sum: (if .Replace then null else .Sum end),
+         Replace: (.Replace | if . == null then null else {Path, Version, Sum} end)};
+      $actual.GoVersion == $compiler and $actual.Main.Path == $module and
+      all(($actual.Main, $actual.Deps[]);
+        . as $built |
+        (.Replace == null or (.Replace.Version // "") != "") and
+        any($expected[]; identity == ($built | identity)))
+    ' >/dev/null || return 1
   done
 }
 

@@ -659,7 +659,7 @@ func TestGateRecipesEnsurePinnedTools(t *testing.T) {
 	justfile := readRepositoryFile(t, "Justfile")
 	for _, recipe := range []string{
 		"fmt", "fmt-check", "lint-go", "lint-shell", "lint-config",
-		"lint-actions", "lint-fix", "typecheck", "mod-check", "build",
+		"lint-actions", "lint-fix",
 	} {
 		t.Run(recipe, func(t *testing.T) {
 			t.Parallel()

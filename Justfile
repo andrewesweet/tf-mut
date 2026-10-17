@@ -65,7 +65,6 @@ update provider_version:
 
 # Build the reproducible Linux executable.
 build:
-    scripts/ensure-tools
     mkdir -p "{{ artifact_dir }}/bin"
     mise exec -- env CGO_ENABLED=0 go build -trimpath -buildvcs=true -mod=readonly \
       -ldflags "-X main.version={{ version }}" -o "{{ binary }}" ./cmd/tf-mut
@@ -119,7 +118,6 @@ fix: lint-fix fmt
 
 # Compile and vet production and test packages without executing tests.
 typecheck:
-    scripts/ensure-tools
     mise exec -- go build -mod=readonly ./...
     mise exec -- go vet -tests=true ./...
     mise exec -- go vet -tests=true -tags=research ./...
@@ -128,7 +126,6 @@ typecheck:
 
 # Verify root and source-tool module integrity and tidiness.
 mod-check:
-    scripts/ensure-tools
     mise exec -- scripts/mod-check
 
 # Run the M2a honesty gate: the reproductions the oracle has to survive.
