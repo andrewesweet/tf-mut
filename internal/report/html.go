@@ -36,14 +36,16 @@ func WriteHTML(writer io.Writer, value Report) error {
 	fmt.Fprintf(&page, "<!-- mutation-testing-elements v%s, embedded. Licence:\n\n%s\n-->\n",
 		MTEVersion, escapeComment(mteLicence))
 	page.WriteString("<script>")
-	page.WriteString(escapeScript(mteBundle))
+	// Keep the pinned bundle verbatim: slash escaping corrupts regex literals.
+	page.WriteString(mteBundle)
 	page.WriteString("</script>\n</head>\n<body>\n")
 
 	writeAuthoritativeHeader(&page, value)
 
 	page.WriteString("<mutation-test-report-app title-text=\"tf-mut\"></mutation-test-report-app>\n")
 	page.WriteString("<script>document.querySelector('mutation-test-report-app').report = ")
-	page.WriteString(escapeScript(string(encoded)))
+	// json.Marshal already escapes HTML delimiters in module source data.
+	page.Write(encoded)
 	page.WriteString(";</script>\n</body>\n</html>\n")
 
 	if _, err := io.WriteString(writer, page.String()); err != nil {
@@ -128,11 +130,6 @@ func writeIndeterminateCauses(page *strings.Builder, value Report) {
 	}
 
 	page.WriteString("</ul>\n")
-}
-
-// escapeScript keeps inline content from terminating its script element.
-func escapeScript(content string) string {
-	return strings.ReplaceAll(content, "</", "<\\/")
 }
 
 // escapeComment keeps the licence from terminating its comment.
