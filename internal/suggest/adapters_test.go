@@ -381,12 +381,12 @@ func templateKeyRows() []renderingCase {
 		{
 			name: "an empty collection is a length equality",
 			path: statePrefix + "example_thing.app].values.items", baseline: "[]",
-			schemas: untyped(), want: "length(example_thing.app.items) == 0", refused: nil,
+			schemas: untyped(), want: "try(length(example_thing.app.items), null) == 0", refused: nil,
 		},
 		{
 			name: "an empty object is a length equality",
 			path: statePrefix + "example_thing.app].values.tags", baseline: "{}",
-			schemas: untyped(), want: "length(example_thing.app.tags) == 0", refused: nil,
+			schemas: untyped(), want: "try(length(example_thing.app.tags), null) == 0", refused: nil,
 		},
 		{
 			name: "a value absent from the baseline is not expressible",
@@ -487,7 +487,7 @@ func nullFormRows() []renderingCase {
 			path:     statePrefix + "example_thing.app].values.triggers.app.io/x",
 			baseline: emptiedObject, mutant: "",
 			schemas: schemaTyping("triggers", `["map","string"]`),
-			want:    `length(example_thing.app.triggers["app.io/x"]) == 0`, refused: nil,
+			want:    `try(length(example_thing.app.triggers["app.io/x"]), null) == 0`, refused: nil,
 		},
 	}
 }
@@ -724,6 +724,58 @@ func TestAbsenceTolerantFormsFailRatherThanError(t *testing.T) {
 
 			assertAdapter(t, expression, err, testCase.want, testCase.refused)
 		})
+	}
+}
+
+func TestEmptyCollectionAssertionsEvaluateAbsenceAsFalse(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		baseline string
+		empty    cty.Value
+		full     cty.Value
+	}{
+		"array": {
+			baseline: "[]", empty: cty.EmptyTupleVal, full: cty.TupleVal([]cty.Value{cty.StringVal("item")}),
+		},
+		"map": {
+			baseline: "{}", empty: cty.MapValEmpty(cty.String),
+			full: cty.MapVal(map[string]cty.Value{"item": cty.StringVal("value")}),
+		},
+	} {
+		for _, prefix := range []string{"outputs.settings.value", "output_changes.settings.after"} {
+			t.Run(name+"/"+prefix, func(t *testing.T) {
+				t.Parallel()
+
+				expression, err := suggest.Express(untyped(), suggest.Evidence{}, changeAt(prefix+".labels", test.baseline))
+				if err != nil {
+					t.Fatalf("rendering: %v", err)
+				}
+
+				parsed, diagnostics := hclsyntax.ParseExpression([]byte(expression), "assertion.tftest.hcl", hcl.InitialPos)
+				if diagnostics.HasErrors() {
+					t.Fatalf("parsing %q: %s", expression, diagnostics)
+				}
+
+				for state, settings := range map[string]cty.Value{
+					"empty":            cty.ObjectVal(map[string]cty.Value{"labels": test.empty}),
+					"nonempty":         cty.ObjectVal(map[string]cty.Value{"labels": test.full}),
+					"null member":      cty.ObjectVal(map[string]cty.Value{"labels": cty.NullVal(test.empty.Type())}),
+					"missing member":   cty.EmptyObjectVal,
+					"missing ancestor": cty.NullVal(cty.Object(map[string]cty.Type{"labels": test.empty.Type()})),
+				} {
+					value, diagnostics := parsed.Value(&hcl.EvalContext{
+						Variables: map[string]cty.Value{
+							"output": cty.ObjectVal(map[string]cty.Value{"settings": settings}),
+						},
+						Functions: map[string]function.Function{"try": tryfunc.TryFunc, "length": stdlib.LengthFunc},
+					})
+					if diagnostics.HasErrors() || !value.RawEquals(cty.BoolVal(state == "empty")) {
+						t.Fatalf("%s: %s evaluated to %s, diagnostics: %s", state, expression, value.GoString(), diagnostics)
+					}
+				}
+			})
+		}
 	}
 }
 

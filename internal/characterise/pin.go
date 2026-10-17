@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
@@ -412,26 +414,24 @@ func RungOf(expression string) Rung {
 	}
 }
 
-// lengthCall identifies a generated length equality for subject extraction.
+// lengthCall identifies a generated length equality.
 const lengthCall = "length("
 
-// AssertedAddress reads the address a generated assertion is about: the left
-// side of the equality, with any `length(...)` wrapper removed. The until-dry
+// AssertedAddress reads the traversal a generated assertion is about. The until-dry
 // loop uses it as the pin's address, since a pin is identified by the
 // scenario, the address and the expression.
 func AssertedAddress(expression string) string {
-	subject, _, found := strings.Cut(expression, " == ")
-	if !found {
-		subject = expression
+	parsed, diagnostics := discovery.ParseExpression([]byte(expression), "assertion", hcl.InitialPos)
+	if diagnostics.HasErrors() {
+		return ""
 	}
 
-	subject = strings.TrimSpace(subject)
-
-	if inner, wrapped := strings.CutPrefix(subject, lengthCall); wrapped {
-		subject = strings.TrimSuffix(inner, ")")
+	traversals := parsed.Variables()
+	if len(traversals) == 0 {
+		return ""
 	}
 
-	return strings.TrimSpace(subject)
+	return string(hclwrite.TokensForTraversal(traversals[0]).Bytes())
 }
 
 // resourceAddressOnly reports an address that names a resource collection and

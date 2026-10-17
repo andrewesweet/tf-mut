@@ -558,7 +558,7 @@ The generator selects at most one candidate per survivor. Candidate selection pr
 value changes over output type, sensitivity and unknown metadata. Metadata never becomes
 an assertion. Resource and data-source paths use the provider's attribute and nested-block
 schemas. Supported paths include list and tuple elements, and attributes inside single,
-group, list and map-nested blocks. Every reference that descends into a value renders
+group, list and map-nested blocks. Every scalar reference that descends into a value renders
 as `try(reference, null)`, so a missing key, attribute or instance fails the assertion
 instead of erroring the run. Only a test failure verifies a suggestion.
 Non-identifier keys keep their quoted spelling inside the traversal, such as
@@ -572,9 +572,11 @@ type to identify a list or tuple. Output continuations accept at most one identi
 member name. Set elements, untyped collection indices and unsupported continuations report
 `skipped-unrenderable`.
 
-Alongside scalar equalities, candidates can assert emptiness with `length(value) == 0` or
-answer a mutant's null value with `value != null`. A recognised carried unknown marker
-beneath the value prevents an empty-value assertion. For counted resources whose instance
+Alongside scalar equalities, candidates can assert emptiness with
+`try(length(value), null) == 0` or answer a mutant's null value with `value != null`.
+The emptiness guard covers both the read and the length operation, so a missing or null
+value returns false. A recognised carried unknown marker beneath the value prevents an
+empty-value assertion. For counted resources whose instance
 record and values disappear, candidates use `length(resource) == N`, with `N` inferred
 from carried instance indices, rather than reading a vanished instance. Every candidate
 still requires the verification below before it becomes `verified`.

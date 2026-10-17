@@ -322,6 +322,52 @@ func TestVerificationCountsOnlyStartedIsolatedRuns(t *testing.T) {
 	}
 }
 
+func TestEmptyCollectionAbsenceFailsTheSuggestedAssertion(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		source string
+		member string
+	}{
+		"array member": {member: ".labels"},
+		"object member": {
+			source: "output \"settings\" {\n  value = { labels = {} }\n}\n", member: ".labels",
+		},
+		"indexed element": {
+			source: "output \"settings\" {\n  value = [[]]\n}\n", member: "[0]",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, suggestEmptyCollectionFixture)
+			if test.source != "" {
+				testsupport.WriteFile(t, filepath.Join(module, mainFile), test.source)
+			}
+
+			request := suggestRequest(t, module)
+			request.IncludeOperators = []string{"COLL-EMPTY"}
+			result := runSuggest(t, request)
+			if len(result.Suggestions) != 1 {
+				t.Fatalf("want one emptiness suggestion, got %+v", result.Suggestions)
+			}
+
+			suggestion := result.Suggestions[0]
+			want := "try(length(output.settings" + test.member + "), null) == 0"
+			if suggestion.Expression != want || suggestion.Status != report.SuggestionVerified ||
+				suggestion.Verification == nil {
+				t.Fatalf("want verified %s, got %+v", want, suggestion)
+			}
+
+			evidence := suggestion.Verification
+			if !evidence.Baseline.Passed || !evidence.Mutant.Passed || len(evidence.Mutant.Runs) != 1 ||
+				evidence.Mutant.Runs[0].Status != "fail" {
+				t.Fatalf("absence must fail the assertion with a green baseline, got %+v", evidence)
+			}
+		})
+	}
+}
+
 func TestCollapsedVerificationPreservesKillsAcrossExecutionFailures(t *testing.T) {
 	t.Parallel()
 

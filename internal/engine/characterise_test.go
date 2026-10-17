@@ -60,6 +60,12 @@ func TestPinAddressesMatchListAndScalarOutputAssertions(t *testing.T) {
 				"output.units[0]": `try(output.units[0], null) == "dev-0"`,
 			},
 		},
+		{
+			fixture: suggestEmptyCollectionFixture,
+			want: map[string]string{
+				"output.settings.labels": "try(length(output.settings.labels), null) == 0",
+			},
+		},
 	} {
 		t.Run(testCase.fixture, func(t *testing.T) {
 			t.Parallel()

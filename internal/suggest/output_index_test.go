@@ -37,7 +37,7 @@ func TestOutputIndicesRequireBaselineListOrTupleEvidence(t *testing.T) {
 			cty.List(cty.String),
 		},
 		{
-			"list emptiness", firstElementIndex, emptyListBaseline, "", "length(output.regions[0]) == 0",
+			"list emptiness", firstElementIndex, emptyListBaseline, "", "try(length(output.regions[0]), null) == 0",
 			cty.List(cty.List(cty.String)),
 		},
 		{"tuple out of range", "[1]", steadyBaseline, "", "", cty.Tuple([]cty.Type{cty.String})},

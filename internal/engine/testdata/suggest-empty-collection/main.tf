@@ -1,0 +1,5 @@
+output "settings" {
+  value = {
+    labels = []
+  }
+}

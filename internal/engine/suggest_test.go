@@ -33,6 +33,7 @@ const (
 	suggestCountDeletionFixture   = "suggest-count-deletion"
 	suggestCountZeroFixture       = "suggest-count-zero"
 	suggestCollapseCarrierFixture = "suggest-collapse-carrier"
+	suggestEmptyCollectionFixture = "suggest-empty-collection"
 	secretValue                   = "s3cret-value"
 	unitTestFile                  = "tests/unit.tftest.hcl"
 )
@@ -164,7 +165,7 @@ func TestAnUnknownObjectOutputAssertsNonNullAndNeverALength(t *testing.T) {
 
 	sawNonNull := false
 	for _, suggestion := range result.Suggestions {
-		if strings.HasPrefix(suggestion.Expression, "length(output.identity)") {
+		if strings.Contains(suggestion.Expression, "length(output.identity)") {
 			t.Fatal("a length was rendered over a value whose members the plan marks unknown")
 		}
 

@@ -114,7 +114,7 @@ func (r render) equality(
 				"length over unknowns is not evidence", ErrUnrenderable)
 		}
 
-		return "length(" + spelled + ") == 0", nil
+		return tolerant("length("+spelled+")") + " == 0", nil
 	}
 
 	segments := parts.source.Segments()

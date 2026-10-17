@@ -262,3 +262,5 @@ internal/engine/testdata/backendless-json-null/tests/unit.tftest.hcl
 internal/engine/testdata/suggest-count-zero/main.tf
 internal/engine/testdata/suggest-count-zero/tests/unit.tftest.hcl
 internal/engine/testdata/characterise-init-failure/main.tf
+internal/engine/testdata/suggest-empty-collection/main.tf
+internal/engine/testdata/suggest-empty-collection/tests/unit.tftest.hcl
