@@ -37,18 +37,6 @@ type baselineFile struct {
 	Entries       []AcceptanceEntry `json:"entries"`
 }
 
-// BaselineStore is the acceptance list's persistence boundary. The engine
-// owns which findings are accepted — decided only by a full, unsampled,
-// freshly executed population — and resolves the path; the store owns the
-// file. A missing list is the empty adoption state; a corrupt one is an
-// error, never a fake empty list.
-type BaselineStore interface {
-	// Load reads the accepted entries at path.
-	Load(path string) ([]AcceptanceEntry, error)
-	// Save writes the accepted entries at path.
-	Save(path string, entries []AcceptanceEntry) error
-}
-
 // BaselineFile is the filesystem acceptance list.
 type BaselineFile struct{}
 

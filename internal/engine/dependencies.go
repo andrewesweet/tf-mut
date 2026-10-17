@@ -108,9 +108,6 @@ func newFileRegistryStore() RegistryStore {
 // registryLoad reads the provenance registry beside a module.
 func (s settings) registryLoad(moduleDir string) store.Registry {
 	path := filepath.Join(moduleDir, RegistryName)
-	if s.stores.registry == nil {
-		return store.NewFileRegistry().Load(path)
-	}
 
 	return s.stores.registry().Load(path)
 }
@@ -120,37 +117,21 @@ func (s settings) registryLoad(moduleDir string) store.Registry {
 func (s settings) registrySave(
 	path string, registry store.Registry, recheck func() error,
 ) error {
-	if s.stores.registry == nil {
-		return store.NewFileRegistry().Save(path, registry, recheck)
-	}
-
 	return s.stores.registry().Save(path, registry, recheck)
 }
 
 // baselineLoad reads the acceptance list at path.
 func (s settings) baselineLoad(path string) ([]store.AcceptanceEntry, error) {
-	if s.stores.baseline == nil {
-		return store.NewBaselineFile().Load(path)
-	}
-
 	return s.stores.baseline().Load(path)
 }
 
 // baselineSave writes the accepted list at path.
 func (s settings) baselineSave(path string, entries []store.AcceptanceEntry) error {
-	if s.stores.baseline == nil {
-		return store.NewBaselineFile().Save(path, entries)
-	}
-
 	return s.stores.baseline().Save(path, entries)
 }
 
 // verdictStore opens the run's verdict store at dir, which the caller has
 // already decided to use.
 func (s settings) verdictStore(dir string) (VerdictStore, error) {
-	if s.stores.verdicts == nil {
-		return newFileVerdictStore(dir)
-	}
-
 	return s.stores.verdicts(dir)
 }

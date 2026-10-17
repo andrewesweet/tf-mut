@@ -36,21 +36,6 @@ func EmptyRegistry() Registry {
 	return Registry{Version: RegistryFormatVersion, Files: map[string]RegistryEntry{}}
 }
 
-// RegistryStore is the provenance registry's persistence boundary. The
-// engine owns what is recorded — which files enter, under which digests —
-// and the refusal checks around the write; the store owns the document and
-// its rename-window protocol. Anything unreadable claims nothing, and
-// claiming nothing is the safe direction: it makes --force refuse rather
-// than replace.
-type RegistryStore interface {
-	// Load reads the provenance registry at path.
-	Load(path string) Registry
-	// Save writes the provenance registry at path through the same
-	// rename-window protocol as the generated files, running recheck
-	// immediately before the rename.
-	Save(path string, registry Registry, recheck func() error) error
-}
-
 // FileRegistry is the filesystem provenance registry.
 type FileRegistry struct{}
 
