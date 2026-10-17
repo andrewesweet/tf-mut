@@ -1,6 +1,6 @@
 package report
 
-// The suggestion outcome model (report-2.2.0).
+// The suggestion outcome model (report-2.14.0).
 //
 // It is the whole normative table of the M4 spec's M2 disposition, expressed
 // once: a suggestion is an object with a stable identity, exactly one status
@@ -19,7 +19,7 @@ const (
 	SuggestionCandidate SuggestionStatus = "candidate"
 	// SuggestionVerified passed both verification legs: the full suite stayed
 	// green with the candidate batch applied, and the suggestion alone failed
-	// against its re-materialised mutant.
+	// against at least one of its listed mutants.
 	SuggestionVerified SuggestionStatus = "verified"
 	// SuggestionRefuted failed a verification leg. It is a tool finding: the
 	// generator produced an assertion that does not do what it claims.
@@ -50,7 +50,7 @@ func (s SuggestionStatus) Skipped() bool {
 // VerificationLeg is the outcome of one half of the verification contract.
 type VerificationLeg struct {
 	// Passed reports whether the leg met its requirement: green for the
-	// baseline leg, failing for the isolated mutant leg.
+	// baseline leg, at least one failing member for the aggregate mutant leg.
 	Passed bool `json:"passed"`
 	// Runs are the run references the leg executed, so a reader can see what
 	// the claim was made over.
@@ -64,8 +64,10 @@ type Verification struct {
 	// Baseline records the full-suite evidence for this suggestion's attributed
 	// candidate pool, which must be green. See docs/design/product-design.md §7.
 	Baseline VerificationLeg `json:"baseline"`
-	// Mutant is the isolated check of this suggestion alone against its
-	// re-materialised mutant, which must fail.
+	// Mutant aggregates the isolated checks of this suggestion alone against
+	// MutantID and AlsoKills. Passed means at least one member failed. Detail
+	// names each member's outcome, including execution failures; Runs contains
+	// the completed members' run records in verification order.
 	Mutant VerificationLeg `json:"mutant"`
 }
 
@@ -74,11 +76,12 @@ type Suggestion struct {
 	// ID is a content hash over the mutant identifier, the target run and the
 	// expression. It is stable across runs and across unrelated edits.
 	ID string `json:"id"`
-	// MutantID is the survivor the suggestion would kill.
+	// MutantID is the carrier survivor used to derive the suggestion identity;
+	// verification need not kill this member.
 	MutantID string `json:"mutant_id"`
-	// AlsoKills lists further survivors the same assertion kills (2.2.0): one
-	// expression that kills five mutants is one suggestion, one write, and
-	// one isolated verification per mutant listed here.
+	// AlsoKills lists further survivors folded into this candidate assertion.
+	// Each member is verified independently; membership does not prove a kill.
+	// Verification.Mutant.Detail records which members actually failed.
 	AlsoKills []string `json:"also_kills,omitempty"`
 	// TargetFile is the test file the assertion belongs in, relative to the
 	// module directory.

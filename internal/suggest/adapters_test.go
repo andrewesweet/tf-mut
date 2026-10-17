@@ -6,7 +6,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/ext/tryfunc"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/function"
+	"github.com/zclconf/go-cty/cty/function/stdlib"
 
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
@@ -426,7 +431,7 @@ func templateKeyRows() []renderingCase {
 			path:     statePrefix + "example_thing.app].values.triggers.${part}%{blk}",
 			baseline: steadyBaseline,
 			schemas:  schemaTyping("triggers", `["map","string"]`),
-			want:     `lookup(example_thing.app.triggers, "$${part}%%{blk}", null) == "steady"`,
+			want:     `try(example_thing.app.triggers["$${part}%%{blk}"], null) == "steady"`,
 			refused:  nil,
 		},
 	}
@@ -440,7 +445,7 @@ func scalarKeyRows() []renderingCase {
 			path:     statePrefix + "example_thing.app].values.triggers.app.kubernetes.io/part-of",
 			baseline: steadyBaseline,
 			schemas:  schemaTyping("triggers", `["map","string"]`),
-			want:     `lookup(example_thing.app.triggers, "app.kubernetes.io/part-of", null) == "steady"`,
+			want:     `try(example_thing.app.triggers["app.kubernetes.io/part-of"], null) == "steady"`,
 			refused:  nil,
 		},
 	}
@@ -461,7 +466,7 @@ func nullFormRows() []renderingCase {
 			path:     statePrefix + "example_thing.app].values.triggers.app.io/x",
 			baseline: steadyBaseline, mutant: nulledValue,
 			schemas: schemaTyping("triggers", `["map","string"]`),
-			want:    `lookup(example_thing.app.triggers, "app.io/x", null) != null`, refused: nil,
+			want:    `try(example_thing.app.triggers["app.io/x"], null) != null`, refused: nil,
 		},
 		{
 			name:     "a nulled nested block attribute renders through the walk",
@@ -535,7 +540,7 @@ func keyRows() []renderingCase {
 			name: "an object attribute's non-identifier key",
 			path: statePrefix + "example_thing.app].values.settings.app.io/x", baseline: steadyBaseline,
 			schemas: schemaTyping("settings", `["object",{"app.io/x":"string","plain":"string"}]`),
-			want:    `lookup(example_thing.app.settings, "app.io/x", null) == "steady"`, refused: nil,
+			want:    `try(example_thing.app.settings["app.io/x"], null) == "steady"`, refused: nil,
 		},
 		{
 			name: "a map attribute's numeric key is not an index",
@@ -640,9 +645,8 @@ func TestTheRenderingContractAdmissions(t *testing.T) {
 
 // TestAbsenceTolerantFormsFailRatherThanError is the D14 contract: an
 // assertion that reads a map key or an attribute renders in a form that turns
-// a missing key or a deleted attribute into a plain failure — lookup with a
-// null default for a keyed read, try with a null default for anything else
-// that descends into a value — while a whole value keeps its direct equality.
+// a missing key, attribute or instance into a plain failure through try
+// with a null default, while a whole value keeps its direct equality.
 // Only a test failure verifies a suggestion, so an erroring form is a
 // refutation the report must never publish for these shapes.
 func TestAbsenceTolerantFormsFailRatherThanError(t *testing.T) {
@@ -659,17 +663,17 @@ func TestAbsenceTolerantFormsFailRatherThanError(t *testing.T) {
 		refused  error
 	}{
 		{
-			name:     "a map key reads through lookup with a null default",
+			name:     "a map key reads through try with a null default",
 			path:     statePrefix + "example_thing.app].values.triggers.app.kubernetes.io/part-of",
 			baseline: steadyBaseline,
 			schemas:  schemaTyping("triggers", `["map","string"]`),
-			want:     `lookup(example_thing.app.triggers, "app.kubernetes.io/part-of", null) == "steady"`,
+			want:     `try(example_thing.app.triggers["app.kubernetes.io/part-of"], null) == "steady"`,
 		},
 		{
-			name: "an object key reads through lookup with a null default",
+			name: "an object key reads through try with a null default",
 			path: statePrefix + "example_thing.app].values.settings.app.io/x", baseline: steadyBaseline,
 			schemas: schemaTyping("settings", `["object",{"app.io/x":"string","plain":"string"}]`),
-			want:    `lookup(example_thing.app.settings, "app.io/x", null) == "steady"`,
+			want:    `try(example_thing.app.settings["app.io/x"], null) == "steady"`,
 		},
 		{
 			name: "a deleted attribute reads through try with a null default",
@@ -703,11 +707,11 @@ func TestAbsenceTolerantFormsFailRatherThanError(t *testing.T) {
 			want: `try(example_thing.app.input, null) != null`,
 		},
 		{
-			name:     "a nulled keyed entry answers through lookup",
+			name:     "a nulled keyed entry answers through try",
 			path:     statePrefix + "example_thing.app].values.triggers.app.io/x",
 			baseline: steadyBaseline, mutant: nulledValue,
 			schemas: schemaTyping("triggers", `["map","string"]`),
-			want:    `lookup(example_thing.app.triggers, "app.io/x", null) != null`,
+			want:    `try(example_thing.app.triggers["app.io/x"], null) != null`,
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -719,6 +723,73 @@ func TestAbsenceTolerantFormsFailRatherThanError(t *testing.T) {
 			expression, err := suggest.Express(testCase.schemas, testCase.evidence, change)
 
 			assertAdapter(t, expression, err, testCase.want, testCase.refused)
+		})
+	}
+}
+
+func TestKeyedAssertionsFailWhenTheirInstanceDisappears(t *testing.T) {
+	t.Parallel()
+
+	keyed := cty.MapVal(map[string]cty.Value{"app.io/x": cty.StringVal("steady")})
+	for name, test := range map[string]struct {
+		path      string
+		mutant    string
+		valueType string
+		value     cty.Value
+	}{
+		"leaf equality": {
+			path:      statePrefix + `example_thing.app["blue"]].values.triggers`,
+			valueType: `"string"`, value: cty.StringVal("steady"),
+		},
+		"continued equality": {
+			path:      statePrefix + `example_thing.app["blue"]].values.triggers.app.io/x`,
+			valueType: `["map","string"]`, value: keyed,
+		},
+		"non-null": {
+			path: statePrefix + `example_thing.app["blue"]].values.triggers.app.io/x`, mutant: nulledValue,
+			valueType: `["map","string"]`, value: keyed,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			change := changeAt(test.path, steadyBaseline)
+			change.Mutant = test.mutant
+			expression, err := suggest.Express(schemaTyping("triggers", test.valueType), suggest.Evidence{}, change)
+			if err != nil {
+				t.Fatalf("rendering: %v", err)
+			}
+
+			parsed, diagnostics := hclsyntax.ParseExpression([]byte(expression), "assertion.tftest.hcl", hcl.InitialPos)
+			if diagnostics.HasErrors() {
+				t.Fatalf("parsing %q: %s", expression, diagnostics)
+			}
+
+			present := cty.ObjectVal(map[string]cty.Value{"triggers": test.value})
+			states := map[string]cty.Value{
+				"present": cty.MapVal(map[string]cty.Value{"blue": present}),
+				"null attribute": cty.MapVal(map[string]cty.Value{"blue": cty.ObjectVal(map[string]cty.Value{
+					"triggers": cty.NullVal(test.value.Type()),
+				})}),
+				"missing instance": cty.MapValEmpty(present.Type()),
+			}
+			if test.value.Type().IsMapType() {
+				states["missing key"] = cty.MapVal(map[string]cty.Value{"blue": cty.ObjectVal(map[string]cty.Value{
+					"triggers": cty.MapValEmpty(cty.String),
+				})})
+			}
+
+			for state, instances := range states {
+				value, diagnostics := parsed.Value(&hcl.EvalContext{
+					Variables: map[string]cty.Value{
+						"example_thing": cty.ObjectVal(map[string]cty.Value{"app": instances}),
+					},
+					Functions: map[string]function.Function{"try": tryfunc.TryFunc, "lookup": stdlib.LookupFunc},
+				})
+				if diagnostics.HasErrors() || !value.RawEquals(cty.BoolVal(state == "present")) {
+					t.Fatalf("%s: %s evaluated to %s, diagnostics: %s", state, expression, value.GoString(), diagnostics)
+				}
+			}
 		})
 	}
 }

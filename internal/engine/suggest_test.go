@@ -84,7 +84,7 @@ func TestANonIdentifierMapKeyIsRenderedInIndexForm(t *testing.T) {
 		}
 	}
 
-	const dotted = `lookup(null_resource.app.triggers, "app.kubernetes.io/part-of", null) == "tf-mut-observe"`
+	const dotted = `try(null_resource.app.triggers["app.kubernetes.io/part-of"], null) == "tf-mut-observe"`
 	var sawIndexForm, sawNonNull bool
 	for _, suggestion := range result.Suggestions {
 		switch {
@@ -761,7 +761,7 @@ func mutantOperators(result report.Report) map[string]string {
 func loadPublishedSchema(t *testing.T) map[string]any {
 	t.Helper()
 
-	content, err := os.ReadFile("../../docs/schema/report-2.13.0.json")
+	content, err := os.ReadFile("../../docs/schema/report-2.14.0.json")
 	if err != nil {
 		t.Fatalf("reading the published schema: %v", err)
 	}

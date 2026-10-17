@@ -70,7 +70,7 @@ package report
 // verdict was never reliably observed. No field was added, removed or
 // renamed, and the exit-code semantics are unchanged; the wire contract is
 // documented in docs/schema/report-2.13.0.json.
-const SchemaVersion = "2.13.0"
+const SchemaVersion = "2.14.0"
 
 // Command names what produced a report.
 type Command string

@@ -105,7 +105,7 @@ func NewVerification(baseline, mutant Leg) Verification {
 // Baseline is the full-suite leg for this suggestion's attributed candidate pool.
 func (v Verification) Baseline() Leg { return v.baseline }
 
-// Mutant is the isolated leg against the re-materialised mutant.
+// Mutant aggregates the isolated legs; Passed means at least one member failed.
 func (v Verification) Mutant() Leg { return v.mutant }
 
 // Candidate is a generated assertion nothing has verified. It is the only
@@ -142,10 +142,10 @@ func NewCandidate(mutantID, targetFile, targetRun, expression, patch string) Can
 // ID is the stable content identifier.
 func (c Candidate) ID() string { return c.id }
 
-// MutantID is the survivor the assertion would kill.
+// MutantID is the carrier survivor used to derive the assertion identity.
 func (c Candidate) MutantID() string { return c.mutantID }
 
-// AlsoKills lists further survivors the same assertion kills.
+// AlsoKills lists further survivors folded into the same candidate assertion.
 func (c Candidate) AlsoKills() []string { return c.alsoKills }
 
 // TargetFile is the test file the assertion belongs in, relative to the
@@ -253,8 +253,8 @@ func (s Suggestion) ID() string { return s.id }
 // MutantID is the survivor the outcome is about.
 func (s Suggestion) MutantID() string { return s.mutantID }
 
-// AlsoKills lists further survivors the same assertion kills, for an outcome
-// that concluded over a collapsed candidate.
+// AlsoKills lists further survivors folded into the collapsed candidate;
+// verification records which members actually failed.
 func (s Suggestion) AlsoKills() []string { return s.alsoKills }
 
 // TargetFile is the test file the assertion belongs in, relative to the

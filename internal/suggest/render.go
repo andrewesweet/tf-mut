@@ -137,48 +137,10 @@ func (r render) equality(
 }
 
 // tolerant renders the absence-tolerant form of an assertion reference: a
-// keyed read becomes a lookup with a null default, and anything else that
-// descends into a value becomes a try with a null default — so a missing key
-// or a deleted attribute fails the assertion instead of erroring the run.
-// Both forms are transparent where nothing is absent: lookup returns the
-// present key and try returns its unerrored first argument, so the baseline
-// leg they must keep green reads exactly what the direct form read.
+// reference becomes a try with a null default, so a missing key, attribute
+// or instance fails the assertion instead of erroring the run.
 func tolerant(reference string) string {
-	if container, key, ok := cutKeyIndex(reference); ok {
-		return "lookup(" + container + ", " + key + ", null)"
-	}
-
 	return "try(" + reference + ", null)"
-}
-
-// cutKeyIndex splits a trailing quoted non-numeric key index from its
-// container: `x.triggers["k"]` onto `x.triggers` and `"k"`, which lookup
-// takes as its map and key. A numeric index addresses a list or tuple
-// element rather than a key — and only a proven map or object key spells a
-// trailing quoted index at all, since an untyped index is refused as a
-// possible set and an instance key never ends the reference — so anything
-// else reads through try.
-func cutKeyIndex(reference string) (container, key string, ok bool) {
-	if !strings.HasSuffix(reference, "]") {
-		return "", "", false
-	}
-
-	open := strings.LastIndex(reference, "[")
-	if open <= 0 {
-		return "", "", false
-	}
-
-	inner := reference[open+1 : len(reference)-1]
-	if len(inner) < 2 || inner[0] != '"' || inner[len(inner)-1] != '"' {
-		return "", "", false
-	}
-
-	text, err := strconv.Unquote(inner)
-	if err != nil || digitsOnly(text) {
-		return "", "", false
-	}
-
-	return reference[:open], inner, true
 }
 
 // countEquality renders the vanished-instance form: a resource whose mutant

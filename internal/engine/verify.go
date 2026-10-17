@@ -329,10 +329,10 @@ func decide(
 	for _, mutantID := range claimed {
 		leg, err := verifyAgainstMutant(ctx, plan, mutated, candidate, mutantID, &costs.isolated)
 		if err != nil {
-			return candidate.Refute(
-				"the isolated mutant leg could not be executed: "+err.Error(),
-				suggest.NewVerification(baseline, suggest.NewLeg(false, nil, err.Error())),
-			)
+			detail := fmt.Sprintf("mutant %s: the isolated mutant leg could not be executed: %s", mutantID, err)
+			details = append(details, detail)
+			outcomes = append(outcomes, detail)
+			continue
 		}
 
 		runs = append(runs, leg.Runs()...)

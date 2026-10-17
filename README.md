@@ -131,8 +131,9 @@ an overrun is an operational failure.
 Survivor-side fingerprint, volatility and suggestion-verification runs use the mutant budget.
 Fingerprint and volatility overruns produce a `Timeout` verdict counted in the score's
 denominator. A suggestion-verification
-overrun returns a fail-closed verification error: batch verification aborts, while isolated
-verification refutes the suggestion. It does not change the mutant verdict or score.
+overrun returns a fail-closed verification error: batch verification aborts, while an
+isolated overrun records that member's execution failure. Other members still run, and a
+completed kill can verify the suggestion. It does not change the mutant verdict or score.
 
 Interrupting evaluation with Ctrl-C or SIGTERM also stops Terraform and its provider
 plugins. The interrupted evaluation returns an operational failure (exit code `2`).
@@ -227,7 +228,7 @@ contexts and glossary, start with [`CONTEXT.md`](CONTEXT.md).
 | [`docs/reference/`](docs/reference/) | Generated command-line reference — [`cli.md`](docs/reference/cli.md) renders the same help table as `tf-mut --help` |
 | [`docs/research/`](docs/research/) | Numbered research notes, measurements, and milestone exit gates |
 | [`docs/reviews/`](docs/reviews/) | Adversarial and implementation reviews with their dispositions, which outrank design prose on conflict |
-| [`docs/schema/`](docs/schema/) | Versioned report schemas and the vendored external schemas that outputs are validated against — the `json` reporter emits [`report-2.13.0.json`](docs/schema/report-2.13.0.json) |
+| [`docs/schema/`](docs/schema/) | Versioned report schemas and the vendored external schemas that outputs are validated against — the `json` reporter emits [`report-2.14.0.json`](docs/schema/report-2.14.0.json) |
 
 ## Findings that shaped the design
 

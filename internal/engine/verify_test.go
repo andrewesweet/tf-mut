@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
@@ -288,7 +289,7 @@ func TestVerificationCountsOnlyStartedIsolatedRuns(t *testing.T) {
 			script: "case \"$1\" in\n" +
 				"  */verify-kill-*) terraform \"$@\" | { head -c 2; cat >/dev/null; }; exit ;;\n" +
 				"esac\n",
-			wantCost:   "verification executed 1 full-suite run(s) plus 1 isolated mutant run(s)",
+			wantCost:   "verification executed 1 full-suite run(s) plus 5 isolated mutant run(s)",
 			wantReason: "terraform output could not be decoded",
 		},
 		"a missing executable does not count a run": {
@@ -316,6 +317,68 @@ func TestVerificationCountsOnlyStartedIsolatedRuns(t *testing.T) {
 
 			if !slices.Contains(result.Warnings, test.wantCost) {
 				t.Fatalf("want verification cost %q, got %v", test.wantCost, result.Warnings)
+			}
+		})
+	}
+}
+
+func TestCollapsedVerificationPreservesKillsAcrossExecutionFailures(t *testing.T) {
+	t.Parallel()
+
+	dry := runSuggest(t, dryRunRequest(t, copyFixture(t, suggestCollapseCarrierFixture)))
+	if len(dry.Suggestions) != 1 {
+		t.Fatalf("want one collapsed candidate, got %+v", dry.Suggestions)
+	}
+
+	listed := append([]string{dry.Suggestions[0].MutantID}, dry.Suggestions[0].AlsoKills...)
+	if len(listed) < 3 {
+		t.Fatalf("want at least three members to check continuation after a failure, got %v", listed)
+	}
+
+	for name, failedIndex := range map[string]int{
+		"carrier": 0, "middle": len(listed) / 2, "last": len(listed) - 1, "all": -1,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			condition := `[ "$2" = test ] && [[ "$1" == */verify-kill-* ]]`
+			if failedIndex >= 0 {
+				condition = `[ "$2" = test ] && [[ "$1" == */verify-kill-*-` + listed[failedIndex] + ` ]]`
+			}
+
+			request := suggestRequest(t, copyFixture(t, suggestCollapseCarrierFixture))
+			request.TerraformBinary = sleepingTerraform(t, condition, 30)
+			request.TimeoutFactor = 0.0001
+			request.TimeoutFloor = 2 * time.Second
+			result := runSuggest(t, request)
+			if len(result.Suggestions) != 1 || result.Suggestions[0].Verification == nil {
+				t.Fatalf("want one suggestion with evidence, got %+v", result.Suggestions)
+			}
+
+			suggestion := result.Suggestions[0]
+			leg := suggestion.Verification.Mutant
+			wantStatus := report.SuggestionVerified
+			wantRuns := len(listed) - 1
+			if failedIndex < 0 {
+				wantStatus = report.SuggestionRefuted
+				wantRuns = 0
+			}
+
+			if suggestion.Status != wantStatus || leg.Passed != (wantRuns > 0) ||
+				!suggestion.Verification.Baseline.Passed || len(leg.Runs) != wantRuns {
+				t.Fatalf("completed kills were lost or an incomplete leg proved a kill: %+v", suggestion)
+			}
+
+			for index, id := range listed {
+				wantOutcome := "mutant " + id + " failed the suggested assertion"
+				if failedIndex < 0 || index == failedIndex {
+					wantOutcome = "mutant " + id + ": the isolated mutant leg could not be executed: " +
+						"the verification suite did not finish within its budget"
+				}
+
+				if !strings.Contains(leg.Detail, wantOutcome) {
+					t.Fatalf("missing member outcome %q in %q", wantOutcome, leg.Detail)
+				}
 			}
 		})
 	}
