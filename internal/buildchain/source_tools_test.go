@@ -38,8 +38,8 @@ func TestEnsureToolsChecksSourceBuildIdentity(t *testing.T) {
 				command := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail")
 				command.Dir = root
 				command.Stdin = strings.NewReader(readRepositoryFile(t, "scripts/ensure-tools"))
-				command.Env = append(os.Environ(), "TEST_ROOT="+root, "TEST_COMPILER="+runtime.Version(),
-					"PATH="+filepath.Join(root, "mock-bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
+				command.Env = []string{"TEST_ROOT=" + root, "TEST_COMPILER=" + runtime.Version(),
+					"PATH=" + filepath.Join(root, "mock-bin") + string(os.PathListSeparator) + os.Getenv("PATH")}
 				if output, err := command.CombinedOutput(); err != nil {
 					t.Fatalf("ensure source tools: %v\n%s", err, output)
 				}
@@ -103,6 +103,7 @@ func sourceToolsFixture(t *testing.T) string {
 	root := t.TempDir()
 	command := exec.CommandContext(t.Context(), "git", "init", "--quiet")
 	command.Dir = root
+	command.Env = []string{"PATH=" + os.Getenv("PATH")}
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("initialize tool fixture: %v\n%s", err, output)
 	}
