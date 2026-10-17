@@ -62,10 +62,11 @@ const (
 
 // childScopeStatement is what the report says the child-process numbers
 // cover, so no consumer has to know the rusage rule to read them honestly.
-const childScopeStatement = "each entry covers the terraform process and the descendants it " +
-	"waited for before exiting: Terraform reaps its provider plugins, so their CPU and peak " +
-	"memory are included. user_cpu_ms and system_cpu_ms are processor times; peak_rss_kb is " +
-	"the maximum resident set size in kibibytes, the kernel's ru_maxrss unit on Linux"
+const childScopeStatement = "each entry covers the Terraform process and only the descendants it " +
+	"waited for before exiting. Provider plugins left running at normal exit or timeout are " +
+	"excluded, including those later killed by tf-mut. user_cpu_ms and system_cpu_ms are processor " +
+	"times; peak_rss_kb is the maximum resident set size in kibibytes, the kernel's ru_maxrss " +
+	"unit on Linux"
 
 // runCollector records one run's phase timings and child-process usage.
 //
