@@ -1020,7 +1020,7 @@ func planUnknownRows() []planUnknownCase {
 			path:     "output_changes.region_list.after[0].short_name",
 			baseline: elementValue, mutant: "",
 			markers: []string{"output_changes.region_list.after_unknown[0].short_name"},
-			plan: true,
+			plan:    true,
 			types: map[string]cty.Type{
 				"output.region_list": cty.List(cty.Object(map[string]cty.Type{shortNameAttr: cty.String})),
 			},
@@ -1042,7 +1042,7 @@ func planUnknownRows() []planUnknownCase {
 			path:     "output_changes.list.after[0].id",
 			baseline: elementValue, mutant: "",
 			markers: []string{"output_changes.list.after_unknown[0].id"},
-			plan: true,
+			plan:    true,
 			types: map[string]cty.Type{
 				"output.list": cty.List(cty.Object(map[string]cty.Type{"id": cty.String})),
 			},
