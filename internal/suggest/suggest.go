@@ -145,8 +145,8 @@ type generatedFile struct {
 }
 
 // collapse folds candidates that share a target run and an expression into
-// one suggestion (round-3 review, PR #69): five survivors one assertion kills
-// are one review item and one write, not five byte-identical assert blocks.
+// one suggestion (round-3 review, PR #69): survivors with identical candidate
+// assertions need one review item and one write.
 // The first candidate keeps the identity; the rest become its AlsoKills, and
 // the isolated verification leg still runs once per listed mutant, so
 // attribution stays per-mutant.

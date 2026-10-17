@@ -545,7 +545,7 @@ SURVIVED  main.tf:22  COND-SWAP
   Add to tests/unit.tftest.hcl, run "prod":
 
     assert {
-      condition     = null_resource.app.triggers.tier == "critical"
+      condition     = try(null_resource.app.triggers.tier, null) == "critical"
       error_message = "prod workloads must be tagged critical tier"
     }
 ```
@@ -573,7 +573,8 @@ member name. Set elements, untyped collection indices and unsupported continuati
 `skipped-unrenderable`.
 
 Alongside scalar equalities, candidates can assert emptiness with
-`try(length(value), null) == 0` or answer a mutant's null value with `value != null`.
+`try(length(value), null) == 0` or answer a mutant's null value with a non-null check.
+Non-null checks use the same reference guard for descended values.
 The emptiness guard covers both the read and the length operation, so a missing or null
 value returns false. A recognised carried unknown marker beneath the value prevents an
 empty-value assertion. For counted resources whose instance
@@ -601,15 +602,8 @@ claiming that the mutant survived. Execution failures, including deadlines and d
 errors, are recorded against the affected member and do not discard completed evidence
 or skip later members. An incomplete member cannot prove a kill.
 
-Schema 2.14.0 changes the consumer contract without changing the field layout.
-`mutant_id` remains the carrier used to derive the suggestion identity. `also_kills` lists
-the other survivors folded into that assertion; neither field proves a kill.
-`verification.mutant.passed` means at least one listed member failed the assertion,
-while `verified` additionally requires a green baseline. The mutant leg's `detail` names
-every member's outcome, including execution failures, and `runs` concatenates completed
-members' run records in verification order (`mutant_id`, then `also_kills`). Consumers
-must stop treating `verified` as proof that the carrier or every listed member died.
-Schema 2.13.0 remains published for consumers of its earlier meanings.
+The [published report schema](../schema/report-2.14.0.json) owns the suggestion field
+meanings and the consumer migration contract.
 
 For a target file with `n` candidates, attribution has a defensive cap of `2n + 1`
 full-suite runs. Exhausting it refutes every candidate still awaiting attribution.

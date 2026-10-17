@@ -64,8 +64,7 @@ func (r RunRecord) Status() string { return r.status }
 
 // Leg is the outcome of one half of the verification contract.
 type Leg struct {
-	// passed reports whether the leg met its requirement: green for the
-	// baseline leg, failing for the isolated mutant leg.
+	// passed reports whether the leg met its verification requirement.
 	passed bool
 	// runs are the run references the leg executed.
 	runs []RunRecord

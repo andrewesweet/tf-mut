@@ -35,9 +35,9 @@ reported it cannot express one, and say so.
      Low reachability means missing run blocks, not weak assertions.
 3. **Walk the survivors by diagnosis** (the decision tree below). Every
    survivor carries exactly one diagnosis and its evidence.
-4. **Generate the fixes.** `tf-mut suggest <module>` verifies every
-   suggestion by execution: the full suite stays green with it applied, and
-   the mutant dies against it alone. `--dry-run` previews the patches;
+4. **Generate the fixes.** `tf-mut suggest <module>` generates suggestions and
+   checks them against the [verification contract](https://github.com/andrewesweet/tf-mut/blob/master/docs/design/product-design.md#7-the-differentiator--suggested-assertions).
+   `--dry-run` previews the patches;
    `--survivor ID` scopes to the survivors you are working;
    `--apply ID` or `--all-verified` writes the verified ones.
 5. **Re-grade** and repeat until the survivors that remain are ones you have

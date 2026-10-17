@@ -314,12 +314,8 @@ func decide(
 		)
 	}
 
-	// One isolated check per mutant the suggestion claims: a collapsed
-	// suggestion lists its extra kills in AlsoKills, and attribution stays
-	// per-mutant — every listed mutant is checked alone, and the suggestion
-	// verifies where any leg fails. A leg that errors is that member's
-	// outcome, recorded in the evidence with the rest, and refutes the
-	// suggestion only where no listed mutant failed at all.
+	// Check every member of a collapsed candidate even after a completed kill
+	// or execution failure, so the aggregate retains each member's evidence.
 	claimed := append([]string{candidate.MutantID()}, candidate.AlsoKills()...)
 	runs := []suggest.RunRecord{}
 	details := []string{}
