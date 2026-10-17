@@ -706,6 +706,7 @@ func (values flagValues) common() engine.Common {
 		CPUProfile:              *values.cpuProfile,
 		OTLPEndpoint:            *values.otlpEndpoint,
 		Progress:                values.progress,
+		Debug:                   os.Getenv("TF_MUT_DEBUG") == "1",
 	}
 }
 

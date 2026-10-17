@@ -162,7 +162,7 @@ measurements do not affect verdicts, scores or gates.
 Every ten seconds during mutant execution, the CLI writes completed/total mutants, elapsed
 time and an estimated time remaining (ETA) to stderr, prefixed with the run identifier.
 Counts exclude cached and static verdicts. A final line follows if periodic output began.
-Shorter runs stay quiet, and progress works with every reporter.
+Shorter runs emit no progress lines, and progress works with every reporter.
 
 When `--otlp-endpoint` is unset, tf-mut uses `OTEL_EXPORTER_OTLP_ENDPOINT`. With neither
 configured, it sends no traces. Phase spans carry the recorded child CPU and peak memory

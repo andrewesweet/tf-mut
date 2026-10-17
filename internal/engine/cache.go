@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -166,10 +167,14 @@ func ensureCacheDir(dir string) bool {
 // keyRecorder hashes the key's (kind, name, value) sequence into the
 // overall digest and, beside it, into the environment digest. The overall
 // byte sequence is unchanged — what hits still hits — and the environment
-// digest lets a later run tell whether the environment moved.
+// digest lets a later run tell whether the environment moved. Beside both,
+// it hashes each kind's own sequence into that kind's component digest, so
+// a miss can name the component that changed (D17). Only digests ever reach
+// the debug log — values, environment values above all, never do.
 type keyRecorder struct {
 	overall     hash.Hash
 	environment hash.Hash
+	components  map[string]hash.Hash
 }
 
 func (r *keyRecorder) write(kind, name, value string) {
@@ -178,6 +183,14 @@ func (r *keyRecorder) write(kind, name, value string) {
 	if kind == envComponent {
 		_, _ = fmt.Fprintf(r.environment, "%s\x00%s\x00%s\x00", kind, name, value)
 	}
+
+	component, found := r.components[kind]
+	if !found {
+		component = sha256.New()
+		r.components[kind] = component
+	}
+
+	_, _ = fmt.Fprintf(component, "%s\x00%s\x00%s\x00", kind, name, value)
 }
 
 // cacheKey hashes every input that can reach a verdict, and returns the key
@@ -188,7 +201,7 @@ func cacheKey(
 	settings settings, prepared warmWorkspace,
 	terraform tfexec.Version,
 ) (string, cacheManifest, error) {
-	recorder := &keyRecorder{overall: sha256.New(), environment: sha256.New()}
+	recorder := &keyRecorder{overall: sha256.New(), environment: sha256.New(), components: map[string]hash.Hash{}}
 	write := recorder.write
 
 	write("format", "", cacheFormatVersion)
@@ -202,6 +215,10 @@ func cacheKey(
 	}
 
 	key := hex.EncodeToString(recorder.overall.Sum(nil))
+	if settings.Debug && settings.Progress != nil {
+		logger := slog.New(slog.NewTextHandler(settings.Progress, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		logCacheKey(logger, key, recorder.components)
+	}
 
 	return key, cacheManifest{
 		FormatVersion: cacheManifestFormatVersion,
@@ -209,6 +226,29 @@ func cacheKey(
 		Components:    map[string]string{envComponent: hex.EncodeToString(recorder.environment.Sum(nil))},
 		Env:           envDigestMap(settings),
 	}, nil
+}
+
+// logCacheKey records the run key beside each of its component digests at
+// debug level, so a miss names the component that changed. Only digests
+// travel: values — environment values above all — never reach the log.
+func logCacheKey(logger *slog.Logger, key string, components map[string]hash.Hash) {
+	for _, kind := range sortedComponentKinds(components) {
+		logger.Debug("tf-mut: cache key component",
+			"component", kind, "digest", hex.EncodeToString(components[kind].Sum(nil)))
+	}
+
+	logger.Debug("tf-mut: cache key", "key", key)
+}
+
+func sortedComponentKinds(components map[string]hash.Hash) []string {
+	kinds := make([]string, 0, len(components))
+	for kind := range components {
+		kinds = append(kinds, kind)
+	}
+
+	slices.Sort(kinds)
+
+	return kinds
 }
 
 // envDigestMap reduces the whole effective environment to a map of variable

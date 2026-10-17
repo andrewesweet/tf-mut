@@ -204,6 +204,7 @@ type settings struct {
 	OTLPEndpoint string
 	// Progress carries Common.Progress; see that field's output contract.
 	Progress io.Writer
+	Debug    bool
 
 	// mode is the command these settings serve: the projection of the request
 	// type that produced them, written by that type's settings method and by
@@ -292,8 +293,8 @@ type instrumentation struct {
 // asked for, the tracer, and the collector whose phase recorders the pipeline
 // records through. It returns the instrumentation and the run-span context
 // the pipeline below runs under. The flush outlives request cancellation so
-// recorded spans can still reach the collector; progress, tracing and
-// CPU-profile warnings share the request's progress writer, under the run
+// recorded spans can still reach the collector; progress and runtime
+// diagnostics share the request's progress writer, under the run
 // identifier's prefix — never a report sink — and a nil writer drops them.
 func (e Engine) instrument(ctx context.Context, s *settings) (instrumentation, context.Context, error) {
 	output, outputErr := prepareRunOutput(s)
@@ -508,10 +509,10 @@ func (o runOutput) startIdentifier(identifier string) {
 	o.prefix.start(identifier)
 }
 
-// prepareRunOutput points the run's one stderr channel — progress lines,
-// tracing warnings and profile warnings — through the writer the caller gave,
-// synchronized and prefixed with the run identifier once it is minted. The
-// CPU profile writes only to the file the user explicitly requested.
+// prepareRunOutput points the run's stderr channel (Common.Progress) through
+// the writer the caller gave, synchronized and prefixed with the run identifier
+// once it is minted. The CPU profile writes only to the file the user
+// explicitly requested.
 func prepareRunOutput(s *settings) (runOutput, error) {
 	output := runOutput{stopProfile: func() {}}
 
