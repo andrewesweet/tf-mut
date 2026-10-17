@@ -1,0 +1,7 @@
+{
+  "module": {
+    "outside": {
+      "source": "../outside-sibling"
+    }
+  }
+}

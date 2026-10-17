@@ -33,6 +33,7 @@ internal/engine/testdata/json-autovar/terraform.tfvars.json
 internal/engine/testdata/json-child-variable/child/variables.tf.json
 internal/engine/testdata/json-mixed/side.tf.json
 internal/engine/testdata/json-module/calls.tf.json
+internal/engine/testdata/modulecall-outside-json/calls.tf.json
 internal/engine/testdata/json-partial/good.tf.json
 internal/engine/testdata/json-provider/providers.tf.json
 internal/engine/testdata/json-provisioner/effects.tf.json
