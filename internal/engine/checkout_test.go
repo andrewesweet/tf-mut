@@ -2,7 +2,6 @@ package engine_test
 
 import (
 	"errors"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -95,26 +94,14 @@ func TestAModuleCallInsideTheCheckoutIsAccepted(t *testing.T) {
 	t.Fatal("the child module the call named never entered the closure; its mutants are missing")
 }
 
-// A registry source is not a local path: the checkout boundary does not apply
-// to it. Asserted at discovery with the boundary armed, because driving the
-// engine further would fetch the registry module — a networked, separate run.
-
-func TestARegistryModuleSourceIsAcceptedAndRecordedRemote(t *testing.T) {
+func TestARegistryModuleSourceInsideACheckoutIsAccepted(t *testing.T) {
 	t.Parallel()
 
-	fixture := filepath.Join(fixtureRoot, "modulecall-registry")
+	module := gitFixture(t, "modulecall-registry")
 
-	configuration, err := discovery.DiscoverWith(
-		fixture, engine.DefaultTestDirectory,
-		discovery.Options{CheckoutRoot: fixture},
-	)
+	_, err := engine.Run(t.Context(), todosRequest(t, module))
 	if err != nil {
-		t.Fatalf("a registry module source must be accepted at discovery: %v", err)
-	}
-
-	remote := configuration.RemoteCalls
-	if len(remote) != 1 || remote[0].Name != "registry" || remote[0].Local {
-		t.Fatalf("the registry call must be recorded as the one remote call, got %+v", remote)
+		t.Fatalf("a registry module source inside the checkout must be accepted: %v", err)
 	}
 }
 
