@@ -67,35 +67,43 @@ func (c Configuration) SuiteSuppliedVariable(env, selection []string, name strin
 	}
 
 	for _, run := range runs {
-		if run.JSONDeclared {
+		if !c.runSuppliesVariable(run, name, nullable) {
 			return false
-		}
-
-		// A plan_options target prunes the graph the run plans, and this
-		// version does not model what survives the pruning — the multiplicity
-		// evaluator holds the same refusal — so a targeted run cannot carry
-		// the claim.
-		if run.HasPlanTarget {
-			return false
-		}
-
-		expr, assigned := namedAttribute(run.Variables, name)
-		if !assigned {
-			expr, assigned = namedAttribute(c.Tests.FileVariables[run.File], name)
-		}
-
-		if !assigned {
-			return false
-		}
-
-		if !nullable {
-			if _, nonNull := literalValue(expr); !nonNull {
-				return false
-			}
 		}
 	}
 
 	return true
+}
+
+func (c Configuration) runSuppliesVariable(run RunBlock, name string, nullable bool) bool {
+	if run.JSONDeclared {
+		return false
+	}
+
+	// A plan_options target prunes the graph the run plans, and this
+	// version does not model what survives the pruning — the multiplicity
+	// evaluator holds the same refusal — so a targeted run cannot carry
+	// the claim.
+	if run.HasPlanTarget {
+		return false
+	}
+
+	expr, assigned := namedAttribute(run.Variables, name)
+	if !assigned {
+		expr, assigned = namedAttribute(c.Tests.FileVariables[run.File], name)
+	}
+
+	if !assigned {
+		return false
+	}
+
+	if nullable {
+		return true
+	}
+
+	_, nonNull := literalValue(expr)
+
+	return nonNull
 }
 
 // hasAnyVariableOverride reports whether any TF_VAR_ entry — the caller's

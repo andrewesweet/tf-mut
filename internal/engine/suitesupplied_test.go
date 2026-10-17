@@ -23,6 +23,21 @@ import (
 // mutates; only the child fixture adds a second site for the same name.
 const varInstanceDefault = "var.instance.default"
 
+const (
+	suiteSetterTestFile      = "tests/good.tftest.hcl"
+	builtinDefaultExpression = `"builtin-default"`
+	suppliedValueExpression  = `"supplied"`
+	nullExpression           = "null"
+	defaultChangeOperator    = "VAR-DEFAULT-CHANGE"
+	defaultRemoveOperator    = "VAR-DEFAULT-REMOVE"
+	defaultNullOperator      = "VAR-DEFAULT-NULL"
+	hclTestSyntax            = "hcl"
+	unselectedTestSyntax     = "unselected"
+	requiredObjectExpression = `{ required = "x" }`
+	overrideHCLFile          = "override.tf"
+	overrideJSONFile         = "override.tf.json"
+)
+
 // defaultMutantsAt returns the VAR-DEFAULT mutants at one variable site.
 func defaultMutantsAt(t *testing.T, result report.Report, module string) []report.Mutant {
 	t.Helper()
@@ -171,7 +186,7 @@ func TestTheSelectedSuiteDecidesTheClassification(t *testing.T) {
 	t.Parallel()
 
 	setting := baseConfig(t, copyFixture(t, "suite-supplied-var-selected"))
-	setting.TestSelection = []string{"tests/good.tftest.hcl"}
+	setting.TestSelection = []string{suiteSetterTestFile}
 
 	selected, err := engine.Run(t.Context(), setting)
 	if err != nil {
@@ -352,13 +367,19 @@ func TestNonNullableSuiteAssignmentsCannotHideDefaultFallback(t *testing.T) {
 		expected  string
 		static    bool
 	}{
-		{name: "run null", runValue: "null", expected: `"builtin-default"`},
-		{name: "file null", fileValue: "null", expected: `"builtin-default"`},
-		{name: "run null overrides file", fileValue: `"supplied"`, runValue: "null", expected: `"builtin-default"`},
-		{name: "run overrides file null", fileValue: "null", runValue: `"supplied"`, expected: `"supplied"`, static: true},
-		{name: "run output null", runValue: "run.setup.value", expected: `"builtin-default"`},
-		{name: "nullable run null", runValue: "null", nullable: true, expected: "null", static: true},
-		{name: "nullable file null", fileValue: "null", nullable: true, expected: "null", static: true},
+		{name: "run null", runValue: nullExpression, expected: builtinDefaultExpression},
+		{name: "file null", fileValue: nullExpression, expected: builtinDefaultExpression},
+		{
+			name: "run null overrides file", fileValue: suppliedValueExpression,
+			runValue: nullExpression, expected: builtinDefaultExpression,
+		},
+		{
+			name: "run overrides file null", fileValue: nullExpression,
+			runValue: suppliedValueExpression, expected: suppliedValueExpression, static: true,
+		},
+		{name: "run output null", runValue: "run.setup.value", expected: builtinDefaultExpression},
+		{name: "nullable run null", runValue: nullExpression, nullable: true, expected: nullExpression, static: true},
+		{name: "nullable file null", fileValue: nullExpression, nullable: true, expected: nullExpression, static: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -411,40 +432,46 @@ run "consumer" {
 `, fileVariables, runVariables, test.expected))
 
 			request := baseConfig(t, module)
-			request.IncludeOperators = []string{"VAR-DEFAULT-CHANGE", "VAR-DEFAULT-REMOVE", "VAR-DEFAULT-NULL"}
+			request.IncludeOperators = []string{defaultChangeOperator, defaultRemoveOperator, defaultNullOperator}
 
 			result, err := engine.Run(t.Context(), request)
 			if err != nil {
 				t.Fatalf("run: %v", err)
 			}
 
-			for _, mutant := range defaultMutantsAt(t, result, ".") {
-				if test.static {
-					if mutant.State != report.Unobservable || mutant.ExecutedRuns != 0 {
-						t.Errorf("%s: state %s after %d runs; effective assignment prevents fallback",
-							mutant.Operator, mutant.State, mutant.ExecutedRuns)
-					}
-
-					continue
-				}
-
-				if mutant.State == report.Unobservable || mutant.ExecutedRuns == 0 {
-					t.Errorf("%s: state %s after %d runs; null may select the default",
-						mutant.Operator, mutant.State, mutant.ExecutedRuns)
-				}
-
-				if mutant.Operator == "VAR-DEFAULT-CHANGE" && mutant.State != report.Killed {
-					t.Errorf("changed default: state %s, want Killed by the fallback assertion", mutant.State)
-				}
-			}
+			assertNullableDefaultVerdicts(t, result, test.static)
 		})
+	}
+}
+
+func assertNullableDefaultVerdicts(t *testing.T, result report.Report, static bool) {
+	t.Helper()
+
+	for _, mutant := range defaultMutantsAt(t, result, ".") {
+		if static {
+			if mutant.State != report.Unobservable || mutant.ExecutedRuns != 0 {
+				t.Errorf("%s: state %s after %d runs; effective assignment prevents fallback",
+					mutant.Operator, mutant.State, mutant.ExecutedRuns)
+			}
+
+			continue
+		}
+
+		if mutant.State == report.Unobservable || mutant.ExecutedRuns == 0 {
+			t.Errorf("%s: state %s after %d runs; null may select the default",
+				mutant.Operator, mutant.State, mutant.ExecutedRuns)
+		}
+
+		if mutant.Operator == defaultChangeOperator && mutant.State != report.Killed {
+			t.Errorf("changed default: state %s, want Killed by the fallback assertion", mutant.State)
+		}
 	}
 }
 
 func TestRetargetedWrappersCannotHideRootDefaultReads(t *testing.T) {
 	t.Parallel()
 
-	for _, syntax := range []string{"hcl", "json", "transitive", "unselected"} {
+	for _, syntax := range []string{hclTestSyntax, jsonTestSyntax, "transitive", unselectedTestSyntax} {
 		t.Run(syntax, func(t *testing.T) {
 			t.Parallel()
 
@@ -458,7 +485,7 @@ output "value" {
   value = module.subject.echo
 }
 `
-			if syntax == "json" {
+			if syntax == jsonTestSyntax {
 				wrapper = ""
 				testsupport.WriteFile(t, filepath.Join(setup, "main.tf.json"), `{
   "module": {"subject": {"source": "../.."}},
@@ -516,9 +543,9 @@ run "consumer" {
 `)
 
 			request := baseConfig(t, module)
-			request.IncludeOperators = []string{"VAR-DEFAULT-CHANGE", "VAR-DEFAULT-REMOVE"}
-			if syntax == "unselected" {
-				request.TestSelection = []string{"tests/good.tftest.hcl"}
+			request.IncludeOperators = []string{defaultChangeOperator, defaultRemoveOperator}
+			if syntax == unselectedTestSyntax {
+				request.TestSelection = []string{suiteSetterTestFile}
 			}
 
 			result, err := engine.Run(t.Context(), request)
@@ -526,26 +553,32 @@ run "consumer" {
 				t.Fatalf("run: %v", err)
 			}
 
-			for _, mutant := range defaultMutantsAt(t, result, ".") {
-				if syntax == "unselected" {
-					if mutant.State != report.Unobservable || mutant.ExecutedRuns != 0 {
-						t.Errorf("%s: state %s after %d runs; only the direct consumer is selected",
-							mutant.Operator, mutant.State, mutant.ExecutedRuns)
-					}
-
-					continue
-				}
-
-				if mutant.State == report.Unobservable || mutant.ExecutedRuns == 0 {
-					t.Errorf("%s: state %s after %d runs; wrapper calls root without an input",
-						mutant.Operator, mutant.State, mutant.ExecutedRuns)
-				}
-
-				if mutant.Operator == "VAR-DEFAULT-CHANGE" && mutant.State != report.Killed {
-					t.Errorf("changed default: state %s, want Killed by the wrapper assertion", mutant.State)
-				}
-			}
+			assertWrapperDefaultVerdicts(t, result, syntax)
 		})
+	}
+}
+
+func assertWrapperDefaultVerdicts(t *testing.T, result report.Report, syntax string) {
+	t.Helper()
+
+	for _, mutant := range defaultMutantsAt(t, result, ".") {
+		if syntax == unselectedTestSyntax {
+			if mutant.State != report.Unobservable || mutant.ExecutedRuns != 0 {
+				t.Errorf("%s: state %s after %d runs; only the direct consumer is selected",
+					mutant.Operator, mutant.State, mutant.ExecutedRuns)
+			}
+
+			continue
+		}
+
+		if mutant.State == report.Unobservable || mutant.ExecutedRuns == 0 {
+			t.Errorf("%s: state %s after %d runs; wrapper calls root without an input",
+				mutant.Operator, mutant.State, mutant.ExecutedRuns)
+		}
+
+		if mutant.Operator == defaultChangeOperator && mutant.State != report.Killed {
+			t.Errorf("changed default: state %s, want Killed by the wrapper assertion", mutant.State)
+		}
 	}
 }
 
@@ -558,11 +591,14 @@ func TestSuiteSuppliedDefaultsMustRemainValidDeclarations(t *testing.T) {
 		value      string
 		valid      bool
 	}{
-		{name: "required object", constraint: "object({ required = string })", value: `{ required = "x" }`},
+		{name: "required object", constraint: "object({ required = string })", value: requiredObjectExpression},
 		{name: "fixed tuple", constraint: "tuple([string])", value: `["x"]`},
-		{name: "map", constraint: "map(string)", value: `{ required = "x" }`, valid: true},
+		{name: "map", constraint: "map(string)", value: requiredObjectExpression, valid: true},
 		{name: "list", constraint: "list(string)", value: `["x"]`, valid: true},
-		{name: "optional object", constraint: `object({ required = optional(string, "x") })`, value: `{ required = "x" }`, valid: true},
+		{
+			name: "optional object", constraint: `object({ required = optional(string, "x") })`,
+			value: requiredObjectExpression, valid: true,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -594,7 +630,7 @@ run "consumer" {
 `, test.value))
 
 			request := baseConfig(t, module)
-			request.IncludeOperators = []string{"VAR-DEFAULT-CHANGE", "VAR-DEFAULT-REMOVE", "VAR-DEFAULT-NULL"}
+			request.IncludeOperators = []string{defaultChangeOperator, defaultRemoveOperator, defaultNullOperator}
 
 			result, err := engine.Run(t.Context(), request)
 			if err != nil {
@@ -602,7 +638,7 @@ run "consumer" {
 			}
 
 			for _, mutant := range defaultMutantsAt(t, result, ".") {
-				if mutant.Operator == "VAR-DEFAULT-CHANGE" && !test.valid {
+				if mutant.Operator == defaultChangeOperator && !test.valid {
 					if mutant.State != report.Invalid {
 						t.Errorf("%s: state %s; Terraform rejects the empty default for %s",
 							mutant.Operator, mutant.State, test.constraint)
@@ -623,7 +659,7 @@ run "consumer" {
 func TestVariableOverridesKeepSuiteSuppliedDefaultsExecuting(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range []string{"override.tf", "z_override.tf", "override.tf.json", "z_override.tf.json"} {
+	for _, name := range []string{overrideHCLFile, "z_override.tf", overrideJSONFile, "z_override.tf.json"} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -648,7 +684,7 @@ run "consumer" {
 `)
 
 			request := baseConfig(t, module)
-			request.IncludeOperators = []string{"VAR-DEFAULT-CHANGE", "VAR-DEFAULT-REMOVE", "VAR-DEFAULT-NULL"}
+			request.IncludeOperators = []string{defaultChangeOperator, defaultRemoveOperator, defaultNullOperator}
 
 			result, err := engine.Run(t.Context(), request)
 			if err != nil {
@@ -660,11 +696,11 @@ run "consumer" {
 					t.Errorf("%s: Unobservable despite a variable override", mutant.Operator)
 				}
 
-				if mutant.Operator == "VAR-DEFAULT-CHANGE" && mutant.State != report.Killed {
+				if mutant.Operator == defaultChangeOperator && mutant.State != report.Killed {
 					t.Errorf("changed default: state %s, want Killed by the fallback assertion", mutant.State)
 				}
 
-				if mutant.Operator == "VAR-DEFAULT-NULL" && mutant.State != report.Invalid {
+				if mutant.Operator == defaultNullOperator && mutant.State != report.Invalid {
 					t.Errorf("null default: state %s, want Invalid for the overridden nullable=false", mutant.State)
 				}
 			}
@@ -680,7 +716,7 @@ func TestStaticallyDecidedDefaultsCountAsFresh(t *testing.T) {
 			t.Parallel()
 
 			request := baseConfig(t, copyFixture(t, "suite-supplied-var-filelevel"))
-			request.IncludeOperators = []string{"VAR-DEFAULT-CHANGE", "VAR-DEFAULT-REMOVE", "VAR-DEFAULT-NULL"}
+			request.IncludeOperators = []string{defaultChangeOperator, defaultRemoveOperator, defaultNullOperator}
 			request.NoCache = noCache
 
 			for range 2 {
@@ -704,6 +740,7 @@ func TestStaticallyDecidedDefaultsCountAsFresh(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // uses t.Setenv to control the ambient Terraform arguments.
 func TestEnvironmentInjectedTestFiltersKeepDefaultMutantsExecuting(t *testing.T) {
 	const injected = "TF_CLI_ARGS_test=-filter=tests/omitting.tftest.hcl"
 	const cleared = "TF_CLI_ARGS_test="
@@ -725,8 +762,8 @@ func TestEnvironmentInjectedTestFiltersKeepDefaultMutantsExecuting(t *testing.T)
 		t.Setenv("TF_CLI_ARGS_test", test.ambient)
 
 		request := baseConfig(t, copyFixture(t, "suite-supplied-var-selected"))
-		request.TestSelection = []string{"tests/good.tftest.hcl"}
-		request.IncludeOperators = []string{"VAR-DEFAULT-CHANGE", "VAR-DEFAULT-REMOVE", "VAR-DEFAULT-NULL"}
+		request.TestSelection = []string{suiteSetterTestFile}
+		request.IncludeOperators = []string{defaultChangeOperator, defaultRemoveOperator, defaultNullOperator}
 		request.Env = append(request.Env, test.env...)
 
 		result, err := engine.Run(t.Context(), request)
@@ -749,7 +786,7 @@ func TestEnvironmentInjectedTestFiltersKeepDefaultMutantsExecuting(t *testing.T)
 					test.name, mutant.Operator, mutant.State, mutant.ExecutedRuns)
 			}
 
-			if mutant.Operator == "VAR-DEFAULT-CHANGE" && mutant.State != report.Killed {
+			if mutant.Operator == defaultChangeOperator && mutant.State != report.Killed {
 				t.Errorf("%s: changed default state %s, want Killed by the omitter's assertion", test.name, mutant.State)
 			}
 		}
