@@ -323,7 +323,7 @@ func TestPreviewWarnsWhenTheRealInfrastructureGateWouldRefuse(t *testing.T) {
 		t.Fatalf("the gate verdict does not name the unmocked provider: %s", verdict)
 	}
 
-	// The warning names the same refusal the run produces, quoted: the
+	// The warning quotes the full refusal returned by run.
 	_, runErr := engine.Run(t.Context(), baseConfig(t, module))
 	if !errors.Is(runErr, engine.ErrRealInfrastructure) {
 		t.Fatalf("run error = %v, want the real-infrastructure refusal", runErr)
