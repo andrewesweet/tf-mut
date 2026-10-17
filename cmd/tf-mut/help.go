@@ -601,6 +601,13 @@ func renderReferencePage() string {
 		rendered.WriteString("\nExample:\n```bash\n$ " + doc.example + "\n```\n")
 	}
 
+	rendered.WriteString("\n## Debug logging\n")
+	rendered.WriteString("\nSet `TF_MUT_DEBUG=1` to write debug logs to standard error, including " +
+		"the verdict cache key and each component's digest. Compare component digests between " +
+		"invocations to identify what changed. Logs contain digests, never cache-key input values. " +
+		"Debug logging is disabled by default; report output on standard output is unchanged.\n")
+	rendered.WriteString("\n```bash\nTF_MUT_DEBUG=1 tf-mut suggest ./modules/vpc\n```\n")
+
 	rendered.WriteString("\n## Exit codes\n")
 	rendered.WriteString("\n" + exitCodeProse() + "\n")
 

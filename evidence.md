@@ -1,0 +1,75 @@
+# Verdict-cache review evidence
+
+The earlier reduced-fabn and impure-value probes were stable, as recorded in the
+review context. This phase adds the reviewer's warm-directory probe. It establishes
+a baseline-component failure on a reduced module; it does not establish the cause
+of the original large fabn run. Environment keying is unchanged.
+
+## Warm-directory reproduction
+
+Using locked Go 1.26.9 and Terraform 1.15.8, run the same engine request twice
+against this offline module, with unchanged files, binary, environment and settings:
+
+```hcl
+resource "terraform_data" "app" {
+  input = "kept"
+}
+
+output "asserted" {
+  value = terraform_data.app.input
+}
+
+output "value" {
+  value = abspath(path.root)
+}
+```
+
+The test has one run block asserting `output.asserted == "kept"`. The probe runs
+both `command = plan` and `command = apply`. Before the fix, each invocation
+executes six fresh verdicts and replays none. Comparing all logged components
+within each command identifies **baseline** as the only changing component:
+
+| Command | First baseline component digest | Second baseline component digest |
+| --- | --- | --- |
+| plan | `6f84838bf5ca41a24199b8da211d0c08f6188b547a2f3df263a50942a17f7b6a` | `ed8c54415f06963df530d6e941eb1b98e3493df0538adb71986a977e1d13cfc8` |
+| apply | `3ac0ed2f91555ef9fe74e812024ec114cfb1b47d89c8bd6fc56572b3ad41bffe` | `d57b5a95f42bd35ed714ecb66c2b23447c469cb60f37229a779a35e77756ce20` |
+
+Both baseline legs share the same warm directory within one invocation. The
+two-run volatility mask therefore retains its absolute path, although the next
+invocation materialises a different directory. The masked fingerprint changes.
+
+The cache now replaces the warm closure path with a stable marker after masking,
+including canonical scalar values and map-key paths. This replacement applies
+only to cache identity. The report and oracle retain their original payloads.
+The cache format advances to version 7 because its key derivation changes.
+
+## Regression contracts
+
+`TestWarmDirectoryPathsReuseVerdictsAcrossInvocations` drives real Terraform
+through the engine seam. Its independent oracle is the unchanged-suite reuse
+contract: the second invocation must replay every verdict executed by the first,
+even though the reported baseline fingerprint retains the changed path. It covers
+plan and state, scalar and embedded values, map keys, an escaped work-directory
+name, and a sibling module above the module directory. Hashing the unnormalised
+masked output fails this contract.
+
+`TestCacheDebugLogsAreReachableThroughTheCLI` starts subprocesses through `main`
+for both `run` and `suggest`. Its oracle is the public opt-in contract: unset
+`TF_MUT_DEBUG` emits no debug records; `TF_MUT_DEBUG=1` emits every required
+component digest on stderr, with no environment value, while stdout remains a
+decodable report. A handler enabled only by an engine test fails this contract.
+
+## Focused verification
+
+One focused Go test invocation passed for `internal/engine` and `cmd/tf-mut`,
+using the locked tools through `mise exec -- just --command go test`. It selected
+the two regression tests above, the existing component-log and volatile-apply
+tests, unchanged-run reuse, key-dimension invalidation, the cache-format upgrade,
+unsafe-opt-in and no-cache refusals, environment miss reporting, and the generated
+reference contracts. All four warm-path fixture/command combinations passed.
+Both CLI commands passed with debug logging unset and enabled. The helper-only
+test skipped in the parent and executed in its subprocesses.
+
+Full test and lint suites remain the outer executor's phases. The pre-fix probe
+and focused verification logs are retained locally under
+`.artifacts/cache-review/`.

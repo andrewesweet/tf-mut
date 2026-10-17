@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/signal"
 	"slices"
@@ -128,6 +129,10 @@ const (
 var usage = renderTopHelp() //nolint:gochecknoglobals // the rendered help surface the audits pin.
 
 func main() {
+	if os.Getenv("TF_MUT_DEBUG") == "1" {
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	}
+
 	os.Exit(run(os.Args[1:], version, os.Stdout, os.Stderr))
 }
 

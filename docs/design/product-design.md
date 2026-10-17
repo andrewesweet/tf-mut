@@ -780,7 +780,9 @@ the entire materialised source closure, all tests, the resolved configuration, t
 module inventory with remote payloads, the whole process environment plus run-specific
 additions, the Terraform identity, the cache version
 ([invalidation policy](../../internal/engine/cache.go)) and the masked baseline
-fingerprint — any doubt is a miss, and cache reads and writes are disabled under
+fingerprint, with the per-invocation warm closure path normalised to a stable marker for
+cache identity. The oracle and report retain the actual baseline paths. Any doubt is a
+miss, and cache reads and writes are disabled under
 `--allow-real-infrastructure` and `--allow-unsandboxed-effects`, whose external state cannot
 be keyed soundly.
 
