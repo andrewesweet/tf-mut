@@ -32,17 +32,17 @@ func TestTheBaselineStoreRoundTripsAndRefusesToFakeAnEmptyList(t *testing.T) {
 	}
 
 	accepted := []store.AcceptanceEntry{
-		{ID: "MUT-B", Actionable: true, State: "survived", Site: "a.tf:3", Operator: "ARITH-SWAP"},
-		{ID: "MUT-A", Actionable: false, State: "unobservable", Site: "a.tf:7", Operator: "BOOL-LIT"},
+		{ID: mutB, Actionable: true, State: "survived", Site: "a.tf:3", Operator: "ARITH-SWAP"},
+		{ID: mutA, Actionable: false, State: "unobservable", Site: "a.tf:7", Operator: "BOOL-LIT"},
 	}
 
-	if err := baseline.Save(path, accepted); err != nil {
+	if err = baseline.Save(path, accepted); err != nil {
 		t.Fatalf("saving the baseline: %v", err)
 	}
 
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stating the baseline: %v", err)
+	info, statErr := os.Stat(path)
+	if statErr != nil {
+		t.Fatalf("stating the baseline: %v", statErr)
 	}
 
 	if info.Mode().Perm() != 0o600 {
@@ -54,7 +54,7 @@ func TestTheBaselineStoreRoundTripsAndRefusesToFakeAnEmptyList(t *testing.T) {
 		t.Fatalf("loading the baseline: %v", err)
 	}
 
-	if len(entries) != 2 || entries[0].ID != "MUT-B" || entries[1].ID != "MUT-A" ||
+	if len(entries) != 2 || entries[0].ID != mutB || entries[1].ID != mutA ||
 		!entries[0].Actionable || entries[1].Actionable || entries[1].Operator != "BOOL-LIT" {
 		t.Fatalf("the baseline round-tripped as %+v", entries)
 	}

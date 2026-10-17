@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/oracle"
-	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
 // The cache is private by construction: evidence may embed plan values and
@@ -33,26 +32,25 @@ const KeyPrefixLength = 16
 const manifestSuffix = "-manifest.json"
 
 // CacheEntry is the persisted verdict of one mutant under one key: the
-// Oracle context's own record — the document oracle.ParseRecord rebuilds the
-// outcome from — and, beside it, what the run itself observed. The record is
-// the whole verdict; the observation fields are rehydrated as stored and are
-// never verdict content, so replay projects the record once, forward, through
-// the same projection a fresh verdict went through.
+// Oracle context's own record — the document oracle.ParseRecord rebuilds
+// the outcome from — and, beside it, what the run itself observed as an
+// opaque document. The record is the whole verdict; the observation document
+// is the publication's own business, encoded and decoded by the caller and
+// never opened here, so the storage schema stays the domain's stored-record
+// shape rather than the publication DTO.
 type CacheEntry struct {
 	FormatVersion string        `json:"format_version"`
 	RunKey        string        `json:"run_key"`
 	MutantID      string        `json:"mutant_id"`
 	Record        oracle.Record `json:"record"`
 
-	Runs []report.RunOutcome `json:"runs"`
-	// Diagnostics are the runs' own observations. Where the outcome carries
-	// its diagnostics as evidence — a KilledByError or Invalid claim — the
-	// store stands these down, because the record is their only carrier and
-	// the replay's projection must have one writer per field.
-	Diagnostics     []report.Diagnostic `json:"diagnostics,omitempty"`
-	ExecutedRuns    int                 `json:"executed_runs"`
-	Validated       bool                `json:"validated"`
-	DeadlineReached bool                `json:"deadline_reached"`
+	// Observed is the caller's own document for what the run observed —
+	// the runs, their diagnostics, the execution counts — carried as stored
+	// and never verdict content, so replay projects the record once, forward,
+	// through the same projection a fresh verdict went through. It is
+	// marshalled as stored, never opened here; a document that does not
+	// parse is the caller's miss.
+	Observed json.RawMessage `json:"observed"`
 }
 
 // CacheManifest is one generation's key beside its environment digest and
@@ -91,7 +89,7 @@ func NewVerdictCache(
 	maxEntries int,
 ) (*VerdictCache, error) {
 	if !ensureCacheDir(dir) {
-		return nil, fmt.Errorf("the cache directory %s could not be secured", dir)
+		return nil, errCacheUnsecuredError{dir}
 	}
 
 	return &VerdictCache{
@@ -415,3 +413,13 @@ func hashHex(content []byte) string {
 // hashes under. The manifest names it so a miss explanation can diff the
 // environment per variable.
 const envComponent = "env"
+
+// errCacheUnsecuredError reports a cache location that could not be secured
+// as a private real directory. The caller proceeds without the cache.
+type errCacheUnsecuredError struct {
+	dir string
+}
+
+func (e errCacheUnsecuredError) Error() string {
+	return fmt.Sprintf("the cache directory %s could not be secured", e.dir)
+}

@@ -3,6 +3,7 @@ package engine
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"hash"
 	"log/slog"
@@ -37,7 +38,11 @@ import (
 // protects this upgrade boundary. An older-format entry is a miss, not an
 // error. Selected verdicts are recomputed under the current execution and
 // oracle rules (TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError).
-const cacheFormatVersion = "tf-mut-cache-6"
+// The tf-mut-cache-7 bump moves the run's own observations out of the
+// storage schema's typed fields and into the opaque observed document the
+// engine alone decodes, so the store's document is the domain's
+// stored-record shape and no publication type.
+const cacheFormatVersion = "tf-mut-cache-7"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
@@ -720,14 +725,19 @@ func rehydrated(mutant *report.Mutant, classified *oracle.Classified, entry stor
 		return false
 	}
 
-	if len(entry.Diagnostics) > 0 {
-		mutant.Diagnostics = slices.Clone(entry.Diagnostics)
+	observed := observedRun{}
+	if err := json.Unmarshal(entry.Observed, &observed); err != nil {
+		return false
 	}
 
-	mutant.Runs = entry.Runs
-	mutant.ExecutedRuns = entry.ExecutedRuns
-	mutant.Validated = entry.Validated
-	mutant.DeadlineReached = entry.DeadlineReached
+	if len(observed.Diagnostics) > 0 {
+		mutant.Diagnostics = slices.Clone(observed.Diagnostics)
+	}
+
+	mutant.Runs = observed.Runs
+	mutant.ExecutedRuns = observed.ExecutedRuns
+	mutant.Validated = observed.Validated
+	mutant.DeadlineReached = observed.DeadlineReached
 
 	*mutant = project(*mutant, outcome)
 	*classified = oracle.Classified{Operator: classified.Operator, Outcome: outcome}
@@ -743,6 +753,23 @@ func rehydrated(mutant *report.Mutant, classified *oracle.Classified, entry stor
 // exactly. Where the outcome carries its diagnostics as evidence, the run's
 // own observations stand down: the record is their only carrier, and replay
 // must have one writer per field.
+// observedRun is the run's own observation document, stored beside the
+// verdict's record and never part of it: the runs as executed, their
+// diagnostics where the record does not carry them as evidence, and the
+// execution counts. It is the publication-facing half of a cache entry, and
+// the store carries it as stored without opening it.
+type observedRun struct {
+	Runs []report.RunOutcome `json:"runs"`
+	// Diagnostics are the runs' own observations. Where the outcome carries
+	// its diagnostics as evidence — a KilledByError or Invalid claim — these
+	// stand down, because the record is their only carrier and the replay's
+	// projection must have one writer per field.
+	Diagnostics     []report.Diagnostic `json:"diagnostics,omitempty"`
+	ExecutedRuns    int                 `json:"executed_runs"`
+	Validated       bool                `json:"validated"`
+	DeadlineReached bool                `json:"deadline_reached"`
+}
+
 func (c *verdictCache) persist(mutants []report.Mutant, classified []oracle.Classified) {
 	unlock, err := c.store.Lock()
 	if err != nil {
@@ -763,16 +790,23 @@ func (c *verdictCache) persist(mutants []report.Mutant, classified []oracle.Clas
 			diagnostics = nil
 		}
 
-		entry := store.CacheEntry{
-			FormatVersion:   cacheFormatVersion,
-			RunKey:          c.key,
-			MutantID:        mutant.ID,
-			Record:          outcome.Record(),
+		observed, err := json.Marshal(observedRun{
 			Runs:            mutant.Runs,
 			Diagnostics:     diagnostics,
 			ExecutedRuns:    mutant.ExecutedRuns,
 			Validated:       mutant.Validated,
 			DeadlineReached: mutant.DeadlineReached,
+		})
+		if err != nil {
+			continue
+		}
+
+		entry := store.CacheEntry{
+			FormatVersion: cacheFormatVersion,
+			RunKey:        c.key,
+			MutantID:      mutant.ID,
+			Record:        outcome.Record(),
+			Observed:      observed,
 		}
 
 		c.store.Put(c.key, mutant.ID, entry)

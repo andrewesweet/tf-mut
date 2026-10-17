@@ -25,6 +25,7 @@ which no longer imports `internal/report`.
 | Mutation Catalogue | Supporting | `internal/mutation` | operator identity, applicability, site, generated mutant, diff |
 | Suggestion | Supporting | `internal/suggest` | candidate to verified/refuted/skipped, verification evidence, apply plan |
 | Characterisation | Supporting | `internal/characterise` | scenario, input provenance, judgement point, pin, scaffold promotion, convergence, curation finding |
+| Persistence | Generic / ACL | `internal/store` | the verdict cache, acceptance list and provenance-registry documents: on-disk formats, permission correction and symlink refusal, corruption-as-miss reads, atomic writes, the size cap, the advisory lock, the rename-window write |
 | Terraform Boundary | Generic / ACL | `internal/discovery`, `internal/tfexec`, `internal/sandbox` | HCL and JSON discovery, canonical configuration snapshot, Terraform process and result translation, sandbox materialisation |
 | Publication | Generic / ACL | `internal/report`, `internal/skill` | versioned report DTOs, schema mapping, the seven renderings, shipped agent documents |
 
@@ -44,7 +45,11 @@ writes through Terraform Boundary's shared checked filesystem primitive
 characterisation commit do); that narrow infrastructure dependency is an explicit
 exception, not a dependency from the report DTO leaf. Publication otherwise
 does not import a domain context. The application layer performs the projections
-between context values and report DTOs.
+between context values and report DTOs. Persistence writes through the same
+sandbox primitive (its registry save) and reads the Oracle context's
+stored-record shape (`oracle.Record`) as the verdict document's core; the cached
+run's own observations travel beside it as an opaque document only the engine
+decodes, so no publication type enters the store.
 
 Lint enforces nine boundaries, including test files:
 

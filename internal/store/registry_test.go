@@ -9,6 +9,9 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/store"
 )
 
+// errRefused is the recheck refusal the save must propagate.
+var errRefused = errors.New("refused")
+
 // TestTheRegistryStoreRoundTripsAndClaimsNothingWhenUnreadable pins the
 // provenance registry's contract: a saved registry reads back entry for
 // entry, anything unreadable — absent, corrupt, or a foreign version — is
@@ -53,7 +56,7 @@ func TestTheRegistryStoreRoundTripsAndClaimsNothingWhenUnreadable(t *testing.T) 
 	}
 
 	// A recheck refusal is the save's error, and nothing is installed.
-	refused := errors.New("refused")
+	refused := errRefused
 	if err := registryStore.Save(path, recorded, func() error { return refused }); !errors.Is(err, refused) {
 		t.Fatalf("a refused recheck saved anyway: %v", err)
 	}

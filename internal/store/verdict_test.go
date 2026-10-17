@@ -4,7 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/oracle"
-	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/store"
 )
 
@@ -23,7 +22,19 @@ import (
 const (
 	testEntryFormat    = "test-cache-1"
 	testManifestFormat = "test-cache-1-env-2"
+
+	mutA = "MUT-A"
+	mutB = "MUT-B"
+	mutC = "MUT-C"
+
+	// observedDoc is an opaque observation document, as the engine would
+	// encode it: the runs as executed beside their execution counts.
+	observedDoc = `{"runs":[{"run":"root"}],"executed_runs":1}`
 )
+
+// errNoEntry is the truncation helper's report that no stored entry carries
+// the mutant ID named.
+var errNoEntry = errors.New("no stored entry for the mutant ID")
 
 // TestTheVerdictStoreRoundTripsEntriesAndTreatsEveryIrregularityAsAMiss is
 // the store's own contract: a put entry comes back through get under its key
@@ -42,25 +53,24 @@ func TestTheVerdictStoreRoundTripsEntriesAndTreatsEveryIrregularityAsAMiss(t *te
 	stored := store.CacheEntry{
 		FormatVersion: testEntryFormat,
 		RunKey:        key,
-		MutantID:      "MUT-0001",
+		MutantID:      mutA,
 		Record:        oracle.Record{State: oracle.StateKilled},
-		Runs:          []report.RunOutcome{{File: "unit.tftest.hcl", Run: "root", Status: "pass"}},
-		ExecutedRuns:  1,
+		Observed:      json.RawMessage(observedDoc),
 	}
 
-	cache.Put(key, "MUT-0001", stored)
+	cache.Put(key, mutA, stored)
 
-	entry, found := cache.Get(key, "MUT-0001")
+	entry, found := cache.Get(key, mutA)
 	if !found {
 		t.Fatal("the entry just stored was a miss")
 	}
 
-	if entry.MutantID != "MUT-0001" || entry.RunKey != key || entry.FormatVersion != testEntryFormat {
+	if entry.MutantID != mutA || entry.RunKey != key || entry.FormatVersion != testEntryFormat {
 		t.Fatalf("the round trip moved the entry: %+v", entry)
 	}
 
-	if len(entry.Runs) != 1 || entry.Runs[0].Run != "root" {
-		t.Fatalf("the round trip lost the stored runs: %+v", entry.Runs)
+	if string(entry.Observed) != observedDoc {
+		t.Fatalf("the round trip moved the stored observations: %s", entry.Observed)
 	}
 
 	if _, err := oracle.ParseRecord(entry.Record); err != nil {
@@ -71,11 +81,11 @@ func TestTheVerdictStoreRoundTripsEntriesAndTreatsEveryIrregularityAsAMiss(t *te
 		t.Fatal("another mutant under the same key hit")
 	}
 
-	if _, found := cache.Get(other, "MUT-0001"); found {
+	if _, found := cache.Get(other, mutA); found {
 		t.Fatal("the same mutant under another key hit")
 	}
 
-	if _, found := cache.Get(digest64("no-such-key"), "MUT-0001"); found {
+	if _, found := cache.Get(digest64("no-such-key"), mutA); found {
 		t.Fatal("an absent key hit")
 	}
 
@@ -119,12 +129,11 @@ func TestTheVerdictStoreEvictsStaleKeysBeforeTheCurrentKeyInNameOrder(t *testing
 	currentKey := digest64("the-current-generation")
 	entry := store.CacheEntry{
 		FormatVersion: testEntryFormat,
-		Runs:          []report.RunOutcome{{File: "unit.tftest.hcl", Run: "root", Status: "pass"}},
-		ExecutedRuns:  1,
+		Observed:      json.RawMessage(observedDoc),
 	}
 
 	for _, key := range []string{staleKey, currentKey} {
-		for _, mutant := range []string{"MUT-A", "MUT-B", "MUT-C"} {
+		for _, mutant := range []string{mutA, mutB, mutC} {
 			one := entry
 			one.RunKey, one.MutantID = key, mutant
 			cache.Put(key, mutant, one)
@@ -143,7 +152,7 @@ func TestTheVerdictStoreEvictsStaleKeysBeforeTheCurrentKeyInNameOrder(t *testing
 
 	cache.Evict(currentKey)
 
-	for _, mutant := range []string{"MUT-A", "MUT-B", "MUT-C"} {
+	for _, mutant := range []string{mutA, mutB, mutC} {
 		if _, found := cache.Get(currentKey, mutant); !found {
 			t.Fatalf("eviction removed a current-key entry: %s", mutant)
 		}
@@ -164,7 +173,7 @@ func TestTheVerdictStoreEvictsStaleKeysBeforeTheCurrentKeyInNameOrder(t *testing
 	}
 
 	if len(remaining.current) != len(before.current) {
-		t.Fatalf("eviction removed current-key entries while stale ones remained")
+		t.Fatal("eviction removed current-key entries while stale ones remained")
 	}
 
 	if files := countEntryFiles(t, dir); files != maxEntries {
@@ -189,7 +198,7 @@ func TestTheVerdictStoreSecuresItsDirectory(t *testing.T) {
 	}
 
 	loose := filepath.Join(t.TempDir(), "cache")
-	if err := os.MkdirAll(loose, 0o755); err != nil {
+	if err := os.MkdirAll(loose, 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
@@ -286,7 +295,7 @@ func truncateEntry(t *testing.T, dir, mutantID string) error {
 	}
 
 	for _, path := range matches {
-		content, err := os.ReadFile(path)
+		content, err := os.ReadFile(path) //nolint:gosec // a test-owned, digest-named path.
 		if err != nil {
 			return err
 		}
@@ -297,7 +306,7 @@ func truncateEntry(t *testing.T, dir, mutantID string) error {
 		}
 	}
 
-	return fmt.Errorf("no entry file for %s", mutantID)
+	return errNoEntry
 }
 
 // entryNames are the stored entry documents under two key prefixes.
@@ -327,6 +336,8 @@ func namesByPrefix(t *testing.T, dir, stalePrefix, currentPrefix string) entryNa
 			names.stale = append(names.stale, name)
 		case strings.HasPrefix(name, currentPrefix):
 			names.current = append(names.current, name)
+		default:
+			// Neither prefix: not staged by this test.
 		}
 	}
 
