@@ -204,6 +204,7 @@ type settings struct {
 	OTLPEndpoint string
 	// Progress carries Common.Progress; see that field's output contract.
 	Progress io.Writer
+	Debug    bool
 
 	// mode is the command these settings serve: the projection of the request
 	// type that produced them, written by that type's settings method and by

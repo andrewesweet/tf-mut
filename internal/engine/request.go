@@ -79,6 +79,7 @@ type Common struct {
 	// writes within one invocation and stops writing before it returns.
 	// The CLI passes its stderr writer; callers must keep report output separate.
 	Progress io.Writer
+	Debug    bool
 }
 
 // Population selects the mutants a command acts on.
@@ -331,6 +332,7 @@ func commonConfig(c Common) settings {
 	s.CPUProfile = c.CPUProfile
 	s.OTLPEndpoint = c.OTLPEndpoint
 	s.Progress = c.Progress
+	s.Debug = c.Debug
 
 	return s
 }

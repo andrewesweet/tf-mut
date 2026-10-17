@@ -1,8 +1,8 @@
 package engine_test
 
 import (
-	"context"
-	"log/slog"
+	"bytes"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -16,13 +16,9 @@ import (
 //
 // The reported key is tied back to the report independently: a logged key
 // must carry the prefix the replayed mutants cite as their cache basis.
-//
-// The test is sequential for the global default logger it installs: parallel
-// tests drive the same engine and would interleave their records with this
-// capture.
-//
-//nolint:paralleltest // installs the process-global default slog handler for the capture window.
 func TestCacheKeyComponentsAreLoggedAtDebug(t *testing.T) {
+	t.Parallel()
+
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
 
@@ -30,67 +26,57 @@ func TestCacheKeyComponentsAreLoggedAtDebug(t *testing.T) {
 	const probeValue = "probe-value-debug-9d3f41"
 	config.Env = append(config.Env, probeName+"="+probeValue)
 
-	captured := []debugRecord{}
-	previous := slog.Default()
-	slog.SetDefault(slog.New(debugHandler{records: &captured}))
-	t.Cleanup(func() { slog.SetDefault(previous) })
+	var captured bytes.Buffer
+	config.Progress = &captured
 
 	first := cachedRun(t, config)
 	if first.Population.Cached != 0 {
 		t.Fatalf("the first run reported %d cached verdicts from an empty cache",
 			first.Population.Cached)
 	}
+	if strings.Contains(captured.String(), "level=DEBUG") {
+		t.Fatalf("debug logging enabled by default: %s", captured.String())
+	}
 
+	captured.Reset()
+	config.Debug = true
 	second := cachedRun(t, config)
 	if second.Population.Cached == 0 || second.Population.Fresh != 0 {
-		t.Fatalf("the second unchanged run was not all cache hits: %+v", second.Population)
+		t.Fatalf("enabling debug logging prevented cache reuse: %+v", second.Population)
+	}
+	if second.Telemetry == nil || second.Telemetry.RunID == "" {
+		t.Fatal("the report has no run identifier")
 	}
 
+	logs := captured.String()
+	if strings.Contains(logs, probeValue) {
+		t.Fatal("an environment value reaches the debug log")
+	}
+
+	prefix := "[" + second.Telemetry.RunID + "] "
 	components := map[string]string{}
-	keys := []string{}
-
-	for _, record := range captured {
-		if strings.Contains(record.message, probeValue) {
-			t.Fatalf("an environment value reaches the debug log message: %q", record.message)
+	componentLine := regexp.MustCompile(`level=DEBUG msg="tf-mut: cache key component" component=([a-z]+) digest=([0-9a-f]{64})$`)
+	for line := range strings.SplitSeq(strings.TrimSuffix(logs, "\n"), "\n") {
+		if !strings.HasPrefix(line, prefix) {
+			t.Fatalf("debug line lacks the report's run identifier %q: %q", prefix, line)
 		}
-
-		for key, value := range record.attributes {
-			if strings.Contains(value, probeValue) {
-				t.Fatalf("an environment value reaches the debug log attribute %q", key)
-			}
-		}
-
-		switch record.message {
-		case "tf-mut: cache key component":
-			components[record.attributes["component"]] = record.attributes["digest"]
-		case "tf-mut: cache key":
-			keys = append(keys, record.attributes["key"])
+		if match := componentLine.FindStringSubmatch(line); len(match) == 3 {
+			components[match[1]] = match[2]
 		}
 	}
 
-	// The components the key always hashes, whatever the fixture carries.
 	for _, component := range []string{
 		"format", "terraform", "platform", "baseline", "config", "source", "test", "env",
 	} {
-		digest, found := components[component]
-		if !found {
-			t.Fatalf("no debug digest logged for key component %q (logged: %v)",
-				component, componentNames(components))
-		}
-
-		if !isHexDigest(digest) {
-			t.Fatalf("component %q logged digest %q, want 64 lowercase hex characters", component, digest)
+		if _, found := components[component]; !found {
+			t.Fatalf("no valid debug digest for key component %q: %s", component, logs)
 		}
 	}
 
-	if len(keys) == 0 {
-		t.Fatal("no cache key logged at debug level")
-	}
-
-	for _, key := range keys {
-		if !isHexDigest(key) {
-			t.Fatalf("logged key %q, want 64 lowercase hex characters", key)
-		}
+	keyLine := regexp.MustCompile(`(?m)level=DEBUG msg="tf-mut: cache key" key=([0-9a-f]{64})$`)
+	match := keyLine.FindStringSubmatch(logs)
+	if len(match) != 2 {
+		t.Fatalf("no valid full cache key logged at debug level: %s", logs)
 	}
 
 	bases := map[string]bool{}
@@ -99,76 +85,12 @@ func TestCacheKeyComponentsAreLoggedAtDebug(t *testing.T) {
 			bases[mutant.Provenance.CacheKey] = true
 		}
 	}
-
 	if len(bases) == 0 {
 		t.Fatal("the replayed run cites no cache basis; the log correlation is vacuous")
 	}
-
 	for basis := range bases {
-		matched := false
-
-		for _, key := range keys {
-			if strings.HasPrefix(key, basis) {
-				matched = true
-				break
-			}
-		}
-
-		if !matched {
-			t.Fatalf("the report's cache basis %q matches no logged key", basis)
+		if !strings.HasPrefix(match[1], basis) {
+			t.Fatalf("the report's cache basis %q does not match logged key %q", basis, match[1])
 		}
 	}
-}
-
-// debugRecord is one captured slog record: its message and its stringified
-// attributes.
-type debugRecord struct {
-	message    string
-	attributes map[string]string
-}
-
-// debugHandler captures every record the engine logs at debug level and
-// above into the slice it points at.
-type debugHandler struct {
-	records *[]debugRecord
-}
-
-func (h debugHandler) Enabled(context.Context, slog.Level) bool { return true }
-
-func (h debugHandler) Handle(_ context.Context, record slog.Record) error {
-	captured := debugRecord{message: record.Message, attributes: map[string]string{}}
-	record.Attrs(func(attr slog.Attr) bool {
-		captured.attributes[attr.Key] = attr.Value.String()
-		return true
-	})
-	*h.records = append(*h.records, captured)
-
-	return nil
-}
-
-func (h debugHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
-
-func (h debugHandler) WithGroup(string) slog.Handler { return h }
-
-func componentNames(components map[string]string) []string {
-	names := make([]string, 0, len(components))
-	for name := range components {
-		names = append(names, name)
-	}
-
-	return names
-}
-
-func isHexDigest(value string) bool {
-	if len(value) != 64 {
-		return false
-	}
-
-	for _, digit := range value {
-		if !strings.ContainsRune("0123456789abcdef", digit) {
-			return false
-		}
-	}
-
-	return true
 }

@@ -215,7 +215,10 @@ func cacheKey(
 	}
 
 	key := hex.EncodeToString(recorder.overall.Sum(nil))
-	logCacheKey(key, recorder.components)
+	if settings.Debug && settings.Progress != nil {
+		logger := slog.New(slog.NewTextHandler(settings.Progress, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		logCacheKey(logger, key, recorder.components)
+	}
 
 	return key, cacheManifest{
 		FormatVersion: cacheManifestFormatVersion,
@@ -228,13 +231,13 @@ func cacheKey(
 // logCacheKey records the run key beside each of its component digests at
 // debug level, so a miss names the component that changed. Only digests
 // travel: values — environment values above all — never reach the log.
-func logCacheKey(key string, components map[string]hash.Hash) {
+func logCacheKey(logger *slog.Logger, key string, components map[string]hash.Hash) {
 	for _, kind := range sortedComponentKinds(components) {
-		slog.Debug("tf-mut: cache key component",
+		logger.Debug("tf-mut: cache key component",
 			"component", kind, "digest", hex.EncodeToString(components[kind].Sum(nil)))
 	}
 
-	slog.Debug("tf-mut: cache key", "key", key)
+	logger.Debug("tf-mut: cache key", "key", key)
 }
 
 func sortedComponentKinds(components map[string]hash.Hash) []string {

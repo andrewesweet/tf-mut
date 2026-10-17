@@ -286,7 +286,7 @@ $ tf-mut version
 
 ## Debug logging
 
-Set `TF_MUT_DEBUG=1` to write debug logs to standard error, including the verdict cache key and each component's digest. Compare component digests between invocations to identify what changed. Logs contain digests, never cache-key input values. Debug logging is disabled by default; report output on standard output is unchanged.
+Set `TF_MUT_DEBUG=1` to write debug logs to standard error, including the verdict cache key and each component's digest. Compare component digests between invocations to identify what changed. Each line carries the report's `[run_id]` prefix. Logs contain digests, never cache-key input values. Debug logging is disabled by default; report output on standard output is unchanged.
 
 ```bash
 TF_MUT_DEBUG=1 tf-mut suggest ./modules/vpc

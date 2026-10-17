@@ -2,8 +2,9 @@
 
 The captain's option C decision limits this change to Step 1: cache-key digest
 diagnostics. Set `TF_MUT_DEBUG=1` to enable them through the shipped CLI. Logs go
-to standard error; reports remain on standard output. Only digests are logged,
-never cache-key input values.
+to the run-scoped standard-error writer, with the report's `[run_id]` prefix on
+every line; reports remain on standard output. Only digests are logged, never
+cache-key input values.
 
 Cache-key computation matches base commit
 `a0929f343cdf423afe73bb41ff7f37caf120d723`, including cache format 6, the original
@@ -51,12 +52,17 @@ change preserves the pre-task identity and makes no path-normalization claim.
 
 `TestCacheKeyComponentsAreLoggedAtDebug` executes real Terraform through the
 engine seam. It checks digest output, environment-value withholding, unchanged
-suite reuse, and correlation between a logged key and cached report provenance.
+suite reuse after enabling diagnostics, and correlation between a logged key and
+cached report provenance. It captures the request's output writer without
+changing the process-global logger.
 
 `TestCacheDebugLogsAreReachableThroughTheCLI` starts subprocesses through `main`
 for both run and suggest. The public opt-in contract supplies its oracle: debug
 logging is silent by default, `TF_MUT_DEBUG=1` emits the component digests on
-stderr, environment values remain withheld, and stdout is a decodable report.
+stderr, every line carries the report's run identifier, environment values remain
+withheld, and stdout is a decodable report. README's stderr correlation contract
+supplies the identifier oracle; an unprefixed component or full-key line fails
+the test for both run and suggest.
 
 The focused verification passed in `internal/engine` and `cmd/tf-mut`, using the
 locked toolchain through Just. It covered the retained debug tests, unchanged
@@ -65,3 +71,12 @@ environment changes, previous-format misses, cache opt-outs, and the generated
 CLI reference. The log is
 `.artifacts/cache-review/diagnostics-only-verification.log`. Full test, lint and
 CI gates remain with the outer executor.
+
+The R9 focused verification also passed in both packages. Run and suggest were
+each exercised with debug disabled, on a debug cache miss, and on a debug cache
+hit. Every emitted stderr line matched the report's run identifier, including
+component and full-key records; stdout remained a decodable JSON report. The
+engine test confirmed that enabling diagnostics alone preserved cache reuse.
+Existing tracing-output, short-run silence, rendering-failure and CLI-reference
+checks passed in the same invocation. The log is
+`.artifacts/cache-review/run-scoped-debug-verification.log`.
