@@ -285,6 +285,79 @@ func TestPreviewReportsWhatTheSafetyGatesWouldDecide(t *testing.T) {
 	}
 }
 
+// TestPreviewWarnsWhenTheRealInfrastructureGateWouldRefuse: the road-test
+// defect F6 — preview reported thousands of mutants for a root whose
+// providers no mock_provider block covers, with no hint that run refuses at
+// once. Preview still refuses nothing, but it must carry the gate's verdict
+// quoting the refusal and naming the unmocked provider.
+func TestPreviewWarnsWhenTheRealInfrastructureGateWouldRefuse(t *testing.T) {
+	t.Parallel()
+	requireProviderMirror(t)
+
+	module := copyFixture(t, "unmocked")
+
+	result, err := engine.Run(t.Context(), previewRequest(t, module))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+
+	if len(result.Mutants) == 0 {
+		t.Fatal("preview generated no mutants")
+	}
+
+	verdict := ""
+
+	for _, warning := range result.Warnings {
+		if strings.Contains(warning, "the safety gates would refuse a mutation run") {
+			verdict = warning
+
+			break
+		}
+	}
+
+	if verdict == "" {
+		t.Fatalf("a provider-gated module's preview carried no gate verdict: %v", result.Warnings)
+	}
+
+	if !strings.Contains(verdict, "null") {
+		t.Fatalf("the gate verdict does not name the unmocked provider: %s", verdict)
+	}
+
+	// The warning names the same refusal the run produces, quoted: the
+	_, runErr := engine.Run(t.Context(), baseConfig(t, module))
+	if !errors.Is(runErr, engine.ErrRealInfrastructure) {
+		t.Fatalf("run error = %v, want the real-infrastructure refusal", runErr)
+	}
+
+	if !strings.Contains(verdict, runErr.Error()) {
+		t.Fatalf("the preview verdict %q does not quote the run refusal %q", verdict, runErr.Error())
+	}
+}
+
+// TestPreviewOnAnUngatedRootCarriesNoGateVerdict: the gate verdict is a
+// refusal quote, not a standing disclaimer — a root that passes every gate
+// must preview without one.
+func TestPreviewOnAnUngatedRootCarriesNoGateVerdict(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "skeleton")
+
+	result, err := engine.Run(t.Context(), previewRequest(t, module))
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+
+	if len(result.Mutants) == 0 {
+		t.Fatal("preview generated no mutants")
+	}
+
+	for _, warning := range result.Warnings {
+		if strings.Contains(warning, "the safety gates would refuse a mutation run") {
+			t.Fatalf("an ungated root's preview carried a gate verdict: %s", warning)
+		}
+	}
+}
+
 // TestPreviewSafetyVerdictReachesTheDiscardingReporters: the preview's
 // recorded safety-gate verdict survives every reporter. The markdown, HTML,
 // JUnit and MTE renderings used to discard the report's warnings, so
