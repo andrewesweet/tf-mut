@@ -27,7 +27,7 @@ import (
 func TestMain(m *testing.M) {
 	if err := os.Setenv(tracing.EndpointEnv, ""); err != nil {
 		fmt.Fprintln(os.Stderr, "clearing", tracing.EndpointEnv, "in TestMain:", err)
-		os.Exit(1) //nolint:revive // a failed scrub must fail the suite, not run against a polluted environment
+		os.Exit(1) // a failed scrub must fail the suite, not run against a polluted environment
 	}
 
 	_ = m.Run()
