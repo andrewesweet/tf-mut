@@ -24,14 +24,20 @@ func TestOutputIndicesRequireBaselineListOrTupleEvidence(t *testing.T) {
 		{"set scalar", firstElementIndex, steadyBaseline, "", "", cty.Set(cty.String)},
 		{"set null", firstElementIndex, steadyBaseline, nulledValue, "", cty.Set(cty.String)},
 		{"set emptiness", firstElementIndex, emptyListBaseline, "", "", cty.Set(cty.List(cty.String))},
-		{"list scalar", firstElementIndex, steadyBaseline, "", `output.regions[0] == "steady"`, cty.List(cty.String)},
 		{
-			"tuple scalar", firstElementIndex, steadyBaseline, "", `output.regions[0] == "steady"`,
+			"list scalar", firstElementIndex, steadyBaseline, "", `try(output.regions[0], null) == "steady"`,
+			cty.List(cty.String),
+		},
+		{
+			"tuple scalar", firstElementIndex, steadyBaseline, "", `try(output.regions[0], null) == "steady"`,
 			cty.Tuple([]cty.Type{cty.String}),
 		},
-		{"list null", firstElementIndex, steadyBaseline, nulledValue, "output.regions[0] != null", cty.List(cty.String)},
 		{
-			"list emptiness", firstElementIndex, emptyListBaseline, "", "length(output.regions[0]) == 0",
+			"list null", firstElementIndex, steadyBaseline, nulledValue, "try(output.regions[0], null) != null",
+			cty.List(cty.String),
+		},
+		{
+			"list emptiness", firstElementIndex, emptyListBaseline, "", "try(length(output.regions[0]), null) == 0",
 			cty.List(cty.List(cty.String)),
 		},
 		{"tuple out of range", "[1]", steadyBaseline, "", "", cty.Tuple([]cty.Type{cty.String})},
@@ -48,7 +54,7 @@ func TestOutputIndicesRequireBaselineListOrTupleEvidence(t *testing.T) {
 			cty.Object(map[string]cty.Type{aliasesAttribute: cty.Set(cty.List(cty.String))}),
 		},
 		{
-			"member list", aliasesFirstElement, steadyBaseline, "", `output.regions.aliases[0] == "steady"`,
+			"member list", aliasesFirstElement, steadyBaseline, "", `try(output.regions.aliases[0], null) == "steady"`,
 			cty.Object(map[string]cty.Type{aliasesAttribute: cty.List(cty.String)}),
 		},
 	} {

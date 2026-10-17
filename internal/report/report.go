@@ -7,70 +7,8 @@
 package report
 
 // SchemaVersion is the version of the machine-readable report schema.
-//
-// It changes whenever a consumer could break: removed fields, renamed fields,
-// or changed semantics of an existing field. Version 2 is the M2 break, taken
-// once at the start of the milestone rather than twice during it. 2.1.0 is the
-// M3 additive revision (review M3): cache provenance per mutant, sampling
-// metadata, baseline acceptance and staleness, the population split, and the
-// gate table's outcomes.
-// 2.2.0 is the M4 additive revision: the suggestion outcome table, and the
-// sensitivity flag each delta change now carries.
-// 2.3.0 is the M4.5 additive revision: the characterisation block — scenarios,
-// pins, TODOs, scaffolds, curate findings, generated files, the write record
-// and the until-dry convergence evidence. Its status vocabularies are closed:
-// extending one is a minor version with the consumer contract documented, not
-// a silently additive change.
-// 2.4.0 is the M5 additive revision: the tier enumeration extended with
-// `pack`, and the per-mutant `origins` pack provenance — an origin is one
-// (operator, pack, entry) whose rewrite produced the mutant's bytes, present
-// exactly when at least one pack entry contributed, sorted and deduplicated
-// by (pack, entry). M5c.1 populates both: a user-defined pack selected by
-// name produces `pack`-tier mutants, and every row a pack entry's rewrite
-// produced — whichever operator owns it — carries its origins.
-// 2.5.0 is the #176 additive revision: the operator enumeration extended with
-// the third pack form operator `PACK-WIDEN-CIDR`, which #176 implemented and
-// admitted — the form a pack entry with `widen-cidr` parameterises, widening
-// a top-level scalar IPv4 CIDR literal to `0.0.0.0/0`. Nothing else changes:
-// a report of a command run with no pack selected is byte-identical under
-// 2.4.0 and 2.5.0 semantics.
-// 2.6.0 changes the mutant id derivation for identity collisions, with no
-// field added, removed or renamed. The identity and migration contract is
-// documented in docs/design/product-design.md; wire compatibility is
-// documented in docs/schema/report-2.6.0.json.
-// 2.7.0 adds command and per-mutant performance telemetry. See Telemetry and
-// MutantTelemetry for availability and accounting; the wire contract is
-// documented in docs/schema/report-2.7.0.json.
-// 2.8.0 changes the semantics of one existing field: Metrics.Incomplete
-// widens from "a timeout made the score untrustworthy" to "the score is
-// untrustworthy" — a timeout left part of the population unobserved, or a
-// non-empty population produced no score at all, or a high share of the judged
-// population was rejected by terraform validate. No field was added, removed
-// or renamed, and the exit-code semantics are unchanged; the wire contract is
-// documented in docs/schema/report-2.8.0.json.
-// 2.9.0 adds the per-mutant DeadlineReached flag. Its presence and compatibility
-// contract is documented in docs/schema/report-2.9.0.json.
-// 2.10.0 widens Metrics.Incomplete to include a consecutive-failure trip,
-// even when every selected mutant was dispatched before the trip fired.
-// Execution provenance adds unexecuted for selected mutants never dispatched.
-// No field was added, removed or renamed; the wire contract is documented
-// in docs/schema/report-2.10.0.json.
-// 2.11.0 adds the run-level telemetry block's RunID: the one identifier that
-// ties a run's outputs together — the run span's trace ID when tracing is
-// enabled, a random identifier of the same 32-hex-character shape otherwise.
-// Every stderr line the tool writes during the run carries it as a prefix,
-// and each mutant's execution error is recorded as an event on that mutant's
-// span. No existing field changed name, type or meaning; the wire contract
-// is documented in docs/schema/report-2.11.0.json.
-// 2.12.0 adds the optional top-level cache-miss explanation. No existing
-// field changed name, type or meaning; the wire contract is documented in
-// docs/schema/report-2.12.0.json.
-// 2.13.0 widens Metrics.Incomplete to include execution errors: any mutant
-// that could not be evaluated at all marks the score incomplete, because its
-// verdict was never reliably observed. No field was added, removed or
-// renamed, and the exit-code semantics are unchanged; the wire contract is
-// documented in docs/schema/report-2.13.0.json.
-const SchemaVersion = "2.13.0"
+// See docs/schema/report-2.14.0.json for the versioned consumer contract.
+const SchemaVersion = "2.14.0"
 
 // Command names what produced a report.
 type Command string

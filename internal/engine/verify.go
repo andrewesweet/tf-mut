@@ -19,7 +19,8 @@ import (
 // Verification, under the one contract the M4 spec review's M1 disposition
 // chose: for each target test file the candidate batch is applied to a sandbox
 // copy and the full suite runs — green required; each suggestion is then
-// checked alone against its re-materialised mutant — failure required.
+// checked alone against every mutant it claims — each listed mutant gets its
+// own isolated leg, and failure of any leg verifies the suggestion.
 //
 // The two legs answer different questions and neither alone is enough. The
 // baseline leg rejects an assertion that breaks the suite; the isolated mutant
@@ -313,35 +314,43 @@ func decide(
 		)
 	}
 
-	// One isolated check per mutant the suggestion claims: a collapsed
-	// suggestion lists its extra kills in AlsoKills, and attribution stays
-	// per-mutant — every listed mutant must die against this assertion alone.
+	// Check every member of a collapsed candidate even after a completed kill
+	// or execution failure, so the aggregate retains each member's evidence.
+	claimed := append([]string{candidate.MutantID()}, candidate.AlsoKills()...)
 	runs := []suggest.RunRecord{}
 	details := []string{}
+	outcomes := []string{}
+	killed := false
 
-	for _, mutantID := range append([]string{candidate.MutantID()}, candidate.AlsoKills()...) {
+	for _, mutantID := range claimed {
 		leg, err := verifyAgainstMutant(ctx, plan, mutated, candidate, mutantID, &costs.isolated)
 		if err != nil {
-			return candidate.Refute(
-				"the isolated mutant leg could not be executed: "+err.Error(),
-				suggest.NewVerification(baseline, suggest.NewLeg(false, nil, err.Error())),
-			)
+			detail := fmt.Sprintf("mutant %s: the isolated mutant leg could not be executed: %s", mutantID, err)
+			details = append(details, detail)
+			outcomes = append(outcomes, detail)
+			continue
 		}
 
 		runs = append(runs, leg.Runs()...)
 		details = append(details, leg.Detail())
+		outcomes = append(outcomes, mutantLegRefutation(mutantID, leg))
 
-		if !leg.Passed() {
-			return candidate.Refute(
-				mutantLegRefutation(mutantID, leg),
-				suggest.NewVerification(baseline,
-					suggest.NewLeg(false, runs, strings.Join(details, "; "))),
-			)
+		if leg.Passed() {
+			killed = true
 		}
 	}
 
-	return candidate.Verify(digest, suggest.NewVerification(baseline,
-		suggest.NewLeg(true, runs, strings.Join(details, "; "))))
+	if killed {
+		return candidate.Verify(digest, suggest.NewVerification(baseline,
+			suggest.NewLeg(true, runs, strings.Join(details, "; "))))
+	}
+
+	return candidate.Refute(
+		fmt.Sprintf("none of the %d listed mutants failed the suggested assertion applied "+
+			"on its own: %s", len(claimed), strings.Join(outcomes, "; ")),
+		suggest.NewVerification(baseline,
+			suggest.NewLeg(false, runs, strings.Join(details, "; "))),
+	)
 }
 
 // mutantLegRefutation words the refutation from the statuses the leg's runs

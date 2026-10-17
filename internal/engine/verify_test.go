@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
@@ -288,7 +289,7 @@ func TestVerificationCountsOnlyStartedIsolatedRuns(t *testing.T) {
 			script: "case \"$1\" in\n" +
 				"  */verify-kill-*) terraform \"$@\" | { head -c 2; cat >/dev/null; }; exit ;;\n" +
 				"esac\n",
-			wantCost:   "verification executed 1 full-suite run(s) plus 1 isolated mutant run(s)",
+			wantCost:   "verification executed 1 full-suite run(s) plus 5 isolated mutant run(s)",
 			wantReason: "terraform output could not be decoded",
 		},
 		"a missing executable does not count a run": {
@@ -318,6 +319,120 @@ func TestVerificationCountsOnlyStartedIsolatedRuns(t *testing.T) {
 				t.Fatalf("want verification cost %q, got %v", test.wantCost, result.Warnings)
 			}
 		})
+	}
+}
+
+func TestEmptyCollectionAbsenceFailsTheSuggestedAssertion(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		source string
+		member string
+	}{
+		"array member": {member: ".labels"},
+		"object member": {
+			source: "output \"settings\" {\n  value = { labels = {} }\n}\n", member: ".labels",
+		},
+		"indexed element": {
+			source: "output \"settings\" {\n  value = [[]]\n}\n", member: "[0]",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, suggestEmptyCollectionFixture)
+			if test.source != "" {
+				testsupport.WriteFile(t, filepath.Join(module, mainFile), test.source)
+			}
+
+			request := suggestRequest(t, module)
+			request.IncludeOperators = []string{"COLL-EMPTY"}
+			result := runSuggest(t, request)
+			if len(result.Suggestions) != 1 {
+				t.Fatalf("want one emptiness suggestion, got %+v", result.Suggestions)
+			}
+
+			suggestion := result.Suggestions[0]
+			want := "try(length(output.settings" + test.member + "), null) == 0"
+			if suggestion.Expression != want || suggestion.Status != report.SuggestionVerified ||
+				suggestion.Verification == nil {
+				t.Fatalf("want verified %s, got %+v", want, suggestion)
+			}
+
+			evidence := suggestion.Verification
+			if !evidence.Baseline.Passed || !evidence.Mutant.Passed || len(evidence.Mutant.Runs) != 1 ||
+				evidence.Mutant.Runs[0].Status != "fail" {
+				t.Fatalf("absence must fail the assertion with a green baseline, got %+v", evidence)
+			}
+		})
+	}
+}
+
+func TestCollapsedVerificationPreservesKillsAcrossExecutionFailures(t *testing.T) {
+	t.Parallel()
+
+	dry := runSuggest(t, dryRunRequest(t, copyFixture(t, suggestCollapseCarrierFixture)))
+	if len(dry.Suggestions) != 1 {
+		t.Fatalf("want one collapsed candidate, got %+v", dry.Suggestions)
+	}
+
+	listed := append([]string{dry.Suggestions[0].MutantID}, dry.Suggestions[0].AlsoKills...)
+	if len(listed) < 3 {
+		t.Fatalf("want at least three members to check continuation after a failure, got %v", listed)
+	}
+
+	for name, failedIndex := range map[string]int{
+		"carrier": 0, "middle": len(listed) / 2, "last": len(listed) - 1, "all": -1,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			condition := `[ "$2" = test ] && [[ "$1" == */verify-kill-* ]]`
+			if failedIndex >= 0 {
+				condition = `[ "$2" = test ] && [[ "$1" == */verify-kill-*-` + listed[failedIndex] + ` ]]`
+			}
+
+			request := suggestRequest(t, copyFixture(t, suggestCollapseCarrierFixture))
+			request.TerraformBinary = sleepingTerraform(t, condition, 30)
+			request.TimeoutFactor = 0.0001
+			request.TimeoutFloor = 2 * time.Second
+			result := runSuggest(t, request)
+			if len(result.Suggestions) != 1 || result.Suggestions[0].Verification == nil {
+				t.Fatalf("want one suggestion with evidence, got %+v", result.Suggestions)
+			}
+
+			suggestion := result.Suggestions[0]
+			leg := suggestion.Verification.Mutant
+			wantStatus := report.SuggestionVerified
+			wantRuns := len(listed) - 1
+			if failedIndex < 0 {
+				wantStatus = report.SuggestionRefuted
+				wantRuns = 0
+			}
+
+			if suggestion.Status != wantStatus || leg.Passed != (wantRuns > 0) ||
+				!suggestion.Verification.Baseline.Passed || len(leg.Runs) != wantRuns {
+				t.Fatalf("completed kills were lost or an incomplete leg proved a kill: %+v", suggestion)
+			}
+
+			assertCollapsedMutantOutcomes(t, leg.Detail, listed, failedIndex)
+		})
+	}
+}
+
+func assertCollapsedMutantOutcomes(t *testing.T, detail string, listed []string, failedIndex int) {
+	t.Helper()
+
+	for index, id := range listed {
+		wantOutcome := "mutant " + id + " failed the suggested assertion"
+		if failedIndex < 0 || index == failedIndex {
+			wantOutcome = "mutant " + id + ": the isolated mutant leg could not be executed: " +
+				"the verification suite did not finish within its budget"
+		}
+
+		if !strings.Contains(detail, wantOutcome) {
+			t.Fatalf("missing member outcome %q in %q", wantOutcome, detail)
+		}
 	}
 }
 
@@ -486,53 +601,49 @@ func TestABatchFailureNamingNothingIsBisected(t *testing.T) {
 	}
 }
 
-// TestARefutationIsWordedFromTheStatusesTheRunProduced is the wording half of
-// the output-indexed refutation: the generated assertion indexes an output
-// element its own mutant removes, so the isolated leg's run errors rather than fails.
-// The refutation must say what actually happened — "survived" would be false
-// about a run that crashed.
-func TestARefutationIsWordedFromTheStatusesTheRunProduced(t *testing.T) {
+// TestARemovedOutputElementFailsTheAssertionRatherThanErroring is the D14
+// proof at the seam: the generated assertion indexes an output element its
+// own mutant removes, and the try form turns the removal into a plain
+// failure — every isolated leg fails, none errors, and the suggestion
+// verifies under the StatusFail-only contract.
+func TestARemovedOutputElementFailsTheAssertionRatherThanErroring(t *testing.T) {
 	t.Parallel()
 
 	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestCountFixture)))
 
-	refuted := withStatus(result, report.SuggestionRefuted)
-	if len(refuted) != 1 {
-		t.Fatalf("want exactly the count-shaped suggestion refuted, got %s",
-			statusSummary(result.Suggestions))
-	}
+	found := false
+	for _, suggestion := range result.Suggestions {
+		if suggestion.Expression != `try(output.nodes[0], null) == "node"` {
+			continue
+		}
 
-	suggestion := refuted[0]
-	if suggestion.Verification == nil {
-		t.Fatal("the refuted suggestion carries no verification evidence")
-	}
+		found = true
 
-	if suggestion.Expression != `output.nodes[0] == "node"` || !suggestion.Verification.Baseline.Passed {
-		t.Fatalf("want a baseline-green output-element assertion, got %+v", suggestion)
-	}
+		if suggestion.Verification == nil {
+			t.Fatal("the verified suggestion carries no verification evidence")
+		}
 
-	if suggestion.Verification.Mutant.Passed {
-		t.Fatal("the mutant leg passed; the fixture no longer produces the errored leg")
-	}
+		if suggestion.Status != report.SuggestionVerified ||
+			!suggestion.Verification.Baseline.Passed ||
+			!suggestion.Verification.Mutant.Passed {
+			t.Fatalf("want the baseline-green output-element assertion verified, got %+v", suggestion)
+		}
 
-	errored := false
-	for _, run := range suggestion.Verification.Mutant.Runs {
-		if run.Status == "error" {
-			errored = true
+		for _, run := range suggestion.Verification.Mutant.Runs {
+			if run.Status != "fail" {
+				t.Fatalf("a mutant leg run came back %s; the removed element must fail "+
+					"the assertion, not error it", run.Status)
+			}
 		}
 	}
 
-	if !errored {
-		t.Fatal("no run in the mutant leg errored; the fixture no longer produces the errored leg")
+	if !found {
+		t.Fatalf("no suggestion carries the output-element assertion; statuses were %s",
+			statusSummary(result.Suggestions))
 	}
 
-	if strings.Contains(suggestion.StatusReason, "survived") {
-		t.Fatalf("the refutation claims the mutant survived a run that errored: %q",
-			suggestion.StatusReason)
-	}
-
-	if !strings.Contains(suggestion.StatusReason, "errored") {
-		t.Fatalf("the refutation does not word the error the run produced: %q",
-			suggestion.StatusReason)
+	if refuted := withStatus(result, report.SuggestionRefuted); len(refuted) != 0 {
+		t.Fatalf("want nothing refuted where every removal fails plainly, got %s",
+			statusSummary(result.Suggestions))
 	}
 }

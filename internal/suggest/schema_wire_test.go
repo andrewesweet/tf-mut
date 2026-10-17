@@ -61,7 +61,7 @@ func TestAWireSchemaServesTheRenderingWalk(t *testing.T) {
 			path:     statePrefix + "example_thing.app].values.connection[0].subresource_names[0]",
 			baseline: secondValue,
 			schemas:  schemas,
-			want:     `example_thing.app.connection[0].subresource_names[0] == "second"`,
+			want:     `try(example_thing.app.connection[0].subresource_names[0], null) == "second"`,
 			refused:  nil,
 		},
 		{
@@ -69,7 +69,7 @@ func TestAWireSchemaServesTheRenderingWalk(t *testing.T) {
 			path:     statePrefix + "example_thing.app].values.timeouts.create",
 			baseline: timeoutBaseline,
 			schemas:  schemas,
-			want:     `example_thing.app.timeouts.create == "5m"`,
+			want:     `try(example_thing.app.timeouts.create, null) == "5m"`,
 			refused:  nil,
 		},
 	} {
@@ -115,17 +115,20 @@ func TestNestedSchemaPathsPreserveRendering(t *testing.T) {
 		for _, testCase := range []struct {
 			path     string
 			baseline string
-			want     string
+			ref      string
+			literal  string
 		}{
 			{
 				path:     "connection[0].timeouts.create",
 				baseline: timeoutBaseline,
-				want:     `.connection[0].timeouts.create == "5m"`,
+				ref:      `.connection[0].timeouts.create`,
+				literal:  `"5m"`,
 			},
 			{
 				path:     "connection[0].mounts.shared.sources[0]",
 				baseline: secondValue,
-				want:     `.connection[0].mounts["shared"].sources[0] == "second"`,
+				ref:      `.connection[0].mounts["shared"].sources[0]`,
+				literal:  `"second"`,
 			},
 		} {
 			t.Run(resource+"/"+testCase.path, func(t *testing.T) {
@@ -134,7 +137,8 @@ func TestNestedSchemaPathsPreserveRendering(t *testing.T) {
 				change := changeAt(statePrefix+resource+"].values."+testCase.path, testCase.baseline)
 				expression, err := suggest.Express(schemas, suggest.Evidence{}, change)
 
-				assertAdapter(t, expression, err, resource+testCase.want, nil)
+				assertAdapter(t, expression, err,
+					"try("+resource+testCase.ref+", null) == "+testCase.literal, nil)
 			})
 		}
 	}
@@ -184,7 +188,7 @@ func TestOverlappingProviderSchemasPreserveRendering(t *testing.T) {
 			for _, resource := range []string{exampleResource, "data.example_lookup.app"} {
 				want := ""
 				if testCase.selectedHasLabels {
-					want = resource + `.node_config[0].resource_labels.env == "steady"`
+					want = "try(" + resource + `.node_config[0].resource_labels.env, null) == "steady"`
 				}
 
 				change := changeAt(statePrefix+resource+"].values.node_config[0].resource_labels.env", steadyBaseline)

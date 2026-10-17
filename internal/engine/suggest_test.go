@@ -21,19 +21,21 @@ import (
 // it must, and that no artefact of a skipped suggestion says more than it may.
 
 const (
-	suggestBasicFixture         = "suggest-basic"
-	suggestSensitiveFixture     = "suggest-sensitive"
-	suggestJSONFixture          = "suggest-json-target"
-	suggestMultiFixture         = "suggest-multifile"
-	suggestBatchFixture         = "suggest-batch"
-	suggestCountFixture         = "suggest-count"
-	suggestOutputList           = "suggest-output-list"
-	suggestMapKeyFixture        = "suggest-map-key"
-	suggestUnknownObjectFixture = "suggest-unknown-object"
-	suggestCountDeletionFixture = "suggest-count-deletion"
-	suggestCountZeroFixture     = "suggest-count-zero"
-	secretValue                 = "s3cret-value"
-	unitTestFile                = "tests/unit.tftest.hcl"
+	suggestBasicFixture           = "suggest-basic"
+	suggestSensitiveFixture       = "suggest-sensitive"
+	suggestJSONFixture            = "suggest-json-target"
+	suggestMultiFixture           = "suggest-multifile"
+	suggestBatchFixture           = "suggest-batch"
+	suggestCountFixture           = "suggest-count"
+	suggestOutputList             = "suggest-output-list"
+	suggestMapKeyFixture          = "suggest-map-key"
+	suggestUnknownObjectFixture   = "suggest-unknown-object"
+	suggestCountDeletionFixture   = "suggest-count-deletion"
+	suggestCountZeroFixture       = "suggest-count-zero"
+	suggestCollapseCarrierFixture = "suggest-collapse-carrier"
+	suggestEmptyCollectionFixture = "suggest-empty-collection"
+	secretValue                   = "s3cret-value"
+	unitTestFile                  = "tests/unit.tftest.hcl"
 )
 
 // dryRunRequest is a suggest run that generates and verifies nothing.
@@ -83,13 +85,13 @@ func TestANonIdentifierMapKeyIsRenderedInIndexForm(t *testing.T) {
 		}
 	}
 
-	const dotted = `null_resource.app.triggers["app.kubernetes.io/part-of"] == "tf-mut-observe"`
+	const dotted = `try(null_resource.app.triggers["app.kubernetes.io/part-of"], null) == "tf-mut-observe"`
 	var sawIndexForm, sawNonNull bool
 	for _, suggestion := range result.Suggestions {
 		switch {
 		case suggestion.Expression == dotted:
 			sawIndexForm = true
-		case suggestion.Expression == "null_resource.app.triggers != null" &&
+		case suggestion.Expression == "try(null_resource.app.triggers, null) != null" &&
 			suggestion.Status == report.SuggestionVerified:
 			sawNonNull = true
 		default:
@@ -119,7 +121,7 @@ func TestAListValuedOutputElementIsAddressedThroughItsIndex(t *testing.T) {
 
 	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestOutputList)))
 
-	const want = `output.region_list[0].short_name == "eu"`
+	const want = `try(output.region_list[0].short_name, null) == "eu"`
 	for _, skipped := range result.Suggestions {
 		switch skipped.Status { //nolint:exhaustive // a guard: only the skip statuses are defects here.
 		case report.SuggestionSkippedUnaddressable, report.SuggestionSkippedUnrenderable:
@@ -163,7 +165,7 @@ func TestAnUnknownObjectOutputAssertsNonNullAndNeverALength(t *testing.T) {
 
 	sawNonNull := false
 	for _, suggestion := range result.Suggestions {
-		if strings.HasPrefix(suggestion.Expression, "length(output.identity)") {
+		if strings.Contains(suggestion.Expression, "length(output.identity)") {
 			t.Fatal("a length was rendered over a value whose members the plan marks unknown")
 		}
 
@@ -616,10 +618,151 @@ func TestARealSuggestReportValidatesAgainstThePublishedSchema(t *testing.T) {
 	}
 }
 
+// TestACollapsedCarrierAcrossAbsenceAndValueMutantsVerifies is the D13/D14
+// reproduction: the utl-regions `locals.tf:12` shape — one assertion folds an
+// absence-operator carrier and value-change members, and the carrier deletes
+// what the assertion reads. The suggestion verifies with every listed
+// mutant's leg in its evidence, and the cost statement counts every leg.
+func TestACollapsedCarrierAcrossAbsenceAndValueMutantsVerifies(t *testing.T) {
+	t.Parallel()
+
+	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestCollapseCarrierFixture)))
+
+	suggestion := collapsedShortNameSuggestion(t, result)
+	assertCollapseSpansAbsenceAndValue(t, result, suggestion)
+	assertEveryListedMutantHasALeg(t, result, suggestion)
+	assertIsolatedLegCountMatches(t, result)
+}
+
+// collapsedShortNameSuggestion returns the fixture's one suggestion, which
+// the collapse folded every short_name survivor into, verified.
+func collapsedShortNameSuggestion(t *testing.T, result report.Report) report.Suggestion {
+	t.Helper()
+
+	if len(result.Suggestions) != 1 {
+		t.Fatalf("want the one collapsed suggestion, got %s", statusSummary(result.Suggestions))
+	}
+
+	suggestion := result.Suggestions[0]
+	if !strings.Contains(suggestion.Expression, "short_name") {
+		t.Fatalf("expression = %q, want the short_name assertion", suggestion.Expression)
+	}
+
+	if suggestion.Status != report.SuggestionVerified {
+		t.Fatalf("suggestion is %s (%s); the carrier deletes what the assertion reads, "+
+			"and every other listed mutant fails it plainly",
+			suggestion.Status, suggestion.StatusReason)
+	}
+
+	if suggestion.Verification == nil {
+		t.Fatal("the verified suggestion carries no evidence")
+	}
+
+	return suggestion
+}
+
+// assertCollapseSpansAbsenceAndValue requires the suggestion's listed mutants
+// to span the report's absence carriers and value members: the mix whose
+// carrier alone used to refute the whole suggestion.
+func assertCollapseSpansAbsenceAndValue(
+	t *testing.T, result report.Report, suggestion report.Suggestion,
+) {
+	t.Helper()
+
+	operators := mutantOperators(result)
+	listed := append([]string{suggestion.MutantID}, suggestion.AlsoKills...)
+
+	sawAbsence, sawValue := false, false
+	for _, id := range listed {
+		operator := operators[id]
+		if operator == "COLL-DROP-ENTRY" || operator == "COLL-EMPTY" ||
+			operator == "COLL-DROP-LAST" {
+			sawAbsence = true
+		}
+
+		if strings.HasPrefix(operator, "STR-") {
+			sawValue = true
+		}
+	}
+
+	if !sawAbsence || !sawValue {
+		t.Fatalf("the collapse lists %v; want an absence operator and a value operator "+
+			"in one suggestion", listed)
+	}
+}
+
+// assertEveryListedMutantHasALeg requires the mutant leg's evidence to name
+// an outcome for every mutant the suggestion claims.
+func assertEveryListedMutantHasALeg(
+	t *testing.T, result report.Report, suggestion report.Suggestion,
+) {
+	t.Helper()
+
+	operators := mutantOperators(result)
+	detail := suggestion.Verification.Mutant.Detail
+
+	for _, id := range append([]string{suggestion.MutantID}, suggestion.AlsoKills...) {
+		if !strings.Contains(detail, id) {
+			t.Fatalf("the mutant leg names no outcome for %s (%s): %q", id, operators[id], detail)
+		}
+	}
+}
+
+// assertIsolatedLegCountMatches requires the cost statement to count every
+// leg verification ran: one per listed mutant of every suggestion whose
+// isolated leg ran.
+func assertIsolatedLegCountMatches(t *testing.T, result report.Report) {
+	t.Helper()
+
+	wantIsolated := 0
+	for _, suggestion := range result.Suggestions {
+		if suggestion.Verification == nil || len(suggestion.Verification.Mutant.Runs) == 0 {
+			continue
+		}
+
+		wantIsolated += 1 + len(suggestion.AlsoKills)
+	}
+
+	found := false
+	for _, warning := range result.Warnings {
+		var full, isolated int
+		if _, err := fmt.Sscanf(warning,
+			"verification executed %d full-suite run(s) plus %d isolated mutant run(s)",
+			&full, &isolated); err != nil {
+			continue
+		}
+
+		found = true
+
+		if full < 1 {
+			t.Fatalf("the cost statement claims no full-suite run: %q", warning)
+		}
+
+		if isolated != wantIsolated {
+			t.Fatalf("the cost statement counts %d isolated run(s), want one per listed "+
+				"mutant (%d): %q", isolated, wantIsolated, warning)
+		}
+	}
+
+	if !found {
+		t.Fatalf("the report states no verification cost: %v", result.Warnings)
+	}
+}
+
+// mutantOperators indexes the population's operator per mutant identifier.
+func mutantOperators(result report.Report) map[string]string {
+	operators := map[string]string{}
+	for _, mutant := range result.Mutants {
+		operators[mutant.ID] = mutant.Operator
+	}
+
+	return operators
+}
+
 func loadPublishedSchema(t *testing.T) map[string]any {
 	t.Helper()
 
-	content, err := os.ReadFile("../../docs/schema/report-2.13.0.json")
+	content, err := os.ReadFile("../../docs/schema/report-2.14.0.json")
 	if err != nil {
 		t.Fatalf("reading the published schema: %v", err)
 	}

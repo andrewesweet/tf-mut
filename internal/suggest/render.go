@@ -75,7 +75,11 @@ func (r render) equality(
 			return "", err
 		}
 
-		return spelled + " != null", nil
+		if attribute == "" {
+			return spelled + " != null", nil
+		}
+
+		return tolerant(spelled) + " != null", nil
 	}
 
 	// A change whose value side is empty under a counted instance is a
@@ -110,7 +114,7 @@ func (r render) equality(
 				"length over unknowns is not evidence", ErrUnrenderable)
 		}
 
-		return "length(" + spelled + ") == 0", nil
+		return tolerant("length("+spelled+")") + " == 0", nil
 	}
 
 	segments := parts.source.Segments()
@@ -122,7 +126,7 @@ func (r render) equality(
 			return "", err
 		}
 
-		return scalarEquality(spelled, baseline)
+		return scalarEquality(tolerant(spelled), baseline)
 	case attribute == "":
 		// A whole output value. No provider schema types an output, so the
 		// scalar in front of us is the only type evidence there is.
@@ -130,6 +134,13 @@ func (r render) equality(
 	default:
 		return r.leafEquality(expression, resource, segments[0], baseline)
 	}
+}
+
+// tolerant renders the absence-tolerant form of an assertion reference: a
+// reference becomes a try with a null default, so a missing key, attribute
+// or instance fails the assertion instead of erroring the run.
+func tolerant(reference string) string {
+	return "try(" + reference + ", null)"
 }
 
 // countEquality renders the vanished-instance form: a resource whose mutant
@@ -700,6 +711,11 @@ func digitsOnly(key string) bool {
 // leafEquality renders a single-segment attribute, which is either a scalar
 // leaf or one element of a collection named by a concrete key.
 func (r render) leafEquality(expression, resource, segment, baseline string) (string, error) {
+	// A leaf always descends into a value — an attribute, or an element of
+	// one — so its equality reads through the absence-tolerant form: a mutant
+	// that removes what it reads must fail the assertion, not error the run.
+	expression = tolerant(expression)
+
 	name, key, indexed := cutIndex(segment)
 
 	kind, resourceType, ok := schemaCoordinates(resource)

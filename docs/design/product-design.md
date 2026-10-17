@@ -309,7 +309,7 @@ The trip applies to `run`, `suggest`, `curate` and mutation rounds of
 `characterise --until-dry`. It returns the operational exit code (`2`) and marks the
 score incomplete, even when every pending mutant was dispatched. A warning names the
 trip and the failure that began the streak. On a refused invocation, the warning travels
-with the error instead of a report. The [report schema](../schema/report-2.13.0.json)
+with the error instead of a report. The [report schema](../schema/report-2.14.0.json)
 owns the execution provenance and population-count contract for undispatched mutants.
 
 **The source tree is never written to.** This is a deliberate divergence from Oasis's
@@ -373,7 +373,7 @@ A test deadline remains visible even when an earlier failure determines the muta
 Terminal reports for every command include a trailing `Deadline reached` list when any
 mutant's test reached its budget; the Markdown summary also names these mutants. The JSON
 flag and its compatibility contract are defined in the
-[published report schema](../schema/report-2.13.0.json).
+[published report schema](../schema/report-2.14.0.json).
 
 Three R2 corrections are embedded there. **`MockMasked` is a diagnosis, not a state** (R2-8):
 as a state it overlapped `Survived` by definition. **`Timeout` sits in the denominator and
@@ -469,7 +469,7 @@ partitions. The **scored set** is `K + KE + S + NC + SU + T`; `Invalid`, `Unobse
 | **Reachability** | (K + KE + S + T) ÷ scored set | Coverage |
 
 `T` sits in every denominator it can reach (R2-11): machine load can then only *lower* a
-score, never raise it. The [published report schema](../schema/report-2.13.0.json) owns the
+score, never raise it. The [published report schema](../schema/report-2.14.0.json) owns the
 conditions that mark a score **incomplete**. `--min-score` gates fail on incomplete scores unless
 `--allow-incomplete-score` is passed. The `K` versus `KE` share is always displayed alongside
 the mutation score: a score composed mostly of `KE` means Terraform is doing the detecting,
@@ -545,7 +545,7 @@ SURVIVED  main.tf:22  COND-SWAP
   Add to tests/unit.tftest.hcl, run "prod":
 
     assert {
-      condition     = null_resource.app.triggers.tier == "critical"
+      condition     = try(null_resource.app.triggers.tier, null) == "critical"
       error_message = "prod workloads must be tagged critical tier"
     }
 ```
@@ -558,20 +558,26 @@ The generator selects at most one candidate per survivor. Candidate selection pr
 value changes over output type, sensitivity and unknown metadata. Metadata never becomes
 an assertion. Resource and data-source paths use the provider's attribute and nested-block
 schemas. Supported paths include list and tuple elements, and attributes inside single,
-group, list and map-nested blocks. Where the schema resolves a map or object key uniquely,
-non-identifier keys use quoted index form, such as
-`null_resource.app.triggers["app.kubernetes.io/part-of"]`. Quoting preserves literal HCL
-template markers in keys.
+group, list and map-nested blocks. Every scalar reference that descends into a value renders
+as `try(reference, null)`, so a missing key, attribute or instance fails the assertion
+instead of erroring the run. Only a test failure verifies a suggestion.
+Non-identifier keys keep their quoted spelling inside the traversal, such as
+`try(null_resource.app.triggers["app.kubernetes.io/part-of"], null)`. Quoting preserves
+literal HCL template markers in keys. A whole value — an output or resource address with
+no descent — keeps its direct equality.
 
 Output element paths continue directly from the output address, such as
-`output.region_list[0].short_name`. Each index requires the baseline's published type to
-identify a list or tuple. Output continuations accept at most one identifier member name.
-Set elements, untyped collection indices and unsupported continuations report
+`try(output.region_list[0].short_name, null)`. Each index requires the baseline's published
+type to identify a list or tuple. Output continuations accept at most one identifier
+member name. Set elements, untyped collection indices and unsupported continuations report
 `skipped-unrenderable`.
 
-Alongside scalar equalities, candidates can assert emptiness with `length(value) == 0` or
-answer a mutant's null value with `value != null`. A recognised carried unknown marker
-beneath the value prevents an empty-value assertion. For counted resources whose instance
+Alongside scalar equalities, candidates can assert emptiness with
+`try(length(value), null) == 0` or answer a mutant's null value with a non-null check.
+Non-null checks use the same reference guard for descended values.
+The emptiness guard covers both the read and the length operation, so a missing or null
+value returns false. A recognised carried unknown marker beneath the value prevents an
+empty-value assertion. For counted resources whose instance
 record and values disappear, candidates use `length(resource) == N`, with `N` inferred
 from carried instance indices, rather than reading a vanished instance. Every candidate
 still requires the verification below before it becomes `verified`.
@@ -587,10 +593,17 @@ in half and checks each half, down to individual suggestions when needed. Baseli
 is recorded per suggestion, because split pools can pass on different suite runs.
 
 Only candidates whose baseline leg passes reach the second leg. The tool applies each
-suggestion alone against each mutant it claims to kill, including those in `also_kills`.
-A run with status `fail` proves a kill. An `error` without a `fail` refutes the suggestion:
-the reason states that the run errored, rather than claiming that the mutant survived.
-Verification stops checking a suggestion when any claimed mutant is not killed.
+suggestion alone against every mutant it claims to kill, including those in `also_kills`:
+one isolated leg per listed mutant, each in its own sandbox. A run with status `fail`
+proves a kill for that member. The suggestion verifies where any leg fails; it is refuted
+only where no listed mutant failed. The evidence records every member's outcome, and a
+refutation names each one — a run that errored is worded as errored, rather than
+claiming that the mutant survived. Execution failures, including deadlines and decoding
+errors, are recorded against the affected member and do not discard completed evidence
+or skip later members. An incomplete member cannot prove a kill.
+
+The [published report schema](../schema/report-2.14.0.json) owns the suggestion field
+meanings and the consumer migration contract.
 
 For a target file with `n` candidates, attribution has a defensive cap of `2n + 1`
 full-suite runs. Exhausting it refutes every candidate still awaiting attribution.
@@ -795,7 +808,7 @@ verdict for at least one pending mutant. If that generation's environment is unc
 or no such generation exists, it emits no explanation. When the environment differs, one
 terminal line names the added, removed and changed variables, never their values, even when
 other key components also differ. The JSON `cache_miss` fields and name-list bound follow the
-[published report schema](../schema/report-2.13.0.json#/$defs/cache_miss).
+[published report schema](../schema/report-2.14.0.json#/$defs/cache_miss).
 
 **One identifier names one mutant (report schema 2.6.0).** The mutant identifier is a content
 hash over the operator, the closure-relative path, the site address, the replaced content and

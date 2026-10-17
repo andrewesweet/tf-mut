@@ -30,7 +30,7 @@ func TestAnInstanceCountsOnlyWhereItsRootRecordVanished(t *testing.T) {
 					changeAt(representation.prefix+"example_thing.counted[0]]"+representation.body, steadyBaseline),
 				}
 				changes := append([]fingerprint.Change{}, valueBodyOnly...)
-				want := `example_thing.counted[1].id == "steady"`
+				want := `try(example_thing.counted[1].id, null) == "steady"`
 				if record != "" {
 					want = baselineCountAssertion
 
