@@ -65,6 +65,7 @@ update provider_version:
 
 # Build the reproducible Linux executable.
 build:
+    scripts/ensure-tools
     mkdir -p "{{ artifact_dir }}/bin"
     mise exec -- env CGO_ENABLED=0 go build -trimpath -buildvcs=true -mod=readonly \
       -ldflags "-X main.version={{ version }}" -o "{{ binary }}" ./cmd/tf-mut
@@ -76,10 +77,12 @@ reference:
 
 # Apply canonical Go, Bash, JSON, YAML, TOML, and Terraform formatting.
 fmt:
+    scripts/ensure-tools
     mise exec -- scripts/format write
 
 # Check canonical formatting without modifying the source tree.
 fmt-check:
+    scripts/ensure-tools
     mise exec -- scripts/format check
 
 # Run every read-only language and workflow quality gate.
@@ -87,23 +90,28 @@ lint: lint-go lint-shell lint-config lint-actions
 
 # Run the pinned aggressive Go linters over offline and integration/research configurations.
 lint-go:
+    scripts/ensure-tools
     mise exec -- golangci-lint run ./...
     mise exec -- golangci-lint run --build-tags=integration,research ./...
 
 # Parse and lint every declared Bash script with bash -n, shfmt, and shellcheck.
 lint-shell:
+    scripts/ensure-tools
     mise exec -- scripts/lint-shell
 
 # Parse, format-check, and lint every declared JSON, YAML, and TOML file.
 lint-config:
+    scripts/ensure-tools
     mise exec -- scripts/lint-config
 
 # Parse, lint, and aggressively security-audit GitHub Actions with actionlint and zizmor.
 lint-actions:
+    scripts/ensure-tools
     mise exec -- scripts/lint-actions
 
 # Apply safe lint fixes twice and require convergence.
 lint-fix:
+    scripts/ensure-tools
     mise exec -- scripts/lint-fix
 
 # Apply all canonical source fixes.
@@ -111,6 +119,7 @@ fix: lint-fix fmt
 
 # Compile and vet production and test packages without executing tests.
 typecheck:
+    scripts/ensure-tools
     mise exec -- go build -mod=readonly ./...
     mise exec -- go vet -tests=true ./...
     mise exec -- go vet -tests=true -tags=research ./...
@@ -119,6 +128,7 @@ typecheck:
 
 # Verify root and source-tool module integrity and tidiness.
 mod-check:
+    scripts/ensure-tools
     mise exec -- scripts/mod-check
 
 # Run the M2a honesty gate: the reproductions the oracle has to survive.

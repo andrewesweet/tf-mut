@@ -649,3 +649,89 @@ func repositoryRoot(t *testing.T) string {
 
 	return root
 }
+
+// Gate recipes must ensure the pinned tools before running them, so a fresh
+// checkout that never ran tools-install still runs fmt-check and lint-go
+// instead of failing on the missing repo-local binaries.
+func TestGateRecipesEnsurePinnedTools(t *testing.T) {
+	t.Parallel()
+
+	justfile := readRepositoryFile(t, "Justfile")
+	for _, recipe := range []string{
+		"fmt", "fmt-check", "lint-go", "lint-shell", "lint-config",
+		"lint-actions", "lint-fix", "typecheck", "mod-check", "build",
+	} {
+		t.Run(recipe, func(t *testing.T) {
+			t.Parallel()
+
+			body := justRecipeBody(t, justfile, recipe)
+			ensure := strings.Index(body, "scripts/ensure-tools")
+			if ensure < 0 {
+				t.Fatalf("recipe %q never runs scripts/ensure-tools", recipe)
+			}
+			if execute := strings.Index(body, "mise exec"); execute >= 0 && ensure > execute {
+				t.Fatalf("recipe %q runs mise exec before scripts/ensure-tools", recipe)
+			}
+		})
+	}
+}
+
+func TestEnsureToolsReusesThePinnedInstallPath(t *testing.T) {
+	t.Parallel()
+
+	ensure := readRepositoryFile(t, "scripts/ensure-tools")
+	if !strings.Contains(ensure, "mise install --yes") {
+		t.Error("scripts/ensure-tools does not install the locked prebuilt tools")
+	}
+	if !strings.Contains(ensure, "scripts/install-source-tools") {
+		t.Error("scripts/ensure-tools does not reuse the tools-install source build")
+	}
+	// The freshness check must stay in sync with scripts/doctor's source
+	// module list, or a new source tool passes one and fails the other.
+	doctor := readRepositoryFile(t, "scripts/doctor")
+	for _, spec := range []string{
+		"'gopls golang.org/x/tools/gopls'",
+		"'goimports golang.org/x/tools'",
+		"'govulncheck golang.org/x/vuln'",
+	} {
+		if !strings.Contains(doctor, spec) {
+			t.Errorf("scripts/doctor no longer pins %s; recheck this test's premise", spec)
+		}
+		if !strings.Contains(ensure, spec) {
+			t.Errorf("scripts/ensure-tools does not check pinned source %s", spec)
+		}
+	}
+	for _, fetch := range []string{"curl", "wget", "npm ", "pip "} {
+		if strings.Contains(ensure, fetch) {
+			t.Errorf("scripts/ensure-tools fetches tools outside the pinned path via %q", fetch)
+		}
+	}
+	if matched, _ := regexp.MatchString(`(?m)^\s*go install\b`, ensure); matched {
+		t.Error("scripts/ensure-tools builds tools outside scripts/install-source-tools")
+	}
+}
+
+func justRecipeBody(t *testing.T, justfile, recipe string) string {
+	t.Helper()
+
+	var body []string
+	inRecipe := false
+	for line := range strings.SplitSeq(justfile, "\n") {
+		if !inRecipe {
+			declaration := regexp.MustCompile(`^` + regexp.QuoteMeta(recipe) + `(?: [^:]*)?:`)
+			if declaration.MatchString(line) {
+				inRecipe = true
+			}
+			continue
+		}
+		if line == "" || (!strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t")) {
+			break
+		}
+		body = append(body, line)
+	}
+	if !inRecipe {
+		t.Fatalf("Justfile declares no recipe %q", recipe)
+	}
+
+	return strings.Join(body, "\n")
+}

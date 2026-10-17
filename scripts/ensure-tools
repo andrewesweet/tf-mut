@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Ensure the pinned prebuilt and source-built tools exist before a recipe runs
+# them, so formatting and lint work in a fresh checkout that never ran
+# tools-install. Idempotent: a checkout with every tool installed builds and
+# downloads nothing.
+#
+# Reuses the tools-install path only: mise installs the locked prebuilt tools
+# (pinned versions, checksums in mise.lock) and scripts/install-source-tools
+# builds the repo-local binaries. There is no second download path, and the
+# provider mirror stays out: recipes that need it keep failing loudly until
+# tools-install runs.
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+mise install --yes
+
+source_module_specs=(
+  'gopls golang.org/x/tools/gopls'
+  'goimports golang.org/x/tools'
+  'govulncheck golang.org/x/vuln'
+)
+
+# source_tools_fresh mirrors the binary checks in scripts/doctor: every
+# repo-local binary must exist and report the module version its go.mod pins.
+source_tools_fresh() {
+  local spec binary module expected
+  for spec in "${source_module_specs[@]}"; do
+    read -r binary module <<<"$spec"
+    test -x "$repo_root/.tools/bin/$binary" || return 1
+    expected=$(cd "$repo_root/tools/$binary" && mise exec -- go list -m -f '{{.Version}}' "$module") || return 1
+    mise exec -- go version -m "$repo_root/.tools/bin/$binary" \
+      | grep -Fq $'\tmod\t'"$module"$'\t'"$expected"$'\t' || return 1
+  done
+}
+
+if ! source_tools_fresh; then
+  mise exec -- scripts/install-source-tools
+fi
