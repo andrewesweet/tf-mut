@@ -84,13 +84,13 @@ func TestANonIdentifierMapKeyIsRenderedInIndexForm(t *testing.T) {
 		}
 	}
 
-	const dotted = `null_resource.app.triggers["app.kubernetes.io/part-of"] == "tf-mut-observe"`
+	const dotted = `lookup(null_resource.app.triggers, "app.kubernetes.io/part-of", null) == "tf-mut-observe"`
 	var sawIndexForm, sawNonNull bool
 	for _, suggestion := range result.Suggestions {
 		switch {
 		case suggestion.Expression == dotted:
 			sawIndexForm = true
-		case suggestion.Expression == "null_resource.app.triggers != null" &&
+		case suggestion.Expression == "try(null_resource.app.triggers, null) != null" &&
 			suggestion.Status == report.SuggestionVerified:
 			sawNonNull = true
 		default:
@@ -120,7 +120,7 @@ func TestAListValuedOutputElementIsAddressedThroughItsIndex(t *testing.T) {
 
 	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestOutputList)))
 
-	const want = `output.region_list[0].short_name == "eu"`
+	const want = `try(output.region_list[0].short_name, null) == "eu"`
 	for _, skipped := range result.Suggestions {
 		switch skipped.Status { //nolint:exhaustive // a guard: only the skip statuses are defects here.
 		case report.SuggestionSkippedUnaddressable, report.SuggestionSkippedUnrenderable:
@@ -627,6 +627,17 @@ func TestACollapsedCarrierAcrossAbsenceAndValueMutantsVerifies(t *testing.T) {
 
 	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestCollapseCarrierFixture)))
 
+	suggestion := collapsedShortNameSuggestion(t, result)
+	assertCollapseSpansAbsenceAndValue(t, result, suggestion)
+	assertEveryListedMutantHasALeg(t, result, suggestion)
+	assertIsolatedLegCountMatches(t, result)
+}
+
+// collapsedShortNameSuggestion returns the fixture's one suggestion, which
+// the collapse folded every short_name survivor into, verified.
+func collapsedShortNameSuggestion(t *testing.T, result report.Report) report.Suggestion {
+	t.Helper()
+
 	if len(result.Suggestions) != 1 {
 		t.Fatalf("want the one collapsed suggestion, got %s", statusSummary(result.Suggestions))
 	}
@@ -646,20 +657,29 @@ func TestACollapsedCarrierAcrossAbsenceAndValueMutantsVerifies(t *testing.T) {
 		t.Fatal("the verified suggestion carries no evidence")
 	}
 
-	// The collapse spans the report's absence carriers and value members.
-	operators := map[string]string{}
-	for _, mutant := range result.Mutants {
-		operators[mutant.ID] = mutant.Operator
-	}
+	return suggestion
+}
 
+// assertCollapseSpansAbsenceAndValue requires the suggestion's listed mutants
+// to span the report's absence carriers and value members: the mix whose
+// carrier alone used to refute the whole suggestion.
+func assertCollapseSpansAbsenceAndValue(
+	t *testing.T, result report.Report, suggestion report.Suggestion,
+) {
+	t.Helper()
+
+	operators := mutantOperators(result)
 	listed := append([]string{suggestion.MutantID}, suggestion.AlsoKills...)
+
 	sawAbsence, sawValue := false, false
 	for _, id := range listed {
-		switch operator := operators[id]; {
-		case operator == "COLL-DROP-ENTRY" || operator == "COLL-EMPTY" ||
-			operator == "COLL-DROP-LAST":
+		operator := operators[id]
+		if operator == "COLL-DROP-ENTRY" || operator == "COLL-EMPTY" ||
+			operator == "COLL-DROP-LAST" {
 			sawAbsence = true
-		case strings.HasPrefix(operator, "STR-"):
+		}
+
+		if strings.HasPrefix(operator, "STR-") {
 			sawValue = true
 		}
 	}
@@ -668,24 +688,38 @@ func TestACollapsedCarrierAcrossAbsenceAndValueMutantsVerifies(t *testing.T) {
 		t.Fatalf("the collapse lists %v; want an absence operator and a value operator "+
 			"in one suggestion", listed)
 	}
+}
 
-	// Every listed mutant's leg is in the evidence.
+// assertEveryListedMutantHasALeg requires the mutant leg's evidence to name
+// an outcome for every mutant the suggestion claims.
+func assertEveryListedMutantHasALeg(
+	t *testing.T, result report.Report, suggestion report.Suggestion,
+) {
+	t.Helper()
+
+	operators := mutantOperators(result)
 	detail := suggestion.Verification.Mutant.Detail
-	for _, id := range listed {
+
+	for _, id := range append([]string{suggestion.MutantID}, suggestion.AlsoKills...) {
 		if !strings.Contains(detail, id) {
 			t.Fatalf("the mutant leg names no outcome for %s (%s): %q", id, operators[id], detail)
 		}
 	}
+}
 
-	// The cost statement counts every leg the suggestion ran: one per listed
-	// mutant of every suggestion whose isolated leg ran.
+// assertIsolatedLegCountMatches requires the cost statement to count every
+// leg verification ran: one per listed mutant of every suggestion whose
+// isolated leg ran.
+func assertIsolatedLegCountMatches(t *testing.T, result report.Report) {
+	t.Helper()
+
 	wantIsolated := 0
-	for _, other := range result.Suggestions {
-		if other.Verification == nil || len(other.Verification.Mutant.Runs) == 0 {
+	for _, suggestion := range result.Suggestions {
+		if suggestion.Verification == nil || len(suggestion.Verification.Mutant.Runs) == 0 {
 			continue
 		}
 
-		wantIsolated += 1 + len(other.AlsoKills)
+		wantIsolated += 1 + len(suggestion.AlsoKills)
 	}
 
 	found := false
@@ -712,6 +746,16 @@ func TestACollapsedCarrierAcrossAbsenceAndValueMutantsVerifies(t *testing.T) {
 	if !found {
 		t.Fatalf("the report states no verification cost: %v", result.Warnings)
 	}
+}
+
+// mutantOperators indexes the population's operator per mutant identifier.
+func mutantOperators(result report.Report) map[string]string {
+	operators := map[string]string{}
+	for _, mutant := range result.Mutants {
+		operators[mutant.ID] = mutant.Operator
+	}
+
+	return operators
 }
 
 func loadPublishedSchema(t *testing.T) map[string]any {

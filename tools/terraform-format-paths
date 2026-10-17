@@ -155,6 +155,8 @@ internal/engine/testdata/suggest-basic/main.tf
 internal/engine/testdata/suggest-basic/tests/unit.tftest.hcl
 internal/engine/testdata/suggest-batch/main.tf
 internal/engine/testdata/suggest-batch/tests/unit.tftest.hcl
+internal/engine/testdata/suggest-collapse-carrier/main.tf
+internal/engine/testdata/suggest-collapse-carrier/tests/unit.tftest.hcl
 internal/engine/testdata/suggest-count/main.tf
 internal/engine/testdata/suggest-count/tests/unit.tftest.hcl
 internal/engine/testdata/suggest-count-deletion/main.tf

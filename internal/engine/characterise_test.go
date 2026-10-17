@@ -50,14 +50,14 @@ func TestPinAddressesMatchListAndScalarOutputAssertions(t *testing.T) {
 		{
 			fixture: suggestOutputList,
 			want: map[string]string{
-				"output.region_list[0].short_name": `output.region_list[0].short_name == "eu"`,
+				"output.region_list[0].short_name": `try(output.region_list[0].short_name, null) == "eu"`,
 			},
 		},
 		{
 			fixture: untestedBranchesFixture,
 			want: map[string]string{
 				"output.tier":     `output.tier == "standard"`,
-				"output.units[0]": `output.units[0] == "dev-0"`,
+				"output.units[0]": `try(output.units[0], null) == "dev-0"`,
 			},
 		},
 	} {
@@ -578,7 +578,7 @@ func TestTheConfiguredRungPinsOnlyWhatTheConfigurationDetermined(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(block.Files[0].Content, `terraform_data.anchor.input == "steady-dev"`) {
+	if !strings.Contains(block.Files[0].Content, `try(terraform_data.anchor.input, null) == "steady-dev"`) {
 		t.Fatalf("the configured rung did not pin the value the configuration determined:\n%s",
 			block.Files[0].Content)
 	}
@@ -617,7 +617,7 @@ resource "terraform_data" "object" {
 	}
 
 	assertPinnedOutputAssertions(t, block.Pins, map[string]string{
-		"terraform_data.scalar.input": `terraform_data.scalar.input == "steady"`,
+		"terraform_data.scalar.input": `try(terraform_data.scalar.input, null) == "steady"`,
 	})
 
 	for _, address := range []string{"terraform_data.list.input[0]", "terraform_data.object.input.value"} {

@@ -558,15 +558,19 @@ The generator selects at most one candidate per survivor. Candidate selection pr
 value changes over output type, sensitivity and unknown metadata. Metadata never becomes
 an assertion. Resource and data-source paths use the provider's attribute and nested-block
 schemas. Supported paths include list and tuple elements, and attributes inside single,
-group, list and map-nested blocks. Where the schema resolves a map or object key uniquely,
-non-identifier keys use quoted index form, such as
-`null_resource.app.triggers["app.kubernetes.io/part-of"]`. Quoting preserves literal HCL
-template markers in keys.
+group, list and map-nested blocks. A scalar read through a map or object key renders as
+`lookup(container, "key", null)`; any other reference that descends into a value renders
+as `try(reference, null)` — so a missing key or a deleted attribute fails the assertion
+instead of erroring the run, while only a test failure still verifies a suggestion.
+Non-identifier keys keep their quoted spelling inside the lookup call, such as
+`lookup(null_resource.app.triggers, "app.kubernetes.io/part-of", null)`. Quoting preserves
+literal HCL template markers in keys. A whole value — an output or resource address with
+no descent — keeps its direct equality.
 
 Output element paths continue directly from the output address, such as
-`output.region_list[0].short_name`. Each index requires the baseline's published type to
-identify a list or tuple. Output continuations accept at most one identifier member name.
-Set elements, untyped collection indices and unsupported continuations report
+`try(output.region_list[0].short_name, null)`. Each index requires the baseline's published
+type to identify a list or tuple. Output continuations accept at most one identifier
+member name. Set elements, untyped collection indices and unsupported continuations report
 `skipped-unrenderable`.
 
 Alongside scalar equalities, candidates can assert emptiness with `length(value) == 0` or
@@ -587,10 +591,12 @@ in half and checks each half, down to individual suggestions when needed. Baseli
 is recorded per suggestion, because split pools can pass on different suite runs.
 
 Only candidates whose baseline leg passes reach the second leg. The tool applies each
-suggestion alone against each mutant it claims to kill, including those in `also_kills`.
-A run with status `fail` proves a kill. An `error` without a `fail` refutes the suggestion:
-the reason states that the run errored, rather than claiming that the mutant survived.
-Verification stops checking a suggestion when any claimed mutant is not killed.
+suggestion alone against every mutant it claims to kill, including those in `also_kills`:
+one isolated leg per listed mutant, each in its own sandbox. A run with status `fail`
+proves a kill for that member. The suggestion verifies where any leg fails; it is refuted
+only where no listed mutant failed. The evidence records every member's outcome, and a
+refutation names each one — a run that errored is worded as errored, rather than
+claiming that the mutant survived.
 
 For a target file with `n` candidates, attribution has a defensive cap of `2n + 1`
 full-suite runs. Exhausting it refutes every candidate still awaiting attribution.

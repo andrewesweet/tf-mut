@@ -486,53 +486,49 @@ func TestABatchFailureNamingNothingIsBisected(t *testing.T) {
 	}
 }
 
-// TestARefutationIsWordedFromTheStatusesTheRunProduced is the wording half of
-// the output-indexed refutation: the generated assertion indexes an output
-// element its own mutant removes, so the isolated leg's run errors rather than fails.
-// The refutation must say what actually happened — "survived" would be false
-// about a run that crashed.
-func TestARefutationIsWordedFromTheStatusesTheRunProduced(t *testing.T) {
+// TestARemovedOutputElementFailsTheAssertionRatherThanErroring is the D14
+// proof at the seam: the generated assertion indexes an output element its
+// own mutant removes, and the try form turns the removal into a plain
+// failure — every isolated leg fails, none errors, and the suggestion
+// verifies under the StatusFail-only contract.
+func TestARemovedOutputElementFailsTheAssertionRatherThanErroring(t *testing.T) {
 	t.Parallel()
 
 	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestCountFixture)))
 
-	refuted := withStatus(result, report.SuggestionRefuted)
-	if len(refuted) != 1 {
-		t.Fatalf("want exactly the count-shaped suggestion refuted, got %s",
-			statusSummary(result.Suggestions))
-	}
+	found := false
+	for _, suggestion := range result.Suggestions {
+		if suggestion.Expression != `try(output.nodes[0], null) == "node"` {
+			continue
+		}
 
-	suggestion := refuted[0]
-	if suggestion.Verification == nil {
-		t.Fatal("the refuted suggestion carries no verification evidence")
-	}
+		found = true
 
-	if suggestion.Expression != `output.nodes[0] == "node"` || !suggestion.Verification.Baseline.Passed {
-		t.Fatalf("want a baseline-green output-element assertion, got %+v", suggestion)
-	}
+		if suggestion.Verification == nil {
+			t.Fatal("the verified suggestion carries no verification evidence")
+		}
 
-	if suggestion.Verification.Mutant.Passed {
-		t.Fatal("the mutant leg passed; the fixture no longer produces the errored leg")
-	}
+		if suggestion.Status != report.SuggestionVerified ||
+			!suggestion.Verification.Baseline.Passed ||
+			!suggestion.Verification.Mutant.Passed {
+			t.Fatalf("want the baseline-green output-element assertion verified, got %+v", suggestion)
+		}
 
-	errored := false
-	for _, run := range suggestion.Verification.Mutant.Runs {
-		if run.Status == "error" {
-			errored = true
+		for _, run := range suggestion.Verification.Mutant.Runs {
+			if run.Status != "fail" {
+				t.Fatalf("a mutant leg run came back %s; the removed element must fail "+
+					"the assertion, not error it", run.Status)
+			}
 		}
 	}
 
-	if !errored {
-		t.Fatal("no run in the mutant leg errored; the fixture no longer produces the errored leg")
+	if !found {
+		t.Fatalf("no suggestion carries the output-element assertion; statuses were %s",
+			statusSummary(result.Suggestions))
 	}
 
-	if strings.Contains(suggestion.StatusReason, "survived") {
-		t.Fatalf("the refutation claims the mutant survived a run that errored: %q",
-			suggestion.StatusReason)
-	}
-
-	if !strings.Contains(suggestion.StatusReason, "errored") {
-		t.Fatalf("the refutation does not word the error the run produced: %q",
-			suggestion.StatusReason)
+	if refuted := withStatus(result, report.SuggestionRefuted); len(refuted) != 0 {
+		t.Fatalf("want nothing refuted where every removal fails plainly, got %s",
+			statusSummary(result.Suggestions))
 	}
 }
