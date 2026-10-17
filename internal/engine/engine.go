@@ -272,7 +272,11 @@ func (e Engine) Run(ctx context.Context, request Request) (result report.Report,
 		return report.Report{}, err
 	}
 
-	s.stores = stores{verdicts: e.dependencies.NewVerdictStore, baseline: e.dependencies.NewBaselineStore}
+	s.stores = stores{
+		verdicts: e.dependencies.NewVerdictStore,
+		baseline: e.dependencies.NewBaselineStore,
+		registry: e.dependencies.NewRegistryStore,
+	}
 
 	telemetry, runCtx, err := e.instrument(ctx, &s)
 	if err != nil {

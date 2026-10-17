@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"io"
+	"path/filepath"
 
 	"github.com/andrewesweet/tf-mut/internal/tracing"
 
@@ -28,6 +29,9 @@ type Dependencies struct {
 	// NewBaselineStore supplies the acceptance-list store; nil selects the
 	// default filesystem baseline.
 	NewBaselineStore func() BaselineStore
+	// NewRegistryStore supplies the provenance-registry store; nil selects
+	// the default filesystem registry.
+	NewRegistryStore func() RegistryStore
 }
 
 // stores are the run's resolved persistence ports, carried on the settings
@@ -36,6 +40,7 @@ type Dependencies struct {
 type stores struct {
 	verdicts func(dir string) (VerdictStore, error)
 	baseline func() BaselineStore
+	registry func() RegistryStore
 }
 
 // DefaultDependencies returns the production wiring: the real checkout
@@ -48,6 +53,7 @@ func DefaultDependencies() Dependencies {
 		NewTracer:        tracing.New,
 		NewVerdictStore:  newFileVerdictStore,
 		NewBaselineStore: newFileBaselineStore,
+		NewRegistryStore: newFileRegistryStore,
 	}
 }
 
@@ -76,6 +82,10 @@ func New(dependencies Dependencies) Engine {
 		dependencies.NewBaselineStore = newFileBaselineStore
 	}
 
+	if dependencies.NewRegistryStore == nil {
+		dependencies.NewRegistryStore = newFileRegistryStore
+	}
+
 	return Engine{dependencies: dependencies}
 }
 
@@ -88,6 +98,33 @@ func newFileVerdictStore(dir string) (VerdictStore, error) {
 // newFileBaselineStore is the default acceptance-list wiring.
 func newFileBaselineStore() BaselineStore {
 	return store.NewBaselineFile()
+}
+
+// newFileRegistryStore is the default provenance-registry wiring.
+func newFileRegistryStore() RegistryStore {
+	return store.NewFileRegistry()
+}
+
+// registryLoad reads the provenance registry beside a module.
+func (s settings) registryLoad(moduleDir string) store.Registry {
+	path := filepath.Join(moduleDir, RegistryName)
+	if s.stores.registry == nil {
+		return store.NewFileRegistry().Load(path)
+	}
+
+	return s.stores.registry().Load(path)
+}
+
+// registrySave writes the provenance registry at path through the rename
+// window the caller's recheck guards.
+func (s settings) registrySave(
+	path string, registry store.Registry, recheck func() error,
+) error {
+	if s.stores.registry == nil {
+		return store.NewFileRegistry().Save(path, registry, recheck)
+	}
+
+	return s.stores.registry().Save(path, registry, recheck)
 }
 
 // baselineLoad reads the acceptance list at path.

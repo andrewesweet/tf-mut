@@ -156,7 +156,7 @@ func curateSuite(
 	}
 
 	assertions := assertionInventory(configuration)
-	provenance := assertionProvenance(configuration, assertions)
+	provenance := assertionProvenance(configuration, settings, assertions)
 
 	// The rung is validated rather than copied through. `--pin` belongs to
 	// `characterise`, and an unvalidated value reached `characterisation.rung`,
@@ -291,9 +291,10 @@ func attributeKills(
 // is what the registry can honestly support — a digest proves nothing finer.
 func assertionProvenance(
 	configuration discovery.Configuration,
+	settings settings,
 	assertions []assertion,
 ) map[string]report.AssertionProvenance {
-	registered := loadRegistry(configuration.ModuleDir)
+	registered := settings.registryLoad(configuration.ModuleDir)
 	classes := map[string]report.AssertionProvenance{}
 
 	for _, declared := range assertions {

@@ -13,6 +13,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
+	"github.com/andrewesweet/tf-mut/internal/store"
 )
 
 // The characterisation write is the never-write contract's fifth recorded
@@ -33,8 +34,20 @@ import (
 // generated suite.
 const RegistryName = ".tf-mut-generated.json"
 
-// registryVersion is the registry's own format version.
-const registryVersion = "1.0.0"
+// RegistryStore is the provenance registry's persistence boundary. The
+// engine owns what is recorded — which files enter, under which digests —
+// and the refusal checks around the write; the store owns the document and
+// its rename-window protocol. Anything unreadable claims nothing, and
+// claiming nothing is the safe direction: it makes --force refuse rather
+// than replace.
+type RegistryStore interface {
+	// Load reads the provenance registry at path.
+	Load(path string) store.Registry
+	// Save writes the provenance registry at path through the same
+	// rename-window protocol as the generated files, running recheck
+	// immediately before the rename.
+	Save(path string, registry store.Registry, recheck func() error) error
+}
 
 // insideTheWindow is the commit callback's second invocation: the one
 // WriteFreshChecked makes immediately before the rename.
@@ -57,24 +70,6 @@ var (
 	//nolint:gochecknoglobals // test seam, inert outside the suite.
 	seedRegistryFailure = func(string) error { return nil }
 )
-
-// registry records what this tool generated, so that "generated-unmodified",
-// "generated-edited" and "pre-existing" are decided mechanically rather than
-// guessed at.
-type registry struct {
-	Version string `json:"version"`
-	// Files maps a module-relative path to what was written there.
-	Files map[string]registryFile `json:"files"`
-}
-
-type registryFile struct {
-	// Digest is the content digest as written.
-	Digest string `json:"digest"`
-	// InputDigest is the input closure that made the content green.
-	InputDigest string `json:"input_digest"`
-	// Pins lists the identifiers of the pins the file carries.
-	Pins []string `json:"pins"`
-}
 
 // commitScaffold performs the write, or refuses it and says why.
 //
@@ -104,7 +99,7 @@ func commitScaffold(
 	}
 	block.Write = record
 
-	existing := loadRegistry(configuration.ModuleDir)
+	existing := settings.registryLoad(configuration.ModuleDir)
 
 	// The registry is part of the target path set and is checked with
 	// everything else in it. It was excluded once, and an ordinary `--write`
@@ -138,7 +133,7 @@ func commitScaffold(
 		// top of a failed commit changes nothing about the first failure, so
 		// its error is deliberately not allowed to displace it.
 		if len(written) > 0 {
-			_ = storeRegistry(configuration.ModuleDir, block, files, inputDigest, existing)
+			_ = storeRegistry(settings, configuration.ModuleDir, block, files, inputDigest, existing)
 		}
 
 		return err
@@ -146,7 +141,7 @@ func commitScaffold(
 
 	block.Staged = false
 
-	if err := storeRegistry(configuration.ModuleDir, block, files, inputDigest, existing); err != nil {
+	if err := storeRegistry(settings, configuration.ModuleDir, block, files, inputDigest, existing); err != nil {
 		// Every generated file has already been renamed by this point, so a
 		// registry that will not store is a partial state and not a refusal:
 		// the caller's tree has changed and the record of what changed it has
@@ -183,8 +178,8 @@ func checkRegistry(configuration discovery.Configuration) string {
 		return fmt.Sprintf("%s could not be inspected: %v", RegistryName, err)
 	}
 
-	loaded := registry{Version: "", Files: nil}
-	if json.Unmarshal(content, &loaded) != nil || loaded.Version != registryVersion {
+	loaded := store.Registry{Version: "", Files: nil}
+	if json.Unmarshal(content, &loaded) != nil || loaded.Version != store.RegistryFormatVersion {
 		return fmt.Sprintf("%s exists and is not a provenance registry this version wrote, "+
 			"so it will not be replaced: move it aside if it is not yours", RegistryName)
 	}
@@ -201,7 +196,7 @@ func checkRegistry(configuration discovery.Configuration) string {
 func checkTargets(
 	configuration discovery.Configuration,
 	settings settings, files []report.GeneratedFile,
-	existing registry,
+	existing store.Registry,
 ) string {
 	for _, file := range files {
 		target := filepath.Join(configuration.ModuleDir, filepath.FromSlash(file.Path))
@@ -327,7 +322,7 @@ func recheckWrite(
 	}
 
 	if refusal := checkTargets(configuration, settings, []report.GeneratedFile{file},
-		loadRegistry(configuration.ModuleDir)); refusal != "" {
+		settings.registryLoad(configuration.ModuleDir)); refusal != "" {
 		return fmt.Errorf("%w: %s", ErrWriteRefused, refusal)
 	}
 
@@ -376,37 +371,15 @@ func markWritten(block *report.Characterisation, written []string) {
 	}
 }
 
-// loadRegistry reads the provenance registry, treating anything unreadable as
-// an empty one: a registry that cannot be read claims nothing, and claiming
-// nothing is the safe direction — it makes --force refuse rather than replace.
-func loadRegistry(moduleDir string) registry {
-	empty := registry{Version: registryVersion, Files: map[string]registryFile{}}
-
-	content, err := os.ReadFile(filepath.Join(moduleDir, RegistryName)) //nolint:gosec // a module-relative tool file.
-	if err != nil {
-		return empty
-	}
-
-	loaded := registry{Version: "", Files: nil}
-	if err := json.Unmarshal(content, &loaded); err != nil || loaded.Version != registryVersion {
-		return empty
-	}
-
-	if loaded.Files == nil {
-		loaded.Files = map[string]registryFile{}
-	}
-
-	return loaded
-}
-
 // storeRegistry records what this write generated, merged over what earlier
 // writes recorded.
 func storeRegistry(
+	settings settings,
 	moduleDir string,
 	block *report.Characterisation,
 	files []writtenFile,
 	inputDigest string,
-	existing registry,
+	existing store.Registry,
 ) error {
 	if err := seedRegistryFailure(moduleDir); err != nil {
 		return err
@@ -425,25 +398,18 @@ func storeRegistry(
 			continue
 		}
 
-		existing.Files[file.Path] = registryFile{
+		existing.Files[file.Path] = store.RegistryEntry{
 			Digest: written[file.Path], InputDigest: inputDigest, Pins: pinsIn(block, file.Path),
 		}
 	}
 
-	existing.Version = registryVersion
+	existing.Version = store.RegistryFormatVersion
 
-	content, err := json.MarshalIndent(existing, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encoding the provenance registry: %w", err)
-	}
-
-	// The registry goes through the same rename-window protocol as every other
-	// file in the target set. `checkRegistry` runs at the top of
-	// `commitScaffold`, so without this callback the window between "there is
-	// no registry here" and this write spans every generated file's write, and
-	// a registry created inside it by a concurrent invocation — or by a user —
-	// would be overwritten with no shape check at all.
-	// the registry check reads the module directory and nothing else.
+	// `checkRegistry` runs at the top of `commitScaffold`, so without this
+	// callback the window between "there is no registry here" and this write
+	// spans every generated file's write, and a registry created inside it by
+	// a concurrent invocation — or by a user — would be overwritten with no
+	// shape check at all.
 	recheck := func() error {
 		if refusal := checkRegistry(discovery.Configuration{ModuleDir: moduleDir}); refusal != "" {
 			return fmt.Errorf("%w: %s", ErrWriteRefused, refusal)
@@ -452,8 +418,7 @@ func storeRegistry(
 		return nil
 	}
 
-	return sandbox.WriteFreshChecked(filepath.Join(moduleDir, RegistryName), "",
-		append(content, '\n'), recheck)
+	return settings.registrySave(filepath.Join(moduleDir, RegistryName), existing, recheck)
 }
 
 // pinsIn lists the pins a generated file carries.
