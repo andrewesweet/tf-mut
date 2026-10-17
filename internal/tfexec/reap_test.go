@@ -37,6 +37,7 @@ func TestNormalExitReapsTheProcessGroup(t *testing.T) {
 	dir := t.TempDir()
 	child := filepath.Join(dir, "fake-terraform.sh")
 
+	//nolint:gosec // the file is the fake Terraform binary, so it needs its exec bit.
 	if err := os.WriteFile(child, []byte(leakyChild), 0o700); err != nil {
 		t.Fatalf("writing the fake child: %v", err)
 	}
@@ -55,7 +56,7 @@ func TestNormalExitReapsTheProcessGroup(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0: the child must exit normally", result.ExitCode)
 	}
 
-	raw, err := os.ReadFile(pidFile)
+	raw, err := os.ReadFile(pidFile) //nolint:gosec // a test-owned path under t.TempDir().
 	if err != nil {
 		t.Fatalf("reading the grandchild pid: %v", err)
 	}
