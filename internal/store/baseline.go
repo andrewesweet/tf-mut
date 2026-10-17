@@ -52,8 +52,9 @@ type BaselineStore interface {
 // BaselineFile is the filesystem acceptance list.
 type BaselineFile struct{}
 
-// NewBaselineFile builds the filesystem baseline store under the shipped
-// format version.
+// NewBaselineFile builds the filesystem baseline store. The document's
+// format version is the package's declared constant: BaselineFile writes it
+// on every save and refuses a document claiming another on load.
 func NewBaselineFile() BaselineFile {
 	return BaselineFile{}
 }

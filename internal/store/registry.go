@@ -54,8 +54,9 @@ type RegistryStore interface {
 // FileRegistry is the filesystem provenance registry.
 type FileRegistry struct{}
 
-// NewFileRegistry builds the filesystem registry store under the shipped
-// format version.
+// NewFileRegistry builds the filesystem provenance-registry store. The
+// document's format version is the package's declared constant: FileRegistry
+// writes it on every save and reads a foreign-version document as empty.
 func NewFileRegistry() FileRegistry {
 	return FileRegistry{}
 }
