@@ -90,6 +90,8 @@ func writeSourceToolMismatch(t *testing.T, root, binary, module, mismatch string
 		dependency.Replace.Path = "example.com/other"
 	case "replacement-checksum":
 		dependency.Replace.Sum = "h1:obsolete"
+	default:
+		// Matching build metadata needs no changes.
 	}
 	writeSourceToolJSON(t, root, binary+"-modules.json", mainModule, pinnedDependency)
 	writeSourceToolJSON(t, root, binary+"-build.json", info)
