@@ -76,6 +76,8 @@ func writeAuthoritativeHeader(page *strings.Builder, value Report) {
 		page.WriteString("</ul>\n")
 	}
 
+	writeIndeterminateCauses(page, value)
+
 	if value.Metrics.Incomplete {
 		page.WriteString("<p><strong>Incomplete:</strong> this score is untrustworthy &mdash; " +
 			"an operational-failure trip stopped execution, a mutant timed out, " +
@@ -87,6 +89,45 @@ func writeAuthoritativeHeader(page *strings.Builder, value Report) {
 	page.WriteString("<p>The viewer below recomputes a score from mapped statuses and " +
 		"<em>will disagree</em>: the mapping is a declared-lossy interoperability adapter. " +
 		"These numbers are the authoritative ones.</p>\n</section>\n")
+}
+
+// writeIndeterminateCauses renders the survivors diagnosed
+// indeterminate-unknown-values collapsed by their shared unknown paths, as
+// the terminal and markdown reporters do: the sentence 'N survivors are
+// indeterminate because these paths are unknown at plan' said once per
+// distinct path set with the paths and the shared fix, groups in their first
+// appearance in report order. The viewer below keeps each mutant's own
+// record; this is where the shared cause is stated.
+func writeIndeterminateCauses(page *strings.Builder, value Report) {
+	groups, _ := partitionIndeterminate(value.Survivors())
+	if len(groups) == 0 {
+		return
+	}
+
+	page.WriteString("<p><strong>Indeterminate at plan</strong></p>\n<ul>\n")
+
+	for _, group := range groups {
+		count, verb := fmt.Sprintf("%d survivors", len(group.members)), "are"
+		if len(group.members) == 1 {
+			count, verb = "1 survivor", "is"
+		}
+
+		fmt.Fprintf(page, "<li>%s %s indeterminate because these paths are unknown at plan:\n<ul>\n", count, verb)
+
+		for _, path := range group.paths {
+			fmt.Fprintf(page, "<li><code>%s</code></li>\n", html.EscapeString(path))
+		}
+
+		page.WriteString("</ul>\n")
+
+		if verdict := group.members[0].Verdict; verdict != nil && verdict.Fix != "" {
+			fmt.Fprintf(page, "Fix: %s\n", html.EscapeString(verdict.Fix))
+		}
+
+		page.WriteString("</li>\n")
+	}
+
+	page.WriteString("</ul>\n")
 }
 
 // escapeScript keeps inline content from terminating its script element.
