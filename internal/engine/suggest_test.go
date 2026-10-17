@@ -21,19 +21,20 @@ import (
 // it must, and that no artefact of a skipped suggestion says more than it may.
 
 const (
-	suggestBasicFixture         = "suggest-basic"
-	suggestSensitiveFixture     = "suggest-sensitive"
-	suggestJSONFixture          = "suggest-json-target"
-	suggestMultiFixture         = "suggest-multifile"
-	suggestBatchFixture         = "suggest-batch"
-	suggestCountFixture         = "suggest-count"
-	suggestOutputList           = "suggest-output-list"
-	suggestMapKeyFixture        = "suggest-map-key"
-	suggestUnknownObjectFixture = "suggest-unknown-object"
-	suggestCountDeletionFixture = "suggest-count-deletion"
-	suggestCountZeroFixture     = "suggest-count-zero"
-	secretValue                 = "s3cret-value"
-	unitTestFile                = "tests/unit.tftest.hcl"
+	suggestBasicFixture           = "suggest-basic"
+	suggestSensitiveFixture       = "suggest-sensitive"
+	suggestJSONFixture            = "suggest-json-target"
+	suggestMultiFixture           = "suggest-multifile"
+	suggestBatchFixture           = "suggest-batch"
+	suggestCountFixture           = "suggest-count"
+	suggestOutputList             = "suggest-output-list"
+	suggestMapKeyFixture          = "suggest-map-key"
+	suggestUnknownObjectFixture   = "suggest-unknown-object"
+	suggestCountDeletionFixture   = "suggest-count-deletion"
+	suggestCountZeroFixture       = "suggest-count-zero"
+	suggestCollapseCarrierFixture = "suggest-collapse-carrier"
+	secretValue                   = "s3cret-value"
+	unitTestFile                  = "tests/unit.tftest.hcl"
 )
 
 // dryRunRequest is a suggest run that generates and verifies nothing.
@@ -613,6 +614,103 @@ func TestARealSuggestReportValidatesAgainstThePublishedSchema(t *testing.T) {
 				t.Fatalf("the real report does not validate:\n  %s", strings.Join(problems, "\n  "))
 			}
 		})
+	}
+}
+
+// TestACollapsedCarrierAcrossAbsenceAndValueMutantsVerifies is the D13/D14
+// reproduction: the utl-regions `locals.tf:12` shape — one assertion folds an
+// absence-operator carrier and value-change members, and the carrier deletes
+// what the assertion reads. The suggestion verifies with every listed
+// mutant's leg in its evidence, and the cost statement counts every leg.
+func TestACollapsedCarrierAcrossAbsenceAndValueMutantsVerifies(t *testing.T) {
+	t.Parallel()
+
+	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestCollapseCarrierFixture)))
+
+	if len(result.Suggestions) != 1 {
+		t.Fatalf("want the one collapsed suggestion, got %s", statusSummary(result.Suggestions))
+	}
+
+	suggestion := result.Suggestions[0]
+	if !strings.Contains(suggestion.Expression, "short_name") {
+		t.Fatalf("expression = %q, want the short_name assertion", suggestion.Expression)
+	}
+
+	if suggestion.Status != report.SuggestionVerified {
+		t.Fatalf("suggestion is %s (%s); the carrier deletes what the assertion reads, "+
+			"and every other listed mutant fails it plainly",
+			suggestion.Status, suggestion.StatusReason)
+	}
+
+	if suggestion.Verification == nil {
+		t.Fatal("the verified suggestion carries no evidence")
+	}
+
+	// The collapse spans the report's absence carriers and value members.
+	operators := map[string]string{}
+	for _, mutant := range result.Mutants {
+		operators[mutant.ID] = mutant.Operator
+	}
+
+	listed := append([]string{suggestion.MutantID}, suggestion.AlsoKills...)
+	sawAbsence, sawValue := false, false
+	for _, id := range listed {
+		switch operator := operators[id]; {
+		case operator == "COLL-DROP-ENTRY" || operator == "COLL-EMPTY" ||
+			operator == "COLL-DROP-LAST":
+			sawAbsence = true
+		case strings.HasPrefix(operator, "STR-"):
+			sawValue = true
+		}
+	}
+
+	if !sawAbsence || !sawValue {
+		t.Fatalf("the collapse lists %v; want an absence operator and a value operator "+
+			"in one suggestion", listed)
+	}
+
+	// Every listed mutant's leg is in the evidence.
+	detail := suggestion.Verification.Mutant.Detail
+	for _, id := range listed {
+		if !strings.Contains(detail, id) {
+			t.Fatalf("the mutant leg names no outcome for %s (%s): %q", id, operators[id], detail)
+		}
+	}
+
+	// The cost statement counts every leg the suggestion ran: one per listed
+	// mutant of every suggestion whose isolated leg ran.
+	wantIsolated := 0
+	for _, other := range result.Suggestions {
+		if other.Verification == nil || len(other.Verification.Mutant.Runs) == 0 {
+			continue
+		}
+
+		wantIsolated += 1 + len(other.AlsoKills)
+	}
+
+	found := false
+	for _, warning := range result.Warnings {
+		var full, isolated int
+		if _, err := fmt.Sscanf(warning,
+			"verification executed %d full-suite run(s) plus %d isolated mutant run(s)",
+			&full, &isolated); err != nil {
+			continue
+		}
+
+		found = true
+
+		if full < 1 {
+			t.Fatalf("the cost statement claims no full-suite run: %q", warning)
+		}
+
+		if isolated != wantIsolated {
+			t.Fatalf("the cost statement counts %d isolated run(s), want one per listed "+
+				"mutant (%d): %q", isolated, wantIsolated, warning)
+		}
+	}
+
+	if !found {
+		t.Fatalf("the report states no verification cost: %v", result.Warnings)
 	}
 }
 

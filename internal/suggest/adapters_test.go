@@ -635,6 +635,91 @@ func TestTheRenderingContractAdmissions(t *testing.T) {
 	}
 }
 
+// TestAbsenceTolerantFormsFailRatherThanError is the D14 contract: an
+// assertion that reads a map key or an attribute renders in a form that turns
+// a missing key or a deleted attribute into a plain failure — lookup with a
+// null default for a keyed read, try with a null default for anything else
+// that descends into a value — while a whole value keeps its direct equality.
+// Only a test failure verifies a suggestion, so an erroring form is a
+// refutation the report must never publish for these shapes.
+func TestAbsenceTolerantFormsFailRatherThanError(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name     string
+		path     string
+		baseline string
+		mutant   string
+		evidence suggest.Evidence
+		schemas  tfexec.Schemas
+		want     string
+		refused  error
+	}{
+		{
+			name:     "a map key reads through lookup with a null default",
+			path:     statePrefix + "example_thing.app].values.triggers.app.kubernetes.io/part-of",
+			baseline: steadyBaseline,
+			schemas:  schemaTyping("triggers", `["map","string"]`),
+			want:     `lookup(example_thing.app.triggers, "app.kubernetes.io/part-of", null) == "steady"`,
+		},
+		{
+			name: "an object key reads through lookup with a null default",
+			path: statePrefix + "example_thing.app].values.settings.app.io/x", baseline: steadyBaseline,
+			schemas: schemaTyping("settings", `["object",{"app.io/x":"string","plain":"string"}]`),
+			want:    `lookup(example_thing.app.settings, "app.io/x", null) == "steady"`,
+		},
+		{
+			name: "a deleted attribute reads through try with a null default",
+			path: statePrefix + "example_thing.app].values.input", baseline: steadyBaseline,
+			schemas: untyped(), want: `try(example_thing.app.input, null) == "steady"`,
+		},
+		{
+			name: "a numeric index reads through try with a null default",
+			path: statePrefix + "example_thing.app].values.items[0]", baseline: `"first"`,
+			schemas: schemaTyping("items", `["list","string"]`),
+			want:    `try(example_thing.app.items[0], null) == "first"`,
+		},
+		{
+			name:     "a list-valued output element reads through try with a null default",
+			path:     "outputs.regions.value[0].short_name",
+			baseline: `"wu"`,
+			evidence: suggest.Evidence{OutputTypes: map[string]cty.Type{
+				"output.regions": cty.List(cty.Object(map[string]cty.Type{"short_name": cty.String})),
+			}},
+			schemas: untyped(), want: `try(output.regions[0].short_name, null) == "wu"`,
+		},
+		{
+			name: "a whole output value keeps its direct equality",
+			path: "outputs.ignored.value", baseline: `"nobody-checks-me"`,
+			schemas: untyped(), want: `output.ignored == "nobody-checks-me"`,
+		},
+		{
+			name: "a nulled attribute answers through try",
+			path: statePrefix + "example_thing.app].values.input", baseline: steadyBaseline,
+			mutant: nulledValue, schemas: untyped(),
+			want: `try(example_thing.app.input, null) != null`,
+		},
+		{
+			name:     "a nulled keyed entry answers through lookup",
+			path:     statePrefix + "example_thing.app].values.triggers.app.io/x",
+			baseline: steadyBaseline, mutant: nulledValue,
+			schemas: schemaTyping("triggers", `["map","string"]`),
+			want:    `lookup(example_thing.app.triggers, "app.io/x", null) != null`,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			change := changeAt(testCase.path, testCase.baseline)
+			change.Mutant = testCase.mutant
+
+			expression, err := suggest.Express(testCase.schemas, testCase.evidence, change)
+
+			assertAdapter(t, expression, err, testCase.want, testCase.refused)
+		})
+	}
+}
+
 // TestATosetAmbiguityIsAlwaysSkipped is C3's own example: the installed
 // hclwrite renders a set and a list identically, Terraform's `toset(["a"]) ==
 // ["a"]` is false, and the generator therefore never renders a collection.
