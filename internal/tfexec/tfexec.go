@@ -63,12 +63,9 @@ type Runner struct {
 // process, read from the rusage the kernel reports when the process is
 // reaped.
 //
-// The numbers cover the terraform process and the descendants it waited for
-// before exiting: on Linux, a child's rusage includes its own reaped
-// children. Terraform starts each provider plugin and reaps it before
-// exiting, so provider CPU and memory are counted here. What the numbers do
-// not cover is a descendant the child never waited on — there is none in a
-// terraform invocation — and anything still running at timeout kill time.
+// The accounting scope is documented under process_usage in
+// docs/schema/report-2.13.0.json. Killing a leftover provider with ReapGroup
+// does not add that provider's usage to the reaped Terraform process.
 type Usage struct {
 	// UserCPU and SystemCPU are the child's user and system processor time.
 	UserCPU   time.Duration
@@ -374,7 +371,9 @@ const waitDelay = 5 * time.Second
 // The signal is SIGKILL so cancellation, including an expired deadline, does
 // not spend more time gracefully stopping processes the caller has stopped
 // waiting for. exec invokes Cancel only after the process has started, so
-// Process is always set when it runs. Setpgid and the
+// Process is always set when it runs. A normal exit needs the same kill —
+// see ReapGroup, which every waiter calls after Wait — because Terraform
+// leaves provider plugins behind that Cancel never runs for. Setpgid and the
 // group signal are Unix interfaces, shared by every platform the project
 // builds for; the package does not build on Windows today in any case.
 func GroupCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
@@ -388,6 +387,23 @@ func GroupCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
 	}
 
 	return command
+}
+
+// ReapGroup kills everything left in a GroupCommand child's process group.
+// Cancel covers the cancelled-context path; this covers the normal exit,
+// where Terraform may leave provider plugins behind that keep running —
+// each holding hundreds of megabytes — and accumulate over a mutation run.
+//
+// Best effort: a group that already exited reports ESRCH, which is the
+// common case and is ignored, and after Wait there is nothing actionable to
+// do about any other kill failure either, so no error is reported. A
+// command that never started has no process and nothing is signalled.
+func ReapGroup(command *exec.Cmd) {
+	if command.Process == nil {
+		return
+	}
+
+	_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
 }
 
 // inheritedEnvironment is the process environment minus the variables that

@@ -117,8 +117,10 @@ the modules called by those tests. Mocked suites can run in roots with a `backen
 including a remote backend, without initialising that backend. An effective `cloud`
 declaration still causes provider schema retrieval to fail.
 
-When a Terraform command reaches its deadline, tf-mut stops the command and its provider
-plugins. See [mutant states](docs/design/product-design.md#4-mutant-states) for how a test
+Each Terraform command runs in its own process group. After the command exits, tf-mut sends
+`SIGKILL` to any processes left in that group, including provider plugins. Cleanup is best
+effort; an already-exited group is ignored. Deadlines and evaluation interrupts also stop
+the group. See [mutant states](docs/design/product-design.md#4-mutant-states) for how a test
 deadline appears beside the mutant's verdict. The `--preflight-timeout` cap applies to
 each call separately, including validation during mutant execution. The defaults are
 10 minutes for `init` and 1 minute for other preflight calls, baseline runs and
@@ -134,8 +136,7 @@ denominator. A suggestion-verification
 overrun returns a fail-closed verification error: batch verification aborts, while isolated
 verification refutes the suggestion. It does not change the mutant verdict or score.
 
-Interrupting evaluation with Ctrl-C or SIGTERM also stops Terraform and its provider
-plugins. The interrupted evaluation returns an operational failure (exit code `2`).
+An evaluation interrupted with Ctrl-C or SIGTERM returns an operational failure (exit code `2`).
 
 Preview records safety-gate advisories and refusals in the report's warnings while still
 listing the mutant population. It executes no test run blocks. For run blocks targeting

@@ -571,6 +571,9 @@ func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	command.Env = environment
 
 	output, err := command.Output()
+	// Output has waited for the child; reap helpers left in its process group,
+	// including after a normal exit, as the Terraform stream path does after Wait.
+	tfexec.ReapGroup(command)
 	if err != nil {
 		if errors.Is(limited.Err(), context.DeadlineExceeded) {
 			return "", fmt.Errorf("git %s did not finish within %s: %w",

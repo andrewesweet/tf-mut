@@ -17,6 +17,7 @@ type PhaseTiming struct {
 
 // ProcessUsage is the operating system's accounting for one child Terraform
 // process, or the aggregate of several under one subcommand.
+// For accounting scope, see process_usage in docs/schema/report-2.13.0.json.
 type ProcessUsage struct {
 	// Command is the Terraform subcommand: version, init, providers, fmt,
 	// validate or test.
@@ -25,13 +26,11 @@ type ProcessUsage struct {
 	// mutant's own record, possibly many in the run-level aggregate.
 	Invocations int `json:"invocations"`
 	// UserCPUMS and SystemCPUMS are the child's user and system processor
-	// time in milliseconds. The numbers cover the terraform process and the
-	// descendants it waited for before exiting; Terraform reaps its provider
-	// plugins, so their cost is counted here too.
+	// time in milliseconds.
 	UserCPUMS   int64 `json:"user_cpu_ms"`
 	SystemCPUMS int64 `json:"system_cpu_ms"`
 	// PeakRSSKB is the maximum resident set size in kibibytes — the kernel's
-	// ru_maxrss unit on Linux — again covering waited-for descendants.
+	// ru_maxrss unit on Linux.
 	// Aggregates keep the largest peak across invocations, rather than a sum.
 	PeakRSSKB int64 `json:"peak_rss_kb"`
 }
