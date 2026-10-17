@@ -25,6 +25,9 @@ type Dependencies struct {
 	// filesystem cache; nil selects newFileVerdictStore — the project-local
 	// cache under the engine's format versions and size cap.
 	NewVerdictStore func(dir string) (VerdictStore, error)
+	// NewBaselineStore supplies the acceptance-list store; nil selects the
+	// default filesystem baseline.
+	NewBaselineStore func() BaselineStore
 }
 
 // stores are the run's resolved persistence ports, carried on the settings
@@ -32,6 +35,7 @@ type Dependencies struct {
 // these are only the mechanisms, resolved once per run.
 type stores struct {
 	verdicts func(dir string) (VerdictStore, error)
+	baseline func() BaselineStore
 }
 
 // DefaultDependencies returns the production wiring: the real checkout
@@ -40,9 +44,10 @@ type stores struct {
 // direct entry point are one behaviour by construction.
 func DefaultDependencies() Dependencies {
 	return Dependencies{
-		CheckoutRoot:    checkoutRoot,
-		NewTracer:       tracing.New,
-		NewVerdictStore: newFileVerdictStore,
+		CheckoutRoot:     checkoutRoot,
+		NewTracer:        tracing.New,
+		NewVerdictStore:  newFileVerdictStore,
+		NewBaselineStore: newFileBaselineStore,
 	}
 }
 
@@ -67,6 +72,10 @@ func New(dependencies Dependencies) Engine {
 		dependencies.NewVerdictStore = newFileVerdictStore
 	}
 
+	if dependencies.NewBaselineStore == nil {
+		dependencies.NewBaselineStore = newFileBaselineStore
+	}
+
 	return Engine{dependencies: dependencies}
 }
 
@@ -74,6 +83,29 @@ func New(dependencies Dependencies) Engine {
 // cache under the engine's format versions and its deterministic size cap.
 func newFileVerdictStore(dir string) (VerdictStore, error) {
 	return store.NewVerdictCache(dir, cacheFormatVersion, cacheManifestFormatVersion, CacheMaxEntries)
+}
+
+// newFileBaselineStore is the default acceptance-list wiring.
+func newFileBaselineStore() BaselineStore {
+	return store.NewBaselineFile()
+}
+
+// baselineLoad reads the acceptance list at path.
+func (s settings) baselineLoad(path string) ([]store.AcceptanceEntry, error) {
+	if s.stores.baseline == nil {
+		return store.NewBaselineFile().Load(path)
+	}
+
+	return s.stores.baseline().Load(path)
+}
+
+// baselineSave writes the accepted list at path.
+func (s settings) baselineSave(path string, entries []store.AcceptanceEntry) error {
+	if s.stores.baseline == nil {
+		return store.NewBaselineFile().Save(path, entries)
+	}
+
+	return s.stores.baseline().Save(path, entries)
 }
 
 // verdictStore opens the run's verdict store at dir, which the caller has
