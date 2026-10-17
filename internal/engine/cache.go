@@ -41,7 +41,7 @@ import (
 // protects this upgrade boundary. An older-format entry is a miss, not an
 // error. Selected verdicts are recomputed under the current execution and
 // oracle rules (TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError).
-const cacheFormatVersion = "tf-mut-cache-8"
+const cacheFormatVersion = "tf-mut-cache-9"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
@@ -238,7 +238,16 @@ func cacheBaselineFingerprint(configuration discovery.Configuration, prepared wa
 		return "", err
 	}
 
-	warmRoot := filepath.Clean(filepath.Join(prepared.moduleDir, rel))
+	warmRoot, err := filepath.Abs(filepath.Join(prepared.moduleDir, rel))
+	if err != nil {
+		return "", err
+	}
+
+	warmRoot, err = filepath.EvalSymlinks(warmRoot)
+	if err != nil {
+		return "", err
+	}
+
 	quotedWarm := strconv.Quote(warmRoot)
 	escapedWarm := quotedWarm[1 : len(quotedWarm)-1]
 	quotedEscapedWarm := strconv.Quote(escapedWarm)

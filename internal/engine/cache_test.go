@@ -252,7 +252,7 @@ func TestACachedReplayIsByteIdenticalToTheFreshRun(t *testing.T) {
 
 // previousCacheFormatVersion is the format one step behind the one this build
 // writes: an entry carrying it is a miss, never a parse error.
-const previousCacheFormatVersion = "tf-mut-cache-7"
+const previousCacheFormatVersion = "tf-mut-cache-8"
 
 // TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError is the symmetric
 // half of the format boundary: the first run after an upgrade finds every
@@ -569,12 +569,13 @@ func TestWarmDirectoryPathsReuseVerdictsAcrossInvocations(t *testing.T) {
 
 	for _, fixture := range []string{"all-killed", "upward"} {
 		for _, command := range []string{"plan", "apply"} {
-			t.Run(fixture+"/"+command, func(t *testing.T) {
-				t.Parallel()
+			for _, parent := range []string{"direct", "symlink"} {
+				t.Run(fixture+"/"+command+"/"+parent, func(t *testing.T) {
+					t.Parallel()
 
-				module := copyFixture(t, fixture)
-				if fixture == "upward" {
-					appendFile(t, filepath.Join(module, "shared", mainFile), `
+					module := copyFixture(t, fixture)
+					if fixture == "upward" {
+						appendFile(t, filepath.Join(module, "shared", mainFile), `
 output "value" {
   value = abspath(path.module)
 }
@@ -583,12 +584,12 @@ resource "terraform_data" "indexed_path" {
   input    = "kept"
 }
 `)
-					module = filepath.Join(module, "root")
-					appendFile(t, filepath.Join(module, mainFile),
-						"\noutput \"child_path\" { value = module.shared.value }\n")
-				}
+						module = filepath.Join(module, "root")
+						appendFile(t, filepath.Join(module, mainFile),
+							"\noutput \"child_path\" { value = module.shared.value }\n")
+					}
 
-				appendFile(t, filepath.Join(module, mainFile), `
+					appendFile(t, filepath.Join(module, mainFile), `
 output "value" {
   value = abspath(path.root)
 }
@@ -603,32 +604,40 @@ resource "terraform_data" "indexed_path" {
   input    = "kept"
 }
 `)
-				testFile := filepath.Join(module, "tests", "unit.tftest.hcl")
-				testsupport.WriteFile(t, testFile,
-					strings.ReplaceAll(readFile(t, testFile), "command = plan", "command = "+command))
-				config := baseConfig(t, module)
-				config.WorkDir = filepath.Join(config.WorkDir, "work\"dir")
-				if err := os.Mkdir(config.WorkDir, 0o700); err != nil {
-					t.Fatal(err)
-				}
+					testFile := filepath.Join(module, "tests", "unit.tftest.hcl")
+					testsupport.WriteFile(t, testFile,
+						strings.ReplaceAll(readFile(t, testFile), "command = plan", "command = "+command))
+					config := baseConfig(t, module)
+					config.WorkDir = filepath.Join(config.WorkDir, "work\"dir")
+					if err := os.Mkdir(config.WorkDir, 0o700); err != nil {
+						t.Fatal(err)
+					}
+					if parent == "symlink" {
+						linked := filepath.Join(t.TempDir(), "linked-work")
+						if err := os.Symlink(config.WorkDir, linked); err != nil {
+							t.Fatal(err)
+						}
+						config.WorkDir = linked
+					}
 
-				first := cachedRun(t, config)
-				second := cachedRun(t, config)
-				if first.Baseline.Fingerprint == "" || first.Baseline.Fingerprint == second.Baseline.Fingerprint {
-					t.Fatal("the reported baseline did not retain the per-invocation warm path")
-				}
+					first := cachedRun(t, config)
+					second := cachedRun(t, config)
+					if first.Baseline.Fingerprint == "" || first.Baseline.Fingerprint == second.Baseline.Fingerprint {
+						t.Fatal("the reported baseline did not retain the per-invocation warm path")
+					}
 
-				if first.Population.Cached != 0 || first.Population.Fresh == 0 {
-					t.Fatalf("the cold run did not execute verdicts: %+v", first.Population)
-				}
+					if first.Population.Cached != 0 || first.Population.Fresh == 0 {
+						t.Fatalf("the cold run did not execute verdicts: %+v", first.Population)
+					}
 
-				if second.Population.Cached != first.Population.Fresh || second.Population.Fresh != 0 {
-					t.Fatalf("warm directory paths changed the cache key: cold=%+v warm=%+v",
-						first.Population, second.Population)
-				}
+					if second.Population.Cached != first.Population.Fresh || second.Population.Fresh != 0 {
+						t.Fatalf("warm directory paths changed the cache key: cold=%+v warm=%+v",
+							first.Population, second.Population)
+					}
 
-				assertVerdictInvariance(t, first, second)
-			})
+					assertVerdictInvariance(t, first, second)
+				})
+			}
 		}
 	}
 }

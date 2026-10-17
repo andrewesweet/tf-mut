@@ -43,6 +43,7 @@ including canonical scalar values and map-key paths. This replacement applies
 only to cache identity. The report and oracle retain their original payloads.
 The initial normalization advanced the cache format to version 7. The escaped
 address correction below advances it to version 8.
+The physical-directory correction uses version 9.
 
 ## Regression contracts
 
@@ -106,3 +107,32 @@ upgrade, component logging, and the run/suggest CLI debug tests. Its log is
 `.artifacts/cache-review/escaped-verification.log`; the pre-correction probe is
 `.artifacts/cache-review/escaped-before.log`. Full test and lint suites were not
 run in this review phase.
+
+## Symlinked temporary-parent reproduction
+
+With the same indexed-path probe, replace `WorkDir` with a symlink to the
+quoted-name directory. Before the physical-directory correction, both invocations
+execute nine fresh verdicts and replay none, in plan and apply:
+
+| Command | First baseline component digest | Second baseline component digest |
+| --- | --- | --- |
+| plan | `84fcf52624469c1535cf122d18f8cb0a9e8252cd9a1b8646e83ac8039721c405` | `42803924b2e103a15cd24c31058c9e51912a9db2cf17113801fd7a813f1ebde9` |
+| apply | `41517d4bb6d36730cb1458abd346db8a35bf05fc4cb029ab479b61591aa1441f` | `27c5af9cc01b689b09b0b9eda3e6ee1764b9f068ae376f13ebc11ead0a6d1732` |
+
+Terraform reports the physical working directory, while the cache normalizer
+previously used its symlink spelling. The cache boundary now makes the warm root
+absolute and resolves its symlinks before deriving any escaped forms. Resolution
+errors disable cache use through the existing cache-key error path. This same
+boundary handles explicit `WorkDir` and the default temporary directory selected
+through `TMPDIR`. Environment keying remains unchanged.
+
+The regression matrix retains its direct-parent cases and adds symlinked parents
+for both fixtures and commands. The physical target retains the quote in its
+name, so these cases also retain the escaped instance-address coverage.
+
+The focused rerun passed all eight direct/symlink fixture/command combinations,
+unchanged-run and volatile-apply reuse, key-dimension invalidation, the
+version-8-to-9 cache upgrade, component logging, and both CLI debug cases.
+The logs are `.artifacts/cache-review/symlink-before.log` and
+`.artifacts/cache-review/symlink-verification.log`. Full test and lint suites
+remain the outer executor's phases.
