@@ -22,8 +22,12 @@ func TestCacheKeyComponentsAreLoggedAtDebug(t *testing.T) {
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
 
-	const probeName = "TFMUT_CACHE_PROBE"
-	const probeValue = "probe-value-debug-9d3f41"
+	const (
+		probeName          = "TFMUT_CACHE_PROBE"
+		probeValue         = "probe-value-debug-9d3f41"
+		terraformComponent = "terraform"
+		sourceComponent    = "source"
+	)
 	config.Env = append(config.Env, probeName+"="+probeValue)
 
 	var captured bytes.Buffer
@@ -55,7 +59,8 @@ func TestCacheKeyComponentsAreLoggedAtDebug(t *testing.T) {
 
 	prefix := "[" + second.Telemetry.RunID + "] "
 	components := map[string]string{}
-	componentLine := regexp.MustCompile(`level=DEBUG msg="tf-mut: cache key component" component=([a-z]+) digest=([0-9a-f]{64})$`)
+	componentLine := regexp.MustCompile(`level=DEBUG msg="tf-mut: cache key component"` +
+		` component=([a-z]+) digest=([0-9a-f]{64})$`)
 	for line := range strings.SplitSeq(strings.TrimSuffix(logs, "\n"), "\n") {
 		if !strings.HasPrefix(line, prefix) {
 			t.Fatalf("debug line lacks the report's run identifier %q: %q", prefix, line)
@@ -66,7 +71,7 @@ func TestCacheKeyComponentsAreLoggedAtDebug(t *testing.T) {
 	}
 
 	for _, component := range []string{
-		"format", "terraform", "platform", "baseline", "config", "source", "test", "env",
+		"format", terraformComponent, "platform", "baseline", "config", sourceComponent, testSubcommand, "env",
 	} {
 		if _, found := components[component]; !found {
 			t.Fatalf("no valid debug digest for key component %q: %s", component, logs)
