@@ -36,7 +36,7 @@ reported it cannot express one, and say so.
 3. **Walk the survivors by diagnosis** (the decision tree below). Every
    survivor carries exactly one diagnosis and its evidence.
 4. **Generate the fixes.** `tf-mut suggest <module>` generates suggestions and
-   checks them against the [verification contract](https://github.com/andrewesweet/tf-mut/blob/master/docs/design/product-design.md#7-the-differentiator--suggested-assertions).
+   checks them against the [verification contract](https://github.com/andrewesweet/tf-mut/blob/master/docs/design/product-design.md).
    `--dry-run` previews the patches;
    `--survivor ID` scopes to the survivors you are working;
    `--apply ID` or `--all-verified` writes the verified ones.
