@@ -57,11 +57,11 @@ func TestVerifiedRequiresBothLegsAndCarriesTheirEvidence(t *testing.T) {
 //
 //nolint:paralleltest // owns package-global suggestion hook for its lifetime.
 func TestASeededWrongValueIsRefutedThroughTheBaselineLeg(t *testing.T) {
-	for _, fixture := range []string{suggestBasicFixture, "suggest-output-later-run"} {
+	for _, fixture := range []string{suggestBasicFixture, suggestOutputLaterRunFixture} {
 		t.Run(fixture, func(t *testing.T) {
 			config := suggestRequest(t, copyFixture(t, fixture))
-			if fixture == "suggest-output-later-run" {
-				config.Tier = "standard"
+			if fixture == suggestOutputLaterRunFixture {
+				config.Tier = standardTier
 				config.IncludeOperators = []string{"COND-TRUE"}
 			}
 
@@ -83,7 +83,7 @@ func TestASeededWrongValueIsRefutedThroughTheBaselineLeg(t *testing.T) {
 					t.Fatalf("refuted suggestion %s carries no reason", suggestion.ID)
 				}
 
-				if fixture == "suggest-output-later-run" && suggestion.TargetRun != "second" {
+				if fixture == suggestOutputLaterRunFixture && suggestion.TargetRun != "second" {
 					t.Fatalf("seeded suggestion targets %s, want the value-bearing second run", suggestion.TargetRun)
 				}
 			}
@@ -359,7 +359,7 @@ func TestEmptyCollectionAbsenceFailsTheSuggestedAssertion(t *testing.T) {
 			}
 
 			request := suggestRequest(t, module)
-			request.IncludeOperators = []string{"COLL-EMPTY"}
+			request.IncludeOperators = []string{collEmptyOperator}
 			result := runSuggest(t, request)
 			if len(result.Suggestions) != 1 {
 				t.Fatalf("want one emptiness suggestion, got %+v", result.Suggestions)

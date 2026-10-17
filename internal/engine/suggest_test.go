@@ -35,6 +35,11 @@ const (
 	suggestCollapseCarrierFixture = "suggest-collapse-carrier"
 	suggestEmptyCollectionFixture = "suggest-empty-collection"
 	suggestOutputMetadataFixture  = "suggest-output-metadata"
+	suggestOutputLaterRunFixture  = "suggest-output-later-run"
+	collEmptyOperator             = "COLL-EMPTY"
+	standardTier                  = "standard"
+	verifiedStage                 = "verified"
+	appliedRun                    = "applied"
 	secretValue                   = "s3cret-value"
 	unitTestFile                  = "tests/unit.tftest.hcl"
 )
@@ -140,7 +145,7 @@ func TestAListValuedOutputElementIsAddressedThroughItsIndex(t *testing.T) {
 			continue
 		}
 
-		if suggestion.TargetFile != unitTestFile || suggestion.TargetRun != "applied" {
+		if suggestion.TargetFile != unitTestFile || suggestion.TargetRun != appliedRun {
 			t.Fatalf("placement = %s:%s, want the run that carried the delta",
 				suggestion.TargetFile, suggestion.TargetRun)
 		}
@@ -291,7 +296,7 @@ func TestSuggestGeneratesTheAssertionThatWouldHaveKilledASurvivor(t *testing.T) 
 			t.Fatalf("the candidate carries no patch that adds an assertion: %q", candidate.Patch)
 		}
 
-		if candidate.TargetFile != unitTestFile || candidate.TargetRun != "applied" {
+		if candidate.TargetFile != unitTestFile || candidate.TargetRun != appliedRun {
 			t.Fatalf("placement = %s:%s, want the run that carried the delta",
 				candidate.TargetFile, candidate.TargetRun)
 		}
@@ -529,58 +534,70 @@ func TestOutputValueSelectionUsesCompleteDelta(t *testing.T) {
 		operator string
 		run      string
 	}{
-		{fixture: "suggest-output-large-tuple", operator: "COLL-EMPTY", run: "applied"},
-		{fixture: "suggest-output-later-run", operator: "COND-TRUE", run: "second"},
+		{fixture: "suggest-output-large-tuple", operator: collEmptyOperator, run: appliedRun},
+		{fixture: suggestOutputLaterRunFixture, operator: "COND-TRUE", run: "second"},
 	} {
 		t.Run(test.fixture, func(t *testing.T) {
 			t.Parallel()
 
 			request := dryRunRequest(t, copyFixture(t, test.fixture))
-			request.Tier = "standard"
+			request.Tier = standardTier
 			request.IncludeOperators = []string{test.operator}
 
-			for _, stage := range []string{"fresh", "cached", "verified"} {
-				request.DryRun = stage != "verified"
+			for _, stage := range []string{"fresh", "cached", verifiedStage} {
+				request.DryRun = stage != verifiedStage
 				result := runSuggest(t, request)
-				if len(result.Suggestions) != 1 {
-					t.Fatalf("%s: want one suggestion, got %s", stage, statusSummary(result.Suggestions))
-				}
+				assertOutputValueSuggestion(t, result, stage, test.run)
 
-				suggestion := result.Suggestions[0]
-				wantStatus := report.SuggestionCandidate
-				if stage == "verified" {
-					wantStatus = report.SuggestionVerified
-				}
-
-				if suggestion.Status != wantStatus || suggestion.Expression != `try(output.aliases[0], null) == "x"` {
-					t.Fatalf("%s: suggestion = %s %q (%s), want %s with the baseline element assertion",
-						stage, suggestion.Status, suggestion.Expression, suggestion.StatusReason, wantStatus)
-				}
-
-				if suggestion.TargetFile != unitTestFile || suggestion.TargetRun != test.run {
-					t.Fatalf("%s: placement = %s:%s, want %s:%s", stage,
-						suggestion.TargetFile, suggestion.TargetRun, unitTestFile, test.run)
-				}
-
-				if stage != "fresh" && result.Population.Cached != 1 {
-					t.Fatalf("%s: want the survivor replayed from cache, got %d cache hits",
-						stage, result.Population.Cached)
-				}
-
-				if test.operator == "COLL-EMPTY" {
-					mutant, found := result.MutantByID(suggestion.MutantID)
-					if !found || mutant.Verdict == nil || len(mutant.Verdict.Evidence.Delta) != 20 {
-						t.Fatalf("%s: the report must retain its 20-change display cap", stage)
-					}
-
-					for _, change := range mutant.Verdict.Evidence.Delta {
-						if strings.Contains(change.Path, ".value") {
-							t.Fatalf("%s: expected type metadata to fill the display delta, got %s", stage, change.Path)
-						}
-					}
+				if test.operator == collEmptyOperator {
+					assertOutputMetadataDisplayCap(t, result, stage)
 				}
 			}
 		})
+	}
+}
+
+func assertOutputValueSuggestion(t *testing.T, result report.Report, stage, targetRun string) {
+	t.Helper()
+
+	if len(result.Suggestions) != 1 {
+		t.Fatalf("%s: want one suggestion, got %s", stage, statusSummary(result.Suggestions))
+	}
+
+	suggestion := result.Suggestions[0]
+	wantStatus := report.SuggestionCandidate
+	if stage == verifiedStage {
+		wantStatus = report.SuggestionVerified
+	}
+
+	if suggestion.Status != wantStatus || suggestion.Expression != `try(output.aliases[0], null) == "x"` {
+		t.Fatalf("%s: suggestion = %s %q (%s), want %s with the baseline element assertion",
+			stage, suggestion.Status, suggestion.Expression, suggestion.StatusReason, wantStatus)
+	}
+
+	if suggestion.TargetFile != unitTestFile || suggestion.TargetRun != targetRun {
+		t.Fatalf("%s: placement = %s:%s, want %s:%s", stage,
+			suggestion.TargetFile, suggestion.TargetRun, unitTestFile, targetRun)
+	}
+
+	if stage != "fresh" && result.Population.Cached != 1 {
+		t.Fatalf("%s: want the survivor replayed from cache, got %d cache hits",
+			stage, result.Population.Cached)
+	}
+}
+
+func assertOutputMetadataDisplayCap(t *testing.T, result report.Report, stage string) {
+	t.Helper()
+
+	mutant, found := result.MutantByID(result.Suggestions[0].MutantID)
+	if !found || mutant.Verdict == nil || len(mutant.Verdict.Evidence.Delta) != 20 {
+		t.Fatalf("%s: the report must retain its 20-change display cap", stage)
+	}
+
+	for _, change := range mutant.Verdict.Evidence.Delta {
+		if strings.Contains(change.Path, ".value") {
+			t.Fatalf("%s: expected type metadata to fill the display delta, got %s", stage, change.Path)
+		}
 	}
 }
 
@@ -732,8 +749,8 @@ func TestARealSuggestReportValidatesAgainstThePublishedSchema(t *testing.T) {
 	schema := loadPublishedSchema(t)
 
 	for name, config := range map[string]engine.SuggestRequest{
-		"verified": suggestRequest(t, copyFixture(t, suggestBasicFixture)),
-		"skips":    dryRunRequest(t, copyFixture(t, suggestSensitiveFixture)),
+		verifiedStage: suggestRequest(t, copyFixture(t, suggestBasicFixture)),
+		"skips":       dryRunRequest(t, copyFixture(t, suggestSensitiveFixture)),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -817,7 +834,7 @@ func assertCollapseSpansAbsenceAndValue(
 	sawAbsence, sawValue := false, false
 	for _, id := range listed {
 		operator := operators[id]
-		if operator == "COLL-DROP-ENTRY" || operator == "COLL-EMPTY" ||
+		if operator == "COLL-DROP-ENTRY" || operator == collEmptyOperator ||
 			operator == "COLL-DROP-LAST" {
 			sawAbsence = true
 		}
