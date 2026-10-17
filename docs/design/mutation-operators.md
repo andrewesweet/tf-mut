@@ -275,13 +275,20 @@ will fail this tier comprehensively, and the fix is mechanical.
 **Suite-supplied defaults are statically `Unobservable` (F10, #253).** When every run in the
 selected suite that evaluates the module under test assigns a root variable explicitly — in
 its `variables` block or the file's file-level block — the variable's declared default is
-never read, so a `VAR-DEFAULT-*` mutant of it cannot reach a plan or state and is classified
-`Unobservable` from the test-file inventory before anything executes, with the same guards
+never read, provided the effective assignment cannot fall back to it. For a variable with
+`nullable = false`, the assignment must be provably non-null; a run assignment takes
+precedence over the file-level assignment. The mutated default must also remain valid for
+the declared type: an empty object or tuple can violate its type even when every run
+supplies a valid input. Subject to these guards, a `VAR-DEFAULT-*` mutant cannot reach a plan
+or state and is classified `Unobservable` from the test-file inventory before anything
+executes, with the same guards
 as the other static shortcut: never in a preview, and never with the shortcuts disabled.
 The claim fails closed on every source the test files cannot see: a run that omits the
 variable, a JSON-declared run, a non-root module's variable, an automatically loaded
 variable file (`terraform.tfvars`, `*.auto.tfvars[.json]`), and any `TF_VAR_` environment
-entry each keep the mutant executing as before. The classification also never overrides the
+entry each keep the mutant executing as before. A selected retargeted wrapper whose
+transitive local module calls reach the root also keeps execution: its run assignments do
+not prove what those module calls supply. The classification also never overrides the
 reference-graph verdicts: a default the graph already proves unreachable keeps its
 existing verdict.
 

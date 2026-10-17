@@ -1,11 +1,14 @@
 package engine_test
 
 import (
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // F10 (#253): the suite-supplied half of the static Unobservable
@@ -335,5 +338,284 @@ func TestStaticShortcutsOffExecuteTheSuiteSuppliedDefault(t *testing.T) {
 			t.Errorf("mutant %s (%s): state %s after %d runs with the shortcuts disabled; "+
 				"the mutants must execute", mutant.ID, mutant.Operator, mutant.State, mutant.ExecutedRuns)
 		}
+	}
+}
+
+func TestNonNullableSuiteAssignmentsCannotHideDefaultFallback(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		fileValue string
+		runValue  string
+		nullable  bool
+		expected  string
+		static    bool
+	}{
+		{name: "run null", runValue: "null", expected: `"builtin-default"`},
+		{name: "file null", fileValue: "null", expected: `"builtin-default"`},
+		{name: "run null overrides file", fileValue: `"supplied"`, runValue: "null", expected: `"builtin-default"`},
+		{name: "run overrides file null", fileValue: "null", runValue: `"supplied"`, expected: `"supplied"`, static: true},
+		{name: "run output null", runValue: "run.setup.value", expected: `"builtin-default"`},
+		{name: "nullable run null", runValue: "null", nullable: true, expected: "null", static: true},
+		{name: "nullable file null", fileValue: "null", nullable: true, expected: "null", static: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, "suite-supplied-var")
+			testsupport.WriteFile(t, filepath.Join(module, mainFile), fmt.Sprintf(`
+variable "instance" {
+  type     = string
+  default  = "builtin-default"
+  nullable = %t
+}
+resource "terraform_data" "app" {
+  input = var.instance
+}
+output "echo" {
+  value = terraform_data.app.input
+}
+`, test.nullable))
+			testsupport.WriteFile(t, filepath.Join(module, "tests", "setup", mainFile), `
+output "value" {
+  value = null
+}
+`)
+
+			fileVariables, runVariables := "", ""
+			if test.fileValue != "" {
+				fileVariables = "variables { instance = " + test.fileValue + " }"
+			}
+
+			if test.runValue != "" {
+				runVariables = "variables { instance = " + test.runValue + " }"
+			}
+
+			testsupport.WriteFile(t, filepath.Join(module, "tests", "main.tftest.hcl"), fmt.Sprintf(`
+%s
+run "setup" {
+  command = plan
+  module {
+    source = "./tests/setup"
+  }
+}
+run "consumer" {
+  command = plan
+  %s
+  assert {
+    condition     = output.echo == %s
+    error_message = "Terraform must use the effective assignment or its non-nullable fallback"
+  }
+}
+`, fileVariables, runVariables, test.expected))
+
+			request := baseConfig(t, module)
+			request.IncludeOperators = []string{"VAR-DEFAULT-CHANGE", "VAR-DEFAULT-REMOVE", "VAR-DEFAULT-NULL"}
+
+			result, err := engine.Run(t.Context(), request)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			for _, mutant := range defaultMutantsAt(t, result, ".") {
+				if test.static {
+					if mutant.State != report.Unobservable || mutant.ExecutedRuns != 0 {
+						t.Errorf("%s: state %s after %d runs; effective assignment prevents fallback",
+							mutant.Operator, mutant.State, mutant.ExecutedRuns)
+					}
+
+					continue
+				}
+
+				if mutant.State == report.Unobservable || mutant.ExecutedRuns == 0 {
+					t.Errorf("%s: state %s after %d runs; null may select the default",
+						mutant.Operator, mutant.State, mutant.ExecutedRuns)
+				}
+
+				if mutant.Operator == "VAR-DEFAULT-CHANGE" && mutant.State != report.Killed {
+					t.Errorf("changed default: state %s, want Killed by the fallback assertion", mutant.State)
+				}
+			}
+		})
+	}
+}
+
+func TestRetargetedWrappersCannotHideRootDefaultReads(t *testing.T) {
+	t.Parallel()
+
+	for _, syntax := range []string{"hcl", "json", "transitive", "unselected"} {
+		t.Run(syntax, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, "suite-supplied-var")
+			setup := filepath.Join(module, "tests", "setup")
+			wrapper := `
+module "subject" {
+  source = "../.."
+}
+output "value" {
+  value = module.subject.echo
+}
+`
+			if syntax == "json" {
+				wrapper = ""
+				testsupport.WriteFile(t, filepath.Join(setup, "main.tf.json"), `{
+  "module": {"subject": {"source": "../.."}},
+  "output": {"value": {"value": "${module.subject.echo}"}}
+}`)
+			}
+
+			if syntax == "transitive" {
+				wrapper = `
+module "bridge" {
+  source = "./.."
+}
+output "value" {
+  value = module.bridge.value
+}
+`
+				bridge := filepath.Join(module, "tests", "bridge.tf")
+				testsupport.WriteFile(t, bridge, `
+module "subject" {
+  source = "./.."
+}
+output "value" {
+  value = module.subject.echo
+}
+`)
+			}
+
+			testsupport.WriteFile(t, filepath.Join(setup, mainFile), wrapper)
+			testsupport.WriteFile(t, filepath.Join(module, "tests", "main.tftest.hcl"), `
+run "setup" {
+  command = plan
+  module {
+    source = "./tests/setup"
+  }
+  variables {
+    instance = "wrapper-input-does-not-reach-subject"
+  }
+  assert {
+    condition     = output.value == "builtin-default"
+    error_message = "the wrapper's module call reads the root default"
+  }
+}
+`)
+			testsupport.WriteFile(t, filepath.Join(module, "tests", "good.tftest.hcl"), `
+run "consumer" {
+  command = plan
+  variables {
+    instance = "supplied"
+  }
+  assert {
+    condition     = output.echo == "supplied"
+    error_message = "the direct root run uses its assignment"
+  }
+}
+`)
+
+			request := baseConfig(t, module)
+			request.IncludeOperators = []string{"VAR-DEFAULT-CHANGE", "VAR-DEFAULT-REMOVE"}
+			if syntax == "unselected" {
+				request.TestSelection = []string{"tests/good.tftest.hcl"}
+			}
+
+			result, err := engine.Run(t.Context(), request)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			for _, mutant := range defaultMutantsAt(t, result, ".") {
+				if syntax == "unselected" {
+					if mutant.State != report.Unobservable || mutant.ExecutedRuns != 0 {
+						t.Errorf("%s: state %s after %d runs; only the direct consumer is selected",
+							mutant.Operator, mutant.State, mutant.ExecutedRuns)
+					}
+
+					continue
+				}
+
+				if mutant.State == report.Unobservable || mutant.ExecutedRuns == 0 {
+					t.Errorf("%s: state %s after %d runs; wrapper calls root without an input",
+						mutant.Operator, mutant.State, mutant.ExecutedRuns)
+				}
+
+				if mutant.Operator == "VAR-DEFAULT-CHANGE" && mutant.State != report.Killed {
+					t.Errorf("changed default: state %s, want Killed by the wrapper assertion", mutant.State)
+				}
+			}
+		})
+	}
+}
+
+func TestSuiteSuppliedDefaultsMustRemainValidDeclarations(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name       string
+		constraint string
+		value      string
+		valid      bool
+	}{
+		{name: "required object", constraint: "object({ required = string })", value: `{ required = "x" }`},
+		{name: "fixed tuple", constraint: "tuple([string])", value: `["x"]`},
+		{name: "map", constraint: "map(string)", value: `{ required = "x" }`, valid: true},
+		{name: "list", constraint: "list(string)", value: `["x"]`, valid: true},
+		{name: "optional object", constraint: `object({ required = optional(string, "x") })`, value: `{ required = "x" }`, valid: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, "suite-supplied-var-filelevel")
+			testsupport.WriteFile(t, filepath.Join(module, mainFile), fmt.Sprintf(`
+variable "instance" {
+  type    = %s
+  default = %s
+}
+resource "terraform_data" "app" {
+  input = var.instance
+}
+output "echo" {
+  value = terraform_data.app.input
+}
+`, test.constraint, test.value))
+			testsupport.WriteFile(t, filepath.Join(module, "tests", "main.tftest.hcl"), fmt.Sprintf(`
+run "consumer" {
+  command = plan
+  variables {
+    instance = %s
+  }
+  assert {
+    condition     = output.echo == var.instance
+    error_message = "explicit input reaches the output"
+  }
+}
+`, test.value))
+
+			request := baseConfig(t, module)
+			request.IncludeOperators = []string{"VAR-DEFAULT-CHANGE", "VAR-DEFAULT-REMOVE", "VAR-DEFAULT-NULL"}
+
+			result, err := engine.Run(t.Context(), request)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			for _, mutant := range defaultMutantsAt(t, result, ".") {
+				if mutant.Operator == "VAR-DEFAULT-CHANGE" && !test.valid {
+					if mutant.State != report.Invalid {
+						t.Errorf("%s: state %s; Terraform rejects the empty default for %s",
+							mutant.Operator, mutant.State, test.constraint)
+					}
+
+					continue
+				}
+
+				if mutant.State != report.Unobservable || mutant.ExecutedRuns != 0 {
+					t.Errorf("%s: state %s after %d runs; valid declaration and explicit input",
+						mutant.Operator, mutant.State, mutant.ExecutedRuns)
+				}
+			}
+		})
 	}
 }

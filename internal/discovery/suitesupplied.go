@@ -5,6 +5,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/ext/typeexpr"
+	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/zclconf/go-cty/cty"
+	"github.com/zclconf/go-cty/cty/convert"
 )
 
 // SuiteSuppliedVariable reports whether every selected run that evaluates the
@@ -30,14 +36,25 @@ import (
 //     is a source the test files do not describe;
 //   - a selection that matches no test file, or a module under test no
 //     selected run evaluates, leaves nothing to prove the claim over.
-func (c Configuration) SuiteSuppliedVariable(env, selection []string, name string) bool {
+func (c Configuration) SuiteSuppliedVariable(env, selection []string, name string, site Site) bool {
 	root, found := c.ModuleByRel(c.RootRelative())
 	if !found {
 		return false
 	}
 
-	if _, declared := root.VariableByName(name); !declared {
+	variable, declared := root.VariableByName(name)
+	if !declared || !validVariableDefault(site, name) {
 		return false
+	}
+
+	nullable := true
+	if expr, assigned := namedAttribute(variable.Attributes, "nullable"); assigned {
+		value, known := literalValue(expr)
+		if !known || value.Type() != cty.Bool {
+			return false
+		}
+
+		nullable = value.True()
 	}
 
 	if hasAnyVariableOverride(env) {
@@ -66,15 +83,20 @@ func (c Configuration) SuiteSuppliedVariable(env, selection []string, name strin
 			return false
 		}
 
-		if _, assigned := namedAttribute(run.Variables, name); assigned {
-			continue
+		expr, assigned := namedAttribute(run.Variables, name)
+		if !assigned {
+			expr, assigned = namedAttribute(c.Tests.FileVariables[run.File], name)
 		}
 
-		if _, assigned := namedAttribute(c.Tests.FileVariables[run.File], name); assigned {
-			continue
+		if !assigned {
+			return false
 		}
 
-		return false
+		if !nullable {
+			if _, nonNull := literalValue(expr); !nonNull {
+				return false
+			}
+		}
 	}
 
 	return true
@@ -100,59 +122,98 @@ func hasAnyVariableOverride(env []string) bool {
 	return false
 }
 
-// selectedRunsEvaluatingModuleUnderTest over-approximates the runs the
-// selection executes whose module is the module under test: every run without
-// a retarget, plus any local retarget that resolves to the module under test.
-// A retarget that cannot be resolved, or one whose resolution cannot be told
-// apart from the module under test through symlinks, stays in: the claim may
-// quantify over a run Terraform does not execute — which only refuses the
-// classification — never miss one it does.
 func (c Configuration) selectedRunsEvaluatingModuleUnderTest(selection []string) []RunBlock {
 	runs := []RunBlock{}
 
 	for _, run := range c.Tests.Runs {
-		if !c.evaluatesModuleUnderTest(run) {
-			continue
-		}
-
 		if len(selection) > 0 && !c.testFileSelected(run, selection) {
 			continue
 		}
 
-		runs = append(runs, run)
+		if run.ModuleSource == "" {
+			runs = append(runs, run)
+
+			continue
+		}
+
+		if !isLocalSource(run.ModuleSource) {
+			continue
+		}
+
+		resolved := filepath.Clean(filepath.Join(c.ModuleDir, run.ModuleSource))
+		resolvedReal, resolvedErr := filepath.EvalSymlinks(resolved)
+		targetReal, targetErr := filepath.EvalSymlinks(c.ModuleDir)
+		if resolvedErr != nil || targetErr != nil {
+			return nil
+		}
+
+		if resolvedReal == targetReal {
+			runs = append(runs, run)
+
+			continue
+		}
+
+		target, found := c.ModuleByDir(resolved)
+		if !found {
+			return nil
+		}
+
+		exercised := map[string]bool{}
+		c.markClosure(target, exercised)
+
+		if exercised[c.RootRelative()] {
+			return nil
+		}
 	}
 
 	return runs
 }
 
-// evaluatesModuleUnderTest reports whether a run's module is the module under
-// test. A run without a retarget always evaluates it. A local retarget is
-// compared by resolved path, symlinks resolved best-effort on both sides the
-// way the checkout-root refusal compares them; a comparison that cannot be
-// made reports true, because a run the claim wrongly quantifies over only
-// keeps the classification silent, while one it wrongly drops could read the
-// default. A non-local source cannot resolve to the module under test.
-func (c Configuration) evaluatesModuleUnderTest(run RunBlock) bool {
-	if run.ModuleSource == "" {
-		return true
-	}
-
-	if !isLocalSource(run.ModuleSource) {
+func validVariableDefault(site Site, name string) bool {
+	file, diagnostics := hclsyntax.ParseConfig(site.Mutated, site.File, hcl.InitialPos)
+	if diagnostics.HasErrors() {
 		return false
 	}
 
-	resolved := filepath.Clean(filepath.Join(c.ModuleDir, run.ModuleSource))
-	if resolved == c.ModuleDir {
+	body, ok := file.Body.(*hclsyntax.Body)
+	if !ok {
+		return false
+	}
+
+	for _, block := range body.Blocks {
+		if block.Type != "variable" || !slices.Equal(block.Labels, []string{name}) {
+			continue
+		}
+
+		attribute, present := block.Body.Attributes["default"]
+		if !present {
+			return true
+		}
+
+		value, diagnostics := attribute.Expr.Value(nil)
+		if diagnostics.HasErrors() || !value.IsWhollyKnown() {
+			return false
+		}
+
+		if constraint, present := block.Body.Attributes["type"]; present {
+			target, defaults, diagnostics := typeexpr.TypeConstraintWithDefaults(constraint.Expr)
+			if diagnostics.HasErrors() {
+				return false
+			}
+
+			if defaults != nil {
+				value = defaults.Apply(value)
+			}
+
+			if _, err := convert.Convert(value, target); err != nil {
+				return false
+			}
+		}
+
 		return true
 	}
 
-	resolvedReal, resolvedErr := filepath.EvalSymlinks(resolved)
-	targetReal, targetErr := filepath.EvalSymlinks(c.ModuleDir)
-	if resolvedErr != nil || targetErr != nil {
-		return true
-	}
-
-	return resolvedReal == targetReal
+	return false
 }
 
 // testFileSelected reports whether a selection entry could match the run's

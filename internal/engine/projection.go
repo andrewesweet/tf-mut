@@ -592,7 +592,12 @@ func suiteSuppliedDefault(
 		return "", false
 	}
 
-	if !configuration.SuiteSuppliedVariable(settings.Env, settings.TestSelection, variable) {
+	if !configuration.SuiteSuppliedVariable(settings.Env, settings.TestSelection, variable, discovery.Site{
+		ModuleRel: mutant.ModuleRel,
+		File:      mutant.File,
+		Address:   mutant.Site,
+		Mutated:   mutant.Mutated,
+	}) {
 		return "", false
 	}
 
