@@ -414,12 +414,12 @@ type Options struct {
 	SkipJSON bool
 
 	// CheckoutRoot is the git work tree the module lives in, when the caller
-	// knows one; empty disables the boundary. A run block whose local module
-	// source resolves outside the root is refused with the test file, the run
-	// and the source string named — not with the raw read error of the
-	// directory that is not there. The boundary is the work tree on purpose:
-	// the closure legitimately spans monorepo siblings through `..`, so only
-	// leaving the checkout is the defect.
+	// knows one; empty disables the boundary. A run block or an ordinary module
+	// call whose local module source resolves outside the root is refused with
+	// the declaring file, the construct and the source string named — not with
+	// the raw read error of the directory that is not there. The boundary is
+	// the work tree on purpose: the closure legitimately spans monorepo
+	// siblings through `..`, so only leaving the checkout is the defect.
 	CheckoutRoot string
 }
 
@@ -487,6 +487,13 @@ func DiscoverWith(moduleDir, testDir string, options Options) (Configuration, er
 				continue
 			}
 
+			// An ordinary module call gets the same boundary as a run-block
+			// retarget: a local source that leaves the checkout would have the
+			// closure follow a directory the sandbox copy can never contain.
+			if refuseErr := refuseCallSource(options, absoluteModuleDir, call); refuseErr != nil {
+				return Configuration{}, refuseErr
+			}
+
 			queue = append(queue, queued{dir: call.Dir, key: joinKey(current.key, call.Name)})
 		}
 	}
@@ -547,7 +554,9 @@ func queueRunBlockRetargets(
 		}
 
 		resolved := filepath.Clean(filepath.Join(moduleDir, run.ModuleSource))
-		if refuseErr := refuseRunSource(options, resolved, run); refuseErr != nil {
+		if refuseErr := refuseOutsideCheckout(
+			options, resolved, run.Rel, "run", run.Name, run.ModuleSource,
+		); refuseErr != nil {
 			return nil, refuseErr
 		}
 
@@ -560,12 +569,28 @@ func queueRunBlockRetargets(
 	return queue, nil
 }
 
-// refuseRunSource refuses a run-block retarget outside a known checkout root,
-// naming the declaring test file, the run and the source string.
-// nil means the retarget proceeds. The comparison resolves
+// refuseCallSource refuses an ordinary module call whose local source
+// resolves outside the checkout — the same boundary a run-block retarget
+// gets — naming the declaring file relative to the module directory, the
+// call and the resolved path.
+func refuseCallSource(options Options, moduleDir string, call ModuleCall) error {
+	declaredIn, err := filepath.Rel(moduleDir, call.File)
+	if err != nil {
+		return fmt.Errorf("resolving module path: %w", err)
+	}
+
+	return refuseOutsideCheckout(
+		options, call.Dir, filepath.ToSlash(declaredIn), "module", call.Name, call.Source,
+	)
+}
+
+// refuseOutsideCheckout refuses a local module source that resolves outside a
+// known checkout root, naming the declaring file, the declaring construct and
+// the resolved path. nil means the reference proceeds. The comparison resolves
 // symlinks best-effort on both sides first, so a platform-level temporary
-// directory's alias cannot read as an escape.
-func refuseRunSource(options Options, resolved string, run RunBlock) error {
+// directory's alias cannot read as an escape. An empty root — Git unavailable
+// — leaves the boundary undefined, and every source proceeds.
+func refuseOutsideCheckout(options Options, resolved, file, kind, name, source string) error {
 	root := options.CheckoutRoot
 
 	if root != "" {
@@ -579,8 +604,8 @@ func refuseRunSource(options Options, resolved string, run RunBlock) error {
 
 		if !withinRoot(root, resolved) {
 			return fmt.Errorf(
-				"%w: %s declares run %q with module source %q, which resolves to %s: the closure leaves the checkout",
-				ErrParse, run.Rel, run.Name, run.ModuleSource, resolved,
+				"%w: %s declares %s %q with module source %q, which resolves to %s: the closure leaves the checkout",
+				ErrParse, file, kind, name, source, resolved,
 			)
 		}
 	}

@@ -594,8 +594,8 @@ func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 }
 
 // checkoutRoot returns the git work tree containing dir, or the empty string
-// when an ordinary git lookup fails. Without a root, discovery leaves the run-block
-// checkout check disabled.
+// when an ordinary git lookup fails. Without a root, discovery disables its
+// local-source checkout boundary.
 func checkoutRoot(ctx context.Context, dir string) (string, error) {
 	root, err := gitRun(ctx, dir, "rev-parse", "--show-toplevel")
 	if errors.Is(err, errGitDeadline) {

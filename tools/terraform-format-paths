@@ -102,6 +102,14 @@ internal/engine/testdata/mocked-null/tests/unit.tftest.hcl
 internal/engine/testdata/module-wiring/child/main.tf
 internal/engine/testdata/module-wiring/main.tf
 internal/engine/testdata/module-wiring/tests/main.tftest.hcl
+internal/engine/testdata/modulecall-inside/child/main.tf
+internal/engine/testdata/modulecall-inside/main.tf
+internal/engine/testdata/modulecall-inside/tests/unit.tftest.hcl
+internal/engine/testdata/modulecall-outside-json/main.tf
+internal/engine/testdata/modulecall-outside-json/tests/unit.tftest.hcl
+internal/engine/testdata/modulecall-outside/main.tf
+internal/engine/testdata/modulecall-outside/tests/unit.tftest.hcl
+internal/engine/testdata/modulecall-registry/main.tf
 internal/engine/testdata/mutant-volatile/main.tf
 internal/engine/testdata/mutant-volatile/tests/unit.tftest.hcl
 internal/engine/testdata/no-optional-arguments/main.tf
