@@ -104,10 +104,11 @@ Parse every `.tf` with `hclsyntax` (accurate AST plus source ranges) and open a 
 mocked-provider inventory, and the assertion inventory. Excludes `.terraform/`, `.gitignore`d
 paths and vendored modules.
 
-When Git supplies a checkout root, a run block's local module source must resolve inside
-that work tree. Sibling modules reached through `..` remain allowed within it. A refusal
-names the declaring test file, run block, source string and resolved target. If the Git
-lookup fails for an ordinary reason, this run-block boundary check is disabled. For
+When Git supplies a checkout root, a run block's or an ordinary module call's local module
+source must resolve inside that work tree, in HCL and JSON configuration alike. Sibling
+modules reached through `..` remain allowed within it. A refusal names the declaring file,
+the run block or module call, the source string and the resolved target. If the Git lookup
+fails for an ordinary reason, this boundary check is disabled. For
 deadline failures, see [deadline behaviour](../../README.md#using-it).
 
 ### Baseline
