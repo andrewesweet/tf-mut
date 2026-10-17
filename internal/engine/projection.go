@@ -567,17 +567,9 @@ func staticallyUnobservable(graph *discovery.Graph, mutant mutation.Mutant) bool
 	return !cone.ContainsObservable()
 }
 
-// suiteSuppliedDefault applies the suite-supplied half of the static
-// shortcut (F10, #253). When every selected run that evaluates the module
-// under test assigns a root variable explicitly, the variable's declared
-// default is never read, so a VAR-DEFAULT mutant of it cannot reach a plan or
-// state and is Unobservable without executing. The claim is the test-file
-// inventory's: discovery fails it closed on every source the test files
-// cannot see — an omitting run, a JSON-declared run, an automatically loaded
-// variable file, a TF_VAR_ environment entry, a selection nothing matches —
-// and the engine adds the guard the graph claim cannot make for it: the site
-// must be a root-module variable's default. A non-root variable's value
-// comes from its module call's input, which the inventory does not carry.
+// suiteSuppliedDefault applies discovery's suite-supplied proof only to a
+// root-module variable's default. A non-root variable's value comes from its
+// module call's input, which the test-file inventory does not carry.
 func suiteSuppliedDefault(
 	configuration discovery.Configuration,
 	settings settings,

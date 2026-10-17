@@ -17,25 +17,10 @@ import (
 // module under test assigns the named root-module variable explicitly, so its
 // declared default is never read.
 //
-// This is the inventory behind the suite-supplied static Unobservable
-// classification (F10, #253): a default nothing reads cannot reach a plan or
-// state, and the test files alone decide that. The claim quantifies only over
-// the runs the current selection executes, and every source the test files
-// cannot see fails it closed:
-//
-//   - a run that omits the variable could read the default;
-//   - a JSON-declared run's variable assignments are not decoded, the same
-//     conservatism the multiplicity evaluator holds;
-//   - a variable the root module does not declare has no claim here at all —
-//     a child module's value comes from its module call's input, which the
-//     test files do not carry;
-//   - an automatically loaded variable file — terraform.tfvars,
-//     terraform.tfvars.json, *.auto.tfvars, *.auto.tfvars.json — is a source
-//     the test files do not describe;
-//   - any TF_VAR_ environment entry, the caller's ambient or the run's own,
-//     is a source the test files do not describe;
-//   - a selection that matches no test file, or a module under test no
-//     selected run evaluates, leaves nothing to prove the claim over.
+// This inventory proves that the default cannot reach a plan or state. External
+// inputs and unsupported run shapes fail the claim closed; the classification
+// contract and its guards are documented in docs/design/mutation-operators.md,
+// Tier 3, "Suite-supplied defaults".
 func (c Configuration) SuiteSuppliedVariable(env, selection []string, name string, site Site) bool {
 	root, found := c.ModuleByRel(c.RootRelative())
 	if !found {
