@@ -34,6 +34,7 @@ const (
 	suggestCountZeroFixture       = "suggest-count-zero"
 	suggestCollapseCarrierFixture = "suggest-collapse-carrier"
 	suggestEmptyCollectionFixture = "suggest-empty-collection"
+	suggestOutputMetadataFixture  = "suggest-output-metadata"
 	secretValue                   = "s3cret-value"
 	unitTestFile                  = "tests/unit.tftest.hcl"
 )
@@ -439,6 +440,78 @@ func TestEverySkippedStatusCarriesNoPatchAndAReason(t *testing.T) {
 				assertPresenceRules(t, suggestion)
 			}
 		})
+	}
+}
+
+// TestAnOutputMetadataOnlyDeltaIsSkippedAsOutputMetadata is the D6b
+// reproduction: a mutant that flips an output's sensitive flag changes only
+// the output's sensitivity metadata, which no `terraform test` assertion
+// addresses, so the suggestion is an output-metadata skip with its own
+// reason rather than a generic unaddressable one.
+func TestAnOutputMetadataOnlyDeltaIsSkippedAsOutputMetadata(t *testing.T) {
+	t.Parallel()
+
+	result := runSuggest(t, dryRunRequest(t, copyFixture(t, suggestOutputMetadataFixture)))
+
+	operators := mutantOperators(result)
+
+	found := false
+	for _, suggestion := range result.Suggestions {
+		if operators[suggestion.MutantID] != "OUT-SENSITIVE-FLIP" {
+			continue
+		}
+
+		found = true
+
+		if string(suggestion.Status) != "skipped-output-metadata" {
+			t.Fatalf("sensitive-flag survivor is %s, want skipped-output-metadata: %s",
+				suggestion.Status, suggestion.StatusReason)
+		}
+
+		if !suggestion.Status.Skipped() {
+			t.Fatalf("status %s does not report as skipped", suggestion.Status)
+		}
+
+		assertPresenceRules(t, suggestion)
+	}
+
+	if !found {
+		t.Fatalf("the sensitive-flag survivor received no suggestion: %s",
+			statusSummary(result.Suggestions))
+	}
+}
+
+// TestAValueDeltaOutranksAnOutputsTypeMetadata pins the D6b preference: the
+// key-drop mutant changes the object value and rewrites the output's type
+// descriptor with it, so the suggestion asserts on the value.
+func TestAValueDeltaOutranksAnOutputsTypeMetadata(t *testing.T) {
+	t.Parallel()
+
+	result := runSuggest(t, dryRunRequest(t, copyFixture(t, suggestOutputMetadataFixture)))
+
+	operators := mutantOperators(result)
+
+	found := false
+	for _, suggestion := range result.Suggestions {
+		if operators[suggestion.MutantID] != "COLL-DROP-ENTRY" {
+			continue
+		}
+
+		found = true
+
+		if suggestion.Status != report.SuggestionCandidate {
+			t.Fatalf("key-drop survivor is %s, want a candidate: %s",
+				suggestion.Status, suggestion.StatusReason)
+		}
+
+		if suggestion.Expression != `try(output.config.name, null) == "app"` {
+			t.Fatalf("expression = %q, want the output value assertion", suggestion.Expression)
+		}
+	}
+
+	if !found {
+		t.Fatalf("the key-drop survivor received no suggestion: %s",
+			statusSummary(result.Suggestions))
 	}
 }
 
