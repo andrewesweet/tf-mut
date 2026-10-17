@@ -10,13 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
-	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
@@ -41,7 +39,7 @@ import (
 // protects this upgrade boundary. An older-format entry is a miss, not an
 // error. Selected verdicts are recomputed under the current execution and
 // oracle rules (TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError).
-const cacheFormatVersion = "tf-mut-cache-11"
+const cacheFormatVersion = "tf-mut-cache-6"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
@@ -203,18 +201,13 @@ func cacheKey(
 	settings settings, prepared warmWorkspace,
 	terraform tfexec.Version,
 ) (string, cacheManifest, error) {
-	baseline, err := cacheBaselineFingerprint(configuration, prepared)
-	if err != nil {
-		return "", cacheManifest{}, err
-	}
-
 	recorder := &keyRecorder{overall: sha256.New(), environment: sha256.New(), components: map[string]hash.Hash{}}
 	write := recorder.write
 
 	write("format", "", cacheFormatVersion)
 	write("terraform", settings.TerraformBinary, terraform.Terraform)
 	write("platform", "", terraform.Platform)
-	write("baseline", "", baseline)
+	write("baseline", "", baselineFingerprint(prepared))
 	write("config", "", resolvedConfiguration(settings))
 
 	if err := writeClosure(write, configuration, settings, prepared, prepared.sources, nil); err != nil {
@@ -230,48 +223,6 @@ func cacheKey(
 		Components:    map[string]string{envComponent: hex.EncodeToString(recorder.environment.Sum(nil))},
 		Env:           envDigestMap(settings),
 	}, nil
-}
-
-func cacheBaselineFingerprint(configuration discovery.Configuration, prepared warmWorkspace) (string, error) {
-	rel, err := filepath.Rel(configuration.ModuleDir, configuration.ClosureRoot)
-	if err != nil {
-		return "", err
-	}
-
-	warmRoot, err := filepath.Abs(filepath.Join(prepared.moduleDir, rel))
-	if err != nil {
-		return "", err
-	}
-
-	warmRoot, err = filepath.EvalSymlinks(warmRoot)
-	if err != nil {
-		return "", err
-	}
-
-	invocationRoot := filepath.Dir(warmRoot)
-	quotedInvocation := strconv.Quote(invocationRoot)
-	escapedInvocation := quotedInvocation[1 : len(quotedInvocation)-1]
-	quotedEscapedInvocation := strconv.Quote(escapedInvocation)
-	const invocationMarker = "\x00tf-mut-invocation"
-	normalise := strings.NewReplacer(
-		quotedEscapedInvocation[1:len(quotedEscapedInvocation)-1], invocationMarker,
-		escapedInvocation, invocationMarker,
-		invocationRoot, invocationMarker,
-	)
-	masked := maskedBaseline(prepared)
-
-	for index, payload := range masked {
-		normalised := make(map[string]string, len(payload.Values))
-		for path, value := range payload.Values {
-			normalised[normalise.Replace(path)] = normalise.Replace(value)
-		}
-
-		masked[index].Values = normalised
-	}
-
-	parent := filepath.Dir(invocationRoot)
-
-	return hashBytes([]byte(parent + "\x00" + fingerprint.Fingerprint(masked))), nil
 }
 
 // logCacheKey records the run key beside each of its component digests at

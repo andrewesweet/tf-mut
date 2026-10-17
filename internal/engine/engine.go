@@ -1178,10 +1178,6 @@ func countAssertions(configuration discovery.Configuration) int {
 // baselineFingerprint composes the unmutated suite's masked fingerprint, which
 // is what every mutant is compared against.
 func baselineFingerprint(prepared warmWorkspace) string {
-	return fingerprint.Fingerprint(maskedBaseline(prepared))
-}
-
-func maskedBaseline(prepared warmWorkspace) []fingerprint.Payload {
 	masked := make([]fingerprint.Payload, 0, len(prepared.payloads))
 
 	for _, payload := range prepared.payloads {
@@ -1189,5 +1185,5 @@ func maskedBaseline(prepared warmWorkspace) []fingerprint.Payload {
 		masked = append(masked, projected)
 	}
 
-	return masked
+	return fingerprint.Fingerprint(masked)
 }
