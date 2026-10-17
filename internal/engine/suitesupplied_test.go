@@ -1,0 +1,283 @@
+package engine_test
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/andrewesweet/tf-mut/internal/engine"
+	"github.com/andrewesweet/tf-mut/internal/report"
+)
+
+// F10 (#253): the suite-supplied half of the static Unobservable
+// classification. When every run in the selected suite that evaluates the
+// module under test assigns a root variable explicitly, the variable's
+// declared default is never read, so a VAR-DEFAULT mutant of it is
+// Unobservable — decided from the test-file inventory before anything
+// executes. Where the claim is not provable from the test files, the mutant
+// executes exactly as it always has.
+
+// defaultMutantsAt returns the VAR-DEFAULT mutants at one variable site.
+func defaultMutantsAt(t *testing.T, result report.Report, module, site string) []report.Mutant {
+	t.Helper()
+
+	found := []report.Mutant{}
+
+	for _, mutant := range result.Mutants {
+		if mutant.Module == module && mutant.Site == site && strings.HasPrefix(mutant.Operator, "VAR-DEFAULT-") {
+			found = append(found, mutant)
+		}
+	}
+
+	if len(found) == 0 {
+		t.Fatalf("no VAR-DEFAULT mutant at %s in %s; the fixture lost its point", site, module)
+	}
+
+	return found
+}
+
+// TestEverySelectedRunSettingTheVariableClassifiesTheDefaultUnobservable is
+// the F10 case itself: the setup run retargets another module and both
+// consumers set `instance` from the setup run's output, so no run that
+// evaluates the module under test can read the declared default.
+func TestEverySelectedRunSettingTheVariableClassifiesTheDefaultUnobservable(t *testing.T) {
+	t.Parallel()
+
+	result, err := engine.Run(t.Context(), baseConfig(t, copyFixture(t, "suite-supplied-var")))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	for _, mutant := range defaultMutantsAt(t, result, ".", "var.instance.default") {
+		if mutant.State != report.Unobservable {
+			t.Errorf("mutant %s (%s): state %s, want %s — every run that evaluates the "+
+				"module under test sets instance, so the default is never read",
+				mutant.ID, mutant.Operator, mutant.State, report.Unobservable)
+		}
+
+		if mutant.ExecutedRuns != 0 {
+			t.Errorf("mutant %s (%s): executed %d runs; the classification is static",
+				mutant.ID, mutant.Operator, mutant.ExecutedRuns)
+		}
+
+		if mutant.Verdict == nil {
+			t.Errorf("mutant %s (%s): the verdict must name the variable and the claim",
+				mutant.ID, mutant.Operator)
+
+			continue
+		}
+
+		if !strings.Contains(mutant.Verdict.Message, "var.instance") {
+			t.Errorf("mutant %s (%s): verdict message %q does not name the variable",
+				mutant.ID, mutant.Operator, mutant.Verdict.Message)
+		}
+
+		if !strings.Contains(mutant.Verdict.Message, "every selected run") {
+			t.Errorf("mutant %s (%s): verdict message %q does not state the claim",
+				mutant.ID, mutant.Operator, mutant.Verdict.Message)
+		}
+	}
+}
+
+// TestFileLevelVariablesReachEveryRunClassifiesTheDefaultUnobservable: a
+// file-level variables block reaches every run in that file, so the claim
+// holds for a suite that never mentions the variable inside a run block.
+func TestFileLevelVariablesReachEveryRunClassifiesTheDefaultUnobservable(t *testing.T) {
+	t.Parallel()
+
+	result, err := engine.Run(t.Context(), baseConfig(t, copyFixture(t, "suite-supplied-var-filelevel")))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	for _, mutant := range defaultMutantsAt(t, result, ".", "var.instance.default") {
+		if mutant.State != report.Unobservable || mutant.ExecutedRuns != 0 {
+			t.Errorf("mutant %s (%s): state %s after %d runs; the file-level variables block "+
+				"supplies every run, so the default is statically unreachable",
+				mutant.ID, mutant.Operator, mutant.State, mutant.ExecutedRuns)
+		}
+	}
+}
+
+// TestARunOmittingTheVariableKeepsExecution pins the conservative direction:
+// one run that evaluates the module under test omits `instance`, so that run
+// reads the declared default and the mutants execute as they always have.
+func TestARunOmittingTheVariableKeepsExecution(t *testing.T) {
+	t.Parallel()
+
+	result, err := engine.Run(t.Context(), baseConfig(t, copyFixture(t, "suite-supplied-var-omitted")))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	for _, mutant := range defaultMutantsAt(t, result, ".", "var.instance.default") {
+		if mutant.State == report.Unobservable {
+			t.Errorf("mutant %s (%s): classified Unobservable although the omitter reads the default",
+				mutant.ID, mutant.Operator)
+		}
+
+		if mutant.ExecutedRuns == 0 {
+			t.Errorf("mutant %s (%s): did not execute; a run the claim cannot prove over must run",
+				mutant.ID, mutant.Operator)
+		}
+	}
+}
+
+// TestAChildModuleVariableKeepsExecution pins the non-root direction: the
+// child's own default is genuinely never read — the call forwards the supplied
+// root variable — but a module call's input is outside the test-file
+// inventory, so the child's mutants execute as they always have. The root
+// variable itself is classified.
+func TestAChildModuleVariableKeepsExecution(t *testing.T) {
+	t.Parallel()
+
+	result, err := engine.Run(t.Context(), baseConfig(t, copyFixture(t, "suite-supplied-var-child")))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	for _, mutant := range defaultMutantsAt(t, result, ".", "var.instance.default") {
+		if mutant.State != report.Unobservable || mutant.ExecutedRuns != 0 {
+			t.Errorf("mutant %s (%s): root state %s after %d runs; every run sets the root variable",
+				mutant.ID, mutant.Operator, mutant.State, mutant.ExecutedRuns)
+		}
+	}
+
+	for _, mutant := range defaultMutantsAt(t, result, "child", "var.instance.default") {
+		if mutant.State == report.Unobservable {
+			t.Errorf("mutant %s (%s): the child variable is not a root-module variable; "+
+				"the inventory cannot see the call's input", mutant.ID, mutant.Operator)
+		}
+
+		if mutant.ExecutedRuns == 0 {
+			t.Errorf("mutant %s (%s): did not execute; a variable outside the root module must run",
+				mutant.ID, mutant.Operator)
+		}
+	}
+}
+
+// TestTheSelectedSuiteDecidesTheClassification pins the selection contract:
+// the rule quantifies over the runs the current filter selects, so the same
+// module classifies Unobservable under a selection whose every run sets the
+// variable and executes under the selection whose run omits it.
+func TestTheSelectedSuiteDecidesTheClassification(t *testing.T) {
+	t.Parallel()
+
+	setting := baseConfig(t, copyFixture(t, "suite-supplied-var-selected"))
+	setting.TestSelection = []string{"tests/good.tftest.hcl"}
+
+	selected, err := engine.Run(t.Context(), setting)
+	if err != nil {
+		t.Fatalf("selected run: %v", err)
+	}
+
+	for _, mutant := range defaultMutantsAt(t, selected, ".", "var.instance.default") {
+		if mutant.State != report.Unobservable || mutant.ExecutedRuns != 0 {
+			t.Errorf("mutant %s (%s): state %s after %d runs under the selection whose "+
+				"every run sets the variable", mutant.ID, mutant.Operator, mutant.State, mutant.ExecutedRuns)
+		}
+	}
+
+	omitting := baseConfig(t, copyFixture(t, "suite-supplied-var-selected"))
+	omitting.TestSelection = []string{"tests/omitting.tftest.hcl"}
+
+	omitted, err := engine.Run(t.Context(), omitting)
+	if err != nil {
+		t.Fatalf("omitting run: %v", err)
+	}
+
+	for _, mutant := range defaultMutantsAt(t, omitted, ".", "var.instance.default") {
+		if mutant.State == report.Unobservable || mutant.ExecutedRuns == 0 {
+			t.Errorf("mutant %s (%s): state %s after %d runs under the selection whose run "+
+				"omits the variable; it must execute", mutant.ID, mutant.Operator, mutant.State, mutant.ExecutedRuns)
+		}
+	}
+
+	unselected, err := engine.Run(t.Context(), baseConfig(t, copyFixture(t, "suite-supplied-var-selected")))
+	if err != nil {
+		t.Fatalf("unselected run: %v", err)
+	}
+
+	for _, mutant := range defaultMutantsAt(t, unselected, ".", "var.instance.default") {
+		if mutant.State == report.Unobservable || mutant.ExecutedRuns == 0 {
+			t.Errorf("mutant %s (%s): state %s after %d runs unselected; the omitter reads the "+
+				"default, so the whole suite must execute", mutant.ID, mutant.Operator, mutant.State, mutant.ExecutedRuns)
+		}
+	}
+}
+
+// TestAnAutomaticallyLoadedVariableFileKeepsExecution pins the unseen-source
+// conservatism: an automatically loaded variable file is a source the
+// test-file inventory does not see, so the classification stays silent even
+// though every run also sets the variable in the test files.
+func TestAnAutomaticallyLoadedVariableFileKeepsExecution(t *testing.T) {
+	t.Parallel()
+
+	result, err := engine.Run(t.Context(), baseConfig(t, copyFixture(t, "suite-supplied-var-tfvars")))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	for _, mutant := range defaultMutantsAt(t, result, ".", "var.instance.default") {
+		if mutant.State == report.Unobservable {
+			t.Errorf("mutant %s (%s): classified Unobservable although an automatically "+
+				"loaded variable file is present", mutant.ID, mutant.Operator)
+		}
+
+		if mutant.ExecutedRuns == 0 {
+			t.Errorf("mutant %s (%s): did not execute; an unseen source must keep execution",
+				mutant.ID, mutant.Operator)
+		}
+	}
+}
+
+// TestAVariableEnvironmentOverrideKeepsExecution pins the same conservatism
+// for TF_VAR_: an environment override is a source the test-file inventory
+// does not see, so the classification stays silent.
+func TestAVariableEnvironmentOverrideKeepsExecution(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "suite-supplied-var")
+
+	config := baseConfig(t, module)
+	config.Env = append(config.Env, "TF_VAR_instance=ambient")
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	for _, mutant := range defaultMutantsAt(t, result, ".", "var.instance.default") {
+		if mutant.State == report.Unobservable {
+			t.Errorf("mutant %s (%s): classified Unobservable although TF_VAR_instance is set",
+				mutant.ID, mutant.Operator)
+		}
+
+		if mutant.ExecutedRuns == 0 {
+			t.Errorf("mutant %s (%s): did not execute; an environment override must keep execution",
+				mutant.ID, mutant.Operator)
+		}
+	}
+}
+
+// TestStaticShortcutsOffExecuteTheSuiteSuppliedDefault: the suite-supplied
+// classification is a static shortcut, so disabling the shortcuts executes
+// the mutants exactly as before the classification existed.
+//
+//nolint:paralleltest // owns package-global static-shortcut hook for its lifetime.
+func TestStaticShortcutsOffExecuteTheSuiteSuppliedDefault(t *testing.T) {
+	module := copyFixture(t, "suite-supplied-var")
+
+	engine.SetStaticShortcutsDisabled(t, module)
+
+	result, err := engine.Run(t.Context(), baseConfig(t, module))
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	for _, mutant := range defaultMutantsAt(t, result, ".", "var.instance.default") {
+		if mutant.State == report.Unobservable || mutant.ExecutedRuns == 0 {
+			t.Errorf("mutant %s (%s): state %s after %d runs with the shortcuts disabled; "+
+				"the mutants must execute", mutant.ID, mutant.Operator, mutant.State, mutant.ExecutedRuns)
+		}
+	}
+}
