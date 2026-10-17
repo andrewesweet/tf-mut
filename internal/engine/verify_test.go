@@ -415,18 +415,24 @@ func TestCollapsedVerificationPreservesKillsAcrossExecutionFailures(t *testing.T
 				t.Fatalf("completed kills were lost or an incomplete leg proved a kill: %+v", suggestion)
 			}
 
-			for index, id := range listed {
-				wantOutcome := "mutant " + id + " failed the suggested assertion"
-				if failedIndex < 0 || index == failedIndex {
-					wantOutcome = "mutant " + id + ": the isolated mutant leg could not be executed: " +
-						"the verification suite did not finish within its budget"
-				}
-
-				if !strings.Contains(leg.Detail, wantOutcome) {
-					t.Fatalf("missing member outcome %q in %q", wantOutcome, leg.Detail)
-				}
-			}
+			assertCollapsedMutantOutcomes(t, leg.Detail, listed, failedIndex)
 		})
+	}
+}
+
+func assertCollapsedMutantOutcomes(t *testing.T, detail string, listed []string, failedIndex int) {
+	t.Helper()
+
+	for index, id := range listed {
+		wantOutcome := "mutant " + id + " failed the suggested assertion"
+		if failedIndex < 0 || index == failedIndex {
+			wantOutcome = "mutant " + id + ": the isolated mutant leg could not be executed: " +
+				"the verification suite did not finish within its budget"
+		}
+
+		if !strings.Contains(detail, wantOutcome) {
+			t.Fatalf("missing member outcome %q in %q", wantOutcome, detail)
+		}
 	}
 }
 

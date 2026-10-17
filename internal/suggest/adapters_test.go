@@ -8,11 +8,11 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/ext/tryfunc"
-	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	"github.com/zclconf/go-cty/cty/function/stdlib"
 
+	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
@@ -730,6 +730,8 @@ func TestAbsenceTolerantFormsFailRatherThanError(t *testing.T) {
 func TestEmptyCollectionAssertionsEvaluateAbsenceAsFalse(t *testing.T) {
 	t.Parallel()
 
+	const labelsAttribute = "labels"
+
 	for name, test := range map[string]struct {
 		baseline string
 		empty    cty.Value
@@ -752,17 +754,17 @@ func TestEmptyCollectionAssertionsEvaluateAbsenceAsFalse(t *testing.T) {
 					t.Fatalf("rendering: %v", err)
 				}
 
-				parsed, diagnostics := hclsyntax.ParseExpression([]byte(expression), "assertion.tftest.hcl", hcl.InitialPos)
+				parsed, diagnostics := discovery.ParseExpression([]byte(expression), "assertion.tftest.hcl", hcl.InitialPos)
 				if diagnostics.HasErrors() {
 					t.Fatalf("parsing %q: %s", expression, diagnostics)
 				}
 
 				for state, settings := range map[string]cty.Value{
-					"empty":            cty.ObjectVal(map[string]cty.Value{"labels": test.empty}),
-					"nonempty":         cty.ObjectVal(map[string]cty.Value{"labels": test.full}),
-					"null member":      cty.ObjectVal(map[string]cty.Value{"labels": cty.NullVal(test.empty.Type())}),
+					"empty":            cty.ObjectVal(map[string]cty.Value{labelsAttribute: test.empty}),
+					"nonempty":         cty.ObjectVal(map[string]cty.Value{labelsAttribute: test.full}),
+					"null member":      cty.ObjectVal(map[string]cty.Value{labelsAttribute: cty.NullVal(test.empty.Type())}),
 					"missing member":   cty.EmptyObjectVal,
-					"missing ancestor": cty.NullVal(cty.Object(map[string]cty.Type{"labels": test.empty.Type()})),
+					"missing ancestor": cty.NullVal(cty.Object(map[string]cty.Type{labelsAttribute: test.empty.Type()})),
 				} {
 					value, diagnostics := parsed.Value(&hcl.EvalContext{
 						Variables: map[string]cty.Value{
@@ -782,6 +784,12 @@ func TestEmptyCollectionAssertionsEvaluateAbsenceAsFalse(t *testing.T) {
 func TestKeyedAssertionsFailWhenTheirInstanceDisappears(t *testing.T) {
 	t.Parallel()
 
+	const (
+		triggersAttribute = "triggers"
+		instanceKey       = "blue"
+		mapStringType     = `["map","string"]`
+	)
+
 	keyed := cty.MapVal(map[string]cty.Value{"app.io/x": cty.StringVal("steady")})
 	for name, test := range map[string]struct {
 		path      string
@@ -795,11 +803,11 @@ func TestKeyedAssertionsFailWhenTheirInstanceDisappears(t *testing.T) {
 		},
 		"continued equality": {
 			path:      statePrefix + `example_thing.app["blue"]].values.triggers.app.io/x`,
-			valueType: `["map","string"]`, value: keyed,
+			valueType: mapStringType, value: keyed,
 		},
 		"non-null": {
 			path: statePrefix + `example_thing.app["blue"]].values.triggers.app.io/x`, mutant: nulledValue,
-			valueType: `["map","string"]`, value: keyed,
+			valueType: mapStringType, value: keyed,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -807,27 +815,27 @@ func TestKeyedAssertionsFailWhenTheirInstanceDisappears(t *testing.T) {
 
 			change := changeAt(test.path, steadyBaseline)
 			change.Mutant = test.mutant
-			expression, err := suggest.Express(schemaTyping("triggers", test.valueType), suggest.Evidence{}, change)
+			expression, err := suggest.Express(schemaTyping(triggersAttribute, test.valueType), suggest.Evidence{}, change)
 			if err != nil {
 				t.Fatalf("rendering: %v", err)
 			}
 
-			parsed, diagnostics := hclsyntax.ParseExpression([]byte(expression), "assertion.tftest.hcl", hcl.InitialPos)
+			parsed, diagnostics := discovery.ParseExpression([]byte(expression), "assertion.tftest.hcl", hcl.InitialPos)
 			if diagnostics.HasErrors() {
 				t.Fatalf("parsing %q: %s", expression, diagnostics)
 			}
 
-			present := cty.ObjectVal(map[string]cty.Value{"triggers": test.value})
+			present := cty.ObjectVal(map[string]cty.Value{triggersAttribute: test.value})
 			states := map[string]cty.Value{
-				"present": cty.MapVal(map[string]cty.Value{"blue": present}),
-				"null attribute": cty.MapVal(map[string]cty.Value{"blue": cty.ObjectVal(map[string]cty.Value{
-					"triggers": cty.NullVal(test.value.Type()),
+				"present": cty.MapVal(map[string]cty.Value{instanceKey: present}),
+				"null attribute": cty.MapVal(map[string]cty.Value{instanceKey: cty.ObjectVal(map[string]cty.Value{
+					triggersAttribute: cty.NullVal(test.value.Type()),
 				})}),
 				"missing instance": cty.MapValEmpty(present.Type()),
 			}
 			if test.value.Type().IsMapType() {
-				states["missing key"] = cty.MapVal(map[string]cty.Value{"blue": cty.ObjectVal(map[string]cty.Value{
-					"triggers": cty.MapValEmpty(cty.String),
+				states["missing key"] = cty.MapVal(map[string]cty.Value{instanceKey: cty.ObjectVal(map[string]cty.Value{
+					triggersAttribute: cty.MapValEmpty(cty.String),
 				})})
 			}
 
