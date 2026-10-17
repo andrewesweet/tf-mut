@@ -7,8 +7,8 @@
 package report
 
 // SchemaVersion is the version of the machine-readable report schema.
-// See docs/schema/report-2.14.0.json for the versioned consumer contract.
-const SchemaVersion = "2.14.0"
+// See docs/schema/report-2.15.0.json for the versioned consumer contract.
+const SchemaVersion = "2.15.0"
 
 // Command names what produced a report.
 type Command string
@@ -145,8 +145,7 @@ type Change struct {
 	Baseline string `json:"baseline"`
 	Mutant   string `json:"mutant"`
 	// Sensitive reports that Terraform marks this value — or an ancestor of it
-	// — sensitive (2.2.0). Retention is not permission to render: it is what
-	// the suggestion engine's sensitivity predicate is decided from.
+	// — sensitive (2.2.0). Retention is not permission to render the value.
 	Sensitive bool `json:"sensitive,omitempty"`
 }
 

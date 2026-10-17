@@ -190,11 +190,8 @@ func projectDelta(changes []fingerprint.Change) []report.Change {
 			// one thing a report must not carry, because every reporter — the
 			// JSON document, the SARIF artefact, the job step summary — would
 			// carry it too.
-			Baseline: withheld(change.Sensitive, change.Baseline),
-			Mutant:   withheld(change.Sensitive, change.Mutant),
-			// Carried through deliberately: the suggestion engine's
-			// sensitivity predicate is decided from this flag, and dropping it
-			// here would let a secret reach a generated expression.
+			Baseline:  withheld(change.Sensitive, change.Baseline),
+			Mutant:    withheld(change.Sensitive, change.Mutant),
 			Sensitive: change.Sensitive,
 		})
 	}
@@ -320,6 +317,8 @@ func projectSkipReason(reason suggest.SkipReason) report.SuggestionStatus {
 		return report.SuggestionSkippedUnrenderable
 	case suggest.SkipUnsupportedTarget:
 		return report.SuggestionSkippedUnsupportedTarget
+	case suggest.SkipOutputMetadata:
+		return report.SuggestionSkippedOutputMetadata
 	}
 
 	return ""

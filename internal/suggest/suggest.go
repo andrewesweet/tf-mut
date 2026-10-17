@@ -172,11 +172,6 @@ func collapse(candidates []Candidate) []Candidate {
 
 // seed rewrites a candidate into the named deliberately wrong assertion.
 func (g Generator) seed(survivor Survivor, candidate Candidate) generatedFile {
-	target, found := g.placement(survivor.delta)
-	if !found {
-		return generatedFile{candidate: &candidate}
-	}
-
 	// Terraform refuses a constant condition ("must refer to at least one
 	// object"), so the vacuous defect is a tautology over the real reference:
 	// always true, and only the isolated mutant leg can see it kills nothing.
@@ -192,7 +187,13 @@ func (g Generator) seed(survivor Survivor, candidate Candidate) generatedFile {
 		expression = address + ` == "` + SeededWrongValue + `"`
 	}
 
-	return build(survivor, target, expression)
+	for _, target := range g.Configuration.Tests.Runs {
+		if target.Rel == candidate.TargetFile() && target.Name == candidate.TargetRun() {
+			return build(survivor, target, expression)
+		}
+	}
+
+	return generatedFile{candidate: &candidate}
 }
 
 // partsOfAnEquality is the operand count of the equality the generator writes.
@@ -200,13 +201,61 @@ const partsOfAnEquality = 2
 
 // generateOne produces the suggestion for one survivor.
 func (g Generator) generateOne(survivor Survivor) generatedFile {
-	delta := survivor.delta
-	if len(delta) == 0 {
-		return generatedFile{}
+	var value, metadata []fingerprint.Change
+	for _, change := range survivor.delta {
+		if fingerprint.ParsePath(change.Path).IsOutputMetadata() {
+			metadata = append(metadata, change)
+		} else {
+			value = append(value, change)
+		}
 	}
 
-	target, found := g.placement(delta)
-	if !found {
+	for _, changes := range [][]fingerprint.Change{value, metadata} {
+		first := generatedFile{}
+		for _, target := range g.Configuration.Tests.Runs {
+			out := g.suggestFor(survivor, target, changes)
+			if out.candidate != nil {
+				return out
+			}
+
+			if first.skip == nil || (out.skip != nil &&
+				first.skip.skip != SkipSensitive && out.skip.skip == SkipSensitive) {
+				first = out
+			}
+		}
+
+		if first.skip != nil {
+			return first
+		}
+	}
+
+	return generatedFile{}
+}
+
+// runKey is the payload key of a run block: the module-relative test file and
+// the run name, which is how a delta names the run that carried it.
+func runKey(run discovery.RunBlock) string {
+	return run.Rel + "::" + run.Name
+}
+
+// suggestFor walks the supplied changes within one target run. If none is
+// admitted, a sensitivity refusal takes precedence over the metadata-only
+// limit and the first adapter refusal.
+func (g Generator) suggestFor(
+	survivor Survivor,
+	target discovery.RunBlock,
+	changes []fingerprint.Change,
+) generatedFile {
+	renderer := render{schemas: g.Schemas}
+
+	carried := []fingerprint.Change{}
+	for _, change := range changes {
+		if change.Run == runKey(target) {
+			carried = append(carried, change)
+		}
+	}
+
+	if len(carried) == 0 {
 		return generatedFile{}
 	}
 
@@ -220,66 +269,14 @@ func (g Generator) generateOne(survivor Survivor) generatedFile {
 		return generatedFile{skip: &skip}
 	}
 
-	return g.suggestFor(survivor, target, delta)
-}
-
-// placement chooses the run the assertion is written into: the run whose
-// fingerprint carried the delta, and where several did, the first in
-// declaration order.
-func (g Generator) placement(changes []fingerprint.Change) (discovery.RunBlock, bool) {
-	carrying := map[string]bool{}
-	for _, change := range changes {
-		carrying[change.Run] = true
-	}
-
-	for _, run := range g.Configuration.Tests.Runs {
-		if carrying[runKey(run)] {
-			return run, true
+	neighbourhood := []fingerprint.Change{}
+	for _, change := range survivor.delta {
+		if change.Run == runKey(target) {
+			neighbourhood = append(neighbourhood, change)
 		}
 	}
 
-	return discovery.RunBlock{}, false // no run carried the delta.
-}
-
-// runKey is the payload key of a run block: the module-relative test file and
-// the run name, which is how a delta names the run that carried it.
-func runKey(run discovery.RunBlock) string {
-	return run.Rel + "::" + run.Name
-}
-
-// suggestFor walks the delta for the first change all three adapters admit,
-// and reports the first change's own refusal where none is admitted.
-//
-// An output record's metadata paths — its type descriptor, its sensitivity and
-// unknown markers — are walked last: they change whenever the value does, they
-// are never assertable, and otherwise the refusal they produce outranks the
-// value's own in the report.
-func (g Generator) suggestFor(
-	survivor Survivor,
-	target discovery.RunBlock,
-	changes []fingerprint.Change,
-) generatedFile {
-	renderer := render{schemas: g.Schemas}
-
-	var value, metadata []fingerprint.Change
-	carried := []fingerprint.Change{}
-	for _, change := range changes {
-		if change.Run != runKey(target) {
-			continue
-		}
-
-		carried = append(carried, change)
-
-		if fingerprint.ParsePath(change.Path).IsOutputMetadata() {
-			metadata = append(metadata, change)
-
-			continue
-		}
-
-		value = append(value, change)
-	}
-
-	evidence := NewEvidence(carried)
+	evidence := NewEvidence(neighbourhood)
 	for _, payload := range g.Baseline {
 		if payload.Key() == runKey(target) {
 			evidence.OutputTypes = payload.OutputTypes
@@ -287,30 +284,24 @@ func (g Generator) suggestFor(
 		}
 	}
 
-	for _, pass := range [][]fingerprint.Change{value, metadata} {
-		walked := walkChanges(renderer, evidence, pass)
-		if walked.admitted {
-			return build(survivor, target, walked.expression)
-		}
-
-		first := walked.first
-		if first == nil {
-			first = fmt.Errorf("%w: the delta carries no change in the target run", ErrUnaddressable)
-		}
-
-		if walked.sensitive != nil {
-			first = walked.sensitive
-		}
-
-		if len(pass) > 0 {
-			skip := Skipped(survivor.id, target.Rel, target.Name, reasonOf(first), first.Error())
-
-			return generatedFile{skip: &skip}
-		}
+	walked := walkChanges(renderer, evidence, carried)
+	if walked.admitted {
+		return build(survivor, target, walked.expression)
 	}
 
-	skip := Skipped(survivor.id, target.Rel, target.Name, SkipUnaddressable,
-		"the delta carries no change in the target run")
+	if walked.sensitive == nil && onlyOutputMetadata(survivor.delta) {
+		skip := Skipped(survivor.id, target.Rel, target.Name,
+			SkipOutputMetadata, outputMetadataDetail(carried))
+
+		return generatedFile{skip: &skip}
+	}
+
+	first := walked.first
+	if walked.sensitive != nil {
+		first = walked.sensitive
+	}
+
+	skip := Skipped(survivor.id, target.Rel, target.Name, reasonOf(first), first.Error())
 
 	return generatedFile{skip: &skip}
 }
@@ -535,6 +526,37 @@ func expressChange(renderer render, evidence Evidence, change fingerprint.Change
 // suggestion refused here carries the value in no artefact: no expression, no
 // patch, no error message, and nothing any reporter renders.
 var ErrSensitive = errors.New("the delta's value is sensitive")
+
+// onlyOutputMetadata reports whether every change names an output's type or
+// sensitivity metadata — the metadata no assertion addresses — rather than
+// an unknown marker, which is evidence about the comparison and keeps the
+// traversal refusal.
+func onlyOutputMetadata(changes []fingerprint.Change) bool {
+	if len(changes) == 0 {
+		return false
+	}
+
+	for _, change := range changes {
+		parsed := fingerprint.ParsePath(change.Path)
+		if !parsed.IsOutputMetadata() || parsed.IsUnknownMarker() {
+			return false
+		}
+	}
+
+	return true
+}
+
+// outputMetadataDetail states the metadata-only limit in the reader's terms:
+// the metadata paths the delta changed, with no value difference to assert.
+func outputMetadataDetail(changes []fingerprint.Change) string {
+	paths := make([]string, 0, len(changes))
+	for _, change := range changes {
+		paths = append(paths, change.Path)
+	}
+
+	return fmt.Sprintf("the delta changes only output metadata (%s), which no `terraform test` "+
+		"assertion addresses; no output value difference exists to assert", strings.Join(paths, ", "))
+}
 
 // reasonOf maps an adapter's refusal onto its own outcome reason.
 func reasonOf(err error) SkipReason {

@@ -167,6 +167,10 @@ func exerciseSuggestionStatuses(
 				constant: "SkipUnsupportedTarget", reason: suggest.SkipUnsupportedTarget,
 				want: report.SuggestionSkippedUnsupportedTarget,
 			},
+			{
+				constant: "SkipOutputMetadata", reason: suggest.SkipOutputMetadata,
+				want: report.SuggestionSkippedOutputMetadata,
+			},
 		},
 		func(reason suggest.SkipReason) report.SuggestionStatus {
 			projected := projectSuggestion(suggest.Skipped(

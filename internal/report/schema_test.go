@@ -14,7 +14,7 @@ import (
 )
 
 // schemaPath is the published contract the JSON reporter promises to keep.
-const schemaPath = "../../docs/schema/report-2.14.0.json"
+const schemaPath = "../../docs/schema/report-2.15.0.json"
 
 func TestPublishedSchemaMatchesTheReportersVersion(t *testing.T) {
 	t.Parallel()
@@ -52,6 +52,35 @@ func TestReportValidatesAgainstThePublishedSchema(t *testing.T) {
 
 	if problems := validate(loadSchema(t), loadSchema(t), document, "$"); len(problems) > 0 {
 		t.Fatalf("report does not validate against %s:\n  %s", schemaPath, strings.Join(problems, "\n  "))
+	}
+}
+
+// TestSchemaRejectsAnOutputMetadataSkipCarryingAPatch holds the presence
+// rule for the newest skip: a metadata skip carries no patch, like every
+// other skipped status, so a document carrying one with a patch is invalid
+// against the file it ships with.
+func TestSchemaRejectsAnOutputMetadataSkipCarryingAPatch(t *testing.T) {
+	t.Parallel()
+
+	withPatch := sampleReport()
+	for index, suggestion := range withPatch.Suggestions {
+		if suggestion.Status == report.SuggestionSkippedOutputMetadata {
+			withPatch.Suggestions[index].Patch = samplePatch
+		}
+	}
+
+	encoded, err := json.Marshal(withPatch)
+	if err != nil {
+		t.Fatalf("encoding report: %v", err)
+	}
+
+	document := any(nil)
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatalf("decoding report: %v", err)
+	}
+
+	if problems := validate(loadSchema(t), loadSchema(t), document, "$"); len(problems) == 0 {
+		t.Fatal("the schema accepted an output-metadata skip carrying a patch")
 	}
 }
 
@@ -377,10 +406,10 @@ func sampleReport() report.Report {
 }
 
 // decidedAndSkippedRows is the outcome table's row count.
-const decidedAndSkippedRows = 7
+const decidedAndSkippedRows = 8
 
 // sampleSuggestions covers every row of the outcome table: the three decided
-// statuses and all four skips, with the presence rules each row promises.
+// statuses and all five skips, with the presence rules each row promises.
 func sampleSuggestions() []report.Suggestion {
 	legs := &report.Verification{
 		Baseline: report.VerificationLeg{
@@ -429,6 +458,7 @@ func sampleSuggestions() []report.Suggestion {
 	for index, status := range []report.SuggestionStatus{
 		report.SuggestionSkippedSensitive, report.SuggestionSkippedUnaddressable,
 		report.SuggestionSkippedUnrenderable, report.SuggestionSkippedUnsupportedTarget,
+		report.SuggestionSkippedOutputMetadata,
 	} {
 		decided = append(decided, report.Suggestion{
 			ID: fmt.Sprintf("dddd0000%04d", index), MutantID: sampleMutantID,

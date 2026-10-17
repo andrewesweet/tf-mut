@@ -57,24 +57,37 @@ func TestVerifiedRequiresBothLegsAndCarriesTheirEvidence(t *testing.T) {
 //
 //nolint:paralleltest // owns package-global suggestion hook for its lifetime.
 func TestASeededWrongValueIsRefutedThroughTheBaselineLeg(t *testing.T) {
-	config := suggestRequest(t, copyFixture(t, suggestBasicFixture))
-	engine.SetSuggestionDefectSeed(t, config.ModuleDir, suggest.DefectWrongValue)
+	for _, fixture := range []string{suggestBasicFixture, suggestOutputLaterRunFixture} {
+		t.Run(fixture, func(t *testing.T) {
+			config := suggestRequest(t, copyFixture(t, fixture))
+			if fixture == suggestOutputLaterRunFixture {
+				config.Tier = standardTier
+				config.IncludeOperators = []string{"COND-TRUE"}
+			}
 
-	result := runSuggest(t, config)
+			engine.SetSuggestionDefectSeed(t, config.ModuleDir, suggest.DefectWrongValue)
 
-	refuted := withStatus(result, report.SuggestionRefuted)
-	if len(refuted) == 0 {
-		t.Fatalf("the seeded wrong value was not refuted: %s", statusSummary(result.Suggestions))
-	}
+			result := runSuggest(t, config)
 
-	for _, suggestion := range refuted {
-		if suggestion.Verification.Baseline.Passed {
-			t.Fatalf("suggestion %s was refuted but its baseline leg passed", suggestion.ID)
-		}
+			refuted := withStatus(result, report.SuggestionRefuted)
+			if len(refuted) == 0 {
+				t.Fatalf("the seeded wrong value was not refuted: %s", statusSummary(result.Suggestions))
+			}
 
-		if suggestion.StatusReason == "" {
-			t.Fatalf("refuted suggestion %s carries no reason", suggestion.ID)
-		}
+			for _, suggestion := range refuted {
+				if suggestion.Verification.Baseline.Passed {
+					t.Fatalf("suggestion %s was refuted but its baseline leg passed", suggestion.ID)
+				}
+
+				if suggestion.StatusReason == "" {
+					t.Fatalf("refuted suggestion %s carries no reason", suggestion.ID)
+				}
+
+				if fixture == suggestOutputLaterRunFixture && suggestion.TargetRun != "second" {
+					t.Fatalf("seeded suggestion targets %s, want the value-bearing second run", suggestion.TargetRun)
+				}
+			}
+		})
 	}
 }
 
@@ -346,7 +359,7 @@ func TestEmptyCollectionAbsenceFailsTheSuggestedAssertion(t *testing.T) {
 			}
 
 			request := suggestRequest(t, module)
-			request.IncludeOperators = []string{"COLL-EMPTY"}
+			request.IncludeOperators = []string{collEmptyOperator}
 			result := runSuggest(t, request)
 			if len(result.Suggestions) != 1 {
 				t.Fatalf("want one emptiness suggestion, got %+v", result.Suggestions)

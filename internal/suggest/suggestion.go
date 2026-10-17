@@ -33,6 +33,11 @@ const (
 	// SkipUnsupportedTarget marks a survivor whose target test file is JSON.
 	// No JSON test writer is built, and `--apply` never touches one.
 	SkipUnsupportedTarget SkipReason = "skipped-unsupported-target"
+	// SkipOutputMetadata marks a delta that changes only an output's type or
+	// sensitivity metadata. Metadata describes the value rather than being
+	// one, so no `terraform test` assertion addresses it, and no output value
+	// difference exists to assert.
+	SkipOutputMetadata SkipReason = "skipped-output-metadata"
 )
 
 // RunRecord is one run block a verification leg executed, so a reader can see

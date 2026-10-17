@@ -68,11 +68,11 @@ reported it cannot express one, and say so.
 
 ## What `suggest` will honestly refuse
 
-Each `skipped-*` status is a limit, not an error: `skipped-sensitive` (the
-value must appear in no artefact), `skipped-unaddressable` (no legal
-assertion expression reaches the delta), `skipped-unrenderable` (no
-type-correct equality exists), `skipped-unsupported-target` (the target test
-file is JSON, which the tool never writes). A `refuted` suggestion is a tool
+Each `skipped-*` status is a generator limit. Read its `status_reason`.
+The [report schema](https://github.com/andrewesweet/tf-mut/blob/master/docs/schema/report-2.15.0.json#/$defs/suggestion_status)
+owns the closed status vocabulary. For `skipped-output-metadata`, no output
+value difference exists to assert. Never include a sensitive value in any
+artefact, and never write a JSON test file. A `refuted` suggestion is a tool
 defect — report it upstream, do not paper over it.
 
 ## Suppression discipline
