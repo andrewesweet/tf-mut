@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -45,7 +46,8 @@ if [ "$2" != "$TF_MUT_REAP_COMMAND" ]; then
 fi
 terraform "$@"
 status=$?
-provider=("${1#-chdir=}/.terraform/providers/registry.terraform.io/hashicorp/null/3.2.4/linux_amd64/"terraform-provider-null*)
+provider_dir="${1#-chdir=}/.terraform/providers/registry.terraform.io/hashicorp/null/3.2.4/linux_amd64"
+provider=("$provider_dir/"terraform-provider-null*)
 log="$TF_MUT_PROVIDER_PIDS.$$.log"
 "${provider[0]}" -debug < /dev/null > "$log" 2>&1 &
 pid=$!
@@ -87,18 +89,24 @@ exit 1
 				t.Fatalf("no provider was started by terraform %s", subcommand)
 			}
 
-			deadline := time.Now().Add(2 * time.Second)
-			for _, pid := range pids {
-				for providerIsRunning(t, pid) {
-					if time.Now().After(deadline) {
-						t.Fatalf("terraform-provider-null pid %d outlived terraform %s", pid, subcommand)
-					}
-					time.Sleep(20 * time.Millisecond)
-				}
-			}
+			assertProvidersStopped(t, pids, subcommand)
 
 			assertTreeUnchanged(t, module, before)
 		})
+	}
+}
+
+func assertProvidersStopped(t *testing.T, pids []int, subcommand string) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for _, pid := range pids {
+		for providerIsRunning(t, pid) {
+			if time.Now().After(deadline) {
+				t.Fatalf("terraform-provider-null pid %d outlived terraform %s", pid, subcommand)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
 	}
 }
 
@@ -110,8 +118,9 @@ func recordedProviderPIDs(t *testing.T, path string) []int {
 		t.Fatalf("reading provider pids: %v", err)
 	}
 
-	var pids []int
-	for _, field := range strings.Fields(string(content)) {
+	fields := strings.Fields(string(content))
+	pids := make([]int, 0, len(fields))
+	for _, field := range fields {
 		pid, parseErr := strconv.Atoi(field)
 		if parseErr != nil || pid <= 0 {
 			t.Fatalf("invalid provider pid %q", field)
@@ -133,7 +142,7 @@ func providerIsRunning(t *testing.T, pid int) bool {
 		t.Fatalf("reading provider pid %d state: %v", pid, err)
 	}
 
-	end := strings.LastIndexByte(string(status), ')')
+	end := bytes.LastIndexByte(status, ')')
 	if end < 0 || len(status) <= end+2 {
 		t.Fatalf("invalid process state for provider pid %d: %q", pid, status)
 	}
