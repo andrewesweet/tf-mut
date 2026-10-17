@@ -333,7 +333,8 @@ type Population struct {
 	Omitted int `json:"omitted"`
 	// Cached is the number of selected mutants whose verdicts were replayed.
 	Cached int `json:"cached"`
-	// Fresh is the number of selected mutants executed by this run.
+	// Fresh is the number of selected mutants whose verdicts were computed by
+	// this run, including statically decided mutants.
 	Fresh int `json:"fresh"`
 }
 

@@ -42,6 +42,17 @@ func (c Configuration) SuiteSuppliedVariable(env, selection []string, name strin
 		return false
 	}
 
+	for _, variable := range root.Variables {
+		if variable.Name != name {
+			continue
+		}
+
+		file := strings.TrimSuffix(filepath.Base(variable.File), ".json")
+		if file == "override.tf" || strings.HasSuffix(file, "_override.tf") {
+			return false
+		}
+	}
+
 	variable, declared := root.VariableByName(name)
 	if !declared || !validVariableDefault(site, name) {
 		return false

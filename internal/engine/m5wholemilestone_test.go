@@ -84,11 +84,6 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone(t
 		canonicaliseDiagnosticOrder(document)
 	}
 
-	// The #253 arithmetic epoch, equalised the way the lifecycle proof does
-	// it: see projectPopulationFreshOntoTheOldArithmetic.
-	projectPopulationFreshOntoTheOldArithmetic(before)
-	projectPopulationFreshOntoTheOldArithmetic(after)
-
 	// The D5 repair re-derives an identity collision's identifiers by design;
 	// blank them symmetrically and compare everything else by content.
 	blankCollisionIdentifiers(before, after)

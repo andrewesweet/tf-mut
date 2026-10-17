@@ -99,8 +99,6 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperator
 
 	stripMutantTelemetry(before)
 	stripMutantTelemetry(after)
-	projectPopulationFreshOntoTheOldArithmetic(before)
-	projectPopulationFreshOntoTheOldArithmetic(after)
 
 	if !reflect.DeepEqual(before, after) {
 		t.Fatalf("the standard report of the matrix fixture moved under M5a:\n  %s",
@@ -127,31 +125,6 @@ func stripMutantTelemetry(document map[string]any) {
 			delete(mutant, "deadline_reached")
 		}
 	}
-}
-
-// projectPopulationFreshOntoTheOldArithmetic equalises the two legs' fresh
-// count across the #253 arithmetic epoch: the F10 change corrected the field
-// to count only mutants this run executed, leaving the statically decided
-// rows out, and a base leg from before the correction still reports the old
-// selected-minus-cached projection for the same fixture and the same
-// verdicts. Both legs are projected onto that old formula here, so the
-// comparison stays strict about every other population field; once the
-// merge-base carries the correction both legs already agree and this is a
-// no-op. Cached is unaffected — the cache never replayed a statically
-// decided row in either epoch.
-func projectPopulationFreshOntoTheOldArithmetic(document map[string]any) {
-	population, ok := document["population"].(map[string]any)
-	if !ok {
-		return
-	}
-
-	selected, selectedOK := population["selected"].(float64)
-	cached, cachedOK := population["cached"].(float64)
-	if !selectedOK || !cachedOK {
-		return
-	}
-
-	population["fresh"] = selected - cached
 }
 
 // assertDiagnosticsAreCanonicallyOrdered holds the engine's published-order

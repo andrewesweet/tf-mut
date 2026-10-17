@@ -619,3 +619,87 @@ run "consumer" {
 		})
 	}
 }
+
+func TestVariableOverridesKeepSuiteSuppliedDefaultsExecuting(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"override.tf", "z_override.tf", "override.tf.json", "z_override.tf.json"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, "suite-supplied-var-filelevel")
+			override := `variable "instance" { nullable = false }`
+			if strings.HasSuffix(name, ".json") {
+				override = `{"variable":{"instance":{"nullable":false}}}`
+			}
+
+			testsupport.WriteFile(t, filepath.Join(module, name), override)
+			testsupport.WriteFile(t, filepath.Join(module, "tests", "main.tftest.hcl"), `
+variables {
+  instance = null
+}
+run "consumer" {
+  command = plan
+  assert {
+    condition     = output.echo == "builtin-default"
+    error_message = "the override makes a null input select the default"
+  }
+}
+`)
+
+			request := baseConfig(t, module)
+			request.IncludeOperators = []string{"VAR-DEFAULT-CHANGE", "VAR-DEFAULT-REMOVE", "VAR-DEFAULT-NULL"}
+
+			result, err := engine.Run(t.Context(), request)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			for _, mutant := range defaultMutantsAt(t, result, ".") {
+				if mutant.State == report.Unobservable {
+					t.Errorf("%s: Unobservable despite a variable override", mutant.Operator)
+				}
+
+				if mutant.Operator == "VAR-DEFAULT-CHANGE" && mutant.State != report.Killed {
+					t.Errorf("changed default: state %s, want Killed by the fallback assertion", mutant.State)
+				}
+
+				if mutant.Operator == "VAR-DEFAULT-NULL" && mutant.State != report.Invalid {
+					t.Errorf("null default: state %s, want Invalid for the overridden nullable=false", mutant.State)
+				}
+			}
+		})
+	}
+}
+
+func TestStaticallyDecidedDefaultsCountAsFresh(t *testing.T) {
+	t.Parallel()
+
+	for _, noCache := range []bool{false, true} {
+		t.Run(fmt.Sprintf("no-cache=%t", noCache), func(t *testing.T) {
+			t.Parallel()
+
+			request := baseConfig(t, copyFixture(t, "suite-supplied-var-filelevel"))
+			request.IncludeOperators = []string{"VAR-DEFAULT-CHANGE", "VAR-DEFAULT-REMOVE", "VAR-DEFAULT-NULL"}
+			request.NoCache = noCache
+
+			for range 2 {
+				result, err := engine.Run(t.Context(), request)
+				if err != nil {
+					t.Fatalf("run: %v", err)
+				}
+
+				if result.Population.Fresh != result.Population.Selected || result.Population.Cached != 0 {
+					t.Errorf("population %+v: statically computed verdicts must count as fresh", result.Population)
+				}
+
+				for _, mutant := range defaultMutantsAt(t, result, ".") {
+					if mutant.State != report.Unobservable || mutant.ExecutedRuns != 0 {
+						t.Errorf("%s: state %s after %d runs, want a static verdict",
+							mutant.Operator, mutant.State, mutant.ExecutedRuns)
+					}
+				}
+			}
+		})
+	}
+}
