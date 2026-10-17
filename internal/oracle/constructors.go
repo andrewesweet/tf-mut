@@ -186,6 +186,26 @@ func StaticallyUnobservable() Outcome {
 	}
 }
 
+// StaticallyUnobservableDefault records the suite-supplied claim reached
+// without execution: every selected run that evaluates the module under test
+// assigns the variable explicitly, so its declared default is never read and
+// no plan or state could reflect a change to it. It is the same claim
+// StaticallyUnobservable makes, decided from the test-file inventory rather
+// than from the reference graph, and the variable is the claim's evidence.
+func StaticallyUnobservableDefault(variable string) Outcome {
+	return Outcome{
+		state: StateUnobservable,
+		message: "every selected run assigns var." + variable + " explicitly, so its " +
+			"declared default is never read and no plan or state could reflect a change to it",
+		fix: "either the default is redundant under this suite — drop it, or the variable — " +
+			"or no run omits the variable yet: a run without an assignment is the only reader " +
+			"a default can have",
+		evidence: Evidence{
+			closureVerdict: "statically unobservable: every selected run sets var." + variable,
+		},
+	}
+}
+
 // Terminal outcomes. None carries a diagnosis; the type makes that
 // unstateable. Each carries exactly the evidence its state was decided from:
 // the diagnostics a killed-by-error or invalid mutant is claimed from, the

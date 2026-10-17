@@ -180,7 +180,13 @@ func TestExcludedCategoriesFailClosedToExecution(t *testing.T) {
 
 // TestDecidableToNonzeroControlsClassifyByExecution: where the evaluator
 // decides the multiplicity nonzero, pre-classification abstains, and the
-// verdicts are identical to a run with the shortcut disabled.
+// verdicts are identical to a run with the shortcut disabled — with F10's
+// documented exception: a VAR-DEFAULT mutant whose variable every selected
+// run sets may go from an executed Survived to a static Unobservable (#253).
+// That replacement is the defect's fix, and the dangerous direction — an
+// executed kill becoming statically Unobservable — stays refused, because the
+// suite-supplied claim only fires where no run reads the default, and a
+// default nothing reads cannot be what an assertion killed.
 //
 //nolint:paralleltest // owns package-global static-shortcut hook for its lifetime.
 func TestDecidableToNonzeroControlsClassifyByExecution(t *testing.T) {
@@ -198,7 +204,7 @@ func TestDecidableToNonzeroControlsClassifyByExecution(t *testing.T) {
 		t.Fatalf("control run: %v", err)
 	}
 
-	assertVerdictInvariance(t, executed, static)
+	assertVerdictInvarianceExceptSuiteSuppliedDefaults(t, executed, static)
 
 	for _, mutant := range static.Mutants {
 		if mutant.State == report.NoCoverage {

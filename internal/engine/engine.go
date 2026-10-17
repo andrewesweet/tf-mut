@@ -845,9 +845,18 @@ func executeWithCache(
 ) (evaluatedPopulation, error) {
 	loadPhase := plan.collector.phase(phaseCacheLoad)
 	cache := openCache(plan.configuration, plan.settings, plan.prepared, terraform)
+
+	// The statically decided rows — module-level NoCoverage, the conditional
+	// claim and the two static Unobservable claims — are neither replayed nor
+	// executed, and the population contract says Fresh is the number of
+	// selected mutants executed by this run, so they leave the fresh count
+	// before the cache has its say.
+	decidedStatically := staticallyDecided(plan.classified)
+	result.Population.Fresh -= decidedStatically
+
 	if cache != nil {
 		result.Population.Cached = cache.load(plan.described, plan.classified)
-		result.Population.Fresh = result.Population.Selected - result.Population.Cached
+		result.Population.Fresh = result.Population.Selected - result.Population.Cached - decidedStatically
 
 		// A miss with a changed environment since the stored generation
 		// names the variables that differed — never their values — when a
@@ -880,6 +889,23 @@ func executeWithCache(
 	storePhase()
 
 	return evaluated, nil
+}
+
+// staticallyDecided counts the selected rows the classification decided
+// before execution: module-level NoCoverage, the conditional-instantiation
+// claim and the two static Unobservable claims. The cache replays only
+// Pending rows, so a statically decided row can be neither a cache hit nor a
+// fresh execution.
+func staticallyDecided(classified []oracle.Classified) int {
+	decided := 0
+
+	for index := range classified {
+		if classified[index].Outcome.State() != oracle.StatePending {
+			decided++
+		}
+	}
+
+	return decided
 }
 
 // finalise applies the configured exclusions and defaults, and refuses the

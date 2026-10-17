@@ -240,9 +240,9 @@ tier, because the contract is precisely what consumers depend on.
 
 | ID | Site | Mutation | Kills when |
 | --- | --- | --- | --- |
-| `VAR-DEFAULT-CHANGE` | `variable { default = v }` | type-appropriate alternative | A run block relies on the default |
-| `VAR-DEFAULT-REMOVE` | `variable { default = v }` | default removed → variable becomes required | A run block omits the variable |
-| `VAR-DEFAULT-NULL` | `variable { default = v }`, `nullable` not false | `null` | A run block relies on the default |
+| `VAR-DEFAULT-CHANGE` | `variable { default = v }` | type-appropriate alternative | A run block relies on the default — and if every selected run that evaluates the module assigns it instead, the mutant is statically `Unobservable` (F10, #253) |
+| `VAR-DEFAULT-REMOVE` | `variable { default = v }` | default removed → variable becomes required | A run block omits the variable — and if every selected run that evaluates the module assigns it instead, the mutant is statically `Unobservable` (F10, #253) |
+| `VAR-DEFAULT-NULL` | `variable { default = v }`, `nullable` not false | `null` | A run block relies on the default — and if every selected run that evaluates the module assigns it instead, the mutant is statically `Unobservable` (F10, #253) |
 | `VAR-NULLABLE-FLIP` | `nullable = false` | `true` | A test passes `null` explicitly |
 | `VAR-OPTIONAL-DEFAULT-DROP` | `optional(string, "x")` | `optional(string)` | A test exercises the object without that attribute |
 | `VAR-VALIDATION-REMOVE` | `validation { }` | block removed | A test uses `expect_failures = [var.x]` |
@@ -271,6 +271,19 @@ The `VAR-VALIDATION-*` and `PRE-POST-*` groups are the natural partner of `expec
 which is the one part of `terraform test` explicitly designed for negative testing and is
 consistently under-used. A module with validation rules and no `expect_failures` run blocks
 will fail this tier comprehensively, and the fix is mechanical.
+
+**Suite-supplied defaults are statically `Unobservable` (F10, #253).** When every run in the
+selected suite that evaluates the module under test assigns a root variable explicitly — in
+its `variables` block or the file's file-level block — the variable's declared default is
+never read, so a `VAR-DEFAULT-*` mutant of it cannot reach a plan or state and is classified
+`Unobservable` from the test-file inventory before anything executes, with the same guards
+as the other static shortcut: never in a preview, and never with the shortcuts disabled.
+The claim fails closed on every source the test files cannot see: a run that omits the
+variable, a JSON-declared run, a non-root module's variable, an automatically loaded
+variable file (`terraform.tfvars`, `*.auto.tfvars[.json]`), and any `TF_VAR_` environment
+entry each keep the mutant executing as before. The classification also never overrides the
+reference-graph verdicts: a default the graph already proves unreachable keeps its
+existing verdict.
 
 ---
 
@@ -463,9 +476,9 @@ waste.
 | `DYNAMIC-ZERO` | `for_each` inside a `dynamic` block | — | — | — | `Killed` where an assertion reads the generated nested block. Classified end-to-end in M3 (#50) on the network-gated `aws-mocked` fixture — a `dynamic "attribute"` on `aws_dynamodb_table`, killed by a length assertion; the offline `dynamic` fixture remains its generation-site witness |
 | `DEPENDS-DROP` | `depends_on = [ … ]` | — | The whole line is removed, so no blank line is left behind | — | `StructurallyUnassertable`: ordering has no projection an assertion can read |
 | `PROVIDER-ALIAS-SWAP` | `provider = <name>.<alias>` on a `resource` | Another alias of the same provider is declared, and the two have identical mock status | — | Swaps that would cross from a mocked configuration to an unmocked one — such a swap would route execution past a safety gate that has already run | `Killed` where an assertion checks placement |
-| `VAR-DEFAULT-CHANGE` | `default = v` in a `variable` block | The default's own type is decidable from the literal | — | Defaults whose type is not decidable | `Killed` where a run block relies on the default |
-| `VAR-DEFAULT-REMOVE` | As above | — | The whole line is removed | — | `KilledByError` where a run block omits the variable |
-| `VAR-DEFAULT-NULL` | As above | The variable does not declare `nullable = false` | — | Variables declared not nullable, where the mutant is doomed | `Killed` where a run block relies on the default |
+| `VAR-DEFAULT-CHANGE` | `default = v` in a `variable` block | The default's own type is decidable from the literal | — | Defaults whose type is not decidable | `Killed` where a run block relies on the default; `Unobservable` statically where every selected run assigns the variable (F10, #253) |
+| `VAR-DEFAULT-REMOVE` | As above | — | The whole line is removed | — | `KilledByError` where a run block omits the variable; `Unobservable` statically where every selected run assigns the variable (F10, #253) |
+| `VAR-DEFAULT-NULL` | As above | The variable does not declare `nullable = false` | — | Variables declared not nullable, where the mutant is doomed | `Killed` where a run block relies on the default; `Unobservable` statically where every selected run assigns the variable (F10, #253) |
 | `VAR-NULLABLE-FLIP` | `nullable = false` | The literal is exactly `false` | — | `nullable = true`, which models no fault | `Killed` where a test passes null explicitly |
 | `VAR-OPTIONAL-DEFAULT-DROP` | `optional(type, default)` inside a `type` constraint | The call has exactly two arguments | — | `optional(type)` | `Killed` where a test exercises the object without that attribute |
 | `VAR-VALIDATION-REMOVE` | A `validation` block inside a `variable` | The enclosing variable is known | The whole block is removed | `validation` blocks outside a variable | `StructurallyUnassertable` unless a run block uses `expect_failures` |

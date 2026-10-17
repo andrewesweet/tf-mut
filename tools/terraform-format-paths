@@ -167,6 +167,7 @@ internal/engine/testdata/suite-supplied-var-tfvars/tests/main.tftest.hcl
 internal/engine/testdata/suite-supplied-var/main.tf
 internal/engine/testdata/suite-supplied-var/tests/main.tftest.hcl
 internal/engine/testdata/suite-supplied-var/tests/setup/main.tf
+internal/engine/testdata/suite-supplied-var-json/main.tf
 internal/engine/testdata/suggest-basic/main.tf
 internal/engine/testdata/suggest-basic/tests/unit.tftest.hcl
 internal/engine/testdata/suggest-batch/main.tf
@@ -286,3 +287,5 @@ internal/engine/testdata/suggest-count-zero/tests/unit.tftest.hcl
 internal/engine/testdata/characterise-init-failure/main.tf
 internal/engine/testdata/suggest-empty-collection/main.tf
 internal/engine/testdata/suggest-empty-collection/tests/unit.tftest.hcl
+internal/engine/testdata/suite-supplied-var-target/main.tf
+internal/engine/testdata/suite-supplied-var-target/tests/main.tftest.hcl

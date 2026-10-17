@@ -206,6 +206,8 @@ declared by `internal/report`; they are not invitations to add aliases.
   the Oracle's mutant `State`.
 - **Configuration snapshot:** the canonical closure supplied to Terraform.
 - **Discovery:** parsing and inventory of native HCL and discover-only JSON.
+- **Suite-supplied variable:** a root variable every selected run that evaluates the
+  module under test assigns explicitly, so its declared default is never read.
 - **Materialisation:** creation of a sandbox with fresh inodes for Terraform.
 - **Result translation:** conversion of Terraform process output and diagnostics at
   the boundary.
