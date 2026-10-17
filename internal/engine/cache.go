@@ -41,7 +41,7 @@ import (
 // protects this upgrade boundary. An older-format entry is a miss, not an
 // error. Selected verdicts are recomputed under the current execution and
 // oracle rules (TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError).
-const cacheFormatVersion = "tf-mut-cache-9"
+const cacheFormatVersion = "tf-mut-cache-10"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
@@ -268,7 +268,9 @@ func cacheBaselineFingerprint(configuration discovery.Configuration, prepared wa
 		masked[index].Values = normalised
 	}
 
-	return fingerprint.Fingerprint(masked), nil
+	parent := filepath.Dir(filepath.Dir(warmRoot))
+
+	return hashBytes([]byte(parent + "\x00" + fingerprint.Fingerprint(masked))), nil
 }
 
 // logCacheKey records the run key beside each of its component digests at

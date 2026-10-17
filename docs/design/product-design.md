@@ -781,7 +781,9 @@ module inventory with remote payloads, the whole process environment plus run-sp
 additions, the Terraform identity, the cache version
 ([invalidation policy](../../internal/engine/cache.go)) and the masked baseline
 fingerprint, with the per-invocation warm closure path normalised to a stable marker for
-cache identity. The oracle and report retain the actual baseline paths. Any doubt is a
+cache identity. The resolved stable temporary parent is hashed alongside that normalised
+fingerprint, even when no payload publishes a path: changing the parent can change an
+assertion's result. The oracle and report retain the actual baseline paths. Any doubt is a
 miss, and cache reads and writes are disabled under
 `--allow-real-infrastructure` and `--allow-unsandboxed-effects`, whose external state cannot
 be keyed soundly.

@@ -44,6 +44,7 @@ only to cache identity. The report and oracle retain their original payloads.
 The initial normalization advanced the cache format to version 7. The escaped
 address correction below advances it to version 8.
 The physical-directory correction uses version 9.
+The stable-parent correction uses version 10.
 
 ## Regression contracts
 
@@ -136,3 +137,46 @@ version-8-to-9 cache upgrade, component logging, and both CLI debug cases.
 The logs are `.artifacts/cache-review/symlink-before.log` and
 `.artifacts/cache-review/symlink-verification.log`. Full test and lint suites
 remain the outer executor's phases.
+
+## Stable-parent false-reuse reproduction
+
+Use outputs `asserted = "kept"` and `path = abspath(path.root)`, with the assertion
+`output.asserted == "kept" || strcontains(output.path, "/special/")`. Select
+`STR-CASE`, so the only mutant changes `kept` to `KEPT`. Start with a `WorkDir`
+symlink targeting a directory named `special`, then retarget it to `ordinary`
+without changing the request, sources, tests or environment.
+
+Before the correction, both plan and apply show the same false reuse:
+
+| Invocation | State | Cached | Fresh |
+| --- | --- | --- | --- |
+| special | Survived | 0 | 1 |
+| ordinary, cache enabled | Survived | 1 | 0 |
+| ordinary, cache disabled | Killed | 0 | 1 |
+
+The logged baseline component is identical across the first two invocations:
+`343c66e3df19f51d1f29375cd548206d4498520c26bdda33f22492e3dc2e841e` for plan and
+`6efe3dae3001e1ad4b6085f4ab409b709012003d7c1bd57f75e469b812711349` for apply.
+The probe log is `.artifacts/cache-review/parent-before.log`.
+
+The shared baseline key now hashes the resolved stable parent alongside the
+normalised masked fingerprint. The invocation's random directory remains ignored;
+the parent remains part of the identity for every payload path and scalar
+representation. Hashing the parent unconditionally also covers a path-dependent
+assertion that publishes no path in the baseline. Oracle payloads, report
+fingerprints and environment keying remain unchanged.
+
+`TestWarmParentChangesInvalidateCachedVerdicts` executes real Terraform for plan
+and apply, direct parent changes and symlink retargeting, with the path either
+published as an output or used only in the assertion. Its independent oracle is
+the assertion's truth table: `KEPT` survives under `special` and is killed under
+`ordinary`. The return to `special` must reuse its original survivor verdict.
+Erasing the parent replays the wrong survivor in the middle leg; disabling cache
+reuse entirely fails the return leg. The existing eight-case matrix continues to
+check unchanged-parent reuse across escaped and physical path representations.
+
+The focused rerun passed all eight parent-transition cases and all eight existing
+unchanged-parent path cases, plus ordinary cache reuse, volatile-apply reuse,
+key-dimension invalidation, the version-9-to-10 upgrade, component logging, and
+both CLI debug cases. The log is `.artifacts/cache-review/parent-verification.log`.
+Full test and lint suites remain the outer executor's phases.
