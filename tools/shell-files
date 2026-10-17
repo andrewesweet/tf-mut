@@ -6,6 +6,7 @@ scripts/ci
 scripts/claude-protect
 scripts/codex-protect
 scripts/doctor
+scripts/ensure-tools
 scripts/format
 scripts/fuzz-all
 scripts/install-providers

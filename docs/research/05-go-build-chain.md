@@ -224,7 +224,7 @@ agent instructions or muscle memory.
 | `just build` | `CGO_ENABLED=0 go build -trimpath -buildvcs=true -mod=readonly`; write `.artifacts/bin/tf-mut`. |
 | `just reference` | Regenerate the [command-line reference](../reference/cli.md) from the binary's help table. |
 | `just fmt` | Apply canonical Go, Bash, JSON, YAML, TOML and explicitly rooted Terraform formatting. |
-| `just fmt-check` | Diff-only equivalent of `fmt`; never changes the tree. |
+| `just fmt-check` | Diff-only equivalent of `fmt`; never rewrites source files. |
 | `just lint` | Run the exact pinned aggressive Go, Bash, data-file and GitHub Actions lint configuration; no fixes. |
 | `just lint-go` | Run the aggressive golangci-lint configuration over the [lint tag matrix](#linting-and-type-checking). |
 | `just lint-shell` | Run `bash -n`, shfmt check and ShellCheck over the complete Bash manifest. |
@@ -262,6 +262,18 @@ must leave tracked and untracked source locations unchanged.
 
 ## Formatting and autofix
 
+With the pinned mise and Just available and the workspace trusted, `just fmt`,
+`just fmt-check`, `just lint-go`, `just lint-shell`, `just lint-config`, `just lint-actions`
+and `just lint-fix` run without a prior `just tools-install`. They call
+[`scripts/ensure-tools`](../../scripts/ensure-tools), which consumes the existing mise locks
+and reuses the source-tool installer. Source binaries are checked against the pinned Go compiler
+and the versions, checksums and replacements of their consumed modules; those metadata checks
+disable network access. Missing or stale source binaries trigger a rebuild. When tools are
+current, nothing is rebuilt or downloaded. Checks run through `mise exec` under the pinned Go
+toolchain with `GOTOOLCHAIN=local`. Provisioning can write tool installations and caches, but
+`fmt-check` and the lint checks leave source files unchanged. This path does not populate the
+provider mirror; use the [full bootstrap](../../README.md#bootstrap-and-build) for that.
+
 Run `goimports` first and `gofumpt -extra` second. goimports adds/removes imports and applies
 gofmt-style formatting; gofumpt is a stricter formatting layer built on gofmt, and its extra
 rules are the aggressive community default requested here. Use exact direct binaries rather than
@@ -289,7 +301,7 @@ measured diffs.
 
 Autofix stays opt-in:
 
-- `just lint` is read-only;
+- `just lint` leaves source files unchanged;
 - `just lint-fix` invokes safe linter fixes and the canonical formatter twice, failing if the
   second pass changes anything, then runs read-only lint;
 - CI reports fixable differences but never rewrites a checkout.
@@ -608,7 +620,8 @@ Claude Code has a documented LSP-plugin mechanism and its documentation includes
 `gopls serve` adapter shape. Commit a project-scoped skills-directory plugin with its own
 `.claude-plugin/plugin.json` and LSP definition. Its checked-in launcher finds the repository
 root and executes `.tools/bin/gopls serve`, so it does not depend on shell activation. `doctor`
-reports a clear editor prerequisite until `tools-install` has built that binary. This provides
+reports a clear editor prerequisite until that binary exists (see
+[Formatting and autofix](#formatting-and-autofix) for source-tool provisioning). This provides
 basic diagnostics, navigation and type information; canonical formatting, Staticcheck and
 vulnerability findings remain the exact Just recipes. See the
 [Claude LSP plugin reference](https://code.claude.com/docs/en/plugins-reference#lsp-servers)

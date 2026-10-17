@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Ensure the pinned prebuilt and source-built tools exist before a recipe runs
+# them, so formatting and lint work in a fresh checkout that never ran
+# tools-install. Idempotent: a checkout with every tool installed builds and
+# downloads nothing.
+#
+# Reuses the tools-install path only: mise installs the locked prebuilt tools
+# (pinned versions, checksums in mise.lock) and scripts/install-source-tools
+# builds the repo-local binaries. There is no second download path, and the
+# provider mirror stays out: recipes that need it keep failing loudly until
+# tools-install runs.
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+mise install --yes
+
+source_module_specs=(
+  'gopls golang.org/x/tools/gopls'
+  'goimports golang.org/x/tools'
+  'govulncheck golang.org/x/vuln'
+)
+
+source_tools_fresh() {
+  local spec binary module compiler expected actual
+  local -a consumed_modules
+  export GOTOOLCHAIN=local GOWORK=off
+  compiler=$(mise exec -- go env GOVERSION) || return 1
+  for spec in "${source_module_specs[@]}"; do
+    read -r binary module <<<"$spec"
+    test -x "$repo_root/.tools/bin/$binary" || return 1
+    actual=$(mise exec -- go version -m -json "$repo_root/.tools/bin/$binary") || return 1
+    expected=$(mise exec -- jq -r '.Main.Path, .Deps[].Path' <<<"$actual") || return 1
+    mapfile -t consumed_modules <<<"$expected"
+    expected=$(cd "$repo_root/tools/$binary" && GOPROXY=off GONOPROXY=none GOSUMDB=off mise exec -- go list -mod=readonly -m -json "${consumed_modules[@]}" | mise exec -- jq -s '.') || return 1
+    # shellcheck disable=SC2016 # jq expands its variables; Bash must leave them literal.
+    mise exec -- jq -en --arg compiler "$compiler" --arg module "$module" \
+      --argjson expected "$expected" --argjson actual "$actual" '
+      def identity:
+        {Path, Version, Sum: (if .Replace then null else .Sum end),
+         Replace: (.Replace | if . == null then null else {Path, Version, Sum} end)};
+      $actual.GoVersion == $compiler and $actual.Main.Path == $module and
+      all(($actual.Main, $actual.Deps[]);
+        . as $built |
+        (.Replace == null or (.Replace.Version // "") != "") and
+        any($expected[]; identity == ($built | identity)))
+    ' >/dev/null || return 1
+  done
+}
+
+if ! source_tools_fresh; then
+  mise exec -- scripts/install-source-tools
+fi
