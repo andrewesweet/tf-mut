@@ -143,8 +143,8 @@ completed kill can verify the suggestion. It does not change the mutant verdict 
 An evaluation interrupted with Ctrl-C or SIGTERM returns an operational failure (exit code `2`).
 
 Preview records safety-gate advisories and refusals in the report's warnings while still
-listing the mutant population. It executes no test run blocks. For run blocks targeting
-local modules, see the [checkout boundary](docs/design/product-design.md#discover).
+listing the mutant population. It executes no test run blocks. For local module sources in
+module calls and run blocks, see the [checkout boundary](docs/design/product-design.md#discover).
 
 For supported suggestion forms and skip rules, see the
 [suggestion contract](docs/design/product-design.md#7-the-differentiator--suggested-assertions).

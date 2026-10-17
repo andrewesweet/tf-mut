@@ -108,8 +108,10 @@ When Git supplies a checkout root, a run block's or an ordinary module call's lo
 source must resolve inside that work tree, in HCL and JSON configuration alike. Sibling
 modules reached through `..` remain allowed within it. A refusal names the declaring file,
 the run block or module call, the source string and the resolved target. If the Git lookup
-fails for an ordinary reason, this boundary check is disabled. For
-deadline failures, see [deadline behaviour](../../README.md#using-it).
+fails for an ordinary reason, including unavailable Git or no enclosing checkout, the checkout
+root is unknown and this boundary check is disabled. Discovery still follows local sources;
+a missing target produces a directory-read error. For deadline failures, see
+[deadline behaviour](../../README.md#using-it).
 
 ### Baseline
 
