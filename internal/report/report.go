@@ -54,8 +54,8 @@ const (
 	// Unobservable marks a fingerprint-identical mutant of a construct that does
 	// project, proven over a payload with no unknown value in the mutation's
 	// forward cone (M3a.2; the whole-payload rule remains the floor wherever
-	// the address mapping fails) — or classified statically, where the cone
-	// reaches nothing observable at all. Excluded.
+	// the address mapping fails), or proven statically. See the Unobservable
+	// state contract in docs/design/product-design.md. Excluded.
 	Unobservable State = "Unobservable"
 	// NoCoverage marks a mutant in a module no run block instantiates, assigned
 	// statically. The claim is module-level absence and nothing finer.
@@ -333,7 +333,8 @@ type Population struct {
 	Omitted int `json:"omitted"`
 	// Cached is the number of selected mutants whose verdicts were replayed.
 	Cached int `json:"cached"`
-	// Fresh is the number of selected mutants executed by this run.
+	// Fresh is the number of selected mutants whose verdicts were computed by
+	// this run, including statically decided mutants.
 	Fresh int `json:"fresh"`
 }
 

@@ -32,7 +32,8 @@ const (
 	StateStructurallyUnassertable State = "StructurallyUnassertable"
 	// StateUnobservable marks a fingerprint-identical mutant of a construct
 	// that projects, proven over a payload with no unknown value in the
-	// mutation's forward cone.
+	// mutation's forward cone, or a mutant proven statically unobservable by
+	// StaticallyUnobservable or StaticallyUnobservableDefault.
 	StateUnobservable State = "Unobservable"
 	// StateNoCoverage marks a mutant in a module no run block instantiates.
 	StateNoCoverage State = "NoCoverage"

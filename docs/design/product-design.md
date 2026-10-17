@@ -356,7 +356,7 @@ fail one run and error another; changing file order must not change the verdict)
 | 4 | `Timeout` | No kill; the mutant's test invocation exceeded `max(factor × baseline, 30 s)` | **Denominator** — and any timeout marks the whole score *incomplete* |
 | 5 | `Survived` | All runs pass; masked fingerprint differs from baseline — or is `indeterminate` (unknown values or undecomposable volatility in scope, R2-2/R2-9) | Denominator. Diagnoses include `weak-assertion` and `indeterminate-unknown-values`; `mock-masked` was withdrawn in M3 (#50) |
 | 6 | `StructurallyUnassertable` | Fingerprint identical **and** the construct has no plan/state projection (`lifecycle`, `depends_on`, unexercised `validation`) | Denominator, with fix guidance |
-| 7 | `Unobservable` | Fingerprint identical, the construct projects, **and no unknown value lies in the mutation's forward cone** (M3a delivered the path-scoped upgrade of the M2-spec-review C2 rule: unknowns are judged by whether the mutation can reach them, under the fail-closed address adapters, and the whole-payload test remains the floor wherever a mapping fails). A mutant whose cone reaches nothing observable at all — no resource, data source, output, check or contract construct — is classified statically, guarded by the structural-state precedence | **Excluded** |
+| 7 | `Unobservable` | Fingerprint identical, the construct projects, **and no unknown value lies in the mutation's forward cone** (M3a delivered the path-scoped upgrade of the M2-spec-review C2 rule: unknowns are judged by whether the mutation can reach them, under the fail-closed address adapters, and the whole-payload test remains the floor wherever a mapping fails). A mutant whose cone reaches nothing observable at all — no resource, data source, output, check or contract construct — is classified statically, guarded by the structural-state precedence. For the additional static default classification and its guards, see [suite-supplied defaults](mutation-operators.md#tier-3--module-contract-standard) (F10, #253) | **Excluded** |
 | 8 | `NoCoverage` | No run block instantiates the mutated block (assigned statically, before execution) | Denominator (reported separately) |
 | — | `Ignored` | Suppressed by config, comment or baseline | **Excluded** |
 | — | `Pending` | Generated without a verdict, as in a preview or an execution error | Not scored |
@@ -380,16 +380,15 @@ as a state it overlapped `Survived` by definition. **`Timeout` sits in the denom
 poisons score completeness** (R2-11): excluding it let machine load *raise* the score —
 K=1, S=1 scores 50%, and if load turns the survivor into a timeout the score became 100%;
 in-denominator, load can only lower it. See [metrics](#5-metrics) for score completeness
-and gate overrides. **`Unobservable` requires no unknowns in scope**
+and gate overrides. **Fingerprint-based `Unobservable` requires no unknowns in scope**
 (R2-2): the reviewer proved plan-JSON equality does not imply unassertability — cty retains
 *refinements* of unknown values (the known `"stable-"` prefix of an unknown string) that the
 plan serialisation discards, and a legal `startswith` assertion killed a fingerprint-identical
-mutant. Fingerprint-identical mutants with any unknown in the selected runs' payloads are `Survived`
-with the `indeterminate-unknown-values` diagnosis, and the suggestion engine never claims
-impossibility for them. Stated cost of the conservative whole-payload rule (M2 spec review,
-C2): plan-mode mocked runs almost always carry unknowns, so `Unobservable` rarely fires in
-plan mode and the oracle reaches full power on apply-mode mocked runs — one more reason the
-design favours them. Path-scoped narrowing arrives with M3's provenance, not before.
+mutant. When unknowns in scope prevent the equality claim, fingerprint-identical mutants are
+`Survived` with the `indeterminate-unknown-values` diagnosis, and the suggestion engine never
+claims impossibility for them. The state table defines M3's path-scoped narrowing and the
+whole-payload fallback. The original whole-payload rule (M2 spec review, C2) rarely admitted
+plan-mode mocked runs because their payloads almost always carry unknowns.
 
 The `Killed`/`KilledByError` split (review M8) exists because Terraform's plan-time evaluation
 is strong enough that **a suite with zero assertions still kills mutants** — verified: an
@@ -437,10 +436,12 @@ R2-2 it does not even prove unassertability under current inputs when unknown va
 scope: the assertion evaluator sees cty *refinements* of unknowns (a known string prefix, a
 known collection bound) that the plan JSON discards, so a fingerprint-identical mutant can
 still be killed by a legal assertion. What identical fingerprints *do* prove: no assertion
-over the **serialised** plan/state, under current inputs, with **no unknown values anywhere
-in the selected runs' payloads**, can tell the mutant apart. Only that case is excluded as `Unobservable`;
-it reports as `unobservable-under-current-inputs`, simultaneously an equivalence signal and
-a coverage signal, and the tool tells the user which reading applies:
+over the **serialised** plan/state, under current inputs and the state table's equality
+guards, can tell the mutant apart. That is the fingerprint-based route to `Unobservable`;
+the static routes are listed in the state table. The fingerprint-based verdict reports as
+`unobservable-under-current-inputs`,
+simultaneously an equivalence signal and a coverage signal, and the tool tells the user which
+reading applies:
 
 ```
 UNOBSERVABLE  modules/net/main.tf:14  FOR-DROP-IF

@@ -272,6 +272,34 @@ which is the one part of `terraform test` explicitly designed for negative testi
 consistently under-used. A module with validation rules and no `expect_failures` run blocks
 will fail this tier comprehensively, and the fix is mechanical.
 
+**Suite-supplied defaults are statically `Unobservable` (F10, #253).** When every run in the
+selected suite that evaluates the module under test assigns a root variable explicitly — in
+its `variables` block or the file's file-level block — the variable's declared default is
+never read, provided the effective assignment cannot fall back to it. For a variable with
+`nullable = false`, the assignment must be provably non-null; a run assignment takes
+precedence over the file-level assignment. The mutated default must also remain valid for
+the declared type: an empty object or tuple can violate its type even when every run
+supplies a valid input. Subject to these guards, a `VAR-DEFAULT-*` mutant cannot reach a plan
+or state and is classified `Unobservable` from the test-file inventory before the mutant
+executes, with the same guards as the other static shortcut: never in a preview, and never
+with the shortcuts disabled.
+The claim fails closed on every source the test files cannot see: a run that omits the
+variable, a JSON-declared run, a targeted run, a non-root module's variable, an automatically
+loaded variable file (`terraform.tfvars`, `terraform.tfvars.json`, `*.auto.tfvars[.json]`),
+and any `TF_VAR_` environment entry each keep the mutant executing as before. A variable
+declared in `override.tf`, `override.tf.json` or a matching `*_override.tf[.json]` file also
+keeps execution because the inventory does not merge variable overrides.
+A nonempty effective `TF_CLI_ARGS_test` also keeps execution, because injected arguments
+can change the selected test files. A selection with no matching run evaluating the module
+cannot establish the claim. Test-file matching conservatively includes basename and
+test-directory-relative aliases; a filter containing glob metacharacters includes every
+file in the inventory for this proof.
+A selected retargeted wrapper whose transitive local module calls reach the root also keeps
+execution: its run assignments do not prove what those module calls supply. An unresolved
+local run-module target likewise prevents the claim. The classification never overrides the
+reference-graph verdicts: a default the graph already proves unreachable keeps its
+existing verdict.
+
 ---
 
 ## Tier 4 — Lifecycle and state safety (`deep`)
@@ -463,9 +491,9 @@ waste.
 | `DYNAMIC-ZERO` | `for_each` inside a `dynamic` block | — | — | — | `Killed` where an assertion reads the generated nested block. Classified end-to-end in M3 (#50) on the network-gated `aws-mocked` fixture — a `dynamic "attribute"` on `aws_dynamodb_table`, killed by a length assertion; the offline `dynamic` fixture remains its generation-site witness |
 | `DEPENDS-DROP` | `depends_on = [ … ]` | — | The whole line is removed, so no blank line is left behind | — | `StructurallyUnassertable`: ordering has no projection an assertion can read |
 | `PROVIDER-ALIAS-SWAP` | `provider = <name>.<alias>` on a `resource` | Another alias of the same provider is declared, and the two have identical mock status | — | Swaps that would cross from a mocked configuration to an unmocked one — such a swap would route execution past a safety gate that has already run | `Killed` where an assertion checks placement |
-| `VAR-DEFAULT-CHANGE` | `default = v` in a `variable` block | The default's own type is decidable from the literal | — | Defaults whose type is not decidable | `Killed` where a run block relies on the default |
-| `VAR-DEFAULT-REMOVE` | As above | — | The whole line is removed | — | `KilledByError` where a run block omits the variable |
-| `VAR-DEFAULT-NULL` | As above | The variable does not declare `nullable = false` | — | Variables declared not nullable, where the mutant is doomed | `Killed` where a run block relies on the default |
+| `VAR-DEFAULT-CHANGE` | `default = v` in a `variable` block | The default's own type is decidable from the literal | — | Defaults whose type is not decidable | `Killed` where a run block relies on the default; see [suite-supplied defaults](#tier-3--module-contract-standard) for static classification |
+| `VAR-DEFAULT-REMOVE` | As above | — | The whole line is removed | — | `KilledByError` where a run block omits the variable; see [suite-supplied defaults](#tier-3--module-contract-standard) for static classification |
+| `VAR-DEFAULT-NULL` | As above | The variable does not declare `nullable = false` | — | Variables declared not nullable, where the mutant is doomed | `Killed` where a run block relies on the default; see [suite-supplied defaults](#tier-3--module-contract-standard) for static classification |
 | `VAR-NULLABLE-FLIP` | `nullable = false` | The literal is exactly `false` | — | `nullable = true`, which models no fault | `Killed` where a test passes null explicitly |
 | `VAR-OPTIONAL-DEFAULT-DROP` | `optional(type, default)` inside a `type` constraint | The call has exactly two arguments | — | `optional(type)` | `Killed` where a test exercises the object without that attribute |
 | `VAR-VALIDATION-REMOVE` | A `validation` block inside a `variable` | The enclosing variable is known | The whole block is removed | `validation` blocks outside a variable | `StructurallyUnassertable` unless a run block uses `expect_failures` |

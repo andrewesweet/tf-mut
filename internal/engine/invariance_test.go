@@ -53,6 +53,53 @@ func assertVerdictInvariance(t *testing.T, full, scoped report.Report) {
 	}
 }
 
+// assertVerdictInvarianceExceptSuiteSuppliedDefaults is the strict harness
+// with F10's one documented exception (#253): a VAR-DEFAULT mutant whose
+// variable every selected run sets may go from an executed Survived to a
+// static Unobservable. Only that direction, only that operator family, only
+// that source state: a kill, an indeterminate, or any other state difference
+// fails as it always has.
+func assertVerdictInvarianceExceptSuiteSuppliedDefaults(t *testing.T, full, scoped report.Report) {
+	t.Helper()
+
+	byID := map[string]report.Mutant{}
+	for _, mutant := range full.Mutants {
+		byID[mutant.ID] = mutant
+	}
+
+	shared := 0
+
+	for _, mutant := range scoped.Mutants {
+		reference, found := byID[mutant.ID]
+		if !found {
+			continue
+		}
+
+		shared++
+
+		if strings.HasPrefix(mutant.Operator, "VAR-DEFAULT-") &&
+			mutant.State == report.Unobservable && reference.State == report.Survived {
+			continue
+		}
+
+		if mutant.State != reference.State {
+			t.Errorf("mutant %s (%s): state %s under the lever, %s in the full run",
+				mutant.ID, mutant.Site, mutant.State, reference.State)
+
+			continue
+		}
+
+		if canonicalVerdict(t, mutant.Verdict) != canonicalVerdict(t, reference.Verdict) {
+			t.Errorf("mutant %s (%s): verdict differs between the lever and the full run",
+				mutant.ID, mutant.Site)
+		}
+	}
+
+	if shared == 0 {
+		t.Fatal("the two runs share no mutants; the invariance claim is vacuous")
+	}
+}
+
 // assertCachedAndFreshReportsByteIdentical is the control for the cache's
 // silent-wrong-verdict class: everything the report publishes about a verdict
 // must be byte-identical between a fresh run and a cached replay of the same

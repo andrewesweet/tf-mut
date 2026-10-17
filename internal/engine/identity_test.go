@@ -101,6 +101,12 @@ func TestACachedReplayAgreesWithAFreshRunOnIdenticalRewrites(t *testing.T) {
 
 	module := copyFixture(t, identicalEditsFixture)
 	config := baseConfig(t, module)
+	// Exercise the collision operators; suite-supplied defaults are decided
+	// statically and remain fresh even when the executed twins are cached.
+	config.IncludeOperators = []string{
+		boolNegateOperator, cmpEQNEOperator, numNegateOperator,
+		numOffByOneOperator, strCaseOperator, strEmptyOperator,
+	}
 
 	cold := cachedRun(t, config)
 	if cold.Population.Cached != 0 {

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
@@ -463,13 +464,31 @@ func describeMutants(
 
 		var outcome oracle.Outcome
 
+		// The shortcut's two shared guards: a preview keeps Pending — the
+		// documented preview contract — and the disabled-shortcut opt-out
+		// executes. Both static claims fire only where execution would
+		// otherwise run.
+		shortcutsLive := settings.mode != previewMode && !shortcutsDisabled
+
+		// The suite-supplied half (F10, #253): the variable's declared default
+		// is never read because every selected run that evaluates the module
+		// under test assigns it. Decided from the test-file inventory alone,
+		// and only where the shortcut could fire at all.
+		var suiteVariable string
+
+		var suiteSupplied bool
+
+		if shortcutsLive {
+			suiteVariable, suiteSupplied = suiteSuppliedDefault(configuration, settings, mutant)
+		}
+
 		switch {
 		case !exercised[mutant.ModuleRel]:
 			// Module-level NoCoverage: the report states the absence as a
 			// count and no finding, so the outcome carries the state and
 			// nothing else.
 			outcome = oracle.NoCoverage("")
-		case settings.mode != previewMode && !shortcutsDisabled &&
+		case shortcutsLive &&
 			configuration.ConditionalMultiplicity(graph, settings.Env, discovery.Site{
 				ModuleRel: mutant.ModuleRel,
 				File:      mutant.File,
@@ -481,11 +500,10 @@ func describeMutants(
 			// multiplicity expression is statically zero under every relevant
 			// run. Module-level NoCoverage above remains the strict subset.
 			outcome = oracle.NoCoverage(conditionallyNoCoverageClaim)
-		case settings.mode != previewMode && !shortcutsDisabled &&
-			staticallyUnobservable(graph, mutant):
-			// A preview keeps Pending — the documented preview contract — so
-			// the shortcut fires only where execution would otherwise run.
+		case shortcutsLive && staticallyUnobservable(graph, mutant):
 			outcome = oracle.StaticallyUnobservable()
+		case suiteSupplied:
+			outcome = oracle.StaticallyUnobservableDefault(suiteVariable)
 		default:
 			// Pending stands: the state every executable mutant carries until
 			// something decides otherwise. A preview retains it after the
@@ -547,4 +565,57 @@ func staticallyUnobservable(graph *discovery.Graph, mutant mutation.Mutant) bool
 	}
 
 	return !cone.ContainsObservable()
+}
+
+// suiteSuppliedDefault applies discovery's suite-supplied proof only to a
+// root-module variable's default. A non-root variable's value comes from its
+// module call's input, which the test-file inventory does not carry.
+func suiteSuppliedDefault(
+	configuration discovery.Configuration,
+	settings settings,
+	mutant mutation.Mutant,
+) (string, bool) {
+	variable, ok := defaultVariableOf(mutant)
+	if !ok {
+		return "", false
+	}
+
+	if mutant.ModuleRel != configuration.RootRelative() {
+		return "", false
+	}
+
+	if !configuration.SuiteSuppliedVariable(settings.Env, settings.TestSelection, variable, discovery.Site{
+		ModuleRel: mutant.ModuleRel,
+		File:      mutant.File,
+		Address:   mutant.Site,
+		Mutated:   mutant.Mutated,
+	}) {
+		return "", false
+	}
+
+	return variable, true
+}
+
+// defaultVariableOf names the variable a VAR-DEFAULT site mutates. The
+// operator prefix is checked first, so only the catalogue's own
+// variable-default operators can claim; the address is var.<name>.default.
+func defaultVariableOf(mutant mutation.Mutant) (string, bool) {
+	//nolint:exhaustive // the default arm is the refusal: only the catalogue's variable-default operators claim.
+	switch mutant.Operator {
+	case mutation.VarDefaultChange, mutation.VarDefaultRemove, mutation.VarDefaultNull:
+	default:
+		return "", false
+	}
+
+	name, ok := strings.CutPrefix(mutant.Site, "var.")
+	if !ok {
+		return "", false
+	}
+
+	name, ok = strings.CutSuffix(name, ".default")
+	if !ok || name == "" {
+		return "", false
+	}
+
+	return name, true
 }
