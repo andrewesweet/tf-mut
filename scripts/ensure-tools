@@ -25,13 +25,16 @@ source_module_specs=(
 
 source_tools_fresh() {
   local spec binary module compiler expected actual
+  local -a consumed_modules
   export GOTOOLCHAIN=local GOWORK=off
   compiler=$(mise exec -- go env GOVERSION) || return 1
   for spec in "${source_module_specs[@]}"; do
     read -r binary module <<<"$spec"
     test -x "$repo_root/.tools/bin/$binary" || return 1
-    expected=$(cd "$repo_root/tools/$binary" && mise exec -- go list -mod=readonly -m -json all | mise exec -- jq -s '.') || return 1
     actual=$(mise exec -- go version -m -json "$repo_root/.tools/bin/$binary") || return 1
+    expected=$(mise exec -- jq -r '.Main.Path, .Deps[].Path' <<<"$actual") || return 1
+    mapfile -t consumed_modules <<<"$expected"
+    expected=$(cd "$repo_root/tools/$binary" && GOPROXY=off GONOPROXY=none GOSUMDB=off mise exec -- go list -mod=readonly -m -json "${consumed_modules[@]}" | mise exec -- jq -s '.') || return 1
     mise exec -- jq -en --arg compiler "$compiler" --arg module "$module" \
       --argjson expected "$expected" --argjson actual "$actual" '
       def identity:

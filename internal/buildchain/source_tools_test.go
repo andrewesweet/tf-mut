@@ -75,6 +75,9 @@ func TestEnsureToolsChecksSourceBuildIdentity(t *testing.T) {
 				if !wantRebuild && !os.IsNotExist(err) {
 					t.Fatalf("current %s invoked the installer: %v", binary, err)
 				}
+				if _, err := os.Stat(filepath.Join(root, "download")); !os.IsNotExist(err) {
+					t.Fatalf("freshness check requested uncached, unused module metadata: %v", err)
+				}
 			})
 		}
 	}
@@ -99,7 +102,17 @@ if [[ $1 == scripts/install-source-tools ]]; then
 elif [[ $1 == go ]]; then
   case "$2" in
     env) printf '%s\n' "$TEST_COMPILER" ;;
-    list) cat "$TEST_ROOT/${PWD##*/}-modules.json" ;;
+    list)
+      shift 2
+      while [[ $1 == -* ]]; do shift; done
+      for module in "$@"; do
+        if [[ $module == all || $module == *...* ]]; then
+          touch "$TEST_ROOT/download"
+          exit 1
+        fi
+        jq --arg module "$module" 'select(.Path == $module)' "$TEST_ROOT/${PWD##*/}-modules.json"
+      done
+      ;;
     version)
       binary=${!#}
       cat "$TEST_ROOT/${binary##*/}-build.json"
