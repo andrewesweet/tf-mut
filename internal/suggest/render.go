@@ -99,6 +99,19 @@ func (r render) equality(
 			"assertion cannot express the absence of a value", ErrUnrenderable)
 	}
 
+	// A delta the mutant's own plan marks unknown: under a `command = plan`
+	// run the value cannot be read by any assertion, so the equality would
+	// error with "Unknown condition value" when the suite replays it against
+	// the mutant — deleting a provider-computed attribute leaves it unknown at
+	// plan, and the value is not there to compare until apply. The refusal is
+	// reported as a skip that names the value; the same delta under apply
+	// renders below unchanged.
+	if evidence.Plan && mutant == "" && evidence.markersUnder(parts.path) {
+		return "", fmt.Errorf("%w: the mutant's plan marks %s unknown at plan, and a "+
+			"`command = plan` run can evaluate no equality over it: the suggestion would "+
+			"error with %q when replayed", ErrUnrenderable, parts.path, "Unknown condition value")
+	}
+
 	// A size delta the baseline proves: the collection was empty. `length` is
 	// type-correct over every collection, but never over a value whose parts
 	// the baseline could not know: the plan marks those, and a length over

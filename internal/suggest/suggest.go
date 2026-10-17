@@ -277,6 +277,7 @@ func (g Generator) suggestFor(
 	}
 
 	evidence := NewEvidence(neighbourhood)
+	evidence.Plan = target.Command == discovery.CommandPlan
 	for _, payload := range g.Baseline {
 		if payload.Key() == runKey(target) {
 			evidence.OutputTypes = payload.OutputTypes
@@ -390,6 +391,12 @@ type Evidence struct {
 	// OutputTypes supplies baseline output type evidence; absent evidence must
 	// not be inferred from the payload's numeric indices.
 	OutputTypes map[string]cty.Type
+	// Plan records that the target run's command is plan: the payload's
+	// unknown markers describe values the run itself cannot read until apply,
+	// so a delta whose value side a marker covers can appear in no equality
+	// the run evaluates. The suggest generator sets it from the run block;
+	// the matrices set it by hand, as they do the markers.
+	Plan bool
 }
 
 // NewEvidence reads a delta into the evidence its changes prove. It is the

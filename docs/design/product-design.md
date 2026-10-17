@@ -574,7 +574,11 @@ Output element paths continue directly from the output address, such as
 `try(output.region_list[0].short_name, null)`. Each index requires the baseline's published
 type to identify a list or tuple. Output continuations accept at most one identifier
 member name. Set elements, untyped collection indices and unsupported continuations report
-`skipped-unrenderable`.
+`skipped-unrenderable`. Under a `command = plan` run, a delta whose value side the mutant's
+own after_unknown record covers — a deleted provider-computed attribute leaves it unknown
+at plan — is also `skipped-unrenderable`, with the reason naming the value: an equality
+over it would error with "Unknown condition value" when the suite replayed it, and the
+same delta under `command = apply` still renders.
 
 Alongside scalar equalities, candidates can assert emptiness with
 `try(length(value), null) == 0` or answer a mutant's null value with a non-null check.

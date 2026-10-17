@@ -30,6 +30,8 @@ const (
 	suggestOutputList             = "suggest-output-list"
 	suggestMapKeyFixture          = "suggest-map-key"
 	suggestUnknownObjectFixture   = "suggest-unknown-object"
+	suggestUnknownPlanFixture     = "suggest-unknown-plan"
+	suggestUnknownAppliedFixture  = "suggest-unknown-applied"
 	suggestCountDeletionFixture   = "suggest-count-deletion"
 	suggestCountZeroFixture       = "suggest-count-zero"
 	suggestCollapseCarrierFixture = "suggest-collapse-carrier"
@@ -916,6 +918,128 @@ func mutantOperators(result report.Report) map[string]string {
 	}
 
 	return operators
+}
+
+// The known-to-unknown plan fixture reproduces the benchmark finding behind
+// this change: under a `command = plan` run, a mutation that forces an output's
+// conditional onto its other branch leaves the output unknown at plan — the
+// mutant's payload marks it in the output's after_unknown record — so an
+// equality over it errors with "Unknown condition value" when the suite
+// replays the suggestion. The full run that surfaced the shape counted 14
+// erroring suggestion legs (13 EXT-ATTR-DELETE, 1 EXT-BODY-BLANK) on
+// provider-computed attributes; here the builtin provider's plan-unknown
+// output stands in for the computed attribute, offline.
+//
+// The contract under test: such a delta is skipped with a reason that names
+// the value and says it is unknown at plan, no emitted suggestion carries an
+// errored verification leg, and the same plan run keeps suggesting what stays
+// known — the conditional's literal side and the condition argument itself.
+func TestAKnownToUnknownDeltaUnderPlanIsSkippedWithTheReason(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("the verification legs replay real Terraform runs; -short defers them to `just test`")
+	}
+
+	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestUnknownPlanFixture)))
+
+	const echoValue = "output_changes.echo.after"
+	const nestedComputed = "output_changes.nested.after.computed"
+	const countedInput = "resource_changes[terraform_data.app[0]].change.after.input"
+
+	sawEchoSkip, sawNestedSkip, sawCountedSkip := false, false, false
+	for _, suggestion := range result.Suggestions {
+		if suggestion.Status != report.SuggestionSkippedUnrenderable {
+			continue
+		}
+
+		if !strings.Contains(suggestion.StatusReason, "unknown at plan") {
+			t.Fatalf("unrenderable skip reason does not say the value is unknown at plan: %s",
+				suggestion.StatusReason)
+		}
+
+		switch {
+		case strings.Contains(suggestion.StatusReason, echoValue):
+			sawEchoSkip = true
+		case strings.Contains(suggestion.StatusReason, nestedComputed):
+			sawNestedSkip = true
+		case strings.Contains(suggestion.StatusReason, countedInput):
+			sawCountedSkip = true
+		default:
+			t.Fatalf("an unexpected plan-unknown skip: %s", suggestion.StatusReason)
+		}
+
+		assertPresenceRules(t, suggestion)
+	}
+
+	if !sawEchoSkip || !sawNestedSkip || !sawCountedSkip {
+		t.Fatalf("the plan-unknown survivors of %s, %s and %s were not all skipped; statuses were %s",
+			echoValue, nestedComputed, countedInput, statusSummary(result.Suggestions))
+	}
+
+	// No suggestion the run emitted may carry a leg that errored: an equality
+	// over a value unknown at plan cannot be evaluated, and the skip exists so
+	// no suggestion is emitted whose replay would error.
+	for _, suggestion := range result.Suggestions {
+		if suggestion.Verification == nil {
+			continue
+		}
+
+		if strings.Contains(suggestion.Verification.Mutant.Detail, "the run errored rather than failed") {
+			t.Fatalf("suggestion %s (%s) still carries an errored verification leg: %s",
+				suggestion.ID, suggestion.Expression, suggestion.Verification.Mutant.Detail)
+		}
+	}
+
+	// The same plan run keeps suggesting what stays known.
+	sawEchoEquality, sawInputEquality := false, false
+	for _, suggestion := range result.Suggestions {
+		if suggestion.Status != report.SuggestionVerified {
+			continue
+		}
+
+		switch suggestion.Expression {
+		case `output.echo == "on"`:
+			sawEchoEquality = true
+		case "try(terraform_data.flag.input, null) == true":
+			sawInputEquality = true
+		default:
+		}
+	}
+
+	if !sawEchoEquality || !sawInputEquality {
+		t.Fatalf("the known-to-known deltas under the plan run lost their suggestions; statuses were %s",
+			statusSummary(result.Suggestions))
+	}
+}
+
+// The applied fixture is the plan fixture's conditional routing under a
+// `command = apply` run, where both branches evaluate: the same survivor
+// family produces known-to-known deltas, and the equality over the output is
+// not only suggested but verified. Apply-mode behaviour is unchanged.
+func TestTheSameShapeUnderApplyIsStillSuggestedAndVerifies(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("the verification legs replay real Terraform runs; -short defers them to `just test`")
+	}
+
+	result := runSuggest(t, suggestRequest(t, copyFixture(t, suggestUnknownAppliedFixture)))
+
+	sawConditional := false
+	for _, suggestion := range result.Suggestions {
+		if suggestion.Status == report.SuggestionSkippedUnrenderable &&
+			strings.Contains(suggestion.StatusReason, "unknown at plan") {
+			t.Fatalf("an apply-mode suggestion was refused as plan-unknown: %s", suggestion.StatusReason)
+		}
+
+		if suggestion.Expression == `output.echo == "on"` && suggestion.Status == report.SuggestionVerified {
+			sawConditional = true
+		}
+	}
+
+	if !sawConditional {
+		t.Fatalf("no verified suggestion asserts the conditional output under apply; statuses were %s",
+			statusSummary(result.Suggestions))
+	}
 }
 
 func loadPublishedSchema(t *testing.T) map[string]any {
