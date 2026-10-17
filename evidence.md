@@ -1,10 +1,8 @@
 # Verdict-cache debug evidence
 
 The captain's option C decision limits this change to Step 1: cache-key digest
-diagnostics. Set `TF_MUT_DEBUG=1` to enable them through the shipped CLI. Logs go
-to the run-scoped standard-error writer, with the report's `[run_id]` prefix on
-every line; reports remain on standard output. Only digests are logged, never
-cache-key input values.
+diagnostics. For the opt-in and output contract, see
+[Debug logging](docs/reference/cli.md#debug-logging).
 
 Cache-key computation matches base commit
 `a0929f343cdf423afe73bb41ff7f37caf120d723`, including cache format 6, the original

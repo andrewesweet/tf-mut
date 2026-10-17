@@ -74,12 +74,14 @@ type Common struct {
 	// Empty — the default — falls back to OTEL_EXPORTER_OTLP_ENDPOINT.
 	// Tracing is disabled when neither supplies an endpoint.
 	OTLPEndpoint string
-	// Progress receives periodic long-run progress lines and tracing and
-	// CPU-profile warnings. Nil — the default — discards both. Run serializes
+	// Progress receives periodic long-run progress lines and runtime diagnostics.
+	// Nil — the default — discards this output. Run serializes
 	// writes within one invocation and stops writing before it returns.
 	// The CLI passes its stderr writer; callers must keep report output separate.
 	Progress io.Writer
-	Debug    bool
+	// Debug enables verdict-cache key and component digest logs on Progress.
+	// False — the default — disables these logs. Input values are never logged.
+	Debug bool
 }
 
 // Population selects the mutants a command acts on.
