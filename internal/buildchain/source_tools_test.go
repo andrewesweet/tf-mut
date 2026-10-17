@@ -12,6 +12,11 @@ import (
 	"testing"
 )
 
+const (
+	sourceToolDependencyVersion = "v1.0.0"
+	sourceToolAddedReplacement  = "added-replacement"
+)
+
 func TestEnsureToolsChecksSourceBuildIdentity(t *testing.T) {
 	t.Parallel()
 
@@ -22,46 +27,17 @@ func TestEnsureToolsChecksSourceBuildIdentity(t *testing.T) {
 	} {
 		for _, mismatch := range []string{
 			"none", "compiler", "main-version", "dependency-version",
-			"dependency-checksum", "added-replacement", "removed-replacement",
+			"dependency-checksum", sourceToolAddedReplacement, "removed-replacement",
 			"replacement-version", "replacement-path", "replacement-checksum", "same-replacement",
 		} {
 			t.Run(binary+"/"+mismatch, func(t *testing.T) {
 				t.Parallel()
 
 				root := sourceToolsFixture(t)
-				mainModule := debug.Module{Path: module, Version: "v1.2.3", Sum: "h1:main"}
-				dependency := debug.Module{Path: "example.com/dependency", Version: "v1.0.0", Sum: "h1:dependency"}
-				info := debug.BuildInfo{GoVersion: runtime.Version(), Main: mainModule, Deps: []*debug.Module{&dependency}}
-				pinnedDependency := dependency
-				if strings.Contains(mismatch, "replacement") && mismatch != "added-replacement" {
-					pinnedDependency.Replace = &debug.Module{Path: "example.com/replacement", Version: "v1.1.0", Sum: "h1:replacement"}
-					replacement := *pinnedDependency.Replace
-					dependency.Replace = &replacement
-				}
-				switch mismatch {
-				case "compiler":
-					info.GoVersion = "go1.26.6"
-				case "main-version":
-					info.Main.Version = "v1.2.2"
-				case "dependency-version":
-					dependency.Version = "v0.9.0"
-				case "dependency-checksum":
-					dependency.Sum = "h1:obsolete"
-				case "added-replacement":
-					dependency.Replace = &debug.Module{Path: "example.com/other", Version: "v1.0.0", Sum: "h1:other"}
-				case "removed-replacement":
-					dependency.Replace = nil
-				case "replacement-version":
-					dependency.Replace.Version = "v1.0.0"
-				case "replacement-path":
-					dependency.Replace.Path = "example.com/other"
-				case "replacement-checksum":
-					dependency.Replace.Sum = "h1:obsolete"
-				}
-				writeSourceToolJSON(t, root, binary+"-modules.json", mainModule, pinnedDependency)
-				writeSourceToolJSON(t, root, binary+"-build.json", info)
-				command := exec.CommandContext(t.Context(), "bash", filepath.Join(repositoryRoot(t), "scripts/ensure-tools"))
+				writeSourceToolMismatch(t, root, binary, module, mismatch)
+				command := exec.CommandContext(t.Context(), "bash", "-euo", "pipefail")
 				command.Dir = root
+				command.Stdin = strings.NewReader(readRepositoryFile(t, "scripts/ensure-tools"))
 				command.Env = append(os.Environ(), "TEST_ROOT="+root, "TEST_COMPILER="+runtime.Version(),
 					"PATH="+filepath.Join(root, "mock-bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
 				if output, err := command.CombinedOutput(); err != nil {
@@ -83,11 +59,48 @@ func TestEnsureToolsChecksSourceBuildIdentity(t *testing.T) {
 	}
 }
 
+func writeSourceToolMismatch(t *testing.T, root, binary, module, mismatch string) {
+	t.Helper()
+
+	mainModule := debug.Module{Path: module, Version: "v1.2.3", Sum: "h1:main"}
+	dependency := debug.Module{Path: "example.com/dependency", Version: sourceToolDependencyVersion, Sum: "h1:dependency"}
+	info := debug.BuildInfo{GoVersion: runtime.Version(), Main: mainModule, Deps: []*debug.Module{&dependency}}
+	pinnedDependency := dependency
+	if strings.Contains(mismatch, "replacement") && mismatch != sourceToolAddedReplacement {
+		pinnedDependency.Replace = &debug.Module{Path: "example.com/replacement", Version: "v1.1.0", Sum: "h1:replacement"}
+		replacement := *pinnedDependency.Replace
+		dependency.Replace = &replacement
+	}
+	switch mismatch {
+	case "compiler":
+		info.GoVersion = "go1.26.6"
+	case "main-version":
+		info.Main.Version = "v1.2.2"
+	case "dependency-version":
+		dependency.Version = "v0.9.0"
+	case "dependency-checksum":
+		dependency.Sum = "h1:obsolete"
+	case sourceToolAddedReplacement:
+		dependency.Replace = &debug.Module{Path: "example.com/other", Version: sourceToolDependencyVersion, Sum: "h1:other"}
+	case "removed-replacement":
+		dependency.Replace = nil
+	case "replacement-version":
+		dependency.Replace.Version = sourceToolDependencyVersion
+	case "replacement-path":
+		dependency.Replace.Path = "example.com/other"
+	case "replacement-checksum":
+		dependency.Replace.Sum = "h1:obsolete"
+	}
+	writeSourceToolJSON(t, root, binary+"-modules.json", mainModule, pinnedDependency)
+	writeSourceToolJSON(t, root, binary+"-build.json", info)
+}
+
 func sourceToolsFixture(t *testing.T) string {
 	t.Helper()
 
 	root := t.TempDir()
-	command := exec.CommandContext(t.Context(), "git", "init", "--quiet", root)
+	command := exec.CommandContext(t.Context(), "git", "init", "--quiet")
+	command.Dir = root
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("initialize tool fixture: %v\n%s", err, output)
 	}
@@ -134,7 +147,7 @@ fi
 			t.Fatal(err)
 		}
 		mainModule := debug.Module{Path: module, Version: "v1.2.3", Sum: "h1:main"}
-		dependency := debug.Module{Path: "example.com/dependency", Version: "v1.0.0", Sum: "h1:dependency"}
+		dependency := debug.Module{Path: "example.com/dependency", Version: sourceToolDependencyVersion, Sum: "h1:dependency"}
 		writeSourceToolJSON(t, root, binary+"-modules.json", mainModule, dependency)
 		writeSourceToolJSON(t, root, binary+"-build.json", debug.BuildInfo{
 			GoVersion: runtime.Version(), Main: mainModule, Deps: []*debug.Module{&dependency},
