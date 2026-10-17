@@ -72,6 +72,9 @@ separate from the reproducible `just ci` gate because vulnerability databases ch
 CodeQL additionally analyses every language it supports here (Go and GitHub Actions) in
 GitHub's code-scanning environment.
 
+For format and lint checks without the full bootstrap, see
+[Formatting and autofix](docs/research/05-go-build-chain.md#formatting-and-autofix).
+
 ## Using it
 
 ```bash

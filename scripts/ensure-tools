@@ -35,6 +35,7 @@ source_tools_fresh() {
     expected=$(mise exec -- jq -r '.Main.Path, .Deps[].Path' <<<"$actual") || return 1
     mapfile -t consumed_modules <<<"$expected"
     expected=$(cd "$repo_root/tools/$binary" && GOPROXY=off GONOPROXY=none GOSUMDB=off mise exec -- go list -mod=readonly -m -json "${consumed_modules[@]}" | mise exec -- jq -s '.') || return 1
+    # shellcheck disable=SC2016 # jq expands its variables; Bash must leave them literal.
     mise exec -- jq -en --arg compiler "$compiler" --arg module "$module" \
       --argjson expected "$expected" --argjson actual "$actual" '
       def identity:
