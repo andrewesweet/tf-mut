@@ -913,6 +913,127 @@ func TestTheSensitivityPredicateRefusesBeforeAnythingRenders(t *testing.T) {
 	}
 }
 
+// TestAValueThePlanMarksUnknownIsRefusedUnderPlan is the plan-unknown
+// contract: under a `command = plan` run, a known-to-unknown delta whose
+// value side the mutant's own after_unknown record covers renders in no
+// equality — the replayed assertion would error with "Unknown condition
+// value" — while the same shapes under apply, and the same delta without
+// markers, render unchanged. The resource-attribute deletion and the indexed
+// marker shapes are the ones the offline engine fixture cannot stage; the
+// engine seam carries the verdict those shapes lead to.
+func TestAValueThePlanMarksUnknownIsRefusedUnderPlan(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range planUnknownRows() {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			change := changeAt(testCase.path, testCase.baseline)
+			change.Mutant = testCase.mutant
+			evidence := suggest.Evidence{
+				OutputTypes:    testCase.types,
+				UnknownMarkers: testCase.markers,
+				Plan:           testCase.plan,
+			}
+
+			expression, err := suggest.Express(testCase.schemas, evidence, change)
+
+			assertAdapter(t, expression, err, testCase.want, testCase.refused)
+			if testCase.refused != nil && err != nil {
+				if !contains(err.Error(), "unknown at plan") {
+					t.Fatalf("the refusal does not say the value is unknown at plan: %v", err)
+				}
+
+				if !contains(err.Error(), testCase.path) {
+					t.Fatalf("the refusal does not name the value %s: %v", testCase.path, err)
+				}
+			}
+		})
+	}
+}
+
+// planUnknownCase is one plan-unknown matrix row.
+type planUnknownCase = struct {
+	name     string
+	path     string
+	baseline string
+	mutant   string
+	markers  []string
+	plan     bool
+	types    map[string]cty.Type
+	schemas  tfexec.Schemas
+	want     string
+	refused  error
+}
+
+// planUnknownRows holds the plan-unknown refusals and their render-everywhere-
+// else controls.
+func planUnknownRows() []planUnknownCase {
+	const deletedAttr = "resource_changes[example_thing.app].change.after.input"
+	const elementValue = `"app"`
+
+	return []planUnknownCase{
+		{
+			name:     "a deleted resource attribute under plan is refused",
+			path:     deletedAttr,
+			baseline: steadyBaseline, mutant: "",
+			markers: []string{"resource_changes[example_thing.app].change.after_unknown.input"},
+			plan:    true,
+			schemas: schemaTyping("input", `"string"`),
+			refused: suggest.ErrUnrenderable,
+		},
+		{
+			name:     "the same deleted attribute under apply renders",
+			path:     deletedAttr,
+			baseline: steadyBaseline, mutant: "",
+			schemas: schemaTyping("input", `"string"`),
+			want:    `try(example_thing.app.input, null) == "steady"`,
+		},
+		{
+			name:     "a vanished value with no marker under plan still renders",
+			path:     deletedAttr,
+			baseline: steadyBaseline, mutant: "",
+			plan:     true,
+			schemas:  schemaTyping("input", `"string"`),
+			want:     `try(example_thing.app.input, null) == "steady"`,
+		},
+		{
+			name:     "an indexed marker covers the element's member",
+			path:     "output_changes.region_list.after[0].short_name",
+			baseline: elementValue, mutant: "",
+			markers: []string{"output_changes.region_list.after_unknown[0].short_name"},
+			plan: true,
+			types: map[string]cty.Type{
+				"output.region_list": cty.List(cty.Object(map[string]cty.Type{shortNameAttr: cty.String})),
+			},
+			schemas: untyped(),
+			refused: suggest.ErrUnrenderable,
+		},
+		{
+			name:     "an indexed marker covers the whole element",
+			path:     "output_changes.list.after[0]",
+			baseline: elementValue, mutant: "",
+			markers: []string{"output_changes.list.after_unknown[0]"},
+			plan:     true,
+			types:    map[string]cty.Type{"output.list": cty.List(cty.String)},
+			schemas:  untyped(),
+			refused:  suggest.ErrUnrenderable,
+		},
+		{
+			name:     "a member of an indexed element is covered",
+			path:     "output_changes.list.after[0].id",
+			baseline: elementValue, mutant: "",
+			markers: []string{"output_changes.list.after_unknown[0].id"},
+			plan: true,
+			types: map[string]cty.Type{
+				"output.list": cty.List(cty.Object(map[string]cty.Type{"id": cty.String})),
+			},
+			schemas: untyped(),
+			refused: suggest.ErrUnrenderable,
+		},
+	}
+}
+
 func assertAdapter(t *testing.T, expression string, err error, want string, refused error) {
 	t.Helper()
 

@@ -999,6 +999,7 @@ func TestAKnownToUnknownDeltaUnderPlanIsSkippedWithTheReason(t *testing.T) {
 			sawEchoEquality = true
 		case "try(terraform_data.flag.input, null) == true":
 			sawInputEquality = true
+		default:
 		}
 	}
 
