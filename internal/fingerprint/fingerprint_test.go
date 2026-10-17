@@ -398,6 +398,14 @@ func TestAnUnknownMarkerPathMapsOntoTheValueItMarks(t *testing.T) {
 			"resource_changes[null_resource.app].change.after_unknown[1].triggers",
 			"resource_changes[null_resource.app].change.after[1].triggers",
 		},
+		{
+			"resource_changes[terraform_data.app[0]].change.after_unknown.input",
+			"resource_changes[terraform_data.app[0]].change.after.input",
+		},
+		{
+			`resource_changes[terraform_data.app["primary"]].change.after_unknown.input`,
+			`resource_changes[terraform_data.app["primary"]].change.after.input`,
+		},
 	} {
 		t.Run(testCase.marker, func(t *testing.T) {
 			t.Parallel()
@@ -428,6 +436,8 @@ func TestNonMarkerPathsNameNoMarkerRecord(t *testing.T) {
 		"output_changes.identity.after_unknownish.children",
 		"output_changes.identity.after_unknown[0",
 		"resource_changes[null_resource.app].change.before",
+		"resource_changes[terraform_data.app[0].change.after_unknown.input",
+		"resource_changes[terraform_data.app[0.change.after_unknown.input",
 		appTriggersPath,
 		"outputs.after_unknown",
 		appValuesPath,
@@ -524,6 +534,26 @@ func TestAParsedPathProjectsTheAddressADiagnosisNames(t *testing.T) {
 		{
 			"resource_changes[a.b].change.after.c",
 			"a.b.c",
+		},
+		{
+			"resource_changes[terraform_data.app[0]].change.after.input",
+			"terraform_data.app[0].input",
+		},
+		{
+			`resource_changes[terraform_data.app["primary"]].change.after.input`,
+			`terraform_data.app["primary"].input`,
+		},
+		{
+			"root_module.resources[terraform_data.app[0]].values.input",
+			"terraform_data.app[0].input",
+		},
+		{
+			`root_module.resources[terraform_data.app["primary"]].values.input`,
+			`terraform_data.app["primary"].input`,
+		},
+		{
+			"root_module.resources[terraform_data.app[0].values.input",
+			"",
 		},
 		{
 			// A child module's state names no address an assertion could read.

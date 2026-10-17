@@ -31,11 +31,6 @@ type Path struct {
 	// address's closing bracket, its leading dot kept, or an output path's
 	// remainder after the name's separating dot.
 	body string
-	// head and tail are a resource path cut at the FIRST closing bracket —
-	// the cut the unknown-marker grammar reads, which is not the matching-
-	// bracket cut whenever the address itself carries an index.
-	head string
-	tail string
 }
 
 // pathKind names the top-level record a canonical path lives in.
@@ -65,9 +60,6 @@ func ParsePath(raw string) Path {
 		p.kind = pathPlanResource
 
 		rest := strings.TrimPrefix(raw, resourceChanges+"[")
-		// head and tail cut at the FIRST closing bracket — the cut the
-		// unknown-marker grammar reads; owner and body at the matching one.
-		p.head, p.tail, _ = strings.Cut(rest, "]")
 		p.owner, p.body, _ = cutBracketed(rest)
 	case strings.HasPrefix(raw, outputChanges+"."):
 		p.kind = pathPlanOutput
@@ -76,7 +68,6 @@ func ParsePath(raw string) Path {
 		p.kind = pathStateResource
 
 		rest := strings.TrimPrefix(raw, rootModule+".resources[")
-		p.head, p.tail, _ = strings.Cut(rest, "]")
 		p.owner, p.body, _ = cutBracketed(rest)
 	case strings.HasPrefix(raw, stateOutputs+"."):
 		p.kind = pathStateOutput
@@ -193,23 +184,18 @@ func (p Path) IsUnknownMarker() bool {
 // subtree it marks: `output_changes.X.after_unknown…` marks
 // `output_changes.X.after…`, and a resource change's `change.after_unknown…`
 // marks its `change.after…`. A path that is not a marker path reports false.
-//
-// The marker grammar reads a resource path at the first closing bracket, not
-// the matching one, so a marker under an indexed instance's address is not a
-// marker path — that is the grammar's own answer, not an accident of the
-// parse.
 func (p Path) UnknownValueBase() (string, bool) {
 	//nolint:exhaustive // only the two plan records carry markers; the default arm is the refusal.
 	switch p.kind {
 	case pathPlanOutput:
 		return p.unknownOutputBase()
 	case pathPlanResource:
-		marked, isMarker := strings.CutPrefix(p.tail, "."+changeAfterUnknown)
+		marked, isMarker := strings.CutPrefix(p.body, "."+changeAfterUnknown)
 		if !isMarker {
 			return "", false
 		}
 
-		return resourceChanges + "[" + p.head + "]." + changeAfter + marked, true
+		return resourceChanges + "[" + p.owner + "]." + changeAfter + marked, true
 	default:
 		return "", false
 	}

@@ -944,8 +944,9 @@ func TestAKnownToUnknownDeltaUnderPlanIsSkippedWithTheReason(t *testing.T) {
 
 	const echoValue = "output_changes.echo.after"
 	const nestedComputed = "output_changes.nested.after.computed"
+	const countedInput = "resource_changes[terraform_data.app[0]].change.after.input"
 
-	sawEchoSkip, sawNestedSkip := false, false
+	sawEchoSkip, sawNestedSkip, sawCountedSkip := false, false, false
 	for _, suggestion := range result.Suggestions {
 		if suggestion.Status != report.SuggestionSkippedUnrenderable {
 			continue
@@ -961,6 +962,8 @@ func TestAKnownToUnknownDeltaUnderPlanIsSkippedWithTheReason(t *testing.T) {
 			sawEchoSkip = true
 		case strings.Contains(suggestion.StatusReason, nestedComputed):
 			sawNestedSkip = true
+		case strings.Contains(suggestion.StatusReason, countedInput):
+			sawCountedSkip = true
 		default:
 			t.Fatalf("an unexpected plan-unknown skip: %s", suggestion.StatusReason)
 		}
@@ -968,9 +971,9 @@ func TestAKnownToUnknownDeltaUnderPlanIsSkippedWithTheReason(t *testing.T) {
 		assertPresenceRules(t, suggestion)
 	}
 
-	if !sawEchoSkip || !sawNestedSkip {
-		t.Fatalf("the plan-unknown survivors of %s and %s were not both skipped; statuses were %s",
-			echoValue, nestedComputed, statusSummary(result.Suggestions))
+	if !sawEchoSkip || !sawNestedSkip || !sawCountedSkip {
+		t.Fatalf("the plan-unknown survivors of %s, %s and %s were not all skipped; statuses were %s",
+			echoValue, nestedComputed, countedInput, statusSummary(result.Suggestions))
 	}
 
 	// No suggestion the run emitted may carry a leg that errored: an equality

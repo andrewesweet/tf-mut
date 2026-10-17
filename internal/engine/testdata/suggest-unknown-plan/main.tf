@@ -11,6 +11,11 @@ resource "terraform_data" "other" {
   input = "deep"
 }
 
+resource "terraform_data" "app" {
+  count = 1
+  input = true ? "on" : terraform_data.other.output
+}
+
 output "echo" {
   value = terraform_data.flag.input ? "on" : terraform_data.other.output
 }
