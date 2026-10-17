@@ -320,6 +320,8 @@ func projectSkipReason(reason suggest.SkipReason) report.SuggestionStatus {
 		return report.SuggestionSkippedUnrenderable
 	case suggest.SkipUnsupportedTarget:
 		return report.SuggestionSkippedUnsupportedTarget
+	case suggest.SkipOutputMetadata:
+		return report.SuggestionSkippedOutputMetadata
 	}
 
 	return ""

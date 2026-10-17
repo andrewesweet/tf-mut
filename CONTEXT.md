@@ -134,7 +134,7 @@ declared by `internal/report`; they are not invitations to add aliases.
   means `--since` selected it, and `sample` means `--sample` selected it.
 - **Execution provenance:** how this run obtained a selected mutant's outcome or left it
   unobserved.
-  The [report schema](docs/schema/report-2.14.0.json) owns the wire vocabulary and counts.
+  The [report schema](docs/schema/report-2.15.0.json) owns the wire vocabulary and counts.
 - **Classified population:** outcomes paired with their mutation operators, together
   with execution provenance, including undispatched mutants and whether execution tripped.
 - **Scored population:** the selected population whose outcomes contribute to the
@@ -168,8 +168,8 @@ declared by `internal/report`; they are not invitations to add aliases.
 ### Suggestion
 
 - **Suggestion status:** `candidate`, `verified`, `refuted`, `skipped-sensitive`,
-  `skipped-unaddressable`, `skipped-unrenderable`, and
-  `skipped-unsupported-target`.
+  `skipped-unaddressable`, `skipped-unrenderable`,
+  `skipped-unsupported-target`, and `skipped-output-metadata`.
 - **Verification evidence:** the baseline and isolated-mutant verification legs.
 - **Apply plan:** the digest-bound set of verified suggestions and target files to
   write.

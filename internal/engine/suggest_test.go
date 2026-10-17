@@ -430,6 +430,7 @@ func TestEverySkippedStatusCarriesNoPatchAndAReason(t *testing.T) {
 
 	for _, fixture := range []string{
 		suggestBasicFixture, suggestSensitiveFixture, suggestJSONFixture, suggestMultiFixture,
+		suggestOutputMetadataFixture,
 	} {
 		t.Run(fixture, func(t *testing.T) {
 			t.Parallel()
@@ -463,9 +464,9 @@ func TestAnOutputMetadataOnlyDeltaIsSkippedAsOutputMetadata(t *testing.T) {
 
 		found = true
 
-		if string(suggestion.Status) != "skipped-output-metadata" {
-			t.Fatalf("sensitive-flag survivor is %s, want skipped-output-metadata: %s",
-				suggestion.Status, suggestion.StatusReason)
+		if suggestion.Status != report.SuggestionSkippedOutputMetadata {
+			t.Fatalf("sensitive-flag survivor is %s, want %s: %s",
+				suggestion.Status, report.SuggestionSkippedOutputMetadata, suggestion.StatusReason)
 		}
 
 		if !suggestion.Status.Skipped() {
@@ -835,7 +836,7 @@ func mutantOperators(result report.Report) map[string]string {
 func loadPublishedSchema(t *testing.T) map[string]any {
 	t.Helper()
 
-	content, err := os.ReadFile("../../docs/schema/report-2.14.0.json")
+	content, err := os.ReadFile("../../docs/schema/report-2.15.0.json")
 	if err != nil {
 		t.Fatalf("reading the published schema: %v", err)
 	}

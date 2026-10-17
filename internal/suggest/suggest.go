@@ -287,8 +287,16 @@ func (g Generator) suggestFor(
 		}
 	}
 
-	for _, pass := range [][]fingerprint.Change{value, metadata} {
-		walked := walkChanges(renderer, evidence, pass)
+	passes := []struct {
+		changes  []fingerprint.Change
+		metadata bool
+	}{
+		{changes: value},
+		{changes: metadata, metadata: true},
+	}
+
+	for _, pass := range passes {
+		walked := walkChanges(renderer, evidence, pass.changes)
 		if walked.admitted {
 			return build(survivor, target, walked.expression)
 		}
@@ -302,11 +310,25 @@ func (g Generator) suggestFor(
 			first = walked.sensitive
 		}
 
-		if len(pass) > 0 {
-			skip := Skipped(survivor.id, target.Rel, target.Name, reasonOf(first), first.Error())
+		if len(pass.changes) == 0 {
+			continue
+		}
+
+		// A pass of nothing but an output's type or sensitivity metadata is
+		// unassertable for its own reason: no `terraform test` assertion
+		// addresses metadata, so the traversal refusal would misname the
+		// limit as an addressing one. Unknown markers keep theirs: they are
+		// evidence about the comparison, not metadata about the value.
+		if pass.metadata && walked.sensitive == nil && onlyOutputMetadata(pass.changes) {
+			skip := Skipped(survivor.id, target.Rel, target.Name,
+				SkipOutputMetadata, outputMetadataDetail(pass.changes))
 
 			return generatedFile{skip: &skip}
 		}
+
+		skip := Skipped(survivor.id, target.Rel, target.Name, reasonOf(first), first.Error())
+
+		return generatedFile{skip: &skip}
 	}
 
 	skip := Skipped(survivor.id, target.Rel, target.Name, SkipUnaddressable,
@@ -535,6 +557,38 @@ func expressChange(renderer render, evidence Evidence, change fingerprint.Change
 // suggestion refused here carries the value in no artefact: no expression, no
 // patch, no error message, and nothing any reporter renders.
 var ErrSensitive = errors.New("the delta's value is sensitive")
+
+// onlyOutputMetadata reports whether every change names an output's type or
+// sensitivity metadata — the metadata no assertion addresses — rather than
+// an unknown marker, which is evidence about the comparison and keeps the
+// traversal refusal.
+func onlyOutputMetadata(changes []fingerprint.Change) bool {
+	if len(changes) == 0 {
+		return false
+	}
+
+	for _, change := range changes {
+		parsed := fingerprint.ParsePath(change.Path)
+		if !parsed.IsOutputMetadata() || parsed.IsUnknownMarker() {
+			return false
+		}
+	}
+
+	return true
+}
+
+// outputMetadataDetail states the metadata-only limit in the reader's terms:
+// the metadata paths the delta changed, and the value assertion that would
+// close the survivor instead.
+func outputMetadataDetail(changes []fingerprint.Change) string {
+	paths := make([]string, 0, len(changes))
+	for _, change := range changes {
+		paths = append(paths, change.Path)
+	}
+
+	return fmt.Sprintf("the delta changes only output metadata (%s), which no `terraform test` "+
+		"assertion addresses: assert on the output's value instead", strings.Join(paths, ", "))
+}
 
 // reasonOf maps an adapter's refusal onto its own outcome reason.
 func reasonOf(err error) SkipReason {

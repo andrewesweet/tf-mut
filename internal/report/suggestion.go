@@ -1,6 +1,6 @@
 package report
 
-// The suggestion outcome model (report-2.14.0).
+// The suggestion outcome model (report-2.15.0).
 //
 // It is the whole normative table of the M4 spec's M2 disposition, expressed
 // once: a suggestion is an object with a stable identity, exactly one status
@@ -37,6 +37,10 @@ const (
 	// file is JSON. No JSON test writer is built, and `--apply` never touches
 	// one.
 	SuggestionSkippedUnsupportedTarget SuggestionStatus = "skipped-unsupported-target"
+	// SuggestionSkippedOutputMetadata marks a delta that changes only an
+	// output's type or sensitivity metadata. Metadata describes the value
+	// rather than being one, so no `terraform test` assertion addresses it.
+	SuggestionSkippedOutputMetadata SuggestionStatus = "skipped-output-metadata"
 )
 
 // Skipped reports whether a status is one of the skipped family, which is what
@@ -44,7 +48,8 @@ const (
 // including a value from a future schema — is not a skip.
 func (s SuggestionStatus) Skipped() bool {
 	return s == SuggestionSkippedSensitive || s == SuggestionSkippedUnaddressable ||
-		s == SuggestionSkippedUnrenderable || s == SuggestionSkippedUnsupportedTarget
+		s == SuggestionSkippedUnrenderable || s == SuggestionSkippedUnsupportedTarget ||
+		s == SuggestionSkippedOutputMetadata
 }
 
 // VerificationLeg is the outcome of one half of the verification contract.

@@ -7,8 +7,12 @@
 package report
 
 // SchemaVersion is the version of the machine-readable report schema.
-// See docs/schema/report-2.14.0.json for the versioned consumer contract.
-const SchemaVersion = "2.14.0"
+// See docs/schema/report-2.15.0.json for the versioned consumer contract.
+// 2.15.0 adds, additively: the suggestion status `skipped-output-metadata`
+// for a delta that changes only an output's type or sensitivity metadata,
+// which no `terraform test` assertion addresses. No existing field changed
+// name, type or meaning.
+const SchemaVersion = "2.15.0"
 
 // Command names what produced a report.
 type Command string
