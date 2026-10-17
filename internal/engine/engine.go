@@ -805,7 +805,7 @@ func finishReport(
 	if plan.settings.mode == suggestMode {
 		projection.subscribeSuggestions(plan.events)
 		plan.events.populationClassified.subscribe(func(PopulationClassified) error {
-			return suggestAssertions(ctx, plan, evaluated.rows)
+			return suggestAssertions(ctx, plan, evaluated)
 		})
 	}
 

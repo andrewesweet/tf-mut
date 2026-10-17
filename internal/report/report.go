@@ -149,8 +149,7 @@ type Change struct {
 	Baseline string `json:"baseline"`
 	Mutant   string `json:"mutant"`
 	// Sensitive reports that Terraform marks this value — or an ancestor of it
-	// — sensitive (2.2.0). Retention is not permission to render: it is what
-	// the suggestion engine's sensitivity predicate is decided from.
+	// — sensitive (2.2.0). Retention is not permission to render the value.
 	Sensitive bool `json:"sensitive,omitempty"`
 }
 

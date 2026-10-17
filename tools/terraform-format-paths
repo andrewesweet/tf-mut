@@ -168,6 +168,10 @@ internal/engine/testdata/suggest-multifile/child/main.tf
 internal/engine/testdata/suggest-multifile/main.tf
 internal/engine/testdata/suggest-multifile/root.tftest.hcl
 internal/engine/testdata/suggest-multifile/tests/unit.tftest.hcl
+internal/engine/testdata/suggest-output-large-tuple/main.tf
+internal/engine/testdata/suggest-output-large-tuple/tests/unit.tftest.hcl
+internal/engine/testdata/suggest-output-later-run/main.tf
+internal/engine/testdata/suggest-output-later-run/tests/unit.tftest.hcl
 internal/engine/testdata/suggest-output-list/main.tf
 internal/engine/testdata/suggest-output-list/tests/unit.tftest.hcl
 internal/engine/testdata/suggest-output-metadata/main.tf

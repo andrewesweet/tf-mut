@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/andrewesweet/tf-mut/internal/fingerprint"
+	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/suggest"
 )
@@ -32,8 +32,8 @@ var seedSuggestionDefect = func(settings) suggest.Defect { return suggest.Defect
 // minable-share measurement it always belonged to.
 //
 //nolint:gochecknoglobals // an immutable lookup table.
-var suggestibleDiagnoses = []report.Diagnosis{
-	report.NoAssertion, report.WeakAssertion, report.Unasserted,
+var suggestibleDiagnoses = []oracle.Diagnosis{
+	oracle.NoAssertion, oracle.WeakAssertion, oracle.Unasserted,
 }
 
 // suggestAssertions is the suggestion leg's reaction to the classified
@@ -45,12 +45,12 @@ var suggestibleDiagnoses = []report.Diagnosis{
 func suggestAssertions(
 	ctx context.Context,
 	plan executionPlan,
-	mutants []report.Mutant,
+	evaluated evaluatedPopulation,
 ) error {
 	suggestPhase := plan.collector.phase(phaseSuggest)
 	defer suggestPhase()
 
-	selected, err := selectSurvivors(plan.settings, mutants)
+	selected, err := selectSurvivors(plan.settings, evaluated.rows)
 	if err != nil {
 		return err
 	}
@@ -60,7 +60,7 @@ func suggestAssertions(
 		Schemas:       plan.prepared.schemas,
 		Baseline:      plan.prepared.payloads,
 		Defect:        seedSuggestionDefect(plan.settings),
-	}.Generate(suggestable(selected))
+	}.Generate(suggestable(selected, evaluated))
 
 	if plan.settings.SuggestDryRun {
 		return publishGeneration(plan.events, selected, candidates, nil, skipped)
@@ -140,39 +140,25 @@ func publishOutcome(events *dispatcher, suggestion suggest.Suggestion) error {
 // diagnosis — the engine grades, the context turns grading into improvement.
 // A survivor whose diagnosis names no proven delta — the indeterminate
 // comparisons — is not projected: there is nothing to assert about it.
-func suggestable(selected []report.Mutant) []suggest.Survivor {
+func suggestable(selected []report.Mutant, evaluated evaluatedPopulation) []suggest.Survivor {
 	survivors := make([]suggest.Survivor, 0, len(selected))
+	selectedIDs := make(map[string]bool, len(selected))
 
 	for _, mutant := range selected {
-		if mutant.Verdict == nil || !slices.Contains(suggestibleDiagnoses, mutant.Verdict.Diagnosis) {
+		selectedIDs[mutant.ID] = true
+	}
+
+	for index, mutant := range evaluated.rows {
+		outcome := evaluated.classified[index].Outcome
+		if !selectedIDs[mutant.ID] || !slices.Contains(suggestibleDiagnoses, outcome.Diagnosis()) {
 			continue
 		}
 
 		survivors = append(survivors,
-			suggest.NewSurvivor(mutant.ID, projectSurvivorDelta(mutant.Verdict.Evidence.Delta)))
+			suggest.NewSurvivor(mutant.ID, outcome.Evidence().Delta()))
 	}
 
 	return survivors
-}
-
-// projectSurvivorDelta hands the generator the report's delta in the
-// fingerprint document shape the adapters read. It is the same capped delta
-// the report carries: generation sees what the report showed, not more.
-func projectSurvivorDelta(changes []report.Change) []fingerprint.Change {
-	delta := make([]fingerprint.Change, 0, len(changes))
-
-	for _, change := range changes {
-		delta = append(delta, fingerprint.Change{
-			Run:       change.Run,
-			Path:      change.Path,
-			Address:   change.Address,
-			Baseline:  change.Baseline,
-			Mutant:    change.Mutant,
-			Sensitive: change.Sensitive,
-		})
-	}
-
-	return delta
 }
 
 // Statement states what verification actually executed: every

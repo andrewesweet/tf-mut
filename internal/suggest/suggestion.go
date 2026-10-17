@@ -35,9 +35,8 @@ const (
 	SkipUnsupportedTarget SkipReason = "skipped-unsupported-target"
 	// SkipOutputMetadata marks a delta that changes only an output's type or
 	// sensitivity metadata. Metadata describes the value rather than being
-	// one, so no `terraform test` assertion addresses it: the survivor is
-	// unassertable, and the value assertion that would close it is stated in
-	// the detail.
+	// one, so no `terraform test` assertion addresses it, and no output value
+	// difference exists to assert.
 	SkipOutputMetadata SkipReason = "skipped-output-metadata"
 )
 

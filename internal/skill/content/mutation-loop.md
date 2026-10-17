@@ -74,8 +74,8 @@ assertion expression reaches the delta), `skipped-unrenderable` (no
 type-correct equality exists), `skipped-unsupported-target` (the target test
 file is JSON, which the tool never writes), `skipped-output-metadata` (the
 delta is an output's type or sensitivity metadata, which no assertion
-addresses — assert on the value instead). A `refuted` suggestion is a tool
-defect — report it upstream, do not paper over it.
+addresses; no output value difference exists to assert). A `refuted`
+suggestion is a tool defect — report it upstream, do not paper over it.
 
 ## Suppression discipline
 

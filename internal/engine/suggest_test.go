@@ -473,6 +473,11 @@ func TestAnOutputMetadataOnlyDeltaIsSkippedAsOutputMetadata(t *testing.T) {
 			t.Fatalf("status %s does not report as skipped", suggestion.Status)
 		}
 
+		if !strings.Contains(suggestion.StatusReason, "no output value difference exists") {
+			t.Fatalf("metadata-only reason does not explain the unchanged value: %s",
+				suggestion.StatusReason)
+		}
+
 		assertPresenceRules(t, suggestion)
 	}
 
@@ -513,6 +518,69 @@ func TestAValueDeltaOutranksAnOutputsTypeMetadata(t *testing.T) {
 	if !found {
 		t.Fatalf("the key-drop survivor received no suggestion: %s",
 			statusSummary(result.Suggestions))
+	}
+}
+
+func TestOutputValueSelectionUsesCompleteDelta(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		fixture  string
+		operator string
+		run      string
+	}{
+		{fixture: "suggest-output-large-tuple", operator: "COLL-EMPTY", run: "applied"},
+		{fixture: "suggest-output-later-run", operator: "COND-TRUE", run: "second"},
+	} {
+		t.Run(test.fixture, func(t *testing.T) {
+			t.Parallel()
+
+			request := dryRunRequest(t, copyFixture(t, test.fixture))
+			request.Tier = "standard"
+			request.IncludeOperators = []string{test.operator}
+
+			for _, stage := range []string{"fresh", "cached", "verified"} {
+				request.DryRun = stage != "verified"
+				result := runSuggest(t, request)
+				if len(result.Suggestions) != 1 {
+					t.Fatalf("%s: want one suggestion, got %s", stage, statusSummary(result.Suggestions))
+				}
+
+				suggestion := result.Suggestions[0]
+				wantStatus := report.SuggestionCandidate
+				if stage == "verified" {
+					wantStatus = report.SuggestionVerified
+				}
+
+				if suggestion.Status != wantStatus || suggestion.Expression != `try(output.aliases[0], null) == "x"` {
+					t.Fatalf("%s: suggestion = %s %q (%s), want %s with the baseline element assertion",
+						stage, suggestion.Status, suggestion.Expression, suggestion.StatusReason, wantStatus)
+				}
+
+				if suggestion.TargetFile != unitTestFile || suggestion.TargetRun != test.run {
+					t.Fatalf("%s: placement = %s:%s, want %s:%s", stage,
+						suggestion.TargetFile, suggestion.TargetRun, unitTestFile, test.run)
+				}
+
+				if stage != "fresh" && result.Population.Cached != 1 {
+					t.Fatalf("%s: want the survivor replayed from cache, got %d cache hits",
+						stage, result.Population.Cached)
+				}
+
+				if test.operator == "COLL-EMPTY" {
+					mutant, found := result.MutantByID(suggestion.MutantID)
+					if !found || mutant.Verdict == nil || len(mutant.Verdict.Evidence.Delta) != 20 {
+						t.Fatalf("%s: the report must retain its 20-change display cap", stage)
+					}
+
+					for _, change := range mutant.Verdict.Evidence.Delta {
+						if strings.Contains(change.Path, ".value") {
+							t.Fatalf("%s: expected type metadata to fill the display delta, got %s", stage, change.Path)
+						}
+					}
+				}
+			}
+		})
 	}
 }
 
