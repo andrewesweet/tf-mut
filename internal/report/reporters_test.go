@@ -36,6 +36,8 @@ const (
 	unassertableSite = "output.value"
 )
 
+const sampleNumericOperator = "NUM-OFF-BY-ONE"
+
 // Literals the cache-miss rendering tests share: the variable names behind
 // an explained miss, never their values.
 const (
@@ -731,7 +733,7 @@ func sitesReport() report.Report {
 		line     int
 		status   string
 	}{
-		{"aaaa00000001", "NUM-OFF-BY-ONE", report.Survived, "local.locations", sampleFile, 21, statusNew},
+		{"aaaa00000001", sampleNumericOperator, report.Survived, "local.locations", sampleFile, 21, statusNew},
 		{"aaaa00000002", "BOOL-FLIP", report.Survived, "local.locations", sampleFile, 23, statusAccepted},
 		{"aaaa00000003", "STR-CASE", report.Survived, "var.type", "variables.tf", 9, statusAccepted},
 		{"aaaa00000004", "EXT-BODY-BLANK", report.StructurallyUnassertable, unassertableSite, "outputs.tf", 5, ""},
@@ -1012,7 +1014,7 @@ func TestMarkdownTruncationNamesEveryHiddenSite(t *testing.T) {
 	for index := range 27 {
 		mutants = append(mutants, report.Mutant{ // the rendered subset.
 			ID:       fmt.Sprintf("aaaa%08d", index),
-			Operator: "NUM-OFF-BY-ONE",
+			Operator: sampleNumericOperator,
 			Tier:     smokeTier,
 			Module:   ".",
 			Site:     fmt.Sprintf("resource_%02d.attr", index),
@@ -1250,6 +1252,7 @@ func TestIndeterminateGroupsFollowReportOrder(t *testing.T) {
 	for name, write := range map[string]func(io.Writer, report.Report) error{
 		"markdown": report.WriteMarkdown,
 		"terminal": report.WriteTerminal,
+		"html":     report.WriteHTML,
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -1297,6 +1300,61 @@ func TestIndeterminateGroupsFollowReportOrder(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHTMLGroupsIndeterminateSurvivorsBySharedUnknownPaths: the HTML page's
+// authoritative header states each shared unknown-path cause once, like the
+// terminal and markdown reporters — the viewer below keeps its per-mutant
+// records, so the header is where the shared cause lives.
+func TestHTMLGroupsIndeterminateSurvivorsBySharedUnknownPaths(t *testing.T) {
+	t.Parallel()
+
+	rendered := strings.Builder{}
+	if err := report.WriteHTML(&rendered, indeterminateReport()); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	header := htmlHeaderSection(t, rendered.String())
+
+	for _, want := range []string{
+		"2 survivors are indeterminate because these paths are unknown at plan:",
+		"1 survivor is indeterminate because these paths are unknown at plan:",
+		"<code>kubernetes_deployment_v1.workspace[0].id</code>",
+		"<code>kubernetes_deployment_v1.workspace[0].metadata[0].uid</code>",
+		"<code>aws_iam_role.this[0].unique_id</code>",
+		"Fix: add an assertion",
+	} {
+		if !strings.Contains(header, want) {
+			t.Fatalf("the HTML authoritative header is missing %q:\n%s", want, header)
+		}
+	}
+
+	// Groups follow their first appearance in report order: the shared pair's
+	// paths before the lone survivor's.
+	if shared, lone := strings.Index(header, "kubernetes_deployment_v1.workspace[0].id"),
+		strings.Index(header, "aws_iam_role.this[0].unique_id"); shared < 0 || lone <= shared {
+		t.Fatalf("the groups lost their report order:\n%s", header)
+	}
+
+	// Said once per path set, not once per survivor: two sentences for two
+	// groups, whatever the membership.
+	if said := strings.Count(header, "because these paths are unknown at plan"); said != 2 {
+		t.Fatalf("the indeterminate sentence appears %d times in the header, want once per group (2):\n%s", said, header)
+	}
+}
+
+// htmlHeaderSection returns the page's authoritative header: the section
+// tf-mut renders above the embedded viewer, where its own presentation lives.
+func htmlHeaderSection(t *testing.T, page string) string {
+	t.Helper()
+
+	start := strings.Index(page, "<section")
+	end := strings.Index(page, "</section>")
+	if start < 0 || end <= start {
+		t.Fatalf("the page carries no authoritative header section:\n%s", page)
+	}
+
+	return page[start:end]
 }
 
 func TestTerminalKeepsDiffsForGroupedAndUngroupedSurvivors(t *testing.T) {

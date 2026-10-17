@@ -723,12 +723,14 @@ JUnit carries suite standard output, and Mutation Testing Elements includes warn
 tf-mut's authoritative metrics in its tool configuration. JSON retains the full report value.
 For preview's safety-gate advisories and refusals, see [preview usage](../../README.md#using-it).
 
-Terminal and Markdown group survivors diagnosed as `indeterminate-unknown-values` by matching
-sets of unknown-at-plan paths. Each group states its paths and fix once, then lists every
-member's operator, file and line. Paths are sorted; groups follow their first appearance in
-report order. Members retain report order within their groups or Markdown site subgroups.
-Terminal retains each member's diff. Grouping changes presentation; counts and verdicts remain
-per mutant.
+Terminal, Markdown and the HTML page's authoritative header group survivors diagnosed as
+`indeterminate-unknown-values` by matching sets of unknown-at-plan paths. Each group states its
+paths and fix once — the HTML header as "N survivors are indeterminate because these paths are
+unknown at plan" — then, in the terminal and Markdown, lists every member's operator, file and
+line. Paths are sorted; groups follow their first appearance in report order. Members retain
+report order within their groups or Markdown site subgroups. Terminal retains each member's
+diff. The HTML viewer keeps its per-mutant records. Grouping changes presentation; counts and
+verdicts remain per mutant.
 
 Markdown groups findings by module and mutation site, with file and line in each heading and
 member line. Indeterminate path groups contain the same module-and-site subgroups. The first
