@@ -25,8 +25,9 @@ var seedSuggestionDefect = func(settings) suggest.Defect { return suggest.Defect
 
 // suggestibleDiagnoses names the diagnoses a suggestion is generated for.
 //
-// Each one names a proven, expressible delta. The indeterminate diagnoses name
-// a comparison the oracle could not make, so there is nothing to assert; and
+// Each one names a proven delta; the adapters decide whether it is expressible.
+// The indeterminate diagnoses name a comparison the oracle could not make,
+// so there is nothing to assert; and
 // `StructurallyUnassertable` is not a survivor diagnosis at all — its skeleton
 // generation was removed from that milestone and relocated behind the
 // minable-share measurement it always belonged to.
@@ -140,6 +141,8 @@ func publishOutcome(events *dispatcher, suggestion suggest.Suggestion) error {
 // diagnosis — the engine grades, the context turns grading into improvement.
 // A survivor whose diagnosis names no proven delta — the indeterminate
 // comparisons — is not projected: there is nothing to assert about it.
+// Keep the oracle's complete delta here: the report's display cap can hide a
+// value change behind output metadata and must not constrain generation.
 func suggestable(selected []report.Mutant, evaluated evaluatedPopulation) []suggest.Survivor {
 	survivors := make([]suggest.Survivor, 0, len(selected))
 	selectedIDs := make(map[string]bool, len(selected))

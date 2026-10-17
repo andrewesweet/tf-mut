@@ -238,13 +238,9 @@ func runKey(run discovery.RunBlock) string {
 	return run.Rel + "::" + run.Name
 }
 
-// suggestFor walks the delta for the first change all three adapters admit,
-// and reports the first change's own refusal where none is admitted.
-//
-// An output record's metadata paths — its type descriptor, its sensitivity and
-// unknown markers — are walked last: they change whenever the value does, they
-// are never assertable, and otherwise the refusal they produce outranks the
-// value's own in the report.
+// suggestFor walks the supplied changes within one target run. If none is
+// admitted, a sensitivity refusal takes precedence over the metadata-only
+// limit and the first adapter refusal.
 func (g Generator) suggestFor(
 	survivor Survivor,
 	target discovery.RunBlock,

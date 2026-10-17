@@ -554,9 +554,12 @@ SURVIVED  main.tf:22  COND-SWAP
 preserving formatting and comments. `--all-verified` selects all verified suggestions.
 `--dry-run` prints candidate patches without verifying them.
 
-The generator selects at most one candidate per survivor. Candidate selection prefers
-value changes over output type, sensitivity and unknown metadata. Metadata never becomes
-an assertion. Resource and data-source paths use the provider's attribute and nested-block
+The generator selects at most one candidate per survivor. It examines the complete masked
+delta across all runs, before report display truncation. Candidate selection tries value
+changes in run declaration order before output type, sensitivity and unknown metadata.
+Metadata never becomes an assertion. For metadata-only outcomes, see the
+[suggestion status contract](../schema/report-2.15.0.json#/$defs/suggestion_status).
+Resource and data-source paths use the provider's attribute and nested-block
 schemas. Supported paths include list and tuple elements, and attributes inside single,
 group, list and map-nested blocks. Every scalar reference that descends into a value renders
 as `try(reference, null)`, so a missing key, attribute or instance fails the assertion

@@ -167,9 +167,9 @@ declared by `internal/report`; they are not invitations to add aliases.
 
 ### Suggestion
 
-- **Suggestion status:** `candidate`, `verified`, `refuted`, `skipped-sensitive`,
-  `skipped-unaddressable`, `skipped-unrenderable`,
-  `skipped-unsupported-target`, and `skipped-output-metadata`.
+- **Suggestion status:** the result of generation or verification.
+  The [report schema](docs/schema/report-2.15.0.json#/$defs/suggestion_status)
+  owns the closed wire vocabulary.
 - **Verification evidence:** the baseline and isolated-mutant verification legs.
 - **Apply plan:** the digest-bound set of verified suggestions and target files to
   write.
