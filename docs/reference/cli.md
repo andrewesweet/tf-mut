@@ -27,7 +27,7 @@ Arguments: `PATH  The module directory to mutate (default ".")`
 | `--otlp-endpoint URL` | Export run, mutant and phase spans over OTLP/HTTP (OTEL_EXPORTER_OTLP_ENDPOINT is honoured when unset) | — |
 | `--min-score N` | Fail below this mutation score percentage | — |
 | `--failure-trip N` | Stop the run after this many consecutive operational failures; the report names the trip and the first failure, and the score is marked incomplete | `5` |
-| `--allow-incomplete-score` | Let an untrustworthy score satisfy --min-score (timeout, nothing scored, Invalid-dominated) | — |
+| `--allow-incomplete-score` | Let an untrustworthy score satisfy --min-score (timeout, consecutive-failure trip, unexecuted mutants, execution errors, nothing scored, Invalid-dominated) | — |
 | `--allow-sampled-gate` | Let a sampled run satisfy --min-score (unsafe) | — |
 | `--no-cache` | Disable the project-local verdict cache | — |
 | `--fail-on-new` | Fail on findings the baseline does not accept | — |
@@ -114,7 +114,7 @@ Arguments: `PATH  The module directory to suggest for (default ".")`
 | `--otlp-endpoint URL` | Export run, mutant and phase spans over OTLP/HTTP (OTEL_EXPORTER_OTLP_ENDPOINT is honoured when unset) | — |
 | `--min-score N` | Fail below this mutation score percentage | — |
 | `--failure-trip N` | Stop the run after this many consecutive operational failures; the report names the trip and the first failure, and the score is marked incomplete | `5` |
-| `--allow-incomplete-score` | Let an untrustworthy score satisfy --min-score (timeout, nothing scored, Invalid-dominated) | — |
+| `--allow-incomplete-score` | Let an untrustworthy score satisfy --min-score (timeout, consecutive-failure trip, unexecuted mutants, execution errors, nothing scored, Invalid-dominated) | — |
 | `--allow-sampled-gate` | Let a sampled run satisfy --min-score (unsafe) | — |
 | `--no-cache` | Disable the project-local verdict cache | — |
 | `--fail-on-new` | Fail on findings the baseline does not accept | — |
@@ -234,7 +234,7 @@ Arguments: `PATH  The module directory to curate (default ".")`
 | `--otlp-endpoint URL` | Export run, mutant and phase spans over OTLP/HTTP (OTEL_EXPORTER_OTLP_ENDPOINT is honoured when unset) | — |
 | `--min-score N` | Fail below this mutation score percentage | — |
 | `--failure-trip N` | Stop the run after this many consecutive operational failures; the report names the trip and the first failure, and the score is marked incomplete | `5` |
-| `--allow-incomplete-score` | Let an untrustworthy score satisfy --min-score (timeout, nothing scored, Invalid-dominated) | — |
+| `--allow-incomplete-score` | Let an untrustworthy score satisfy --min-score (timeout, consecutive-failure trip, unexecuted mutants, execution errors, nothing scored, Invalid-dominated) | — |
 | `--allow-sampled-gate` | Let a sampled run satisfy --min-score (unsafe) | — |
 | `--no-cache` | Disable the project-local verdict cache | — |
 | `--fail-on-new` | Fail on findings the baseline does not accept | — |
