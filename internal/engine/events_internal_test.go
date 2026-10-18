@@ -53,7 +53,9 @@ func TestBaselineLabellingPreservesPublishedEvent(t *testing.T) {
 					t.Fatalf("publishing the evaluated mutant: %v", publishErr)
 				}
 
-				projection := gradingProjection{evaluated: population, labels: map[int]string{0: label}}
+				var projection gradingProjection
+				projection.evaluated = population
+				projection.labels = map[int]string{0: label}
 				result := projection.project()
 
 				assertPublishedEventUnchanged(t, before, published)

@@ -24,6 +24,7 @@ import (
 	"cmp"
 	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/parser"
 	"go/token"
 	"io/fs"
@@ -58,9 +59,8 @@ type Rule string
 const (
 	// RuleSettingsConstruction marks a test file constructing the engine's
 	// internal settings value: tests construct requests, never settings. The
-	// rule covers the composite literal, a declared variable of the type and
-	// a new call; a bare mention in a parameter or field position constructs
-	// nothing and stays allowed.
+	// rule covers composite literals and new calls; type references alone
+	// construct nothing and stay allowed.
 	RuleSettingsConstruction Rule = "settings-construction"
 	// RuleRunnerConstruction marks a test file outside internal/tfexec
 	// constructing the Terraform runner itself: the engine builds the one
@@ -161,7 +161,7 @@ func Scan(root string) ([]Violation, error) {
 
 	var found []Violation
 	var files []*scanner
-	packages := make(map[string]map[string]aliasDeclaration)
+	packages := make(map[string]map[string]typeReference)
 
 	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -183,10 +183,10 @@ func Scan(root string) ([]Violation, error) {
 
 		key := filepath.Dir(path) + "/" + file.file.Name.Name
 		if packages[key] == nil {
-			packages[key] = make(map[string]aliasDeclaration)
+			packages[key] = make(map[string]typeReference)
 		}
-		file.typeAliases = packages[key]
-		file.collectTypeAliases()
+		file.types = packages[key]
+		file.collectTypes()
 		files = append(files, file)
 
 		return nil
@@ -254,18 +254,19 @@ func skipDir(root, path string, entry fs.DirEntry) error {
 
 // scanner carries one parsed test file through the three rules.
 type scanner struct {
-	root        string
-	path        string
-	file        *ast.File
-	fset        *token.FileSet
-	relative    string
-	aliases     map[string]string // local import name -> import path
-	dotImports  map[string]bool   // import paths dot-imported into the file
-	violations  []Violation
-	typeAliases map[string]aliasDeclaration
+	root         string
+	path         string
+	file         *ast.File
+	fset         *token.FileSet
+	relative     string
+	aliases      map[string]string // local import name -> import path
+	dotImports   map[string]bool   // import paths dot-imported into the file
+	violations   []Violation
+	types        map[string]typeReference
+	literalTypes map[*ast.CompositeLit]typeReference
 }
 
-type aliasDeclaration struct {
+type typeReference struct {
 	expr ast.Expr
 	file *scanner
 }
@@ -284,13 +285,14 @@ func parseFile(root, path string) (*scanner, error) {
 	}
 
 	s := &scanner{
-		root:       root,
-		path:       path,
-		file:       parsed,
-		fset:       fset,
-		relative:   filepath.ToSlash(relative),
-		aliases:    make(map[string]string),
-		dotImports: make(map[string]bool),
+		root:         root,
+		path:         path,
+		file:         parsed,
+		fset:         fset,
+		relative:     filepath.ToSlash(relative),
+		aliases:      make(map[string]string),
+		dotImports:   make(map[string]bool),
+		literalTypes: make(map[*ast.CompositeLit]typeReference),
 	}
 
 	s.collectImports()
@@ -314,7 +316,7 @@ func (s *scanner) collectImports() {
 	}
 }
 
-func (s *scanner) collectTypeAliases() {
+func (s *scanner) collectTypes() {
 	for _, declaration := range s.file.Decls {
 		group, ok := declaration.(*ast.GenDecl)
 		if !ok || group.Tok != token.TYPE {
@@ -322,9 +324,9 @@ func (s *scanner) collectTypeAliases() {
 		}
 
 		for _, spec := range group.Specs {
-			alias, ok := spec.(*ast.TypeSpec)
-			if ok && alias.Assign.IsValid() {
-				s.typeAliases[alias.Name.Name] = aliasDeclaration{expr: alias.Type, file: s}
+			declaration, ok := spec.(*ast.TypeSpec)
+			if ok {
+				s.types[declaration.Name.Name] = typeReference{expr: declaration.Type, file: s}
 			}
 		}
 	}
@@ -337,9 +339,7 @@ func (s *scanner) inspect() {
 		case *ast.ImportSpec:
 			s.checkImport(marked)
 		case *ast.CompositeLit:
-			s.checkConstructed(marked.Type)
-		case *ast.ValueSpec:
-			s.checkConstructed(marked.Type)
+			s.checkLiteral(marked)
 		case *ast.CallExpr:
 			s.checkAllocation(marked)
 		default:
@@ -360,78 +360,143 @@ func (s *scanner) checkImport(spec *ast.ImportSpec) {
 	s.report(spec.Pos(), RuleEngineDrivenImport, importPath)
 }
 
-// checkConstructed applies the two construction rules to one type position.
-func (s *scanner) checkConstructed(typeExpr ast.Expr) {
-	s.walkTypes(typeExpr, make(map[ast.Expr]bool), func(importPath, typeName string) {
-		switch {
-		case importPath == enginePackage && typeName == settingsTypeName:
-			s.report(typeExpr.Pos(), RuleSettingsConstruction, shortName(importPath, typeName))
-		case importPath == tfexecPackage && typeName == runnerTypeName && !s.ownsRunner():
-			s.report(typeExpr.Pos(), RuleRunnerConstruction, shortName(importPath, typeName))
-		}
-	})
-}
-
-// checkAllocation applies both construction rules to an allocation's type.
-func (s *scanner) checkAllocation(call *ast.CallExpr) {
-	name, isIdent := call.Fun.(*ast.Ident)
-	if !isIdent || (name.Name != "new" && name.Name != "make") || len(call.Args) < 1 {
+func (s *scanner) checkLiteral(literal *ast.CompositeLit) {
+	reference := s.literalTypes[literal]
+	if literal.Type != nil {
+		reference = typeReference{expr: literal.Type, file: s}
+	}
+	reference = resolveType(reference)
+	if pointer, ok := reference.expr.(*ast.StarExpr); ok {
+		reference = resolveType(typeReference{expr: pointer.X, file: reference.file})
+	}
+	if reference.expr == nil {
 		return
 	}
 
-	s.checkConstructed(call.Args[0])
-}
-
-func (s *scanner) walkTypes(typeExpr ast.Expr, seen map[ast.Expr]bool, visit func(string, string)) {
-	if typeExpr == nil || seen[typeExpr] {
-		return
-	}
-	seen[typeExpr] = true
-
-	switch marked := typeExpr.(type) {
-	case *ast.ArrayType:
-		s.walkTypes(marked.Elt, seen, visit)
-	case *ast.MapType:
-		s.walkTypes(marked.Key, seen, visit)
-		s.walkTypes(marked.Value, seen, visit)
-	case *ast.StarExpr:
-		s.walkTypes(marked.X, seen, visit)
-	case *ast.ParenExpr:
-		s.walkTypes(marked.X, seen, visit)
-	case *ast.StructType:
-		for _, field := range marked.Fields.List {
-			s.walkTypes(field.Type, seen, visit)
+	if array, ok := reference.expr.(*ast.ArrayType); ok {
+		if _, inferred := array.Len.(*ast.Ellipsis); inferred && len(literal.Elts) == 0 {
+			return
 		}
-	case *ast.Ident:
-		s.walkIdentifier(marked, seen, visit)
-	case *ast.SelectorExpr:
-		name, isIdent := marked.X.(*ast.Ident)
-		if isIdent {
-			if path, isAlias := s.aliases[name.Name]; isAlias {
-				visit(path, marked.Sel.Name)
+	}
+	s.checkConstructed(reference, literal.Pos(), make(map[ast.Expr]bool))
+
+	for _, element := range literal.Elts {
+		switch shape := reference.expr.(type) {
+		case *ast.ArrayType:
+			if keyed, ok := element.(*ast.KeyValueExpr); ok {
+				element = keyed.Value
+			}
+			s.inferLiteral(element, typeReference{expr: shape.Elt, file: reference.file})
+		case *ast.MapType:
+			if keyed, ok := element.(*ast.KeyValueExpr); ok {
+				s.inferLiteral(keyed.Key, typeReference{expr: shape.Key, file: reference.file})
+				s.inferLiteral(keyed.Value, typeReference{expr: shape.Value, file: reference.file})
 			}
 		}
 	}
 }
 
-func (s *scanner) walkIdentifier(name *ast.Ident, seen map[ast.Expr]bool, visit func(string, string)) {
-	if name.Obj != nil {
-		if alias, ok := name.Obj.Decl.(*ast.TypeSpec); ok && alias.Assign.IsValid() {
-			s.walkTypes(alias.Type, seen, visit)
-			return
+func (s *scanner) inferLiteral(expression ast.Expr, reference typeReference) {
+	if literal, ok := expression.(*ast.CompositeLit); ok && literal.Type == nil {
+		s.literalTypes[literal] = reference
+	}
+}
+
+func (s *scanner) checkConstructed(reference typeReference, position token.Pos, seen map[ast.Expr]bool) {
+	reference = resolveType(reference)
+	if reference.expr == nil || seen[reference.expr] {
+		return
+	}
+	seen[reference.expr] = true
+
+	if rule, detail := reference.file.protectedType(reference.expr); rule != "" {
+		if rule != RuleRunnerConstruction || !s.ownsRunner() {
+			s.report(position, rule, detail)
 		}
-	} else if alias, ok := s.typeAliases[name.Name]; ok {
-		alias.file.walkTypes(alias.expr, seen, visit)
 		return
 	}
 
-	if s.dotImports[tfexecPackage] && name.Name == runnerTypeName {
-		visit(tfexecPackage, runnerTypeName)
+	switch shape := reference.expr.(type) {
+	case *ast.ArrayType:
+		if shape.Len != nil && !zeroLength(shape.Len) {
+			s.checkConstructed(typeReference{expr: shape.Elt, file: reference.file}, position, seen)
+		}
+	case *ast.StructType:
+		for _, field := range shape.Fields.List {
+			s.checkConstructed(typeReference{expr: field.Type, file: reference.file}, position, seen)
+		}
+	}
+}
+
+func zeroLength(expression ast.Expr) bool {
+	literal, ok := ast.Unparen(expression).(*ast.BasicLit)
+	if !ok || literal.Kind != token.INT {
+		return false
+	}
+	value := constant.MakeFromLiteral(literal.Value, token.INT, 0)
+	return value.Kind() == constant.Int && constant.Sign(value) == 0
+}
+
+func (s *scanner) checkAllocation(call *ast.CallExpr) {
+	name, isIdent := call.Fun.(*ast.Ident)
+	if !isIdent || name.Name != "new" || len(call.Args) != 1 {
 		return
 	}
 
-	if path, isOwn := ownPackagePath(s.file.Name.Name); isOwn {
-		visit(path, name.Name)
+	s.checkConstructed(typeReference{expr: call.Args[0], file: s}, call.Pos(), make(map[ast.Expr]bool))
+}
+
+func resolveType(reference typeReference) typeReference {
+	seen := make(map[ast.Expr]bool)
+	for reference.expr != nil && !seen[reference.expr] {
+		seen[reference.expr] = true
+		if rule, _ := reference.file.protectedType(reference.expr); rule != "" {
+			return reference
+		}
+		switch expression := reference.expr.(type) {
+		case *ast.ParenExpr:
+			reference.expr = expression.X
+		case *ast.Ident:
+			if expression.Obj != nil {
+				if declaration, ok := expression.Obj.Decl.(*ast.TypeSpec); ok {
+					reference.expr = declaration.Type
+					continue
+				}
+			} else if declaration, ok := reference.file.types[expression.Name]; ok {
+				reference = declaration
+				continue
+			}
+			return reference
+		default:
+			return reference
+		}
+	}
+	return typeReference{}
+}
+
+func (s *scanner) protectedType(expression ast.Expr) (Rule, string) {
+	var importPath, typeName string
+	switch name := expression.(type) {
+	case *ast.Ident:
+		typeName = name.Name
+		if s.dotImports[tfexecPackage] && typeName == runnerTypeName {
+			importPath = tfexecPackage
+		} else {
+			importPath, _ = ownPackagePath(s.file.Name.Name)
+		}
+	case *ast.SelectorExpr:
+		if nameRoot, ok := name.X.(*ast.Ident); ok {
+			importPath = s.aliases[nameRoot.Name]
+			typeName = name.Sel.Name
+		}
+	}
+	switch {
+	case importPath == enginePackage && typeName == settingsTypeName:
+		return RuleSettingsConstruction, shortName(importPath, typeName)
+	case importPath == tfexecPackage && typeName == runnerTypeName:
+		return RuleRunnerConstruction, shortName(importPath, typeName)
+	default:
+		return "", ""
 	}
 }
 
@@ -452,8 +517,9 @@ func engineDriven(importPath string) bool {
 }
 
 // ownedByOwnPackage reports whether the file lives beside the imported
-// package. Under AGENTS.md's testing seam, engine tests and each package's
-// own tests (including tfexec) are outside this import check by design;
+// package. Under AGENTS.md's "Testing seam (fixed decision — do not reopen
+// per milestone)", engine tests and each package's own tests (including
+// tfexec) are outside this import check by design;
 // cross-package access requires a reviewed exception.
 func (s *scanner) ownedByOwnPackage(importPath string) bool {
 	owned := strings.TrimPrefix(importPath, modulePath+"/")

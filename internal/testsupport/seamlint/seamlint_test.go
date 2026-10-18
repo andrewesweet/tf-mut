@@ -107,8 +107,7 @@ func TestThatTheSeamScanAndTheRecordedExceptionsCoverEachOther(t *testing.T) {
 
 // TestThatTheSeamRulesFlagTheirFixtureBreaches proves the scanner catches
 // each rule against a deliberately breaching fixture, and counts every form
-// the rule covers: the composite literal, the declared variable and the new
-// call.
+// the rule covers: composite literals and new calls.
 func TestThatTheSeamRulesFlagTheirFixtureBreaches(t *testing.T) {
 	t.Parallel()
 
@@ -123,7 +122,7 @@ func TestThatTheSeamRulesFlagTheirFixtureBreaches(t *testing.T) {
 		count int
 	}{
 		{file: "settings_breach_test.go", rule: seamlint.RuleSettingsConstruction, count: 3},
-		{file: "runner_breach_test.go", rule: seamlint.RuleRunnerConstruction, count: 3},
+		{file: "runner_breach_test.go", rule: seamlint.RuleRunnerConstruction, count: 2},
 		{file: "import_breach_test.go", rule: seamlint.RuleEngineDrivenImport, count: 2},
 	} {
 		t.Run(breach.file, func(t *testing.T) {
@@ -204,6 +203,74 @@ func TestEngineDrivenImportsRespectOwnership(t *testing.T) {
 	}
 }
 
+type constructionCase struct {
+	name, source string
+	allowed      bool
+}
+
+func constructionCases() []constructionCase {
+	return []constructionCase{
+		{"literal", `_ = TYPE{}`, false},
+		{"new", `_ = new(TYPE)`, false},
+		{"slice", `_ = []TYPE{{}}`, false},
+		{"array", `_ = [1]TYPE{{}}`, false},
+		{"array-zero-values", `_ = [1]TYPE{}`, false},
+		{"map-value", `_ = map[string]TYPE{"fixture": {}}`, false},
+		{"map-key", `_ = map[TYPE]string{{}: "fixture"}`, false},
+		{"nested", `_ = map[string][]*TYPE{"fixture": {{}}}`, false},
+		{"struct", `_ = []struct { Value TYPE }{{}}`, false},
+		{"new-array", `_ = new([1]TYPE)`, false},
+		{"local-alias", `type local = TYPE; _ = local{}`, false},
+		{"local-defined", `type local TYPE; _ = local{}`, false},
+		{"local-defined-slice", `type cases []TYPE; _ = cases{{}}`, false},
+		{"local-defined-array", `type cases [1]TYPE; _ = cases{{}}`, false},
+		{"local-defined-map-value", `type cases map[string]TYPE; _ = cases{"fixture": {}}`, false},
+		{"local-defined-map-key", `type cases map[TYPE]string; _ = cases{{}: "fixture"}`, false},
+		{"local-defined-struct", `type cases struct { Value TYPE }; _ = cases{}`, false},
+		{"local-defined-embedded", `type cases struct { TYPE }; _ = cases{}`, false},
+		{"alias-literal", `_ = alias{}`, false},
+		{"alias-new", `_ = new(alias)`, false},
+		{"alias-slice", `_ = []alias{{}}`, false},
+		{"alias-map", `_ = map[string]alias{"fixture": {}}`, false},
+		{"alias-collection", `_ = collection{{}}`, false},
+		{"defined-literal", `_ = defined{}`, false},
+		{"defined-new", `_ = new(defined)`, false},
+		{"defined-slice", `_ = cases{{}}`, false},
+		{"defined-array", `_ = array{{}}`, false},
+		{"defined-map", `_ = mapping{"fixture": {}}`, false},
+		{"defined-struct", `_ = wrapper{}`, false},
+		{"defined-struct-new", `_ = new(wrapper)`, false},
+		{"parentheses", `_ = new((alias))`, false},
+		{"direct-declaration", `var value TYPE; _ = value`, true},
+		{"defined-struct-declaration", `var value wrapper; _ = value`, true},
+		{"pointer-declaration", `var value *TYPE; _ = value`, true},
+		{"slice-declaration", `var values []TYPE; _ = values`, true},
+		{"map-declaration", `var values map[string]TYPE; _ = values`, true},
+		{"slice-empty", `_ = []TYPE{}`, true},
+		{"map-empty", `_ = map[string]TYPE{}`, true},
+		{"map-key-empty", `_ = map[TYPE]string{}`, true},
+		{"array-empty", `_ = [0]TYPE{}`, true},
+		{"array-hex-empty", `_ = [0x0]TYPE{}`, true},
+		{"array-inferred-empty", `_ = [...]TYPE{}`, true},
+		{"array-references", `_ = [1]*TYPE{}`, true},
+		{"slice-references", `_ = []*TYPE{nil}`, true},
+		{"map-references", `_ = map[string]*TYPE{"fixture": nil}`, true},
+		{"make-map", `_ = make(map[string]TYPE)`, true},
+		{"make-map-key", `_ = make(map[TYPE]string)`, true},
+		{"make-empty-slice", `_ = make([]TYPE, 0)`, true},
+		{"new-pointer", `_ = new(*TYPE)`, true},
+		{"new-slice", `_ = new([]TYPE)`, true},
+		{"new-map", `_ = new(map[string]TYPE)`, true},
+		{"new-empty-array", `_ = new([0]TYPE)`, true},
+		{"defined-slice-empty", `_ = cases{}`, true},
+		{"defined-map-empty", `_ = mapping{}`, true},
+		{"defined-slice-declaration", `var values cases; _ = values`, true},
+		{"defined-slice-new", `_ = new(cases)`, true},
+		{"defined-map-new", `_ = new(mapping)`, true},
+		{"struct-references", `_ = struct { P *TYPE; S []TYPE; M map[string]TYPE }{}`, true},
+	}
+}
+
 func TestProtectedConstructionsResolveCollectionsAndAliases(t *testing.T) {
 	t.Parallel()
 
@@ -215,33 +282,7 @@ func TestProtectedConstructionsResolveCollectionsAndAliases(t *testing.T) {
 		{"runner", `import execution "github.com/andrewesweet/tf-mut/internal/tfexec"`, "execution.Runner", seamlint.RuleRunnerConstruction},
 		{"dot-runner", `import . "github.com/andrewesweet/tf-mut/internal/tfexec"`, "Runner", seamlint.RuleRunnerConstruction},
 	} {
-		for _, construction := range []struct {
-			name, source string
-		}{
-			{"literal", "_ = TYPE{}"},
-			{"variable", "var value TYPE; _ = value"},
-			{"new", "_ = new(TYPE)"},
-			{"slice", "_ = []TYPE{{}}"},
-			{"array", "_ = [1]TYPE{{}}"},
-			{"map-value", `_ = map[string]TYPE{"fixture": {}}`},
-			{"map-key", "_ = map[TYPE]string{{}: \"fixture\"}"},
-			{"nested", `_ = map[string][]*TYPE{"fixture": {{}}}`},
-			{"struct", "_ = []struct { Value TYPE }{{}}"},
-			{"slice-variable", "var values []TYPE; _ = values"},
-			{"array-variable", "var values [1]TYPE; _ = values"},
-			{"map-variable", "var values map[string]TYPE; _ = values"},
-			{"new-array", "_ = new([1]TYPE)"},
-			{"make-slice", "_ = make([]TYPE, 1)"},
-			{"make-map", "_ = make(map[string]TYPE)"},
-			{"local-alias", "type local = TYPE; _ = local{}"},
-			{"alias-literal", "_ = alias{}"},
-			{"alias-variable", "var value alias; _ = value"},
-			{"alias-new", "_ = new(alias)"},
-			{"alias-slice", "_ = []alias{{}}"},
-			{"alias-map", `_ = map[string]alias{"fixture": {}}`},
-			{"alias-collection", "_ = collection{{}}"},
-			{"parentheses", "_ = new((alias))"},
-		} {
+		for _, construction := range constructionCases() {
 			t.Run(protected.name+"/"+construction.name, func(t *testing.T) {
 				t.Parallel()
 
@@ -250,7 +291,7 @@ func TestProtectedConstructionsResolveCollectionsAndAliases(t *testing.T) {
 				if err := os.MkdirAll(directory, 0o700); err != nil {
 					t.Fatal(err)
 				}
-				aliases := fmt.Sprintf("package engine\n%s\ntype direct = %s\ntype alias = direct\ntype collection = []alias\n", protected.imports, protected.typeName)
+				aliases := fmt.Sprintf("package engine\n%s\ntype direct = %s\ntype alias = direct\ntype collection = []alias\ntype defined alias\ntype cases []defined\ntype array [1]defined\ntype mapping map[string]defined\ntype wrapper struct { Value defined }\n", protected.imports, protected.typeName)
 				if err := os.WriteFile(filepath.Join(directory, "aliases.go"), []byte(aliases), 0o600); err != nil {
 					t.Fatal(err)
 				}
@@ -264,8 +305,19 @@ func TestProtectedConstructionsResolveCollectionsAndAliases(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if len(violations) != 1 || violations[0].Rule != protected.rule {
-					t.Fatalf("violations = %v, want one %s violation", violations, protected.rule)
+				if construction.allowed {
+					if len(violations) != 0 {
+						t.Fatalf("allowed expression has violations: %v", violations)
+					}
+					return
+				}
+				if len(violations) == 0 {
+					t.Fatalf("construction has no %s violation", protected.rule)
+				}
+				for _, violation := range violations {
+					if violation.Rule != protected.rule {
+						t.Errorf("unexpected violation: %v", violation)
+					}
 				}
 			})
 		}
