@@ -246,8 +246,10 @@ M3 spec re-derives none of it.
 
 Facts, not opinions. A spec that contradicts one of these should say so deliberately.
 
-- **The per-mutant floor is ~1.6 s of provider startup**, unreachable from inside this tool. Every
-  remaining speed lever reduces how many mutants run, not what each costs (`07-m2-cost-model.md`).
+- **M3's selected speed levers reduce mutant count.** The fixture-specific invocation
+  floor and its later corrected attribution belong to the
+  [cost model](07-m2-cost-model.md#4-where-the-time-goes); they do not rule out reducing
+  real-suite invocation cost by safely omitting suite work.
 - **Lazy validation stays; selective validation is not worth building.** `Invalid` is 0.5% and
   `KilledByError` 7.7% at Tiers 1–3, so `validate` runs for 8.2% of the population against 100%
   for eager. This answers M1 open question 3 with data, and closes it.

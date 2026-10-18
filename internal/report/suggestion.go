@@ -1,6 +1,6 @@
 package report
 
-// The suggestion outcome model (report-2.15.0).
+// The suggestion outcome model (report-2.16.0).
 //
 // It is the whole normative table of the M4 spec's M2 disposition, expressed
 // once: a suggestion is an object with a stable identity, exactly one status

@@ -119,8 +119,10 @@ per the existing pattern.
 
 ## Standing facts carried forward
 
-- The ~1.6 s per-mutant floor, the gate truth table, verdict invariance, and the withdrawn
-  `mock-masked` diagnosis: unchanged, untouched.
+- The fixture-specific invocation cost follows the
+  [cost model](07-m2-cost-model.md#4-where-the-time-goes), including its later attribution
+  correction. The gate truth table, verdict invariance and withdrawn `mock-masked`
+  diagnosis are unchanged.
 - The M3-era conservatisms revisited exactly as specified: the evaluator's
   fail-closed-on-JSON-auto-vars lifts only for files the slice read; a changed
   `.tf.json` still forces the full `--since` population; the cache key hashes all JSON

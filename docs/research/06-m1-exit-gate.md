@@ -179,18 +179,14 @@ Measured on the same population within one invocation, warm:
 The offline fixture also reaches 0.63 s at `--jobs 12` (3.4×, ~63 mutants/s), consistent with
 the spike's 43 mutants/s on eight cores.
 
-**Parallelism buys almost nothing against a large-schema provider.** The spike concluded the
-run is "CPU-bound (`user` ≈ 6× `real`), so it scales with cores" — measured against
-`hashicorp/null`, whose schema is 3.4 KB. Against `hashicorp/aws` the marginal cost of a
-mutant is not the plan; it is starting an 840 MB provider plugin once per run block and
-handing its schema to Terraform. Eight of those concurrently saturate memory bandwidth long
-before they saturate twelve cores.
-
-This is a new constraint on the roadmap, and it is worth stating plainly because it changes
-where M2 should spend effort: `--jobs` is a lever for small-schema modules, and **test
-selection is the only lever that matters for real-provider ones**. It also sharpens C1's
-finding rather than repeating it — C1 was about `-verbose` re-serialising the schema into
-every message, which M1 never does; this is the plugin process itself.
+**Parallelism buys almost nothing on this large-schema fixture.** The spike's scaling
+claim came from `hashicorp/null`; the table above records the much smaller improvement
+against `hashicorp/aws`. The explanation based on per-run-block plugin launches and memory
+bandwidth is withdrawn. See the [corrected cost model](07-m2-cost-model.md#4-where-the-time-goes)
+for the later real-suite measurements and their implications for selection and parallelism.
+The 1.08× wall-clock measurement stands; it does not establish the bottleneck's mechanism.
+Section 10 of the 2026-10-12 report `tfmut-perf-costmodel` records its reproduction on host
+`bravo`, under `~/scratch/tfmut-perf-costmodel`, driven by `measure.sh` and `measure2.sh`.
 
 Recorded against issue #15's acceptance criterion "wall-clock improvement demonstrated on the
 suite's largest fixture": demonstrated at 3.0× on the offline corpus, and honestly reported as

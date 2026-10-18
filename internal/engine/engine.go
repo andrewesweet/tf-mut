@@ -1125,6 +1125,7 @@ func reportShell(
 			DurationMS:         prepared.baselineDuration.Milliseconds(),
 			Fingerprint:        baselineFingerprint(prepared),
 			VolatileComponents: prepared.mask.Paths(),
+			Files:              prepared.baselineFiles,
 		},
 		Mutants:        []report.Mutant{},
 		Findings:       []report.Finding{},

@@ -192,12 +192,13 @@ sys     0m5.663s
 **~43 mutants/second on 8 workers**, or ~5.4 mutants/second/worker. The run is CPU-bound
 (`user` ≈ 6× `real`), so it scales with cores.
 
-*Scope correction (M1 exit-gate measurement, 2026-08-16):* the scaling claim holds only for
-small-schema providers. Measured with the implemented engine, 40 mutants of a fully-mocked
+*Scope correction (M1 exit-gate measurement, 2026-08-16):* the scaling claim does not
+generalise to every provider. Measured with the implemented engine, 40 mutants of a fully-mocked
 `hashicorp/aws` module took 125.9 s at `--jobs 1` and 116.4 s at `--jobs 8` — a **1.08×**
-speedup — while an equivalent provider-free population scaled 3.0× over the same range. The
-marginal cost of a mutant against a large provider is starting the plugin process, not the
-plan, and that does not parallelise on one machine. See `06-m1-exit-gate.md`.
+speedup — while an equivalent provider-free population scaled 3.0× over the same range. See
+`06-m1-exit-gate.md` for that measurement and the
+[corrected cost model](07-m2-cost-model.md#4-where-the-time-goes) for the withdrawn
+plugin-startup attribution and the limits of the scaling inference.
 
 An earlier 8-way parallel run of the same sandbox layout completed in 0.239 s with all eight
 passing, confirming that concurrent readers of a shared `.terraform` do not contend or
@@ -236,6 +237,6 @@ and must refuse to run against real infrastructure without an explicit opt-in.
 | Plan fingerprints are stable and cheap on this fixture | Automatic unobservability detection (verbose cost scales with provider schema — review C1) |
 | Auto-generated mock values are non-deterministic | Volatile mask = static impure-function scan ∪ two-run diff (run-diff alone insufficient — review M5) |
 | ~~`relevant_attributes` is a coverage map~~ | **Withdrawn** (review C2): it is the refresh dependency set; selection uses the assertion inventory |
-| ~43 mutants/s on 8 cores, null provider | Interactive for small-schema providers; measured at 0.34 mutants/s on a mocked-AWS module with the implemented engine (`06-m1-exit-gate.md`) — two-phase execution and run-block selection are viability requirements |
-| Parallelism scales 3.0× provider-free and 1.08× against `hashicorp/aws` | `--jobs` is a small-schema lever only; test selection is the lever that matters on real modules |
+| ~43 mutants/s on 8 cores, null provider | Interactive on this fixture; see `06-m1-exit-gate.md` for the mocked-AWS measurement and the [cost model](07-m2-cost-model.md) for the speed-lever tradeoffs |
+| Parallelism scales 3.0× provider-free and 1.08× against `hashicorp/aws` | Fixture-specific scaling; see the [corrected cost model](07-m2-cost-model.md#4-where-the-time-goes) for real-suite costs and selection |
 | Mocks work with `command = apply` | Apply-mode mocked runs widen the killable surface |

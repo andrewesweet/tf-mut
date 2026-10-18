@@ -164,6 +164,12 @@ func (c *runCollector) endRun() {
 	c.overhead.Add(int64(time.Since(marked)))
 }
 
+// stampStart renders an instant as the RFC 3339 UTC timestamp the telemetry
+// publishes beside every duration.
+func stampStart(at time.Time) string {
+	return at.UTC().Format(time.RFC3339Nano)
+}
+
 // phase times one named step of the run. The returned function ends the step
 // and records its wall time; a step that panics never records.
 func (c *runCollector) phase(name string) func(...tracing.Attribute) {
@@ -177,7 +183,11 @@ func (c *runCollector) phase(name string) func(...tracing.Attribute) {
 		marked := time.Now()
 		span.End(attributes...)
 		c.mutex.Lock()
-		c.phases = append(c.phases, report.PhaseTiming{Phase: name, DurationMS: elapsed.Milliseconds()})
+		c.phases = append(c.phases, report.PhaseTiming{
+			Phase:      name,
+			DurationMS: elapsed.Milliseconds(),
+			StartedAt:  stampStart(start),
+		})
 		c.mutex.Unlock()
 		c.overhead.Add(int64(time.Since(marked)))
 	}
@@ -267,7 +277,11 @@ func (m *mutantCollector) phase(name string) func(...tracing.Attribute) {
 
 		marked := time.Now()
 		span.End(attributes...)
-		m.phases = append(m.phases, report.PhaseTiming{Phase: name, DurationMS: elapsed.Milliseconds()})
+		m.phases = append(m.phases, report.PhaseTiming{
+			Phase:      name,
+			DurationMS: elapsed.Milliseconds(),
+			StartedAt:  stampStart(start),
+		})
 		m.run.overhead.Add(int64(time.Since(marked)))
 	}
 }
@@ -299,9 +313,10 @@ func (m *mutantCollector) finish() *report.MutantTelemetry {
 	m.mutantSpan.End()
 
 	telemetry := &report.MutantTelemetry{
-		WallMS:   time.Since(m.started).Milliseconds(),
-		Phases:   m.phases,
-		Children: m.children,
+		StartedAt: stampStart(m.started),
+		WallMS:    time.Since(m.started).Milliseconds(),
+		Phases:    m.phases,
+		Children:  m.children,
 	}
 	m.run.overhead.Add(int64(time.Since(marked)))
 

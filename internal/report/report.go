@@ -7,8 +7,8 @@
 package report
 
 // SchemaVersion is the version of the machine-readable report schema.
-// See docs/schema/report-2.15.0.json for the versioned consumer contract.
-const SchemaVersion = "2.15.0"
+// See docs/schema/report-2.16.0.json for the versioned consumer contract.
+const SchemaVersion = "2.16.0"
 
 // Command names what produced a report.
 type Command string
@@ -133,6 +133,28 @@ type RunOutcome struct {
 	// design says it should.
 	Phase  int    `json:"phase"`
 	Status string `json:"status"`
+	// ElapsedMS is the run block's wall time in milliseconds, measured from
+	// the timestamps of the starting and completion events the Terraform test
+	// stream already carries (2.16.0). Absent when the stream carried no pair
+	// to measure — a run block skipped after an earlier error completes
+	// without a starting event, and a stream cut short never completes the
+	// run at all. Timing decides nothing.
+	ElapsedMS *int64 `json:"elapsed_ms,omitempty"`
+}
+
+// FileTiming is one test file's wall time in the suite a run executed
+// (2.16.0), measured from the timestamps of the test file's starting and
+// completion events in the same stream. The file's duration spans its run
+// blocks and the teardown between them, so it is not the sum of its runs'
+// elapsed times.
+type FileTiming struct {
+	// File is the test file's path, as the stream names it.
+	File string `json:"file"`
+	// Runs is the number of run blocks the file reported, executed or skipped.
+	Runs int `json:"runs"`
+	// ElapsedMS is the file's wall time in milliseconds; absent when the
+	// stream carried no starting and completion pair for the file.
+	ElapsedMS *int64 `json:"elapsed_ms,omitempty"`
 }
 
 // Change is one masked observable difference between baseline and mutant.
@@ -470,6 +492,11 @@ type Baseline struct {
 	Fingerprint string `json:"fingerprint"`
 	// VolatileComponents names the payload paths the volatile mask removes.
 	VolatileComponents []string `json:"volatile_components"`
+	// Files carries one timing entry per test file the baseline executed, in
+	// completion order (2.16.0), from the stream the baseline run already
+	// produced. Absent when no file completed; the entries' Runs counts sum
+	// to Runs.
+	Files []FileTiming `json:"files,omitempty"`
 }
 
 // ExecutionError records a mutant that could not be evaluated. It is never a

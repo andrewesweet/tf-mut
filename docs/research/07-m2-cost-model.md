@@ -5,9 +5,10 @@ Three experiments, run against `internal/engine/testdata/aws-mocked` through the
 execution path, to establish what the planned speed levers would buy before either is
 designed.
 
-The short version: **run-block file splitting is a tax, not a lever, and the milestone as
-scoped has no viable speed lever for real-provider modules.** The evidence is below; the
-consequences for the roadmap are in §5.
+On this fixture, **run-block file splitting adds cost, and the milestone as scoped has no
+measured speed lever for real-provider modules.** The evidence is below; the consequences for
+the roadmap are in §5. [§4](#4-where-the-time-goes) also records the later real-suite
+measurement that corrected the startup attribution and limits these conclusions to this fixture.
 
 ## Method
 
@@ -57,7 +58,7 @@ Least squares over the single-invocation sweep gives the cost model:
 > of an invocation.**
 
 Wall time for one invocation rises by 5% from one run block to eight. Splitting the same eight
-run blocks costs 678%. Everything is the process.
+run blocks costs 678%. On this fixture, the fixed invocation term dominates.
 
 ### What that does to the crossover
 
@@ -69,19 +70,18 @@ wins iff
 ```
 
 At **k = 1** — perfect selection, one run block of eight — the saving is `7 × 0.012 = 0.08 s`
-against a 1.70 s baseline: **5%**. At **k = 2** splitting already loses, by 1.5 s. There is no
-*n* at which the arithmetic becomes favourable, because `F/M` is between 134 and 162 and *k* is
-bounded below by one.
+against a 1.70 s baseline: **5%**. At **k = 2** splitting already loses, by 1.5 s.
+For the measured suite sizes, the fixed cost outweighs the removed run-block work whenever
+selection keeps more than one block.
 
 **Upper bound on splitting's total benefit for the M1 population:** 40 mutants × 8 run blocks ×
 12 ms = **3.8 s out of 128 s, or 3%** — and only if selection were perfect, which §3 shows it
 is not.
 
-This is measured on mocked plan-mode runs, which is the design's stated target shape. The
-result would change if a run block were expensive relative to an invocation: splitting wins
-whenever `M > F`, that is, whenever a single run block costs more than a second and a half.
-Apply-mode suites against slow providers may reach that. Mocked plan-mode suites against a
-large schema do not, and are not close.
+These wall-time results apply to `aws-mocked`'s near-empty mocked plan runs. A suite with
+more expensive run blocks can have a different crossover, even in mocked plan mode.
+Use the inequality with that suite's measured invocation and run-block costs; the
+[real-suite correction](#4-where-the-time-goes) explains why this fixture does not bound real modules.
 
 ## 2. `-verbose` costs 1.7× in time and 20,000× in volume
 
@@ -141,29 +141,58 @@ within a module, so it cannot say how much more.
 
 ## 4. Where the time goes
 
-Putting the three together, the per-mutant cost of a mutation run against a real provider is:
+Putting the three experiments together, the per-mutant wall time on `aws-mocked` is:
 
 ```
 cost(mutant) ≈ 1.6 s  +  0.012 s × run blocks  +  sandbox materialisation
 ```
 
-The first term dominates and is a constant. It is Terraform starting an 840 MB provider plugin.
-That number is not reachable by anything inside this tool: not by splitting, not by selection,
-not by parallelism (M1 measured 1.08× from one job to eight), not by two-phase execution.
+The first term dominates **on this fixture**, a single test file of trivial run blocks.
+Its 1.6 s is an invocation cost, and 0.012 s is the marginal wall time of a near-empty run
+block. The attribution of that constant to provider startup is withdrawn.
 
-The floor for a full run is therefore `mutants × 1.6 s ÷ effective parallelism`. M1's measured
-128 s for 40 mutants is 2× that floor, so the harness overhead above Terraform is already
-small. **There is no factor of two available in M2's scope.** The remaining levers all reduce
-the *mutant count* rather than the per-mutant cost — `--since`, the incremental cache,
-sampling, tier selection — and every one of them is scheduled M3.
+For this fixture, the full-run floor is `mutants × 1.6 s ÷ effective parallelism`.
+M1 measured 128 s for 40 mutants. These measurements found no factor of two within M2's
+scope; the selected roadmap levers reduce the mutant count: `--since`, the incremental
+cache, sampling and tier selection, all scheduled for M3.
+
+The 2026-10-12 cost-model report (`tfmut-perf-costmodel`) fitted a model on the real suites
+physical-ai and utl-regions.
+Section 10 of that report records its reproduction on host `bravo`, under
+`~/scratch/tfmut-perf-costmodel`, driven by `measure.sh` and `measure2.sh`.
+In CPU-seconds, each mutant's phase-one suite invocation costs:
+
+```
+T1 = c0 + Σ_files (p + r × runs)
+```
+
+Here, `c0` is the fixed invocation cost, `p` the per-file cost, `r` the per-run-block cost,
+and `runs` the number of run blocks in that file. The fitted `p` is about 0.4–0.9 CPU-s per
+file; `r` is about 0.19–0.45 CPU-s per run block. These CPU measurements must not be
+substituted for the fixture's wall-time coefficients.
+
+`strace` launch counts show provider plugins start once per test file, not once per run
+block. Provider startup costs about 0.1 CPU-s per provider, under 3% of an invocation on
+these suites. Terraform core graph building and expression evaluation per run block account
+for 76–90% of invocation CPU. Provider-process reuse across run blocks therefore does not
+address the dominant measured cost.
+
+The earlier memory-bandwidth explanation for M1's weak scaling is also withdrawn:
+physical-ai sustained 335% CPU at `--jobs 3` on a four-core machine. M1's measured 1.08×
+wall-time improvement stands, but it does not establish a universal limit on parallelism.
+
+tf-mut cannot reduce Terraform core's evaluation cost for a run block it executes.
+Selection that safely omits files or run blocks can reduce invocation cost, so the
+fixture's 3% selection ceiling is not a bound for real suites. This correction does not
+reintroduce file splitting to the roadmap; the state and dependency constraints in §1 still apply.
 
 ## 5. Consequences for the M2 spec
 
 Stated as recommendations. The spec author disposes of them.
 
-1. **Drop run-block file splitting.** Its ceiling is 3% under perfect selection and its cost
-   is 7.8× when applied naively. It was adopted from round-one M7 as "the primary viability
-   lever on real modules"; that claim is withdrawn and this document is the reason. Keeping it
+1. **Drop run-block file splitting.** On this fixture, its ceiling is 3% under perfect selection
+   and its cost is 7.8× when applied naively. It was adopted from round-one M7 as "the primary
+   viability lever on real modules"; that claim is withdrawn and this document is the reason. Keeping it
    would also drag R2-4's unreproduced state-identity closure into the milestone for no
    measured return.
 2. **Keep two-phase execution, and specify streaming with it.** §2. The requirement is memory,
@@ -182,7 +211,7 @@ Stated as recommendations. The spec author disposes of them.
    all. Replace it with an honesty gate — for example, that the fingerprint oracle's soundness
    claims survive the R2-2 refinement reproduction — and move the inner-loop demonstration to
    the milestone that contains the levers that could achieve it.
-6. **File the upstream ask.** A `terraform test` that reused one provider process across run
-   blocks would be worth more than every lever in this design put together. So would a
-   `-verbose` variant that omits `provider_schemas`. Both are already noted in
-   `product-design.md` §13 open question 7; this document is the evidence for them.
+6. **File the upstream ask.** Reduce Terraform core's per-run-block evaluation cost and offer
+   a `-verbose` variant that omits `provider_schemas`. The earlier provider-process-reuse
+   request is withdrawn under the corrected model in §4. The open asks are tracked in
+   [the product design](../design/product-design.md#13-open-questions).

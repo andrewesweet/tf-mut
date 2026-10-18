@@ -113,7 +113,7 @@ func exerciseSuggestionStatuses(
 	evidence := suggest.NewVerification(
 		suggest.NewLeg(true, nil, "the full suite stayed green with the batch applied"),
 		suggest.NewLeg(false, []suggest.RunRecord{
-			suggest.NewRunRecord("tests/unit.tftest.hcl", "applied", 2, "fail"),
+			suggest.NewRunRecord("tests/unit.tftest.hcl", "applied", 2, "fail", nil),
 		}, "the suggestion alone failed against its re-materialised mutant"),
 	)
 

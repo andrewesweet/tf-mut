@@ -191,16 +191,11 @@ Reduce mutant execution without hiding findings:
   from splitting accrues mainly to independent plan-mode suites — which is the design's
   target shape, but the claim is scoped to it.
 
-  **Measured, and withdrawn (`../research/07-m2-cost-model.md`).** Splitting produces *more*
-  `terraform test` invocations, and an invocation costs **1.6 s** against **0.012 s** for a
-  run block inside one — a ratio of 134 to 162 across two runs. Splitting an eight-run suite
-  costs **7.8×**; under perfect selection down to a single run block it saves **5%**, and at
-  two it already loses. Its ceiling across M1's whole population is 3%. This design previously called it the
-  primary viability lever on real modules; that claim is **withdrawn**, and the technique is
-  retained here only as a description of what is possible, not as something the roadmap
-  intends to build. It becomes worthwhile only where a single run block costs more than an
-  invocation — apply-mode suites against slow providers, not the mocked plan-mode suites this
-  design targets.
+  **Measured, and withdrawn.** The [cost-model experiments](../research/07-m2-cost-model.md#1-splitting-adds-work-at-every-useful-k)
+  found that splitting added invocation cost on `aws-mocked`. The claim that splitting is
+  the primary viability lever on real modules is withdrawn; it remains described here as a
+  possibility, not a roadmap item. The [corrected real-suite model](../research/07-m2-cost-model.md#4-where-the-time-goes)
+  scopes that fixture's selection ceiling and explains which costs safe selection can remove.
 - **Deduplication.** Mutants with identical `(file, range, replacement)` collapse.
 
 **The in-process reference graph — roles split across milestones (revised by both reviews).**
@@ -312,7 +307,7 @@ The trip applies to `run`, `suggest`, `curate` and mutation rounds of
 `characterise --until-dry`. It returns the operational exit code (`2`) and marks the
 score incomplete, even when every pending mutant was dispatched. A warning names the
 trip and the failure that began the streak. On a refused invocation, the warning travels
-with the error instead of a report. The [report schema](../schema/report-2.15.0.json)
+with the error instead of a report. The [report schema](../schema/report-2.16.0.json)
 owns the execution provenance and population-count contract for undispatched mutants.
 
 **The source tree is never written to.** This is a deliberate divergence from Oasis's
@@ -376,7 +371,7 @@ A test deadline remains visible even when an earlier failure determines the muta
 Terminal reports for every command include a trailing `Deadline reached` list when any
 mutant's test reached its budget; the Markdown summary also names these mutants. The JSON
 flag and its compatibility contract are defined in the
-[published report schema](../schema/report-2.15.0.json).
+[published report schema](../schema/report-2.16.0.json).
 
 Three R2 corrections are embedded there. **`MockMasked` is a diagnosis, not a state** (R2-8):
 as a state it overlapped `Survived` by definition. **`Timeout` sits in the denominator and
@@ -473,7 +468,7 @@ partitions. The **scored set** is `K + KE + S + NC + SU + T`; `Invalid`, `Unobse
 | **Reachability** | (K + KE + S + T) ÷ scored set | Coverage |
 
 `T` sits in every denominator it can reach (R2-11): machine load can then only *lower* a
-score, never raise it. The [published report schema](../schema/report-2.15.0.json) owns the
+score, never raise it. The [published report schema](../schema/report-2.16.0.json) owns the
 conditions that mark a score **incomplete**. `--min-score` gates fail on incomplete scores unless
 `--allow-incomplete-score` is passed. The `K` versus `KE` share is always displayed alongside
 the mutation score: a score composed mostly of `KE` means Terraform is doing the detecting,
@@ -562,7 +557,7 @@ The generator selects at most one candidate per survivor. It examines the comple
 delta across all runs, before report display truncation. Candidate selection tries value
 changes in run declaration order before output type, sensitivity and unknown metadata.
 Metadata never becomes an assertion. For metadata-only outcomes, see the
-[suggestion status contract](../schema/report-2.15.0.json#/$defs/suggestion_status).
+[suggestion status contract](../schema/report-2.16.0.json#/$defs/suggestion_status).
 Resource and data-source paths use the provider's attribute and nested-block
 schemas. Supported paths include list and tuple elements, and attributes inside single,
 group, list and map-nested blocks. Every scalar reference that descends into a value renders
@@ -613,7 +608,7 @@ claiming that the mutant survived. Execution failures, including deadlines and d
 errors, are recorded against the affected member and do not discard completed evidence
 or skip later members. An incomplete member cannot prove a kill.
 
-The [published report schema](../schema/report-2.15.0.json) owns the suggestion field
+The [published report schema](../schema/report-2.16.0.json) owns the suggestion field
 meanings and the consumer migration contract.
 
 For a target file with `n` candidates, attribution has a defensive cap of `2n + 1`
@@ -821,7 +816,7 @@ verdict for at least one pending mutant. If that generation's environment is unc
 or no such generation exists, it emits no explanation. When the environment differs, one
 terminal line names the added, removed and changed variables, never their values, even when
 other key components also differ. The JSON `cache_miss` fields and name-list bound follow the
-[published report schema](../schema/report-2.15.0.json#/$defs/cache_miss).
+[published report schema](../schema/report-2.16.0.json#/$defs/cache_miss).
 
 **One identifier names one mutant (report schema 2.6.0).** The mutant identifier is a content
 hash over the operator, the closure-relative path, the site address, the replaced content and
@@ -904,9 +899,10 @@ than buffer.
 
 What is left is the honesty half, and it is worth the milestone on its own: Tiers 1–3, the
 volatile mask, the full state model, survivor diagnosis, the reporters and the configuration
-file. The per-mutant floor against a real provider is 1.65 s of provider startup that no
-change inside this tool reaches; every remaining lever reduces the *mutant count* rather than
-the per-mutant cost — `--since`, the incremental cache, sampling — and all of them are M3.
+file. The [cost model](../research/07-m2-cost-model.md#4-where-the-time-goes) owns the
+fixture-specific invocation floor and its corrected attribution. M2 adds no lever that
+reduces Terraform core's cost per executed run block; the chosen *mutant-count* levers —
+`--since`, the incremental cache, sampling — are all M3.
 
 **Exit gate: honesty, not speed.** A speed gate cannot be met by a milestone with no speed
 lever in it. The gate is the fingerprint oracle surviving its own refutations — R2-2's
@@ -1050,20 +1046,18 @@ the limitations and the Oasis side-by-side are published in
    matrix remains open.*
 7. **Upstream asks worth filing.** `-filter=file::run`; a `-verbose` mode that omits
    `provider_schemas` from per-run messages (C1 makes this a 26× marginal-cost issue); native
-   coverage remains [#37605](https://github.com/hashicorp/terraform/issues/37605). M1's
-   measurement adds a third: the per-run-block plugin startup that dominates real-provider
-   cost is invisible to any harness change, so an upstream `test` that reuses one provider
-   process across run blocks would be worth more than every lever in this design.
+   coverage remains [#37605](https://github.com/hashicorp/terraform/issues/37605). The
+   [corrected cost model](../research/07-m2-cost-model.md#4-where-the-time-goes) replaces
+   the provider-process-reuse ask with a reduction in Terraform core's per-run-block
+   evaluation cost.
+   Section 10 of the 2026-10-12 report `tfmut-perf-costmodel` records its reproduction on
+   host `bravo`, under `~/scratch/tfmut-perf-costmodel`, driven by `measure.sh` and `measure2.sh`.
 8. ~~**Does run-block splitting add or remove work?**~~ **Answered
-   (`../research/07-m2-cost-model.md`): it adds work.** An invocation costs 1.6 s, a run
-   block inside one costs 0.012 s, and splitting an eight-run suite costs 7.8×. Its ceiling
-   under perfect selection is 3%. Splitting is dropped from the roadmap; the technique
-   remains described in §3 for the case where a run block costs more than an invocation,
-   which mocked plan-mode suites do not reach. The same measurement answered the other two
-   questions it was paired with: `-verbose` costs 1.7× in time and 20,288× in volume, and
-   module-granular selection removes 0% of run-block executions on a single-module suite.
-9. **What reduces the mutant count?** The measurement above leaves the per-mutant floor at
-   1.6 s of provider startup, unreachable from inside this tool. Every remaining lever is
-   therefore a reduction in how many mutants run at all: `--since`, the incremental cache,
-   sampling, and tier selection. They are scheduled M3, which carries the real-provider
-   inner-loop exit gate that M2 cannot meet.
+   in the [cost-model experiments](../research/07-m2-cost-model.md): it adds work on the
+   measured fixture.** Splitting is dropped from the roadmap. The same document owns the
+   measurements for verbose output and module-granular selection, and the later
+   real-suite correction; the fixture's selection ceiling is not a universal bound.
+9. **What reduces the mutant count?** `--since`, the incremental cache, sampling and tier
+   selection. These are M3's chosen levers, with the real-provider inner-loop exit gate
+   M2 cannot meet. Their rationale and the separate opportunity to omit suite work are in
+   the [cost model](../research/07-m2-cost-model.md#4-where-the-time-goes).

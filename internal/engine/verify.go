@@ -577,7 +577,7 @@ func runRecords(result tfexec.TestResult) []suggest.RunRecord {
 	records := make([]suggest.RunRecord, 0, len(result.Runs))
 
 	for _, run := range result.Runs {
-		records = append(records, suggest.NewRunRecord(run.File, run.Run, phaseOne, run.Status))
+		records = append(records, suggest.NewRunRecord(run.File, run.Run, phaseOne, run.Status, run.ElapsedMS))
 	}
 
 	return records

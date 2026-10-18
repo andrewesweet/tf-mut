@@ -33,6 +33,8 @@ func TestVerifiedRequiresBothLegsAndCarriesTheirEvidence(t *testing.T) {
 			t.Fatalf("verified suggestion %s carries no evidence", suggestion.ID)
 		}
 
+		assertVerificationRunTimings(t, suggestion.Verification)
+
 		if !suggestion.Verification.Baseline.Passed {
 			t.Fatalf("suggestion %s is verified with a failed baseline leg", suggestion.ID)
 		}
@@ -75,6 +77,8 @@ func TestASeededWrongValueIsRefutedThroughTheBaselineLeg(t *testing.T) {
 			}
 
 			for _, suggestion := range refuted {
+				assertVerificationRunTimings(t, suggestion.Verification)
+
 				if suggestion.Verification.Baseline.Passed {
 					t.Fatalf("suggestion %s was refuted but its baseline leg passed", suggestion.ID)
 				}
@@ -121,6 +125,8 @@ func TestASeededVacuousAssertionIsRefutedThroughTheMutantLeg(t *testing.T) {
 
 	seeded := refuted[0]
 
+	assertVerificationRunTimings(t, seeded.Verification)
+
 	left, right, isEquality := strings.Cut(seeded.Expression, " == ")
 	if !isEquality || left != right {
 		t.Fatalf("the refuted suggestion is not the seeded tautology: %q", seeded.Expression)
@@ -137,6 +143,30 @@ func TestASeededVacuousAssertionIsRefutedThroughTheMutantLeg(t *testing.T) {
 	if len(withStatus(result, report.SuggestionVerified)) == 0 {
 		t.Fatal("no real suggestion verified beside the seeded one, so nothing could have " +
 			"laundered it and the attribution claim is untested")
+	}
+}
+
+func assertVerificationRunTimings(t *testing.T, verification *report.Verification) {
+	t.Helper()
+
+	for name, leg := range map[string]report.VerificationLeg{
+		"baseline": verification.Baseline,
+		"mutant":   verification.Mutant,
+	} {
+		for _, run := range leg.Runs {
+			if run.Status == "skip" {
+				if run.ElapsedMS != nil {
+					t.Errorf("%s skipped run %s/%s carries elapsed time", name, run.File, run.Run)
+				}
+
+				continue
+			}
+
+			if run.ElapsedMS == nil || *run.ElapsedMS < 0 {
+				t.Errorf("%s executed run %s/%s (%s) carries no valid elapsed time",
+					name, run.File, run.Run, run.Status)
+			}
+		}
 	}
 }
 

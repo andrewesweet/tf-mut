@@ -153,7 +153,9 @@ For verdict-cache storage, reuse and upgrades, see the
 [cache contract](docs/design/product-design.md#10-ci-integration).
 
 With `--reporter json`, `run`, `preview`, `suggest` and `curate` include performance telemetry.
-The emitted contract is linked in the [document map](#documents). Every run carries one
+Baseline test-file timings and per-run-block timings help attribute suite cost. Mutant and
+phase start timestamps let you correlate that work with logs. See the report schema in the
+[document map](#documents) for the field and availability contracts. Every run carries one
 identifier — the run span's trace ID when tracing is enabled, a random identifier of the same
 32-hex-character shape otherwise — published as the report telemetry's `run_id` and prefixed
 onto every stderr line the run writes (`[run_id] …`), so stderr, report and trace tie
@@ -232,7 +234,7 @@ contexts and glossary, start with [`CONTEXT.md`](CONTEXT.md).
 | [`docs/reference/`](docs/reference/) | Generated command-line reference — [`cli.md`](docs/reference/cli.md) renders the same help table as `tf-mut --help` |
 | [`docs/research/`](docs/research/) | Numbered research notes, measurements, and milestone exit gates |
 | [`docs/reviews/`](docs/reviews/) | Adversarial and implementation reviews with their dispositions, which outrank design prose on conflict |
-| [`docs/schema/`](docs/schema/) | Versioned report schemas and the vendored external schemas that outputs are validated against — the `json` reporter emits [`report-2.15.0.json`](docs/schema/report-2.15.0.json) |
+| [`docs/schema/`](docs/schema/) | Versioned report schemas and the vendored external schemas that outputs are validated against — the `json` reporter emits [`report-2.16.0.json`](docs/schema/report-2.16.0.json) |
 
 ## Findings that shaped the design
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
+	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
@@ -28,7 +29,10 @@ type warmWorkspace struct {
 	schemas          tfexec.Schemas
 	baselineRuns     int
 	baselineDuration time.Duration
-	warnings         []string
+	// baselineFiles is the per-test-file timing the baseline run's stream
+	// carried, published beside the aggregate baseline duration.
+	baselineFiles []report.FileTiming
+	warnings      []string
 	// payloads is the canonical projection of the first baseline run, which is
 	// the reference every mutant fingerprint is compared against.
 	payloads []fingerprint.Payload
@@ -197,6 +201,7 @@ func runBaseline(
 
 	prepared.baselineRuns = result.ExecutedRuns()
 	prepared.baselineDuration = result.Duration
+	prepared.baselineFiles = baselineFileTimings(result.Files)
 
 	if failures := result.FailedRuns(); len(failures) > 0 {
 		return fmt.Errorf("%w: %s\n  Fix the suite before trusting any mutation result",
@@ -303,6 +308,26 @@ func declarationSources(configuration discovery.Configuration) (map[string][]byt
 	}
 
 	return sources, nil
+}
+
+// baselineFileTimings projects the baseline stream's per-file timings onto
+// the published DTO, in completion order. No file completed — a stream cut
+// short, a suite with none — publishes nothing rather than an empty list.
+func baselineFileTimings(files []tfexec.FileTiming) []report.FileTiming {
+	if len(files) == 0 {
+		return nil
+	}
+
+	projected := make([]report.FileTiming, 0, len(files))
+	for _, file := range files {
+		projected = append(projected, report.FileTiming{
+			File:      file.File,
+			Runs:      file.Runs,
+			ElapsedMS: file.ElapsedMS,
+		})
+	}
+
+	return projected
 }
 
 func describeFailures(failures []tfexec.RunOutcome, diagnostics []tfexec.Diagnostic) string {

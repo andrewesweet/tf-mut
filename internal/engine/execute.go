@@ -521,10 +521,11 @@ func runOutcomes(result tfexec.TestResult) []report.RunOutcome {
 
 	for _, run := range result.Runs {
 		outcomes = append(outcomes, report.RunOutcome{
-			File:   run.File,
-			Run:    run.Run,
-			Phase:  phaseOne,
-			Status: run.Status,
+			File:      run.File,
+			Run:       run.Run,
+			Phase:     phaseOne,
+			Status:    run.Status,
+			ElapsedMS: run.ElapsedMS,
 		})
 	}
 

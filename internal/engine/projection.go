@@ -294,10 +294,11 @@ func projectRunRecords(records []suggest.RunRecord) []report.RunOutcome {
 
 	for index, record := range records {
 		projected[index] = report.RunOutcome{
-			File:   record.File(),
-			Run:    record.Run(),
-			Phase:  record.Phase(),
-			Status: record.Status(),
+			File:      record.File(),
+			Run:       record.Run(),
+			Phase:     record.Phase(),
+			Status:    record.Status(),
+			ElapsedMS: record.ElapsedMS(),
 		}
 	}
 

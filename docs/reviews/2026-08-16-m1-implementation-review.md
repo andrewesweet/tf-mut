@@ -22,7 +22,7 @@ spec author is expected to dispose of each, in either direction.
 
 | # | Measurement | Consequence |
 | --- | --- | --- |
-| M1-A | **Parallelism is worth 1.08× between one job and eight** on a fully-mocked `hashicorp/aws` module (125.9 s → 116.4 s, 40 mutants), against **3.0×** for an equivalent provider-free population (2.13 s → 0.70 s), and 3.4× at twelve jobs. | The spike's "CPU-bound … so it scales with cores" holds only for small-schema providers, and is corrected in `04-harness-spike.md` §Q5. The marginal cost of a mutant against a large provider is starting the plugin process once per run block, not the plan. `--jobs` is a small-schema lever. |
+| M1-A | **Parallelism is worth 1.08× between one job and eight** on a fully-mocked `hashicorp/aws` module (125.9 s → 116.4 s, 40 mutants), against **3.0×** for an equivalent provider-free population (2.13 s → 0.70 s), and 3.4× at twelve jobs. | The spike's scaling claim does not generalise to every provider. The per-run-block plugin-startup attribution and universal scaling limit are withdrawn; see the [corrected cost model](../research/07-m2-cost-model.md#4-where-the-time-goes). |
 | M1-B | **Throughput is ~0.3 mutants/s** on that fixture at eight jobs (0.27 cold, 0.34 warm, 0.31 re-verified; ±10% run to run). | Level with round one's plain-`-json` figure (~0.36) and roughly 3× the naive per-mutant `validate` + `-verbose` sequence (~0.10). The two-phase and lazy-validate decisions are doing what C1 and M11 predicted. Published with method and hardware in `06-m1-exit-gate.md`. |
 | M1-C | **`Invalid` is nearly unreachable in Tier 0.** With a green baseline and the schema gate, deleting a schema-optional argument yields a null value rather than a static error, a bare consumer of a counted resource cannot exist, and `EXT-RESOURCE-DELETE` never adds a `count`. The single remaining source is `EXT-MODULE-INPUT-DELETE` against a child variable with no default, which `terraform validate` rejects with "Missing required argument". | Lazy validation costs almost nothing in M1 because almost nothing errors. That is a property of Tier 0, not of the design, and it does not carry into M2. |
 | M1-D | **`terraform test` reports skipped run blocks with the same completion message as executed ones**; only the status discriminates. A parse-level failure produces diagnostics and *no* `test_run` or `test_summary` messages at all. | The executed-run count is derived from statuses, not from `test_summary`, and a zero-executed-run result is disambiguated by `validate` before it can be called an operational failure. |
@@ -52,7 +52,7 @@ to any of them.
 
 1. **Does run-block file splitting add or remove work on a large-schema provider?** This is the
    most consequential open question in the roadmap. Splitting produces *more* `terraform test`
-   invocations, and M1-A says each invocation's dominant cost is plugin startup. The design
+   invocations, so each additional invocation repeats its fixed cost. The design
    calls splitting "the primary viability lever on real modules"; that claim has never been
    measured against the bottleneck M1 found, and it may be net-negative on exactly the modules
    it was meant to rescue. Three experiments would settle it, all on the existing `aws-mocked`

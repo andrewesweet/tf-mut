@@ -252,6 +252,7 @@ func (o executionOracle) fingerprintRun(
 	for _, run := range result.Runs {
 		outcomes = append(outcomes, report.RunOutcome{
 			File: run.File, Run: run.Run, Phase: phaseTwo, Status: run.Status,
+			ElapsedMS: run.ElapsedMS,
 		})
 	}
 

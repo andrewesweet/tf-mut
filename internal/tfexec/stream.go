@@ -146,6 +146,7 @@ const (
 
 // The message and field names of the test stream.
 const (
+	messageTestFile   = "test_file"
 	messageTestPlan   = "test_plan"
 	messageTestState  = "test_state"
 	messageTestRun    = "test_run"
@@ -153,7 +154,12 @@ const (
 	fieldTestFile     = "@testfile"
 	fieldTestRun      = "@testrun"
 	fieldProviders    = "provider_schemas"
+	fieldTimestamp    = "@timestamp"
 )
+
+// The progress values a test file's or run block's events carry. A run
+// skipped after an earlier error completes without ever starting.
+const progressStarting = "starting"
 
 // decodeTestStream reads the whole `terraform test -json` stream.
 //
@@ -164,17 +170,23 @@ func decodeTestStream(reader io.Reader) (TestResult, error) {
 		Runs:        []RunOutcome{},
 		Diagnostics: []Diagnostic{},
 		Payloads:    []RunPayload{},
+		Files:       []FileTiming{},
 		Started:     false,
 		ExitCode:    exitCodeUnavailable,
 		TimedOut:    false,
 		Duration:    0,
 	}
 
+	// The pairing of start events to completions is decoder-local: a run
+	// block's or file's elapsed time needs both of its own events, and
+	// neither outlives the stream.
+	clock := newStreamClock()
+
 	decoder := json.NewDecoder(reader)
 	decoder.UseNumber()
 
 	for {
-		if err := decodeMessage(decoder, &result); err != nil {
+		if err := decodeMessage(decoder, &result, clock); err != nil {
 			if errors.Is(err, io.EOF) {
 				return result, nil
 			}
@@ -184,21 +196,77 @@ func decodeTestStream(reader io.Reader) (TestResult, error) {
 	}
 }
 
-// message is the subset of one stream message the decoder retains.
-type message struct {
-	file    string
-	run     string
-	outcome *RunOutcome
-	payload *RunPayload
-	problem *Diagnostic
+// streamClock remembers the start events a run block's or file's elapsed time
+// is paired against. Every stream message carries a timestamp, but only the
+// starting and completion pair brackets the work, so the clock stores one
+// start per run block and one per file, keyed by the path the events name.
+type streamClock struct {
+	runStarts  map[string]time.Time
+	fileStarts map[string]time.Time
 }
 
-func decodeMessage(decoder *json.Decoder, result *TestResult) error {
+func newStreamClock() *streamClock {
+	return &streamClock{runStarts: map[string]time.Time{}, fileStarts: map[string]time.Time{}}
+}
+
+// rememberRun records a run block's starting timestamp, and rememberFile a
+// test file's.
+func (c *streamClock) rememberRun(file, run string, at *time.Time) {
+	if at != nil {
+		c.runStarts[file+"\x00"+run] = *at
+	}
+}
+
+func (c *streamClock) rememberFile(file string, at *time.Time) {
+	if at != nil {
+		c.fileStarts[file] = *at
+	}
+}
+
+// runElapsed pairs a completion timestamp with its run block's remembered
+// start. Either side missing — the skipped run's case — leaves the elapsed
+// time absent rather than zero.
+func (c *streamClock) runElapsed(file, run string, completed *time.Time) *int64 {
+	start := c.runStarts[file+"\x00"+run]
+	return elapsedBetween(start, completed)
+}
+
+// fileElapsed pairs a file's completion timestamp with its remembered start.
+func (c *streamClock) fileElapsed(file string, completed *time.Time) *int64 {
+	start := c.fileStarts[file]
+	return elapsedBetween(start, completed)
+}
+
+// elapsedBetween measures two wall-clock instants in whole milliseconds. A
+// nil or zero side leaves the measurement absent: an absent measurement is
+// honest, a zero one is a claim about a fast machine.
+func elapsedBetween(start time.Time, completed *time.Time) *int64 {
+	if completed == nil || start.IsZero() {
+		return nil
+	}
+
+	elapsed := completed.Sub(start).Milliseconds()
+
+	return &elapsed
+}
+
+// message is the subset of one stream message the decoder retains.
+type message struct {
+	file      string
+	run       string
+	timestamp *time.Time
+	outcome   *RunOutcome
+	payload   *RunPayload
+	problem   *Diagnostic
+	timing    *FileTiming
+}
+
+func decodeMessage(decoder *json.Decoder, result *TestResult, clock *streamClock) error {
 	if err := expectDelim(decoder, '{'); err != nil {
 		return err
 	}
 
-	found := message{file: "", run: "", outcome: nil, payload: nil, problem: nil}
+	found := message{}
 
 	for decoder.More() {
 		key, err := readKey(decoder)
@@ -206,7 +274,7 @@ func decodeMessage(decoder *json.Decoder, result *TestResult) error {
 			return err
 		}
 
-		if err := decodeMember(decoder, key, &found); err != nil {
+		if err := decodeMember(decoder, key, &found, clock); err != nil {
 			return err
 		}
 	}
@@ -220,14 +288,18 @@ func decodeMessage(decoder *json.Decoder, result *TestResult) error {
 	return nil
 }
 
-func decodeMember(decoder *json.Decoder, key string, found *message) error {
+func decodeMember(decoder *json.Decoder, key string, found *message, clock *streamClock) error {
 	switch key {
 	case fieldTestFile:
 		return decoder.Decode(&found.file)
 	case fieldTestRun:
 		return decoder.Decode(&found.run)
+	case fieldTimestamp:
+		return decodeTimestamp(decoder, found)
+	case messageTestFile:
+		return decodeFileTiming(decoder, found, clock)
 	case messageTestRun:
-		return decodeRunOutcome(decoder, found)
+		return decodeRunOutcome(decoder, found, clock)
 	case messageDiagnostic:
 		problem := Diagnostic{} // decoded from the stream.
 		if err := decoder.Decode(&problem); err != nil {
@@ -246,17 +318,72 @@ func decodeMember(decoder *json.Decoder, key string, found *message) error {
 	}
 }
 
-func decodeRunOutcome(decoder *json.Decoder, found *message) error {
+// decodeTimestamp reads a message's own timestamp. One it cannot parse is a
+// timing gap, not a malformed stream: the message's other members stand, and
+// the pairing degrades to absent.
+func decodeTimestamp(decoder *json.Decoder, found *message) error {
+	raw := "" // decoded from the stream.
+	if err := decoder.Decode(&raw); err != nil {
+		return err
+	}
+
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return nil //nolint:nilerr // an unparseable timestamp is a timing gap, not a malformed stream.
+	}
+
+	found.timestamp = &parsed
+
+	return nil
+}
+
+// decodeFileTiming records a test file event: its start, for the pairing, or
+// its completion, which is where the file's elapsed time is measured.
+func decodeFileTiming(decoder *json.Decoder, found *message, clock *streamClock) error {
+	event := testFileMessage{} // decoded from the stream.
+	if err := decoder.Decode(&event); err != nil {
+		return err
+	}
+
+	switch event.Progress {
+	case progressStarting:
+		clock.rememberFile(event.Path, found.timestamp)
+	case progressDone:
+		elapsed := clock.fileElapsed(event.Path, found.timestamp)
+		found.timing = &FileTiming{File: event.Path, ElapsedMS: elapsed}
+	default:
+		// A progress value this decoder does not pair — running, teardown —
+		// carries no timing it publishes.
+	}
+
+	return nil
+}
+
+// decodeRunOutcome records a run block event: its start, for the pairing, or
+// its completion, which is both the published outcome and the instant the
+// run's elapsed time is measured at.
+func decodeRunOutcome(decoder *json.Decoder, found *message, clock *streamClock) error {
 	run := testRunMessage{} // decoded from the stream.
 	if err := decoder.Decode(&run); err != nil {
 		return err
+	}
+
+	if run.Progress == progressStarting {
+		clock.rememberRun(run.Path, run.Run, found.timestamp)
+
+		return nil
 	}
 
 	if run.Progress != progressDone {
 		return nil
 	}
 
-	found.outcome = &RunOutcome{File: run.Path, Run: run.Run, Status: run.Status}
+	found.outcome = &RunOutcome{
+		File:      run.Path,
+		Run:       run.Run,
+		Status:    run.Status,
+		ElapsedMS: clock.runElapsed(run.Path, run.Run, found.timestamp),
+	}
 
 	return nil
 }
@@ -318,6 +445,19 @@ func attach(found message, result *TestResult) {
 		payload.File = found.file
 		payload.Run = found.run
 		result.Payloads = append(result.Payloads, payload)
+	}
+
+	if found.timing != nil {
+		timing := *found.timing
+		// A file completes after every run block it owns, so the count at
+		// completion is the count the file reported.
+		for _, run := range result.Runs {
+			if run.File == timing.File {
+				timing.Runs++
+			}
+		}
+
+		result.Files = append(result.Files, timing)
 	}
 }
 

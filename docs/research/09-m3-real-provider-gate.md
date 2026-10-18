@@ -38,15 +38,17 @@ not a portable assertion."
 The numbers above are the re-run after the delivery review's graph repair —
 provider-referenced variables now execute rather than classify statically — on the same
 hardware with warmer OS caches than the first publication (757.6 s / 51.9 s / 14.6×), which
-is why both runs improved while the factor barely moved. The full-run throughput confirms
-the settled fact: the
-~1.6 s per-mutant provider-startup floor is unreachable from inside the tool, and every
-remaining lever reduces how many mutants run. The pinned one-file diff runs **inside 60
+is why both runs improved while the factor barely moved. The full-run throughput supports
+M3's mutant-count levers on this fixture. It does not establish a provider-startup floor;
+see the [corrected cost model](07-m2-cost-model.md#4-where-the-time-goes) for the
+attribution and the limits of this fixture's measurements. The pinned one-file diff runs **inside 60
 seconds on this hardware** — a published measurement, not a portable assertion; the portable
 assertions are the enumerated four-site and twelve-identifier selection, the non-zero
 minimum, the fixture content digest, and the 4× factor floor. **The product claim, narrowed per the M5 disposition**: the sub-minute figure holds
 for a configuration-only diff; a code-plus-test PR changes a test-file class, forces the full
 population, and is not sub-minute.
+Section 10 of the 2026-10-12 report `tfmut-perf-costmodel` records its reproduction on host
+`bravo`, under `~/scratch/tfmut-perf-costmodel`, driven by `measure.sh` and `measure2.sh`.
 
 ## Debt one: `mock-masked`, withdrawn
 
