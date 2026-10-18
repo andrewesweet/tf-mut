@@ -13,6 +13,10 @@ type PhaseTiming struct {
 	Phase string `json:"phase"`
 	// DurationMS is the step's wall time in milliseconds.
 	DurationMS int64 `json:"duration_ms"`
+	// StartedAt is the step's start as an RFC 3339 timestamp in UTC
+	// (2.16.0) — the moment the duration is measured from, published beside
+	// it so a phase can be tied to everything else the wall clock recorded.
+	StartedAt string `json:"started_at"`
 }
 
 // ProcessUsage is the operating system's accounting for one child Terraform
@@ -40,6 +44,11 @@ type ProcessUsage struct {
 // every mutant this run executed; absent for a verdict replayed from the
 // verdict cache, assigned statically, or not executed at all.
 type MutantTelemetry struct {
+	// StartedAt is the evaluation's start as an RFC 3339 timestamp in UTC
+	// (2.16.0): the instant WallMS is measured from, so an observation made
+	// outside this process — an orphaned process, a log line — can be tied to
+	// the mutant it belongs to.
+	StartedAt string `json:"started_at"`
 	// WallMS is the mutant's whole evaluation wall time in milliseconds.
 	WallMS int64 `json:"wall_ms"`
 	// Phases are the steps its evaluation executed, in execution order:

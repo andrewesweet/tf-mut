@@ -120,7 +120,10 @@ per the existing pattern.
 ## Standing facts carried forward
 
 - The ~1.6 s per-mutant floor, the gate truth table, verdict invariance, and the withdrawn
-  `mock-masked` diagnosis: unchanged, untouched.
+  `mock-masked` diagnosis: unchanged, untouched. *The floor's attribution was later corrected
+  by the 2026-10-12 cost-model report (`tfmut-perf-costmodel`): an invocation cost, not
+  provider startup — providers start once per test file; the dominant term is Terraform core
+  evaluation per run block, 76–90% of CPU, under `T1 = c0 + Σ_files (p + r × runs)`.*
 - The M3-era conservatisms revisited exactly as specified: the evaluator's
   fail-closed-on-JSON-auto-vars lifts only for files the slice read; a changed
   `.tf.json` still forces the full `--since` population; the cache key hashes all JSON

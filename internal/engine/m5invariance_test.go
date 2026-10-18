@@ -85,6 +85,10 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperator
 		}
 
 		delete(baseline, "duration_ms")
+		// The baseline's per-file timings are this run's own wall-clock, on
+		// the same terms as `duration_ms`; a binary without the field emits
+		// none, so deleting it from both sides keeps the comparison honest.
+		delete(baseline, "files")
 		delete(document, "schema_version")
 		// The telemetry blocks carry this run's own wall-clock cost, on the
 		// same terms as `duration_ms`; the telemetry tests assert their
@@ -97,8 +101,8 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperator
 	// blank them symmetrically and compare everything else by content.
 	blankCollisionIdentifiers(before, after)
 
-	stripMutantTelemetry(before)
-	stripMutantTelemetry(after)
+	stripPerMutantWallClock(before)
+	stripPerMutantWallClock(after)
 
 	if !reflect.DeepEqual(before, after) {
 		t.Fatalf("the standard report of the matrix fixture moved under M5a:\n  %s",
@@ -106,10 +110,11 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperator
 	}
 }
 
-// stripMutantTelemetry removes the per-mutant telemetry blocks a 2.7.0 report
-// carries: they are this run's own cost, not the verdict, and the before leg
-// predates the field.
-func stripMutantTelemetry(document map[string]any) {
+// stripPerMutantWallClock removes the per-mutant wall-clock a 2.7.0 report
+// carries — the telemetry blocks, and since 2.16.0 the per-run elapsed times —
+// both of which are this run's own cost, not the verdict. The before leg
+// predates the fields, so stripping keeps the comparison about the verdicts.
+func stripPerMutantWallClock(document map[string]any) {
 	mutants, ok := document["mutants"].([]any)
 	if !ok {
 		return
@@ -123,6 +128,14 @@ func stripMutantTelemetry(document map[string]any) {
 			// and the schema_version stamp, so the invariance proofs strip
 			// the flag the way they strip the telemetry.
 			delete(mutant, "deadline_reached")
+
+			if runs, ok := mutant["runs"].([]any); ok {
+				for _, runEntry := range runs {
+					if run, ok := runEntry.(map[string]any); ok {
+						delete(run, "elapsed_ms")
+					}
+				}
+			}
 		}
 	}
 }

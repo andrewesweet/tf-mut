@@ -108,6 +108,9 @@ func assertVerdictInvarianceExceptSuiteSuppliedDefaults(t *testing.T, full, scop
 // was obtained, which is exactly what a replay is allowed to change: the
 // provenance's execution flag and cache key, the population's cached/fresh
 // split, and the wall-clock telemetry with the baseline duration it calibrates.
+// The per-run and per-file elapsed times are wall-clock the same way: a replay
+// carries the original execution's, a fresh run its own, and neither number is
+// a fact about the verdict.
 func assertCachedAndFreshReportsByteIdentical(t *testing.T, fresh, cached report.Report) {
 	t.Helper()
 
@@ -115,6 +118,7 @@ func assertCachedAndFreshReportsByteIdentical(t *testing.T, fresh, cached report
 		r.Population.Cached = 0
 		r.Population.Fresh = r.Population.Selected
 		r.Baseline.DurationMS = 0
+		r.Baseline.Files = nil
 		r.Telemetry = nil
 
 		// A cached run honestly records the min-score gate as evaluated over a
@@ -134,6 +138,10 @@ func assertCachedAndFreshReportsByteIdentical(t *testing.T, fresh, cached report
 			}
 
 			r.Mutants[index].Telemetry = nil
+
+			for runIndex := range r.Mutants[index].Runs {
+				r.Mutants[index].Runs[runIndex].ElapsedMS = nil
+			}
 		}
 
 		return r

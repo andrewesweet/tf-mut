@@ -147,9 +147,19 @@ Putting the three together, the per-mutant cost of a mutation run against a real
 cost(mutant) ≈ 1.6 s  +  0.012 s × run blocks  +  sandbox materialisation
 ```
 
-The first term dominates and is a constant. It is Terraform starting an 840 MB provider plugin.
-That number is not reachable by anything inside this tool: not by splitting, not by selection,
-not by parallelism (M1 measured 1.08× from one job to eight), not by two-phase execution.
+The first term dominates and is a constant — **as measured on this fixture**, which is the
+caveat: aws-mocked is a single test file of trivial run blocks, so its 1.6 s is an invocation
+cost and 0.012 s a near-empty run block. This document attributed the constant to Terraform
+starting an 840 MB provider plugin. The 2026-10-12 cost-model report (`tfmut-perf-costmodel`)
+corrected the attribution on real suites: provider plugins start once per **test file**, at
+about 0.1 CPU-s per provider — under 3% of an invocation — and the cost that scales
+with the suite is Terraform core evaluation per run block, 76–90% of a test invocation's CPU.
+Its model, fitted on physical-ai and utl-regions, is `T1 = c0 + Σ_files (p + r × runs)` per
+mutant's phase-one suite run, with `r` ≈ 0.19–0.45 CPU-s per run block and `p` ≈ 0.4–0.9
+CPU-s per file — where this fixture's 0.012 s sits at the near-empty end of the same `r`.
+The consequence for levers stands: the dominant term is not reachable by anything inside
+this tool — not by splitting, not by selection, not by parallelism (M1 measured 1.08× from
+one job to eight), not by two-phase execution.
 
 The floor for a full run is therefore `mutants × 1.6 s ÷ effective parallelism`. M1's measured
 128 s for 40 mutants is 2× that floor, so the harness overhead above Terraform is already

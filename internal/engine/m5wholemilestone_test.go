@@ -89,19 +89,9 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone(t
 	blankCollisionIdentifiers(before, after)
 
 	// The authorised differences: the schema-addition stamp, three additive
-	// steps; and the telemetry blocks, which carry this run's wall-clock cost
-	// and are excluded on the same terms as `duration_ms`.
-	if before["schema_version"] != "2.3.0" {
-		t.Fatalf("the M5 base tree publishes schema %q, want 2.3.0", before["schema_version"])
-	}
-
-	if after["schema_version"] != "2.15.0" {
-		t.Fatalf("this tree publishes schema %q, want 2.15.0", after["schema_version"])
-	}
-
-	delete(before, "schema_version")
-	delete(after, "schema_version")
-	delete(after, "telemetry")
+	// steps; and the wall-clock blocks, which carry this run's own cost and
+	// are excluded on the same terms as `duration_ms`.
+	stripRunWallClock(t, before, after)
 
 	// Origins is present exactly when a pack produced the bytes; no pack is
 	// selected here, so no mutant on either side carries the field.
@@ -137,5 +127,34 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone(t
 	if !reflect.DeepEqual(before, after) {
 		t.Fatalf("the standard report of the matrix fixture moved across the whole milestone:\n  %s",
 			firstDifference(before, after, "$"))
+	}
+}
+
+// stripRunWallClock masks what a whole-milestone comparison must not compare:
+// the schema stamp the base tree predates, the run-level telemetry block, the
+// per-mutant wall-clock the invariance proof's helper strips, and the
+// baseline's per-file timings — each this run's own cost, never the verdicts.
+func stripRunWallClock(t *testing.T, before, after map[string]any) {
+	t.Helper()
+
+	if before["schema_version"] != "2.3.0" {
+		t.Fatalf("the M5 base tree publishes schema %q, want 2.3.0", before["schema_version"])
+	}
+
+	if after["schema_version"] != "2.16.0" {
+		t.Fatalf("this tree publishes schema %q, want 2.16.0", after["schema_version"])
+	}
+
+	delete(before, "schema_version")
+	delete(after, "schema_version")
+	delete(after, "telemetry")
+
+	stripPerMutantWallClock(before)
+	stripPerMutantWallClock(after)
+
+	for _, document := range []map[string]any{before, after} {
+		if baseline, ok := document["baseline"].(map[string]any); ok {
+			delete(baseline, "files")
+		}
 	}
 }
