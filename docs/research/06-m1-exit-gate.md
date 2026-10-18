@@ -185,6 +185,8 @@ against `hashicorp/aws`. The explanation based on per-run-block plugin launches 
 bandwidth is withdrawn. See the [corrected cost model](07-m2-cost-model.md#4-where-the-time-goes)
 for the later real-suite measurements and their implications for selection and parallelism.
 The 1.08× wall-clock measurement stands; it does not establish the bottleneck's mechanism.
+Section 10 of the 2026-10-12 report `tfmut-perf-costmodel` records its reproduction on host
+`bravo`, under `~/scratch/tfmut-perf-costmodel`, driven by `measure.sh` and `measure2.sh`.
 
 Recorded against issue #15's acceptance criterion "wall-clock improvement demonstrated on the
 suite's largest fixture": demonstrated at 3.0× on the offline corpus, and honestly reported as

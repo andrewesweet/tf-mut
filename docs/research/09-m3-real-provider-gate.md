@@ -47,6 +47,8 @@ assertions are the enumerated four-site and twelve-identifier selection, the non
 minimum, the fixture content digest, and the 4× factor floor. **The product claim, narrowed per the M5 disposition**: the sub-minute figure holds
 for a configuration-only diff; a code-plus-test PR changes a test-file class, forces the full
 population, and is not sub-minute.
+Section 10 of the 2026-10-12 report `tfmut-perf-costmodel` records its reproduction on host
+`bravo`, under `~/scratch/tfmut-perf-costmodel`, driven by `measure.sh` and `measure2.sh`.
 
 ## Debt one: `mock-masked`, withdrawn
 

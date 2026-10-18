@@ -157,7 +157,10 @@ scope; the selected roadmap levers reduce the mutant count: `--since`, the incre
 cache, sampling and tier selection, all scheduled for M3.
 
 The 2026-10-12 cost-model report (`tfmut-perf-costmodel`) fitted a model on the real suites
-physical-ai and utl-regions. In CPU-seconds, each mutant's phase-one suite invocation costs:
+physical-ai and utl-regions.
+Section 10 of that report records its reproduction on host `bravo`, under
+`~/scratch/tfmut-perf-costmodel`, driven by `measure.sh` and `measure2.sh`.
+In CPU-seconds, each mutant's phase-one suite invocation costs:
 
 ```
 T1 = c0 + Σ_files (p + r × runs)

@@ -1050,6 +1050,8 @@ the limitations and the Oasis side-by-side are published in
    [corrected cost model](../research/07-m2-cost-model.md#4-where-the-time-goes) replaces
    the provider-process-reuse ask with a reduction in Terraform core's per-run-block
    evaluation cost.
+   Section 10 of the 2026-10-12 report `tfmut-perf-costmodel` records its reproduction on
+   host `bravo`, under `~/scratch/tfmut-perf-costmodel`, driven by `measure.sh` and `measure2.sh`.
 8. ~~**Does run-block splitting add or remove work?**~~ **Answered
    in the [cost-model experiments](../research/07-m2-cost-model.md): it adds work on the
    measured fixture.** Splitting is dropped from the roadmap. The same document owns the
