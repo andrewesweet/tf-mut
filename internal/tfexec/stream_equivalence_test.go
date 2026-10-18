@@ -651,6 +651,50 @@ func TestOldAndNewAgreeOnEndOfInputAroundTheSchemaValue(t *testing.T) {
 	}
 }
 
+// JSON strings and unfinished numbers must report a malformed stream even when
+// the reader returns its final bytes and EOF together (per io.Reader's contract).
+func TestTruncatedSchemaWithFinalDataAndEOFIsMalformed(t *testing.T) {
+	t.Parallel()
+
+	const head = `{"test_plan":{"provider_schemas":`
+
+	for name, value := range map[string]string{
+		"string":         `{"aws":{"description":"interrupted`,
+		"escape":         `{"aws":{"description":"interrupted\`,
+		"unicode escape": `{"aws":{"description":"\u00`,
+		"number":         `{"aws":{"version":-`,
+		"fraction":       `{"aws":{"version":12.`,
+		"exponent":       `{"aws":{"version":12e+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			for _, combined := range []bool{false, true} {
+				input := bytes.NewReader([]byte(head + value))
+				var reader io.Reader = input
+				if combined {
+					reader = finalDataAndEOFReader{input}
+				}
+
+				if _, err := decodeTestStream(reader); !errors.Is(err, ErrMalformedStream) {
+					t.Errorf("combined data and EOF = %t: error = %v, want ErrMalformedStream", combined, err)
+				}
+			}
+		})
+	}
+}
+
+type finalDataAndEOFReader struct {
+	*bytes.Reader
+}
+
+func (r finalDataAndEOFReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if n > 0 && r.Len() == 0 {
+		err = io.EOF
+	}
+
+	return n, err
+}
+
 // A schema at the scale the skip targets — the synthetic analogue of a real
 // provider registry download — drives both decoders in this benchmark; the
 // equivalence tests above guarantee they decode it identically.

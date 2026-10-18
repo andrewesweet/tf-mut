@@ -149,7 +149,7 @@ func (f *schemaFilter) Read(p []byte) (int, error) {
 // end rather than a clean one.
 func (f *schemaFilter) fill() {
 	if f.srcErr != nil {
-		f.err = f.srcErr
+		f.err = f.classifyEOF(f.srcErr)
 
 		return
 	}
