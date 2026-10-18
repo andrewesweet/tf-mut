@@ -68,9 +68,7 @@ const (
 	// runner package's own tests construct it legitimately.
 	RuleRunnerConstruction Rule = "runner-construction"
 	// RuleEngineDrivenImport marks a test file outside the engine importing
-	// a package that only the engine drives: the oracle the engine judges
-	// with, the sandbox the engine stages in, and the store behind the
-	// engine's persistence ports. A package's own tests stay allowed.
+	// a package that only the engine drives. A package's own tests stay allowed.
 	RuleEngineDrivenImport Rule = "engine-driven-import"
 )
 
@@ -112,6 +110,41 @@ func Exceptions() []Exception {
 				"not product behaviour",
 		},
 		{
+			Path:   "internal/characterise/functions_test.go",
+			Rule:   RuleEngineDrivenImport,
+			Reason: "AGENTS.md exception 5: discovery validation expressions exercise the static function table, not engine verdicts",
+		},
+		{
+			Path:   "internal/fingerprint/fingerprint_test.go",
+			Rule:   RuleEngineDrivenImport,
+			Reason: "AGENTS.md exception 1: tfexec payload documents exercise canonicalisation shapes, not Terraform execution",
+		},
+		{
+			Path:   "internal/oracle/metrics_test.go",
+			Rule:   RuleEngineDrivenImport,
+			Reason: "mutation operator identities label the oracle population arithmetic contract; no mutants are generated",
+		},
+		{
+			Path:   "internal/suggest/adapters_test.go",
+			Rule:   RuleEngineDrivenImport,
+			Reason: "AGENTS.md exception 4: discovery, fingerprint and tfexec values supply the three document adapter matrices",
+		},
+		{
+			Path:   "internal/suggest/evidence_contract_test.go",
+			Rule:   RuleEngineDrivenImport,
+			Reason: "AGENTS.md exception 9: fingerprint changes supply document evidence for the suggestion contract",
+		},
+		{
+			Path:   "internal/suggest/schema_wire_test.go",
+			Rule:   RuleEngineDrivenImport,
+			Reason: "AGENTS.md exception 9: recorded tfexec schema documents exercise the suggestion rendering contract",
+		},
+		{
+			Path:   "cmd/tf-mut/main_test.go",
+			Rule:   RuleEngineDrivenImport,
+			Reason: "the tracing environment name makes CLI tests hermetic; no tracer or product behaviour is driven directly",
+		},
+		{
 			Path: "internal/store/verdict_test.go",
 			Rule: RuleEngineDrivenImport,
 			Reason: "the verdict cache's round-trip is a contract about serialized oracle value " +
@@ -127,6 +160,8 @@ func Scan(root string) ([]Violation, error) {
 	root = filepath.Clean(root)
 
 	var found []Violation
+	var files []*scanner
+	packages := make(map[string]map[string]aliasDeclaration)
 
 	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -137,21 +172,34 @@ func Scan(root string) ([]Violation, error) {
 			return skipDir(root, path, entry)
 		}
 
-		if !strings.HasSuffix(path, testFileSuffix) {
+		if !strings.HasSuffix(path, ".go") {
 			return nil
 		}
 
-		violations, err := scanFile(root, path)
+		file, err := parseFile(root, path)
 		if err != nil {
 			return err
 		}
 
-		found = append(found, violations...)
+		key := filepath.Dir(path) + "/" + file.file.Name.Name
+		if packages[key] == nil {
+			packages[key] = make(map[string]aliasDeclaration)
+		}
+		file.typeAliases = packages[key]
+		file.collectTypeAliases()
+		files = append(files, file)
 
 		return nil
 	})
 	if walkErr != nil {
 		return nil, fmt.Errorf("scanning %s: %w", root, walkErr)
+	}
+
+	for _, file := range files {
+		if strings.HasSuffix(file.path, testFileSuffix) {
+			file.inspect()
+			found = append(found, file.violations...)
+		}
 	}
 
 	slices.SortFunc(found, compareViolations)
@@ -206,18 +254,23 @@ func skipDir(root, path string, entry fs.DirEntry) error {
 
 // scanner carries one parsed test file through the three rules.
 type scanner struct {
-	root       string
-	path       string
-	file       *ast.File
-	fset       *token.FileSet
-	relative   string
-	aliases    map[string]string // local import name -> import path
-	dotImports map[string]bool   // import paths dot-imported into the file
-	violations []Violation
+	root        string
+	path        string
+	file        *ast.File
+	fset        *token.FileSet
+	relative    string
+	aliases     map[string]string // local import name -> import path
+	dotImports  map[string]bool   // import paths dot-imported into the file
+	violations  []Violation
+	typeAliases map[string]aliasDeclaration
 }
 
-// scanFile parses one test file and runs every rule over it.
-func scanFile(root, path string) ([]Violation, error) {
+type aliasDeclaration struct {
+	expr ast.Expr
+	file *scanner
+}
+
+func parseFile(root, path string) (*scanner, error) {
 	fset := token.NewFileSet()
 
 	parsed, err := parser.ParseFile(fset, path, nil, parser.AllErrors)
@@ -241,9 +294,8 @@ func scanFile(root, path string) ([]Violation, error) {
 	}
 
 	s.collectImports()
-	s.inspect()
 
-	return s.violations, nil
+	return s, nil
 }
 
 // collectImports records each import's local name, and any dot import.
@@ -262,6 +314,22 @@ func (s *scanner) collectImports() {
 	}
 }
 
+func (s *scanner) collectTypeAliases() {
+	for _, declaration := range s.file.Decls {
+		group, ok := declaration.(*ast.GenDecl)
+		if !ok || group.Tok != token.TYPE {
+			continue
+		}
+
+		for _, spec := range group.Specs {
+			alias, ok := spec.(*ast.TypeSpec)
+			if ok && alias.Assign.IsValid() {
+				s.typeAliases[alias.Name.Name] = aliasDeclaration{expr: alias.Type, file: s}
+			}
+		}
+	}
+}
+
 // inspect walks the file and checks every node the rules read.
 func (s *scanner) inspect() {
 	ast.Inspect(s.file, func(node ast.Node) bool {
@@ -273,7 +341,7 @@ func (s *scanner) inspect() {
 		case *ast.ValueSpec:
 			s.checkConstructed(marked.Type)
 		case *ast.CallExpr:
-			s.checkNew(marked)
+			s.checkAllocation(marked)
 		default:
 			// Nodes the rules do not read.
 		}
@@ -294,60 +362,76 @@ func (s *scanner) checkImport(spec *ast.ImportSpec) {
 
 // checkConstructed applies the two construction rules to one type position.
 func (s *scanner) checkConstructed(typeExpr ast.Expr) {
-	importPath, typeName, ok := s.resolve(typeExpr)
-	if !ok {
-		return
-	}
-
-	switch {
-	case importPath == enginePackage && typeName == settingsTypeName:
-		s.report(typeExpr.Pos(), RuleSettingsConstruction, shortName(importPath, typeName))
-	case importPath == tfexecPackage && typeName == runnerTypeName && !s.ownsRunner():
-		s.report(typeExpr.Pos(), RuleRunnerConstruction, shortName(importPath, typeName))
-	default:
-		// A type the rules do not govern: requests, report values, the rest.
-	}
+	s.walkTypes(typeExpr, make(map[ast.Expr]bool), func(importPath, typeName string) {
+		switch {
+		case importPath == enginePackage && typeName == settingsTypeName:
+			s.report(typeExpr.Pos(), RuleSettingsConstruction, shortName(importPath, typeName))
+		case importPath == tfexecPackage && typeName == runnerTypeName && !s.ownsRunner():
+			s.report(typeExpr.Pos(), RuleRunnerConstruction, shortName(importPath, typeName))
+		}
+	})
 }
 
-// checkNew applies both construction rules to a new call's operand.
-func (s *scanner) checkNew(call *ast.CallExpr) {
+// checkAllocation applies both construction rules to an allocation's type.
+func (s *scanner) checkAllocation(call *ast.CallExpr) {
 	name, isIdent := call.Fun.(*ast.Ident)
-	if !isIdent || name.Name != "new" || len(call.Args) != 1 {
+	if !isIdent || (name.Name != "new" && name.Name != "make") || len(call.Args) < 1 {
 		return
 	}
 
 	s.checkConstructed(call.Args[0])
 }
 
-// resolve names the package and type one type expression refers to, as far
-// as the file's own imports can say. A bare identifier resolves to the
-// file's own package, or to a dot import; a selector resolves through the
-// file's import aliases.
-func (s *scanner) resolve(typeExpr ast.Expr) (importPath, typeName string, ok bool) {
+func (s *scanner) walkTypes(typeExpr ast.Expr, seen map[ast.Expr]bool, visit func(string, string)) {
+	if typeExpr == nil || seen[typeExpr] {
+		return
+	}
+	seen[typeExpr] = true
+
 	switch marked := typeExpr.(type) {
+	case *ast.ArrayType:
+		s.walkTypes(marked.Elt, seen, visit)
+	case *ast.MapType:
+		s.walkTypes(marked.Key, seen, visit)
+		s.walkTypes(marked.Value, seen, visit)
+	case *ast.StarExpr:
+		s.walkTypes(marked.X, seen, visit)
+	case *ast.ParenExpr:
+		s.walkTypes(marked.X, seen, visit)
+	case *ast.StructType:
+		for _, field := range marked.Fields.List {
+			s.walkTypes(field.Type, seen, visit)
+		}
 	case *ast.Ident:
-		if path, isOwn := ownPackagePath(s.file.Name.Name); isOwn {
-			return path, marked.Name, true
-		}
-
-		if s.dotImports[tfexecPackage] && marked.Name == runnerTypeName {
-			return tfexecPackage, runnerTypeName, true
-		}
-
-		return "", "", false
+		s.walkIdentifier(marked, seen, visit)
 	case *ast.SelectorExpr:
 		name, isIdent := marked.X.(*ast.Ident)
-		if !isIdent {
-			return "", "", false
+		if isIdent {
+			if path, isAlias := s.aliases[name.Name]; isAlias {
+				visit(path, marked.Sel.Name)
+			}
 		}
+	}
+}
 
-		if path, isAlias := s.aliases[name.Name]; isAlias {
-			return path, marked.Sel.Name, true
+func (s *scanner) walkIdentifier(name *ast.Ident, seen map[ast.Expr]bool, visit func(string, string)) {
+	if name.Obj != nil {
+		if alias, ok := name.Obj.Decl.(*ast.TypeSpec); ok && alias.Assign.IsValid() {
+			s.walkTypes(alias.Type, seen, visit)
+			return
 		}
+	} else if alias, ok := s.typeAliases[name.Name]; ok {
+		alias.file.walkTypes(alias.expr, seen, visit)
+		return
+	}
 
-		return "", "", false
-	default:
-		return "", "", false
+	if s.dotImports[tfexecPackage] && name.Name == runnerTypeName {
+		visit(tfexecPackage, runnerTypeName)
+		return
+	}
+
+	if path, isOwn := ownPackagePath(s.file.Name.Name); isOwn {
+		visit(path, name.Name)
 	}
 }
 
@@ -356,7 +440,11 @@ func (s *scanner) resolve(typeExpr ast.Expr) (importPath, typeName string, ok bo
 // own tests can only reach it past the seam.
 func engineDriven(importPath string) bool {
 	switch importPath {
-	case modulePath + "/internal/oracle", modulePath + "/internal/sandbox", modulePath + "/internal/store":
+	case modulePath + "/internal/discovery", modulePath + "/internal/mutation",
+		modulePath + "/internal/fingerprint", modulePath + "/internal/oracle",
+		modulePath + "/internal/suggest", modulePath + "/internal/characterise",
+		modulePath + "/internal/sandbox", modulePath + "/internal/store",
+		modulePath + "/internal/config", modulePath + "/internal/tracing", tfexecPackage:
 		return true
 	default:
 		return false
@@ -364,9 +452,9 @@ func engineDriven(importPath string) bool {
 }
 
 // ownedByOwnPackage reports whether the file lives beside the imported
-// package: a package's own tests are the lower-layer contracts the seam
-// deliberately allows, and the engine's tests are the projection tests the
-// recorded exceptions describe.
+// package. Under AGENTS.md's testing seam, engine tests and each package's
+// own tests (including tfexec) are outside this import check by design;
+// cross-package access requires a reviewed exception.
 func (s *scanner) ownedByOwnPackage(importPath string) bool {
 	owned := strings.TrimPrefix(importPath, modulePath+"/")
 

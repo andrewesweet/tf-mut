@@ -3,6 +3,7 @@ package cmd_test
 import (
 	"testing"
 
+	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/store"
 )
 
@@ -13,6 +14,8 @@ import (
 // runs; only the import and the shape it forces matter.
 func TestImportFixture(t *testing.T) {
 	t.Parallel()
+
+	_ = discovery.Module{}
 
 	if store.NewBaselineFile() == nil {
 		t.Fatal("the fixture never runs; it only carries the import")
