@@ -115,6 +115,15 @@ the output format:
 
 Parallelism needs no flag on a first run: `--jobs` defaults to three-quarters of CPUs, min 1.
 
+For every Terraform child process, tf-mut supplies `GOGC=400`,
+`GOMEMLIMIT=1073741824` (1 GiB) and `TF_LOG_SDK=off` when the caller leaves those
+variables unset. An existing value, including an empty value, is preserved. These
+defaults trade higher memory use for lower CPU time and disable SDK logging. To
+choose different values, export them before running tf-mut. The memory limit is
+soft and applies to each process's Go runtime memory, not total process memory or
+the combined memory of parallel workers and provider plugins. tf-mut does not
+change its own process environment.
+
 For suites under `tests/unit`, pass `--test-directory tests/unit` so Terraform installs
 the modules called by those tests. Mocked suites can run in roots with a `backend` block,
 including a remote backend, without initialising that backend. An effective `cloud`

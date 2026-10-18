@@ -58,7 +58,7 @@ func unsetVariable(t *testing.T, name string) {
 	}
 
 	t.Cleanup(func() {
-		if err := os.Setenv(name, previous); err != nil { //nolint:usetesting // t.Setenv registers another cleanup that would unset the restored value.
+		if err := os.Setenv(name, previous); err != nil { //nolint:usetesting // t.Setenv would undo this restoration.
 			t.Errorf("restoring %s: %v", name, err)
 		}
 	})
