@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The byte-level provider_schemas skip must not change what the decoder
@@ -25,17 +26,20 @@ func refDecodeTestStream(reader io.Reader) (TestResult, error) {
 		Runs:        []RunOutcome{},
 		Diagnostics: []Diagnostic{},
 		Payloads:    []RunPayload{},
+		Files:       []FileTiming{},
 		Started:     false,
 		ExitCode:    exitCodeUnavailable,
 		TimedOut:    false,
 		Duration:    0,
 	}
 
+	clock := refNewStreamClock()
+
 	decoder := json.NewDecoder(reader)
 	decoder.UseNumber()
 
 	for {
-		if err := refDecodeMessage(decoder, &result); err != nil {
+		if err := refDecodeMessage(decoder, &result, clock); err != nil {
 			if errors.Is(err, io.EOF) {
 				return result, nil
 			}
@@ -45,12 +49,63 @@ func refDecodeTestStream(reader io.Reader) (TestResult, error) {
 	}
 }
 
-func refDecodeMessage(decoder *json.Decoder, result *TestResult) error {
+type refStreamClock struct {
+	runStarts  map[string]time.Time
+	fileStarts map[string]time.Time
+}
+
+func refNewStreamClock() *refStreamClock {
+	return &refStreamClock{runStarts: map[string]time.Time{}, fileStarts: map[string]time.Time{}}
+}
+
+func (c *refStreamClock) rememberRun(file, run string, at *time.Time) {
+	if at != nil {
+		c.runStarts[file+"\x00"+run] = *at
+	}
+}
+
+func (c *refStreamClock) rememberFile(file string, at *time.Time) {
+	if at != nil {
+		c.fileStarts[file] = *at
+	}
+}
+
+func (c *refStreamClock) runElapsed(file, run string, completed *time.Time) *int64 {
+	start := c.runStarts[file+"\x00"+run]
+	return refElapsedBetween(start, completed)
+}
+
+func (c *refStreamClock) fileElapsed(file string, completed *time.Time) *int64 {
+	start := c.fileStarts[file]
+	return refElapsedBetween(start, completed)
+}
+
+func refElapsedBetween(start time.Time, completed *time.Time) *int64 {
+	if completed == nil || start.IsZero() {
+		return nil
+	}
+
+	elapsed := completed.Sub(start).Milliseconds()
+
+	return &elapsed
+}
+
+type refMessage struct {
+	file      string
+	run       string
+	timestamp *time.Time
+	outcome   *RunOutcome
+	payload   *RunPayload
+	problem   *Diagnostic
+	timing    *FileTiming
+}
+
+func refDecodeMessage(decoder *json.Decoder, result *TestResult, clock *refStreamClock) error {
 	if err := refExpectDelim(decoder, '{'); err != nil {
 		return err
 	}
 
-	found := message{}
+	found := refMessage{}
 
 	for decoder.More() {
 		key, err := refReadKey(decoder)
@@ -58,7 +113,7 @@ func refDecodeMessage(decoder *json.Decoder, result *TestResult) error {
 			return err
 		}
 
-		if err := refDecodeMember(decoder, key, &found); err != nil {
+		if err := refDecodeMember(decoder, key, &found, clock); err != nil {
 			return err
 		}
 	}
@@ -72,27 +127,20 @@ func refDecodeMessage(decoder *json.Decoder, result *TestResult) error {
 	return nil
 }
 
-func refDecodeMember(decoder *json.Decoder, key string, found *message) error {
+func refDecodeMember(decoder *json.Decoder, key string, found *refMessage, clock *refStreamClock) error {
 	switch key {
 	case fieldTestFile:
 		return decoder.Decode(&found.file)
 	case fieldTestRun:
 		return decoder.Decode(&found.run)
+	case fieldTimestamp:
+		return refDecodeTimestamp(decoder, found)
+	case messageTestFile:
+		return refDecodeFileTiming(decoder, found, clock)
 	case messageTestRun:
-		run := testRunMessage{}
-		if err := decoder.Decode(&run); err != nil {
-			return err
-		}
-
-		if run.Progress != progressDone {
-			return nil
-		}
-
-		found.outcome = &RunOutcome{File: run.Path, Run: run.Run, Status: run.Status}
-
-		return nil
+		return refDecodeRunOutcome(decoder, found, clock)
 	case messageDiagnostic:
-		problem := Diagnostic{}
+		problem := Diagnostic{} // decoded from the stream.
 		if err := decoder.Decode(&problem); err != nil {
 			return err
 		}
@@ -109,7 +157,66 @@ func refDecodeMember(decoder *json.Decoder, key string, found *message) error {
 	}
 }
 
-func refDecodePayload(decoder *json.Decoder, kind string, found *message) error {
+func refDecodeTimestamp(decoder *json.Decoder, found *refMessage) error {
+	raw := "" // decoded from the stream.
+	if err := decoder.Decode(&raw); err != nil {
+		return err
+	}
+
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return nil //nolint:nilerr // an unparseable timestamp is a timing gap, not a malformed stream.
+	}
+
+	found.timestamp = &parsed
+
+	return nil
+}
+
+func refDecodeFileTiming(decoder *json.Decoder, found *refMessage, clock *refStreamClock) error {
+	event := testFileMessage{} // decoded from the stream.
+	if err := decoder.Decode(&event); err != nil {
+		return err
+	}
+
+	switch event.Progress {
+	case progressStarting:
+		clock.rememberFile(event.Path, found.timestamp)
+	case progressDone:
+		elapsed := clock.fileElapsed(event.Path, found.timestamp)
+		found.timing = &FileTiming{File: event.Path, ElapsedMS: elapsed}
+	}
+
+	return nil
+}
+
+func refDecodeRunOutcome(decoder *json.Decoder, found *refMessage, clock *refStreamClock) error {
+	run := testRunMessage{} // decoded from the stream.
+	if err := decoder.Decode(&run); err != nil {
+		return err
+	}
+
+	if run.Progress == progressStarting {
+		clock.rememberRun(run.Path, run.Run, found.timestamp)
+
+		return nil
+	}
+
+	if run.Progress != progressDone {
+		return nil
+	}
+
+	found.outcome = &RunOutcome{
+		File:      run.Path,
+		Run:       run.Run,
+		Status:    run.Status,
+		ElapsedMS: clock.runElapsed(run.Path, run.Run, found.timestamp),
+	}
+
+	return nil
+}
+
+func refDecodePayload(decoder *json.Decoder, kind string, found *refMessage) error {
 	if err := refExpectDelim(decoder, '{'); err != nil {
 		return err
 	}
@@ -142,9 +249,40 @@ func refDecodePayload(decoder *json.Decoder, kind string, found *message) error 
 		return err
 	}
 
-	found.payload = &RunPayload{Kind: kind, Value: value}
+	found.payload = &RunPayload{File: "", Run: "", Kind: kind, Value: value}
 
 	return nil
+}
+
+func refAttach(found refMessage, result *TestResult) {
+	if found.outcome != nil {
+		result.Runs = append(result.Runs, *found.outcome)
+	}
+
+	if found.problem != nil {
+		problem := *found.problem
+		problem.TestFile = found.file
+		problem.TestRun = found.run
+		result.Diagnostics = append(result.Diagnostics, problem)
+	}
+
+	if found.payload != nil {
+		payload := *found.payload
+		payload.File = found.file
+		payload.Run = found.run
+		result.Payloads = append(result.Payloads, payload)
+	}
+
+	if found.timing != nil {
+		timing := *found.timing
+		for _, run := range result.Runs {
+			if run.File == timing.File {
+				timing.Runs++
+			}
+		}
+
+		result.Files = append(result.Files, timing)
+	}
 }
 
 func refSkipValue(decoder *json.Decoder) error {
@@ -207,26 +345,6 @@ func refExpectDelim(decoder *json.Decoder, want json.Delim) error {
 	}
 
 	return nil
-}
-
-func refAttach(found message, result *TestResult) {
-	if found.outcome != nil {
-		result.Runs = append(result.Runs, *found.outcome)
-	}
-
-	if found.problem != nil {
-		problem := *found.problem
-		problem.TestFile = found.file
-		problem.TestRun = found.run
-		result.Diagnostics = append(result.Diagnostics, problem)
-	}
-
-	if found.payload != nil {
-		payload := *found.payload
-		payload.File = found.file
-		payload.Run = found.run
-		result.Payloads = append(result.Payloads, payload)
-	}
 }
 
 // assertSameDecode asserts that the production decoder and the frozen
@@ -549,34 +667,53 @@ func BenchmarkTheSchemaSkip(b *testing.B) {
 				`"braces } brackets ] quotes \" backslash \\ and a long body"},`, i)
 		}
 
-		schemas.WriteString(`"tail":{"type":"number","optional":true}},`)
+		schemas.WriteString(`"tail":{"type":"number","optional":true}}},`)
 	}
 
 	schemas.WriteString(`"final":{"block":{}}}}`)
 
 	stream := payloadMessage(schemas.String())
 
-	b.Run("token loop", func(b *testing.B) {
-		b.SetBytes(int64(len(stream)))
-		b.ReportAllocs()
+	want := []RunPayload{{
+		File: "tests/unit.tftest.hcl",
+		Run:  "one",
+		Kind: PayloadPlan,
+		Value: map[string]any{
+			"planned_values": map[string]any{
+				"outputs": map[string]any{
+					"tier": map[string]any{"value": "standard"},
+				},
+			},
+			"configuration": map[string]any{
+				"root_module": map[string]any{"outputs": map[string]any{}},
+			},
+		},
+	}}
 
-		for b.Loop() {
-			if _, err := refDecodeTestStream(bytes.NewReader(stream)); err != nil {
+	for name, decode := range map[string]func(io.Reader) (TestResult, error){
+		"token loop":  refDecodeTestStream,
+		"byte filter": decodeTestStream,
+	} {
+		b.Run(name, func(b *testing.B) {
+			result, err := decode(bytes.NewReader(stream))
+			if err != nil {
 				b.Fatal(err)
 			}
-		}
-	})
 
-	b.Run("byte filter", func(b *testing.B) {
-		b.SetBytes(int64(len(stream)))
-		b.ReportAllocs()
-
-		for b.Loop() {
-			if _, err := decodeTestStream(bytes.NewReader(stream)); err != nil {
-				b.Fatal(err)
+			if !reflect.DeepEqual(result.Payloads, want) {
+				b.Fatalf("decoded payloads = %#v, want %#v", result.Payloads, want)
 			}
-		}
-	})
+
+			b.SetBytes(int64(len(stream)))
+			b.ReportAllocs()
+
+			for b.Loop() {
+				if _, err := decode(bytes.NewReader(stream)); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
 }
 
 // FuzzTheByteSkipAgreesWithTheTokenLoop drives both decoders with arbitrary
