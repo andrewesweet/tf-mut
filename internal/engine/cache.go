@@ -42,7 +42,12 @@ import (
 // storage schema's typed fields and into the opaque observed document the
 // engine alone decodes, so the store's document is the domain's
 // stored-record shape and no publication type.
-const cacheFormatVersion = "tf-mut-cache-7"
+// The tf-mut-cache-8 bump follows the child environment gaining its
+// performance defaults — GOGC, GOMEMLIMIT and TF_LOG_SDK, set by
+// internal/tfexec for every Terraform invocation. A stored verdict was
+// computed under the previous child environment, so it replays as a miss
+// and is re-executed, not trusted across the change.
+const cacheFormatVersion = "tf-mut-cache-8"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 

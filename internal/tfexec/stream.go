@@ -38,7 +38,7 @@ func (r Runner) StreamOutput(
 	// The shared constructor stops the whole process group at the deadline, so
 	// the provider plugins Terraform started cannot outlive the run.
 	command := GroupCommand(ctx, r.Binary, full...)
-	command.Env = append(inheritedEnvironment(), r.Env...)
+	command.Env = childEnvironment(inheritedEnvironment(), r.Env)
 
 	stderr := bytes.Buffer{}
 	command.Stderr = &stderr
