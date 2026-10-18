@@ -75,18 +75,16 @@ provider by the integration-tagged `TestEveryEnabledSecurityAWSEntryHasARealProv
 and `TestEveryWidenCIDREntryHasARealProviderWitness`.
 
 **Gate 4 — the benchmark published under its pinned protocol with both tables, every
-pinned module's row outcome and population availability.** Met. `21-m5-benchmark.md`
+pinned module's row outcome and population availability.** Met. [The benchmark](21-m5-benchmark.md)
 publishes the module-admission table (both denominators on every rate) and the mutant-level
-table in Oasis's units over known populations only, with the pooled score (7,130 scored
-mutants over the 9 `scored` modules), the unweighted per-module median (23.4% over 9), the
-`Killed`/`KilledByError` split, and the unscored-with-known-population tabulation by row
-outcome. The published figures carry the 2026-10-18 D2 correction recorded in `21`: the
-`terraform-aws-compliance` row was re-measured after #189 fixed the sandbox manifest, and
-the resumed invocation's operational retries admitted `aws-terraform-infrastructure` after
-#192's backend warm-up. Population availability is decided by each module's separate
-`preview` invocation;
-the two-invocation protocol, cold and warm legs, the one operational retry and the verdict
-identity across legs are all stated in the document and executed by
+table in Oasis's units over known populations only, with the pooled score, the unweighted
+per-module median, the `Killed`/`KilledByError` split, and the unscored-with-known-population
+tabulation by row outcome.
+[The D2 correction](21-m5-benchmark.md#the-d2-correction-and-the-re-measured-rows)
+records the re-measured rows and their attribution. Population availability is decided by
+each module's separate `preview` invocation; the two-invocation protocol, cold and warm
+legs, the one operational retry and the verdict identity across legs are all stated in
+the document and executed by
 `TestTheBenchmarkOverThePinnedCorpus` (#184).
 
 **Gate 5 — #82 closed with scoped amendment, kept open with its build issue linked, or kept
@@ -112,12 +110,11 @@ One paragraph per measurement; the documents carry the numbers.
 | Opportunity census + mining count | 19 | 14 opportunities / 8 modules, all undecidable; mining reached 58, fired 0 | #173, #174 |
 | Repair prototype (stage 2) | 20 | empty cohort → insufficient; #82 stays open | #175 |
 | Pack seed census | 18 | 10 of 115 admitted, 0 invalid, 105 unwitnessed | #177 |
-| Public benchmark | 21 | 9 `scored` of 23 pinned; pooled 7,130 mutants; median 23.4% (after the D2 correction noted in `21`) | #184 |
+| Public benchmark | 21 | [Admission counts](21-m5-benchmark.md#the-module-admission-table), [pooled figures and median](21-m5-benchmark.md#the-mutant-level-table) | #184 |
 
 The two costs the census pair surfaced beyond the spec's predictions: the corpus's previews
-were operationally fragile across runs (seven populations unknown in the census resolved
-in the benchmark, with none moving in the reverse direction, so every mutant-level sum
-names its unknown populations),
+were operationally fragile across runs (the [benchmark admission table](21-m5-benchmark.md#the-module-admission-table)
+records the population drift, so every mutant-level sum names its unknown populations),
 and the pooled score is dominated by the largest modules, which is why the median is
 published beside it.
 
@@ -270,9 +267,9 @@ Two mechanisms arrived unreviewed and should be re-asked at the next spec review
    itself mutant-generated) are the places it would break.
 2. **The two-invocation benchmark protocol.** Population from `preview`, row outcome from
    `run`, never inferred from each other, is honest but doubles the corpus invocations and
-   produced the cross-run population drift the benchmark document records (seven populations
-   unknown in the census resolved in the benchmark). Whether the drift is
-   a protocol cost or a corpus fact is unreviewed; the M6 handover carries the question.
+   produced the [cross-run population drift](21-m5-benchmark.md#the-module-admission-table)
+   the benchmark document records. Whether the drift is a protocol cost or a corpus fact
+   is unreviewed; the M6 handover carries the question.
 
 And one process observation, recorded here because it is a rule-2 question about this
 document: the design-row reconciliation (roadmap M5 paragraph, Tier 4/Tier 5 tables,

@@ -16,7 +16,7 @@ in Oasis's units, side by side with Oasis's row and the stated limitations.
   opt-in)
 - Published output: `.artifacts/measurement/m5-benchmark.json`
   (per-module side-car: `m5-benchmark-rows.jsonl`, crash-safe across resumes — a resumed
-  measurement re-measures only unfinished or operational modules)
+  measurement follows the [resume rule](#the-protocol))
 
 ## The protocol
 
@@ -43,6 +43,9 @@ and its publication is what this document states:
 - **A leg's row outcome is its cold leg's**, after the one permitted operational retry.
   An operational row is published as a fact about this run, never an abort, and never a
   finding about the module.
+- **Resume reuses completed non-operational rows at matching pinned commits.** It
+  re-measures unfinished or operational modules. Re-measuring an already scored row
+  requires invalidating its saved pair in the side-car first.
 
 The **portable assertions** are what the two legs prove about a module, and the test fails
 — after publishing everything the legs produced — if any of them breaks:
@@ -298,10 +301,9 @@ exactly what the run's two legs agreed on, published rather than smoothed:
 
 The offline gate `TestABrokenLegAgreementTurnsThePortableAssertionsRed` proves the
 assertions red-capable on a broken fixture; the live run above is what they look like
-when a real corpus trips them. A resumed invocation re-asserts every portable claim over
-the side-car and re-measures only unfinished modules and modules whose cold row is
-operational — which is how the four operational rows were retried in the original resume
-passes, and how the 2026-10-18 resumed invocation re-measured `terraform-aws-compliance`
-and admitted `aws-terraform-infrastructure` — and every resumed pass re-produced the same
-244 violations identically: the assertions
-are themselves deterministic over a fixed set of legs.
+when a real corpus trips them. Each resumed invocation re-asserts every portable claim
+over the full side-car. The original resume passes retried four operational rows; the
+2026-10-18 invocation also re-measured the scored `terraform-aws-compliance` row for the
+D2 correction and admitted `aws-terraform-infrastructure`. Every resumed pass re-produced
+the same 244 violations identically: the assertions are themselves deterministic over a
+fixed set of legs.
