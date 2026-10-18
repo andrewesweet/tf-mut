@@ -51,7 +51,7 @@ false. They are the milestone.
 
 | Decoder | Peak retained heap, four workers, ≥ 100 MB stream | Ceiling |
 | --- | --- | --- |
-| Streaming, `provider_schemas` skipped token by token | **under 64 MB** (passes) | 64 MB |
+| M2 streaming decoder, `provider_schemas` skipped token by token | **under 64 MB** (passes) | 64 MB |
 | Buffering, one message materialised then filtered | **240 MB** | 64 MB |
 
 Measured with `runtime/metrics` `/gc/heap/live:bytes` — the live heap, not process RSS, which
