@@ -77,10 +77,14 @@ and `TestEveryWidenCIDREntryHasARealProviderWitness`.
 **Gate 4 — the benchmark published under its pinned protocol with both tables, every
 pinned module's row outcome and population availability.** Met. `21-m5-benchmark.md`
 publishes the module-admission table (both denominators on every rate) and the mutant-level
-table in Oasis's units over known populations only, with the pooled score (6,780 scored
-mutants over the 8 `scored` modules), the unweighted per-module median (25.0% over 8), the
+table in Oasis's units over known populations only, with the pooled score (7,130 scored
+mutants over the 9 `scored` modules), the unweighted per-module median (23.4% over 9), the
 `Killed`/`KilledByError` split, and the unscored-with-known-population tabulation by row
-outcome. Population availability is decided by each module's separate `preview` invocation;
+outcome. The published figures carry the 2026-10-18 D2 correction recorded in `21`: the
+`terraform-aws-compliance` row was re-measured after #189 fixed the sandbox manifest, and
+the resumed invocation's operational retries admitted `aws-terraform-infrastructure` after
+#192's backend warm-up. Population availability is decided by each module's separate
+`preview` invocation;
 the two-invocation protocol, cold and warm legs, the one operational retry and the verdict
 identity across legs are all stated in the document and executed by
 `TestTheBenchmarkOverThePinnedCorpus` (#184).
@@ -108,7 +112,7 @@ One paragraph per measurement; the documents carry the numbers.
 | Opportunity census + mining count | 19 | 14 opportunities / 8 modules, all undecidable; mining reached 58, fired 0 | #173, #174 |
 | Repair prototype (stage 2) | 20 | empty cohort → insufficient; #82 stays open | #175 |
 | Pack seed census | 18 | 10 of 115 admitted, 0 invalid, 105 unwitnessed | #177 |
-| Public benchmark | 21 | 8 `scored` of 23 pinned; pooled 6,780 mutants; median 25.0% | #184 |
+| Public benchmark | 21 | 9 `scored` of 23 pinned; pooled 7,130 mutants; median 23.4% (after the D2 correction noted in `21`) | #184 |
 
 The two costs the census pair surfaced beyond the spec's predictions: the corpus's previews
 were operationally fragile across runs (six modules the census resolved failed preview in
