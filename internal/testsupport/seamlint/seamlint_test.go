@@ -167,38 +167,44 @@ func TestEngineDrivenImportsRespectOwnership(t *testing.T) {
 		"discovery", "mutation", "fingerprint", "oracle", "suggest", "characterise",
 		"tfexec", "sandbox", "store", "config", "tracing",
 	} {
+		importPath := "github.com/andrewesweet/tf-mut/internal/" + name
 		for _, owner := range []string{name, "engine", "other"} {
-			t.Run(name+"/"+owner, func(t *testing.T) {
-				t.Parallel()
+			for spelling, literal := range []string{
+				fmt.Sprintf("%q", importPath),
+				"`" + importPath + "`",
+				strings.Replace(fmt.Sprintf("%q", importPath), "/", `\x2f`, 1),
+			} {
+				t.Run(fmt.Sprintf("%s/%s/%d", name, owner, spelling), func(t *testing.T) {
+					t.Parallel()
 
-				root := t.TempDir()
-				directory := filepath.Join(root, "internal", owner)
-				if err := os.MkdirAll(directory, 0o700); err != nil {
-					t.Fatal(err)
-				}
-				importPath := "github.com/andrewesweet/tf-mut/internal/" + name
-				source := fmt.Sprintf("package %s_test\nimport _ %q\n", owner, importPath)
-				if err := os.WriteFile(filepath.Join(directory, "driver_test.go"), []byte(source), 0o600); err != nil {
-					t.Fatal(err)
-				}
-
-				violations, err := seamlint.Scan(root)
-				if err != nil {
-					t.Fatal(err)
-				}
-				want := 0
-				if owner == "other" {
-					want = 1
-				}
-				if len(violations) != want {
-					t.Fatalf("violations = %v, want %d", violations, want)
-				}
-				for _, violation := range violations {
-					if violation.Rule != seamlint.RuleEngineDrivenImport || violation.Detail != importPath {
-						t.Errorf("unexpected violation: %v", violation)
+					root := t.TempDir()
+					directory := filepath.Join(root, "internal", owner)
+					if err := os.MkdirAll(directory, 0o700); err != nil {
+						t.Fatal(err)
 					}
-				}
-			})
+					source := fmt.Sprintf("package %s_test\nimport _ %s\n", owner, literal)
+					if err := os.WriteFile(filepath.Join(directory, "driver_test.go"), []byte(source), 0o600); err != nil {
+						t.Fatal(err)
+					}
+
+					violations, err := seamlint.Scan(root)
+					if err != nil {
+						t.Fatal(err)
+					}
+					want := 0
+					if owner == "other" {
+						want = 1
+					}
+					if len(violations) != want {
+						t.Fatalf("violations = %v, want %d", violations, want)
+					}
+					for _, violation := range violations {
+						if violation.Rule != seamlint.RuleEngineDrivenImport || violation.Detail != importPath {
+							t.Errorf("unexpected violation: %v", violation)
+						}
+					}
+				})
+			}
 		}
 	}
 }
@@ -241,6 +247,12 @@ func constructionCases() []constructionCase {
 		{"defined-struct", `_ = wrapper{}`, false},
 		{"defined-struct-new", `_ = new(wrapper)`, false},
 		{"parentheses", `_ = new((alias))`, false},
+		{"constant-nonempty", `const count = 1; _ = [count]TYPE{}`, false},
+		{"expression-nonempty", `_ = [2-1]TYPE{}`, false},
+		{"named-constant-nonempty", `const count = 1; type cases [count]TYPE; _ = cases{}`, false},
+		{"new-constant-nonempty", `const count = 1; _ = new([count]TYPE)`, false},
+		{"cross-file-constant-nonempty", `_ = fullCases{}`, false},
+		{"shadowed-constant-nonempty", `const zeroSize = 1; _ = [zeroSize]TYPE{}`, false},
 		{"direct-declaration", `var value TYPE; _ = value`, true},
 		{"defined-struct-declaration", `var value wrapper; _ = value`, true},
 		{"pointer-declaration", `var value *TYPE; _ = value`, true},
@@ -252,6 +264,26 @@ func constructionCases() []constructionCase {
 		{"array-empty", `_ = [0]TYPE{}`, true},
 		{"array-hex-empty", `_ = [0x0]TYPE{}`, true},
 		{"array-inferred-empty", `_ = [...]TYPE{}`, true},
+		{"constant-empty", `const count = 0; _ = [count]TYPE{}`, true},
+		{"expression-empty", `_ = [1-1]TYPE{}`, true},
+		{"unary-empty", `_ = [-0]TYPE{}`, true},
+		{"shift-empty", `_ = [1>>1]TYPE{}`, true},
+		{"builtin-empty", `_ = [len("")]TYPE{}`, true},
+		{"typed-empty", `const count uint = 0; _ = [count]TYPE{}`, true},
+		{"conversion-empty", `_ = [int(0)]TYPE{}`, true},
+		{"chained-empty", `const first = 0; const second = first; _ = [second]TYPE{}`, true},
+		{"iota-empty", `const (count = iota); _ = [count]TYPE{}`, true},
+		{"implicit-constant-empty", `const (first = 0; second); _ = [second]TYPE{}`, true},
+		{"named-constant-empty", `const count = 0; type cases [count]TYPE; _ = cases{}`, true},
+		{"named-expression-empty", `type cases [1-1]TYPE; _ = cases{}`, true},
+		{"new-constant-empty", `const count = 0; _ = new([count]TYPE)`, true},
+		{"new-expression-empty", `_ = new([1-1]TYPE)`, true},
+		{"new-named-empty", `const count = 0; type cases [count]TYPE; _ = new(cases)`, true},
+		{"wrapped-array-empty", `const count = 0; _ = struct { Values [count]TYPE }{}`, true},
+		{"cross-file-constant-empty", `_ = [zeroSize]TYPE{}`, true},
+		{"cross-file-named-empty", `_ = emptyCases{}`, true},
+		{"cross-file-new-empty", `_ = new(emptyCases)`, true},
+		{"shadowed-cross-file-empty", `const zeroSize = 1; _ = emptyCases{}`, true},
 		{"array-references", `_ = [1]*TYPE{}`, true},
 		{"slice-references", `_ = []*TYPE{nil}`, true},
 		{"map-references", `_ = map[string]*TYPE{"fixture": nil}`, true},
@@ -281,6 +313,10 @@ func TestProtectedConstructionsResolveCollectionsAndAliases(t *testing.T) {
 		{"settings", "", "settings", seamlint.RuleSettingsConstruction},
 		{"runner", `import execution "github.com/andrewesweet/tf-mut/internal/tfexec"`, "execution.Runner", seamlint.RuleRunnerConstruction},
 		{"dot-runner", `import . "github.com/andrewesweet/tf-mut/internal/tfexec"`, "Runner", seamlint.RuleRunnerConstruction},
+		{"raw-runner", "import `github.com/andrewesweet/tf-mut/internal/tfexec`", "tfexec.Runner", seamlint.RuleRunnerConstruction},
+		{"raw-aliased-runner", "import execution `github.com/andrewesweet/tf-mut/internal/tfexec`", "execution.Runner", seamlint.RuleRunnerConstruction},
+		{"raw-dot-runner", "import . `github.com/andrewesweet/tf-mut/internal/tfexec`", "Runner", seamlint.RuleRunnerConstruction},
+		{"escaped-runner", `import execution "github.com\x2fandrewesweet/tf-mut/internal/tfexec"`, "execution.Runner", seamlint.RuleRunnerConstruction},
 	} {
 		for _, construction := range constructionCases() {
 			t.Run(protected.name+"/"+construction.name, func(t *testing.T) {
@@ -291,7 +327,7 @@ func TestProtectedConstructionsResolveCollectionsAndAliases(t *testing.T) {
 				if err := os.MkdirAll(directory, 0o700); err != nil {
 					t.Fatal(err)
 				}
-				aliases := fmt.Sprintf("package engine\n%s\ntype direct = %s\ntype alias = direct\ntype collection = []alias\ntype defined alias\ntype cases []defined\ntype array [1]defined\ntype mapping map[string]defined\ntype wrapper struct { Value defined }\n", protected.imports, protected.typeName)
+				aliases := fmt.Sprintf("package engine\n%s\ntype direct = %s\ntype alias = direct\ntype collection = []alias\ntype defined alias\ntype cases []defined\ntype array [1]defined\ntype mapping map[string]defined\ntype wrapper struct { Value defined }\nconst zeroSize = 1 - 1\nconst oneSize = zeroSize + 1\ntype emptyCases [zeroSize]defined\ntype fullCases [oneSize]defined\n", protected.imports, protected.typeName)
 				if err := os.WriteFile(filepath.Join(directory, "aliases.go"), []byte(aliases), 0o600); err != nil {
 					t.Fatal(err)
 				}

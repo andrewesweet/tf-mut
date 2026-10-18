@@ -25,12 +25,15 @@ import (
 	"fmt"
 	"go/ast"
 	"go/constant"
+	"go/importer"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -160,8 +163,8 @@ func Scan(root string) ([]Violation, error) {
 	root = filepath.Clean(root)
 
 	var found []Violation
-	var files []*scanner
-	packages := make(map[string]map[string]typeReference)
+	fset := token.NewFileSet()
+	packages := make(map[string]*packageScan)
 
 	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -176,18 +179,18 @@ func Scan(root string) ([]Violation, error) {
 			return nil
 		}
 
-		file, err := parseFile(root, path)
+		file, err := parseFile(root, path, fset)
 		if err != nil {
 			return err
 		}
 
 		key := filepath.Dir(path) + "/" + file.file.Name.Name
 		if packages[key] == nil {
-			packages[key] = make(map[string]typeReference)
+			packages[key] = &packageScan{types: make(map[string]typeReference)}
 		}
-		file.types = packages[key]
+		file.types = packages[key].types
 		file.collectTypes()
-		files = append(files, file)
+		packages[key].files = append(packages[key].files, file)
 
 		return nil
 	})
@@ -195,11 +198,8 @@ func Scan(root string) ([]Violation, error) {
 		return nil, fmt.Errorf("scanning %s: %w", root, walkErr)
 	}
 
-	for _, file := range files {
-		if strings.HasSuffix(file.path, testFileSuffix) {
-			file.inspect()
-			found = append(found, file.violations...)
-		}
+	for _, scanned := range packages {
+		found = append(found, scanned.inspect(fset)...)
 	}
 
 	slices.SortFunc(found, compareViolations)
@@ -254,16 +254,44 @@ func skipDir(root, path string, entry fs.DirEntry) error {
 
 // scanner carries one parsed test file through the three rules.
 type scanner struct {
-	root         string
-	path         string
-	file         *ast.File
-	fset         *token.FileSet
-	relative     string
-	aliases      map[string]string // local import name -> import path
-	dotImports   map[string]bool   // import paths dot-imported into the file
-	violations   []Violation
-	types        map[string]typeReference
-	literalTypes map[*ast.CompositeLit]typeReference
+	root           string
+	path           string
+	file           *ast.File
+	fset           *token.FileSet
+	relative       string
+	aliases        map[string]string // local import name -> import path
+	dotImports     map[string]bool   // import paths dot-imported into the file
+	violations     []Violation
+	types          map[string]typeReference
+	literalTypes   map[*ast.CompositeLit]typeReference
+	expressionInfo map[ast.Expr]types.TypeAndValue
+}
+
+type packageScan struct {
+	types map[string]typeReference
+	files []*scanner
+}
+
+func (p *packageScan) inspect(fset *token.FileSet) []Violation {
+	files := make([]*ast.File, 0, len(p.files))
+	for _, file := range p.files {
+		files = append(files, file.file)
+	}
+	info := &types.Info{Types: make(map[ast.Expr]types.TypeAndValue)}
+	configuration := types.Config{Importer: importer.Default(), Error: func(error) {}}
+	_, _ = configuration.Check(files[0].Name.Name, fset, files, info)
+
+	var found []Violation
+	for _, file := range p.files {
+		file.expressionInfo = info.Types
+	}
+	for _, file := range p.files {
+		if strings.HasSuffix(file.path, testFileSuffix) {
+			file.inspect()
+			found = append(found, file.violations...)
+		}
+	}
+	return found
 }
 
 type typeReference struct {
@@ -271,9 +299,7 @@ type typeReference struct {
 	file *scanner
 }
 
-func parseFile(root, path string) (*scanner, error) {
-	fset := token.NewFileSet()
-
+func parseFile(root, path string, fset *token.FileSet) (*scanner, error) {
 	parsed, err := parser.ParseFile(fset, path, nil, parser.AllErrors)
 	if err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)
@@ -295,15 +321,23 @@ func parseFile(root, path string) (*scanner, error) {
 		literalTypes: make(map[*ast.CompositeLit]typeReference),
 	}
 
-	s.collectImports()
+	if err := s.collectImports(); err != nil {
+		return nil, err
+	}
 
 	return s, nil
 }
 
 // collectImports records each import's local name, and any dot import.
-func (s *scanner) collectImports() {
+func (s *scanner) collectImports() error {
 	for _, spec := range s.file.Imports {
-		importPath := strings.Trim(spec.Path.Value, `"`)
+		importPath, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			return fmt.Errorf("decoding import in %s: %w", s.relative, err)
+		}
+		if strings.HasSuffix(s.path, testFileSuffix) {
+			s.checkImport(spec, importPath)
+		}
 
 		switch {
 		case spec.Name == nil:
@@ -314,6 +348,7 @@ func (s *scanner) collectImports() {
 			s.aliases[spec.Name.Name] = importPath
 		}
 	}
+	return nil
 }
 
 func (s *scanner) collectTypes() {
@@ -336,8 +371,6 @@ func (s *scanner) collectTypes() {
 func (s *scanner) inspect() {
 	ast.Inspect(s.file, func(node ast.Node) bool {
 		switch marked := node.(type) {
-		case *ast.ImportSpec:
-			s.checkImport(marked)
 		case *ast.CompositeLit:
 			s.checkLiteral(marked)
 		case *ast.CallExpr:
@@ -351,8 +384,7 @@ func (s *scanner) inspect() {
 }
 
 // checkImport applies the engine-driven import rule.
-func (s *scanner) checkImport(spec *ast.ImportSpec) {
-	importPath := strings.Trim(spec.Path.Value, `"`)
+func (s *scanner) checkImport(spec *ast.ImportSpec, importPath string) {
 	if !engineDriven(importPath) || s.ownedByOwnPackage(importPath) {
 		return
 	}
@@ -418,7 +450,7 @@ func (s *scanner) checkConstructed(reference typeReference, position token.Pos, 
 
 	switch shape := reference.expr.(type) {
 	case *ast.ArrayType:
-		if shape.Len != nil && !zeroLength(shape.Len) {
+		if shape.Len != nil && !reference.file.zeroLength(shape.Len) {
 			s.checkConstructed(typeReference{expr: shape.Elt, file: reference.file}, position, seen)
 		}
 	case *ast.StructType:
@@ -428,12 +460,12 @@ func (s *scanner) checkConstructed(reference typeReference, position token.Pos, 
 	}
 }
 
-func zeroLength(expression ast.Expr) bool {
-	literal, ok := ast.Unparen(expression).(*ast.BasicLit)
-	if !ok || literal.Kind != token.INT {
+func (s *scanner) zeroLength(expression ast.Expr) bool {
+	value := s.expressionInfo[expression].Value
+	if value == nil {
 		return false
 	}
-	value := constant.MakeFromLiteral(literal.Value, token.INT, 0)
+	value = constant.ToInt(value)
 	return value.Kind() == constant.Int && constant.Sign(value) == 0
 }
 
