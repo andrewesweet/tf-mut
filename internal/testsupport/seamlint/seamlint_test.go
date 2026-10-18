@@ -160,6 +160,13 @@ func TestThatTheSeamScanLeavesTheCleanFixtureAlone(t *testing.T) {
 	}
 }
 
+const (
+	tfexecImport        = "github.com/andrewesweet/tf-mut/internal/tfexec"
+	escapedTfexecImport = "github.com\\x2fandrewesweet/tf-mut/internal/tfexec"
+	aliasedRunner       = "execution.Runner"
+	engineDir           = "internal/engine"
+)
+
 func TestEngineDrivenImportsRespectOwnership(t *testing.T) {
 	t.Parallel()
 
@@ -177,34 +184,40 @@ func TestEngineDrivenImportsRespectOwnership(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/%s/%d", name, owner, spelling), func(t *testing.T) {
 					t.Parallel()
 
-					root := t.TempDir()
-					directory := filepath.Join(root, "internal", owner)
-					if err := os.MkdirAll(directory, 0o700); err != nil {
-						t.Fatal(err)
-					}
-					source := fmt.Sprintf("package %s_test\nimport _ %s\n", owner, literal)
-					if err := os.WriteFile(filepath.Join(directory, "driver_test.go"), []byte(source), 0o600); err != nil {
-						t.Fatal(err)
-					}
-
-					violations, err := seamlint.Scan(root)
-					if err != nil {
-						t.Fatal(err)
-					}
-					want := 0
-					if owner == "other" {
-						want = 1
-					}
-					if len(violations) != want {
-						t.Fatalf("violations = %v, want %d", violations, want)
-					}
-					for _, violation := range violations {
-						if violation.Rule != seamlint.RuleEngineDrivenImport || violation.Detail != importPath {
-							t.Errorf("unexpected violation: %v", violation)
-						}
-					}
+					driveOwnershipCase(t, owner, literal, importPath)
 				})
 			}
+		}
+	}
+}
+
+func driveOwnershipCase(t *testing.T, owner, literal, importPath string) {
+	t.Helper()
+
+	root := t.TempDir()
+	directory := filepath.Join(root, "internal", owner)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	source := fmt.Sprintf("package %s_test\nimport _ %s\n", owner, literal)
+	if err := os.WriteFile(filepath.Join(directory, "driver_test.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	violations, err := seamlint.Scan(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := 0
+	if owner == "other" {
+		want = 1
+	}
+	if len(violations) != want {
+		t.Fatalf("violations = %v, want %d", violations, want)
+	}
+	for _, violation := range violations {
+		if violation.Rule != seamlint.RuleEngineDrivenImport || violation.Detail != importPath {
+			t.Errorf("unexpected violation: %v", violation)
 		}
 	}
 }
@@ -303,6 +316,57 @@ func constructionCases() []constructionCase {
 	}
 }
 
+func writeConstructionFixture(t *testing.T, root, imports, typeName, expression string) {
+	t.Helper()
+
+	directory := filepath.Join(root, "internal", "engine")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	aliases := fmt.Sprintf(`package engine
+%s
+type direct = %s
+type alias = direct
+type collection = []alias
+type defined alias
+type cases []defined
+type array [1]defined
+type mapping map[string]defined
+type wrapper struct { Value defined }
+const zeroSize = 1 - 1
+const oneSize = zeroSize + 1
+type emptyCases [zeroSize]defined
+type fullCases [oneSize]defined
+`, imports, typeName)
+	if err := os.WriteFile(filepath.Join(directory, "aliases.go"), []byte(aliases), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := strings.ReplaceAll(expression, "TYPE", typeName)
+	source := fmt.Sprintf("package engine\n%s\nfunc construct() { %s }\n", imports, body)
+	if err := os.WriteFile(filepath.Join(directory, "construction_test.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertConstructionOutcome(t *testing.T, rule seamlint.Rule, allowed bool, violations []seamlint.Violation) {
+	t.Helper()
+
+	if allowed {
+		if len(violations) != 0 {
+			t.Fatalf("allowed expression has violations: %v", violations)
+		}
+		return
+	}
+	if len(violations) == 0 {
+		t.Fatalf("construction has no %s violation", rule)
+	}
+	for _, violation := range violations {
+		if violation.Rule != rule {
+			t.Errorf("unexpected violation: %v", violation)
+		}
+	}
+}
+
 func TestProtectedConstructionsResolveCollectionsAndAliases(t *testing.T) {
 	t.Parallel()
 
@@ -311,50 +375,25 @@ func TestProtectedConstructionsResolveCollectionsAndAliases(t *testing.T) {
 		rule                    seamlint.Rule
 	}{
 		{"settings", "", "settings", seamlint.RuleSettingsConstruction},
-		{"runner", `import execution "github.com/andrewesweet/tf-mut/internal/tfexec"`, "execution.Runner", seamlint.RuleRunnerConstruction},
-		{"dot-runner", `import . "github.com/andrewesweet/tf-mut/internal/tfexec"`, "Runner", seamlint.RuleRunnerConstruction},
-		{"raw-runner", "import `github.com/andrewesweet/tf-mut/internal/tfexec`", "tfexec.Runner", seamlint.RuleRunnerConstruction},
-		{"raw-aliased-runner", "import execution `github.com/andrewesweet/tf-mut/internal/tfexec`", "execution.Runner", seamlint.RuleRunnerConstruction},
-		{"raw-dot-runner", "import . `github.com/andrewesweet/tf-mut/internal/tfexec`", "Runner", seamlint.RuleRunnerConstruction},
-		{"escaped-runner", `import execution "github.com\x2fandrewesweet/tf-mut/internal/tfexec"`, "execution.Runner", seamlint.RuleRunnerConstruction},
+		{"runner", `import execution "` + tfexecImport + `"`, aliasedRunner, seamlint.RuleRunnerConstruction},
+		{"dot-runner", `import . "` + tfexecImport + `"`, "Runner", seamlint.RuleRunnerConstruction},
+		{"raw-runner", "import `" + tfexecImport + "`", "tfexec.Runner", seamlint.RuleRunnerConstruction},
+		{"raw-aliased-runner", "import execution `" + tfexecImport + "`", aliasedRunner, seamlint.RuleRunnerConstruction},
+		{"raw-dot-runner", "import . `" + tfexecImport + "`", "Runner", seamlint.RuleRunnerConstruction},
+		{"escaped-runner", `import execution "` + escapedTfexecImport + `"`, aliasedRunner, seamlint.RuleRunnerConstruction},
 	} {
 		for _, construction := range constructionCases() {
 			t.Run(protected.name+"/"+construction.name, func(t *testing.T) {
 				t.Parallel()
 
 				root := t.TempDir()
-				directory := filepath.Join(root, "internal", "engine")
-				if err := os.MkdirAll(directory, 0o700); err != nil {
-					t.Fatal(err)
-				}
-				aliases := fmt.Sprintf("package engine\n%s\ntype direct = %s\ntype alias = direct\ntype collection = []alias\ntype defined alias\ntype cases []defined\ntype array [1]defined\ntype mapping map[string]defined\ntype wrapper struct { Value defined }\nconst zeroSize = 1 - 1\nconst oneSize = zeroSize + 1\ntype emptyCases [zeroSize]defined\ntype fullCases [oneSize]defined\n", protected.imports, protected.typeName)
-				if err := os.WriteFile(filepath.Join(directory, "aliases.go"), []byte(aliases), 0o600); err != nil {
-					t.Fatal(err)
-				}
-				body := strings.ReplaceAll(construction.source, "TYPE", protected.typeName)
-				source := fmt.Sprintf("package engine\n%s\nfunc construct() { %s }\n", protected.imports, body)
-				if err := os.WriteFile(filepath.Join(directory, "construction_test.go"), []byte(source), 0o600); err != nil {
-					t.Fatal(err)
-				}
+				writeConstructionFixture(t, root, protected.imports, protected.typeName, construction.source)
 
 				violations, err := seamlint.Scan(root)
 				if err != nil {
 					t.Fatal(err)
 				}
-				if construction.allowed {
-					if len(violations) != 0 {
-						t.Fatalf("allowed expression has violations: %v", violations)
-					}
-					return
-				}
-				if len(violations) == 0 {
-					t.Fatalf("construction has no %s violation", protected.rule)
-				}
-				for _, violation := range violations {
-					if violation.Rule != protected.rule {
-						t.Errorf("unexpected violation: %v", violation)
-					}
-				}
+				assertConstructionOutcome(t, protected.rule, construction.allowed, violations)
 			})
 		}
 	}
@@ -370,9 +409,10 @@ func TestAllowedConstructionsRemainClean(t *testing.T) {
 		{"external-own-runner", "internal/tfexec", `package tfexec_test
 import execution "github.com/andrewesweet/tf-mut/internal/tfexec"
 func construct() { type alias = execution.Runner; _ = []alias{{}} }`},
-		{"requests", "internal/engine", "package engine\nfunc construct() { type alias = RunRequest; _ = []alias{{}} }"},
-		{"type-positions", "internal/engine", "package engine\nfunc inspect(value settings) {}\ntype holder struct { Value settings }"},
-		{"unused-alias", "internal/engine", "package engine\ntype alias = settings"},
+		{"requests", engineDir, "package engine\nfunc construct() { type alias = RunRequest; _ = []alias{{}} }"},
+		{"type-positions", engineDir, "package engine\nfunc inspect(value settings) {}\n" +
+			"type holder struct { Value settings }"},
+		{"unused-alias", engineDir, "package engine\ntype alias = settings"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
