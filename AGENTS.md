@@ -156,7 +156,9 @@ widened without amending this section.
    workflow and provider-chain contracts (`internal/buildchain/contracts_test.go`,
    `provider_test.go`), the skill-install protocol (`internal/skill/skill_test.go`), the
    sandbox inode and escape refusals (`internal/sandbox/sandbox_test.go`), the stream decode
-   contracts beyond exception 2's memory gate (`internal/tfexec/stream_test.go`), the
+   contracts beyond exception 2's memory gate (`internal/tfexec/stream_test.go`), the child
+   environment contract (`internal/tfexec/env_test.go`) — the document handed to `exec`, whose
+   duplicate-name resolution and reach no real Terraform run observes on demand — the
    shipped-pack contract (`internal/mutation/shipped_test.go`), and the suggestion contracts
    outside exception 4's matrices (`internal/suggest/evidence_contract_test.go`,
    `output_index_test.go`, `schema_wire_test.go`). These are contracts about documents, files
