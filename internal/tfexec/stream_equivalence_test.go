@@ -185,6 +185,8 @@ func refDecodeFileTiming(decoder *json.Decoder, found *refMessage, clock *refStr
 	case progressDone:
 		elapsed := clock.fileElapsed(event.Path, found.timestamp)
 		found.timing = &FileTiming{File: event.Path, ElapsedMS: elapsed}
+	default:
+		// Other progress events carry no file timing.
 	}
 
 	return nil
@@ -667,6 +669,8 @@ func TestTruncatedSchemaWithFinalDataAndEOFIsMalformed(t *testing.T) {
 		"exponent":       `{"aws":{"version":12e+`,
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
 			for _, combined := range []bool{false, true} {
 				input := bytes.NewReader([]byte(head + value))
 				var reader io.Reader = input
