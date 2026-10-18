@@ -107,9 +107,9 @@ denominator work is therefore evidenced by synthetic fixtures, not by the corpus
    pair under one enumerated shape. Unreviewed as design; the exit gate §7 names the two
    places it would break.
 2. **The two-invocation benchmark protocol** — population and row outcome from separate
-   invocations, never inferred. Honest, but the measured cross-run population drift (six
-   modules resolved differently between the census run and the benchmark run) is either a
-   protocol cost or a corpus fact, and nothing yet distinguishes them.
+   invocations, never inferred. Honest, but the measured
+   [cross-run population drift](../research/21-m5-benchmark.md#the-module-admission-table)
+   is either a protocol cost or a corpus fact, and nothing yet distinguishes them.
 3. **The canonical diagnostic order** — the one behaviour change; it reorders reported
    diagnostics consumers may have parsed. Closed list of one, recorded so the next
    behaviour change is compared against it.
