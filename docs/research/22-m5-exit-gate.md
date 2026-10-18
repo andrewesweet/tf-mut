@@ -115,8 +115,9 @@ One paragraph per measurement; the documents carry the numbers.
 | Public benchmark | 21 | 9 `scored` of 23 pinned; pooled 7,130 mutants; median 23.4% (after the D2 correction noted in `21`) | #184 |
 
 The two costs the census pair surfaced beyond the spec's predictions: the corpus's previews
-were operationally fragile across runs (six modules the census resolved failed preview in
-the benchmark run and vice versa, so every mutant-level sum names its unknown populations),
+were operationally fragile across runs (seven populations unknown in the census resolved
+in the benchmark, with none moving in the reverse direction, so every mutant-level sum
+names its unknown populations),
 and the pooled score is dominated by the largest modules, which is why the median is
 published beside it.
 
@@ -269,8 +270,8 @@ Two mechanisms arrived unreviewed and should be re-asked at the next spec review
    itself mutant-generated) are the places it would break.
 2. **The two-invocation benchmark protocol.** Population from `preview`, row outcome from
    `run`, never inferred from each other, is honest but doubles the corpus invocations and
-   produced the cross-run population drift the benchmark document records (six modules
-   resolved differently between the census run and the benchmark run). Whether the drift is
+   produced the cross-run population drift the benchmark document records (seven populations
+   unknown in the census resolved in the benchmark). Whether the drift is
    a protocol cost or a corpus fact is unreviewed; the M6 handover carries the question.
 
 And one process observation, recorded here because it is a rule-2 question about this

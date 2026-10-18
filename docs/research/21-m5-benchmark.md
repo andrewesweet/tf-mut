@@ -111,7 +111,7 @@ Two admission facts moved against the M5-0.4 census on the same manifest, both r
 not pin changes: the census could not install providers for `terraform-aws-compliance`,
 `terraform-aws-security-group` and `terraform-aws-vpc` and published them operational,
 where this measurement installed them and scored them; and the census's previews failed
-operationally for six modules this measurement's previews resolved, so this measurement
+operationally for seven modules this measurement's previews resolved, so this measurement
 knows 18 populations where the census knew 11. The benchmark pins its own protocol and
 publishes its own numbers precisely so that this variation is measured, not assumed away.
 
@@ -202,10 +202,11 @@ barely reaches the configuration, which makes it the table's instructive row for
 unreached module does to its own score. The other three operational rows reproduced
 operationally.
 
-The pooled arithmetic above sums all nine scored modules. The scored set of 7,130 sits
-against a generated count of 50,564 partly because every scored module carries an Invalid
-share of its population with it — `aws-terraform-infrastructure` excludes 1,732 of its
-1,764 and `serverless-architecture-patterns` 813 of its 4,969.
+The pooled arithmetic above sums all nine scored modules. Known-but-unscored populations
+and the scored modules' Invalid and Unobservable mutants account for the gap between the
+scored set of 7,130 and the generated count of 50,564. `aws-terraform-infrastructure`
+excludes 1,732 of its 1,764 mutants, including 1,542 Unobservable;
+`serverless-architecture-patterns` excludes 693 of its 4,969.
 
 ## The limitations
 
@@ -280,7 +281,7 @@ exactly what the run's two legs agreed on, published rather than smoothed:
    verdicts. The cold row stands as published; the race is a fact about the run, not the
    module.
 2. **The refusal classes were deterministic** — all 11 real-infrastructure rows and all
-   4 operational rows classified identically in both legs.
+   3 operational rows classified identically in both legs.
 3. **Per-mutant verdict identity held completely on seven of the nine scored modules** —
    3,822 compared mutants across `platform-design`, `terraform-aws-compliance`,
    `terraform-aws-security-group`, `terraform-aws-vpc`, `terraform-datadog-users`,
