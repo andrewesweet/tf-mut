@@ -197,12 +197,12 @@ func measurePeakLiveHeap(t *testing.T, work func()) uint64 {
 	return <-peaks
 }
 
-func recorded(t *testing.T) []byte {
-	t.Helper()
+func recorded(tb testing.TB) []byte {
+	tb.Helper()
 
 	content, err := os.ReadFile(recordedStream)
 	if err != nil {
-		t.Fatalf("reading %s: %v", recordedStream, err)
+		tb.Fatalf("reading %s: %v", recordedStream, err)
 	}
 
 	return content

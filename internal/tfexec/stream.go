@@ -164,7 +164,10 @@ const progressStarting = "starting"
 // decodeTestStream reads the whole `terraform test -json` stream.
 //
 // The stream is walked token by token so that the large payload members can be
-// skipped without being held: see RunPayload.
+// skipped without being held: see RunPayload. The provider_schemas member is
+// dropped before the decoder sees it, by the byte-level filter the decoder
+// reads through, because tokenising megabytes of schema dominated tf-mut's own
+// CPU on large-provider suites.
 func decodeTestStream(reader io.Reader) (TestResult, error) {
 	result := TestResult{
 		Runs:        []RunOutcome{},
@@ -182,7 +185,7 @@ func decodeTestStream(reader io.Reader) (TestResult, error) {
 	// neither outlives the stream.
 	clock := newStreamClock()
 
-	decoder := json.NewDecoder(reader)
+	decoder := json.NewDecoder(newSchemaFilter(reader))
 	decoder.UseNumber()
 
 	for {

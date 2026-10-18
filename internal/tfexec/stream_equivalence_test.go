@@ -232,26 +232,26 @@ func refAttach(found message, result *TestResult) {
 // assertSameDecode asserts that the production decoder and the frozen
 // token-loop decoder agree on one input: both fail, both with the malformed
 // class, or both succeed with identical events.
-func assertSameDecode(t *testing.T, input []byte, origin string) {
-	t.Helper()
+func assertSameDecode(tb testing.TB, input []byte, origin string) {
+	tb.Helper()
 
 	newResult, newErr := decodeTestStream(bytes.NewReader(input))
 	oldResult, oldErr := refDecodeTestStream(bytes.NewReader(input))
 
 	if (newErr == nil) != (oldErr == nil) {
-		t.Fatalf("%s: new error = %v, old error = %v", origin, newErr, oldErr)
+		tb.Fatalf("%s: new error = %v, old error = %v", origin, newErr, oldErr)
 	}
 
 	if newErr != nil {
 		if !errors.Is(newErr, ErrMalformedStream) || !errors.Is(oldErr, ErrMalformedStream) {
-			t.Fatalf("%s: error class mismatch: new %v, old %v", origin, newErr, oldErr)
+			tb.Fatalf("%s: error class mismatch: new %v, old %v", origin, newErr, oldErr)
 		}
 
 		return
 	}
 
 	if !reflect.DeepEqual(newResult, oldResult) {
-		t.Fatalf("%s: decoded events differ:\nnew: %#v\nold: %#v", origin, newResult, oldResult)
+		tb.Fatalf("%s: decoded events differ:\nnew: %#v\nold: %#v", origin, newResult, oldResult)
 	}
 }
 
@@ -480,4 +480,123 @@ func TestOldAndNewAgreeOnAnInflatedStreamWithTheSharedFixture(t *testing.T) {
 	}
 
 	assertSameDecode(t, inflatedBy(t, content, 2*1024*1024), "2 MB inflated stream")
+}
+
+// Every way an input can end around the skipped value. Between tokens the
+// token loop reads the end of input as the end of the stream; inside a token
+// it reports an unexpected end. The filter classifies an end of input the same
+// way, and every case here pins one line of that table.
+func TestOldAndNewAgreeOnEndOfInputAroundTheSchemaValue(t *testing.T) {
+	t.Parallel()
+
+	const head = `{"@level":"info","test_plan":{"provider_schemas":`
+
+	for name, value := range map[string]string{
+		"after colon":        "",
+		"after key":          `"provider_schemas"`,
+		"mid key":            `{"provider_sch`,
+		"open object":        `{`,
+		"after inner key":    `{"a"`,
+		"mid number":         `123`,
+		"after number":       `123}`,
+		"mid negation":       `-`,
+		"mid fraction":       `12.`,
+		"after fraction":     `12.5`,
+		"mid exponent":       `12e`,
+		"mid exponent sign":  `12e+`,
+		"after exponent":     `12e3`,
+		"mid literal":        `tru`,
+		"whole literal":      `true`,
+		"mid string":         `"ab`,
+		"mid escape":         `{"a":"x\`,
+		"mid unicode escape": `{"a":"x\u0`,
+		"open array":         `[`,
+		"array one element":  `[1`,
+		"after comma":        `[1,`,
+		"array two elements": `[1,2`,
+		"closed array":       `[1,2]`,
+		"nested open object": `{"a":{`,
+		"nested complete":    `{"a":1}`,
+		// A matched key whose separator never arrives: the token loop reads the
+		// next string as a scalar value and then as a key, so a later colon can
+		// still open a swallow. The filter's key gate must stay aligned with
+		// that reading all the way to the verdict.
+		"key then second key":      `"provider_schemas" "provider_schemas":{"aws":1}}`,
+		"key then key then key":    `"provider_schemas" "provider_schemas" "provider_schemas":{"aws":1}}`,
+		"key then object":          `"provider_schemas" {"aws":1}}`,
+		"key then object with key": `"provider_schemas" {"provider_schemas":1}}`,
+		"key then scalar":          `"provider_schemas" 1}}`,
+		"key then string":          `"provider_schemas" "x"}}`,
+		"key then malformed array": `"provider_schemas" [,1]}}`,
+	} {
+		assertSameDecode(t, []byte(head+value), "end of input "+name)
+	}
+}
+
+// A schema at the scale the skip targets — the synthetic analogue of a real
+// provider registry download — drives both decoders in this benchmark; the
+// equivalence tests above guarantee they decode it identically.
+func BenchmarkTheSchemaSkip(b *testing.B) {
+	var schemas bytes.Buffer
+
+	schemas.WriteString(`{"aws":{`)
+
+	for range 512 {
+		schemas.WriteString(`"Microsoft.Compute/virtualMachines":{"block":{`)
+
+		for i := range 64 {
+			fmt.Fprintf(&schemas, `"attribute_%d":{"type":"string","description":`+
+				`"braces } brackets ] quotes \" backslash \\ and a long body"},`, i)
+		}
+
+		schemas.WriteString(`"tail":{"type":"number","optional":true}},`)
+	}
+
+	schemas.WriteString(`"final":{"block":{}}}}`)
+
+	stream := payloadMessage(schemas.String())
+
+	b.Run("token loop", func(b *testing.B) {
+		b.SetBytes(int64(len(stream)))
+		b.ReportAllocs()
+
+		for b.Loop() {
+			if _, err := refDecodeTestStream(bytes.NewReader(stream)); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	b.Run("byte filter", func(b *testing.B) {
+		b.SetBytes(int64(len(stream)))
+		b.ReportAllocs()
+
+		for b.Loop() {
+			if _, err := decodeTestStream(bytes.NewReader(stream)); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
+
+// FuzzTheByteSkipAgreesWithTheTokenLoop drives both decoders with arbitrary
+// bytes: the filter may never produce a stream the token loop would have
+// decoded differently. Run with -fuzz for the search; under go test the seed
+// corpus alone runs, keeping the suite deterministic and offline.
+func FuzzTheByteSkipAgreesWithTheTokenLoop(f *testing.F) {
+	f.Add(recorded(f))
+	f.Add(payloadMessage(`{}`))
+	f.Add(payloadMessage(`{"aws":{"provider":{"version":0,"block":{"a":"b \" ] }"}},` +
+		`"resource_schemas":{"aws_instance":{"block":{"x":[1,2,{"y":[true,false,null,1.5e-3]}]}}}}`))
+	f.Add(payloadMessage(`{"a":{"b":{"c":{"d":{"e":[[[["x"]]]]}}}}}`))
+	f.Add(payloadMessage(`{"aws":"strings with } ] \" \\ and unicode \u00e9"}`))
+	f.Add(payloadMessage(`{"aws" 1}`))
+	f.Add(payloadMessage(`{"aws":12xy}`))
+	f.Add(payloadMessage(`12345`))
+	f.Add(payloadMessage(`true`))
+	f.Add([]byte(`{"@level":"info","test_plan":{"provider_schemas":{"aws":[1,2`))
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		assertSameDecode(t, data, "fuzzed input")
+	})
 }
