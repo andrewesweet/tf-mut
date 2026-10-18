@@ -153,7 +153,9 @@ For verdict-cache storage, reuse and upgrades, see the
 [cache contract](docs/design/product-design.md#10-ci-integration).
 
 With `--reporter json`, `run`, `preview`, `suggest` and `curate` include performance telemetry.
-The emitted contract is linked in the [document map](#documents). Every run carries one
+Baseline test-file timings and per-run-block timings help attribute suite cost. Mutant and
+phase start timestamps let you correlate that work with logs. See the report schema in the
+[document map](#documents) for the field and availability contracts. Every run carries one
 identifier — the run span's trace ID when tracing is enabled, a random identifier of the same
 32-hex-character shape otherwise — published as the report telemetry's `run_id` and prefixed
 onto every stderr line the run writes (`[run_id] …`), so stderr, report and trace tie

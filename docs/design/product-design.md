@@ -191,22 +191,11 @@ Reduce mutant execution without hiding findings:
   from splitting accrues mainly to independent plan-mode suites — which is the design's
   target shape, but the claim is scoped to it.
 
-  **Measured, and withdrawn (`../research/07-m2-cost-model.md`).** Splitting produces *more*
-  `terraform test` invocations, and an invocation costs **1.6 s** against **0.012 s** for a
-  run block inside one — a ratio of 134 to 162 across two runs. Splitting an eight-run suite
-  costs **7.8×**; under perfect selection down to a single run block it saves **5%**, and at
-  two it already loses. Its ceiling across M1's whole population is 3%. The 2026-10-12
-  cost-model report (`tfmut-perf-costmodel`) later fitted the general model
-  `T1 = c0 + Σ_files (p + r × runs)` — provider plugins start once per test file, and the
-  per-run-block term is Terraform core evaluation at r ≈ 0.19–0.45 CPU-s on real suites,
-  against this fixture's near-empty 0.012 s — so the 3% ceiling is fixture-specific and
-  run-block selection matters more on real modules than this measurement alone showed.
-  This design previously called it the
-  primary viability lever on real modules; that claim is **withdrawn**, and the technique is
-  retained here only as a description of what is possible, not as something the roadmap
-  intends to build. It becomes worthwhile only where a single run block costs more than an
-  invocation — apply-mode suites against slow providers, not the mocked plan-mode suites this
-  design targets.
+  **Measured, and withdrawn.** The [cost-model experiments](../research/07-m2-cost-model.md#1-splitting-adds-work-at-every-useful-k)
+  found that splitting added invocation cost on `aws-mocked`. The claim that splitting is
+  the primary viability lever on real modules is withdrawn; it remains described here as a
+  possibility, not a roadmap item. The [corrected real-suite model](../research/07-m2-cost-model.md#4-where-the-time-goes)
+  scopes that fixture's selection ceiling and explains which costs safe selection can remove.
 - **Deduplication.** Mutants with identical `(file, range, replacement)` collapse.
 
 **The in-process reference graph — roles split across milestones (revised by both reviews).**
@@ -910,9 +899,10 @@ than buffer.
 
 What is left is the honesty half, and it is worth the milestone on its own: Tiers 1–3, the
 volatile mask, the full state model, survivor diagnosis, the reporters and the configuration
-file. The per-mutant floor against a real provider is 1.65 s of provider startup that no
-change inside this tool reaches; every remaining lever reduces the *mutant count* rather than
-the per-mutant cost — `--since`, the incremental cache, sampling — and all of them are M3.
+file. The [cost model](../research/07-m2-cost-model.md#4-where-the-time-goes) owns the
+fixture-specific invocation floor and its corrected attribution. M2 adds no lever that
+reduces Terraform core's cost per executed run block; the chosen *mutant-count* levers —
+`--since`, the incremental cache, sampling — are all M3.
 
 **Exit gate: honesty, not speed.** A speed gate cannot be met by a milestone with no speed
 lever in it. The gate is the fingerprint oracle surviving its own refutations — R2-2's
@@ -1056,28 +1046,16 @@ the limitations and the Oasis side-by-side are published in
    matrix remains open.*
 7. **Upstream asks worth filing.** `-filter=file::run`; a `-verbose` mode that omits
    `provider_schemas` from per-run messages (C1 makes this a 26× marginal-cost issue); native
-   coverage remains [#37605](https://github.com/hashicorp/terraform/issues/37605). M1's
-   measurement added a third ask, since corrected by the 2026-10-12 cost-model report
-   (`tfmut-perf-costmodel`): provider plugins already start once per test file, not per run
-   block, so a `test` that reuses one provider process across run blocks is worth little;
-   what dominates real-provider cost is Terraform core evaluation per run block — 76–90% of a
-   test invocation's CPU, under `T1 = c0 + Σ_files (p + r × runs)` — which is equally
-   invisible to any harness change, and an upstream reduction of it would be worth more than
-   every lever in this design.
+   coverage remains [#37605](https://github.com/hashicorp/terraform/issues/37605). The
+   [corrected cost model](../research/07-m2-cost-model.md#4-where-the-time-goes) replaces
+   the provider-process-reuse ask with a reduction in Terraform core's per-run-block
+   evaluation cost.
 8. ~~**Does run-block splitting add or remove work?**~~ **Answered
-   (`../research/07-m2-cost-model.md`): it adds work.** An invocation costs 1.6 s, a run
-   block inside one costs 0.012 s, and splitting an eight-run suite costs 7.8×. Its ceiling
-   under perfect selection is 3%. Splitting is dropped from the roadmap; the technique
-   remains described in §3 for the case where a run block costs more than an invocation,
-   which mocked plan-mode suites do not reach. The same measurement answered the other two
-   questions it was paired with: `-verbose` costs 1.7× in time and 20,288× in volume, and
-   module-granular selection removes 0% of run-block executions on a single-module suite.
-9. **What reduces the mutant count?** The measurement above leaves the per-mutant cost at
-   1.6 s of provider startup, unreachable from inside this tool — an attribution the
-   2026-10-12 cost-model report (`tfmut-perf-costmodel`) corrected: it is a per-invocation
-   suite cost, `T1 = c0 + Σ_files (p + r × runs)`, dominated not by provider startup (once
-   per test file, under 3% of an invocation) but by Terraform core evaluation per run block
-   (76–90% of CPU), which is equally unreachable from inside this tool. Every remaining lever
-   is therefore a reduction in how many mutants run at all: `--since`, the incremental cache,
-   sampling, and tier selection. They are scheduled M3, which carries the real-provider
-   inner-loop exit gate that M2 cannot meet.
+   in the [cost-model experiments](../research/07-m2-cost-model.md): it adds work on the
+   measured fixture.** Splitting is dropped from the roadmap. The same document owns the
+   measurements for verbose output and module-granular selection, and the later
+   real-suite correction; the fixture's selection ceiling is not a universal bound.
+9. **What reduces the mutant count?** `--since`, the incremental cache, sampling and tier
+   selection. These are M3's chosen levers, with the real-provider inner-loop exit gate
+   M2 cannot meet. Their rationale and the separate opportunity to omit suite work are in
+   the [cost model](../research/07-m2-cost-model.md#4-where-the-time-goes).

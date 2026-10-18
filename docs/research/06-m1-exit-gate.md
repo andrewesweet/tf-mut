@@ -179,25 +179,12 @@ Measured on the same population within one invocation, warm:
 The offline fixture also reaches 0.63 s at `--jobs 12` (3.4×, ~63 mutants/s), consistent with
 the spike's 43 mutants/s on eight cores.
 
-**Parallelism buys almost nothing against a large-schema provider.** The spike concluded the
-run is "CPU-bound (`user` ≈ 6× `real`), so it scales with cores" — measured against
-`hashicorp/null`, whose schema is 3.4 KB. Against `hashicorp/aws` the marginal cost of a
-mutant is not the plan; this document attributed it to starting an 840 MB provider plugin
-once per run block, with eight concurrent starts saturating memory bandwidth before twelve
-cores. Both halves of that attribution were refuted by the 2026-10-12 cost-model report
-(`tfmut-perf-costmodel`): `strace` launch counts show provider plugins start **once per test
-file**, not per run block, and the per-run marginal cost is Terraform core evaluation —
-graph building and expression evaluation, 76–90% of a test invocation's CPU. The
-memory-bandwidth inference did not reproduce either: physical-ai sustained 335% CPU at
-`--jobs 3` on a four-core machine. The 1.08× wall-clock measurement above stands as
-measured; its mechanism is the per-run-block evaluation cost, not plugin launches.
-
-This is a constraint on the roadmap, and it is worth stating plainly because it changes
-where M2 should spend effort: `--jobs` is a lever for small-schema modules, and **test
-selection is the only lever that matters for real-provider ones**. It also sharpens C1's
-finding rather than repeating it — C1 was about `-verbose` re-serialising the schema into
-every message, which M1 never does; the corrected mechanism is the per-run-block evaluation
-itself, not the plugin process.
+**Parallelism buys almost nothing on this large-schema fixture.** The spike's scaling
+claim came from `hashicorp/null`; the table above records the much smaller improvement
+against `hashicorp/aws`. The explanation based on per-run-block plugin launches and memory
+bandwidth is withdrawn. See the [corrected cost model](07-m2-cost-model.md#4-where-the-time-goes)
+for the later real-suite measurements and their implications for selection and parallelism.
+The 1.08× wall-clock measurement stands; it does not establish the bottleneck's mechanism.
 
 Recorded against issue #15's acceptance criterion "wall-clock improvement demonstrated on the
 suite's largest fixture": demonstrated at 3.0× on the offline corpus, and honestly reported as

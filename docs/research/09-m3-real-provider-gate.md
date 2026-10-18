@@ -38,14 +38,10 @@ not a portable assertion."
 The numbers above are the re-run after the delivery review's graph repair —
 provider-referenced variables now execute rather than classify statically — on the same
 hardware with warmer OS caches than the first publication (757.6 s / 51.9 s / 14.6×), which
-is why both runs improved while the factor barely moved. The full-run throughput confirms
-the settled fact: the per-mutant suite cost is unreachable from inside the tool, and every
-remaining lever reduces how many mutants run. The 2026-10-12 cost-model report
-(`tfmut-perf-costmodel`) corrected this document's attribution of that cost: the ~1.6 s is a
-per-invocation suite cost — `c0 + p` for a single-file suite — not a provider-startup floor;
-providers start once per test file (under 3% of an invocation) and the dominant term is
-Terraform core evaluation per run block, 76–90% of a test invocation's CPU, per
-`T1 = c0 + Σ_files (p + r × runs)`. The conclusion survives the correction unchanged. The pinned one-file diff runs **inside 60
+is why both runs improved while the factor barely moved. The full-run throughput supports
+M3's mutant-count levers on this fixture. It does not establish a provider-startup floor;
+see the [corrected cost model](07-m2-cost-model.md#4-where-the-time-goes) for the
+attribution and the limits of this fixture's measurements. The pinned one-file diff runs **inside 60
 seconds on this hardware** — a published measurement, not a portable assertion; the portable
 assertions are the enumerated four-site and twelve-identifier selection, the non-zero
 minimum, the fixture content digest, and the 4× factor floor. **The product claim, narrowed per the M5 disposition**: the sub-minute figure holds

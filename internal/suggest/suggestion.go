@@ -68,6 +68,8 @@ func (r RunRecord) Phase() int { return r.phase }
 // Status is the run's outcome as Terraform reported it.
 func (r RunRecord) Status() string { return r.status }
 
+// ElapsedMS returns the run block's wall time in milliseconds, or nil when
+// the stream carried no starting and completion timestamp pair.
 func (r RunRecord) ElapsedMS() *int64 { return r.elapsedMS }
 
 // Leg is the outcome of one half of the verification contract.
