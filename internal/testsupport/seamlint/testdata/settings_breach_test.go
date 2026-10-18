@@ -1,8 +1,8 @@
 package engine
 
 // constructSettings deliberately constructs the engine's internal settings
-// value three ways. It is the seam lint's breaching fixture: the scanner
-// must flag the composite literal, the declared variable and the new call,
+// value at three sites. It is the seam lint's breaching fixture: the scanner
+// must flag both composite literals and the new call,
 // because a test that builds the settings value is building the input to Run
 // instead of the request the seam hands it.
 func constructSettings() {

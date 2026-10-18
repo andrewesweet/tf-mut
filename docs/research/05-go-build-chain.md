@@ -370,6 +370,12 @@ automatic reruns to turn a flaky first attempt into a green gate. See
 [gotestsum](https://github.com/gotestyourself/gotestsum) and the
 [Go test flags](https://pkg.go.dev/cmd/go#hdr-Testing_flags).
 
+The standard Go suite also runs the testing-seam check in
+[`internal/testsupport/seamlint`](../../internal/testsupport/seamlint/seamlint.go).
+That package owns the mechanical rules and reviewed exception list; its tests reject
+uncovered violations and stale exceptions. Both `just test` and `just test-fast` include
+the check, and `just ci` includes it through `just test`.
+
 For the inner development loop, use `just test-fast`. It runs the Go suite with `-short`,
 skipping the real-Terraform tests gated by `testing.Short()`, and omits the `research` build
 tag. The repair prototype, opportunity census and benchmark instruments require that tag.

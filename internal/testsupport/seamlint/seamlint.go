@@ -113,9 +113,10 @@ func Exceptions() []Exception {
 				"not product behaviour",
 		},
 		{
-			Path:   "internal/characterise/functions_test.go",
-			Rule:   RuleEngineDrivenImport,
-			Reason: "AGENTS.md exception 5: discovery validation expressions exercise the static function table, not engine verdicts",
+			Path: "internal/characterise/functions_test.go",
+			Rule: RuleEngineDrivenImport,
+			Reason: "AGENTS.md exception 5: discovery validation expressions exercise " +
+				"the static function table, not engine verdicts",
 		},
 		{
 			Path:   "internal/fingerprint/fingerprint_test.go",
@@ -424,6 +425,8 @@ func (s *scanner) checkLiteral(literal *ast.CompositeLit) {
 				s.inferLiteral(keyed.Key, typeReference{expr: shape.Key, file: reference.file})
 				s.inferLiteral(keyed.Value, typeReference{expr: shape.Value, file: reference.file})
 			}
+		default:
+			// Other literal types have no collection elements to infer.
 		}
 	}
 }
@@ -457,6 +460,8 @@ func (s *scanner) checkConstructed(reference typeReference, position token.Pos, 
 		for _, field := range shape.Fields.List {
 			s.checkConstructed(typeReference{expr: field.Type, file: reference.file}, position, seen)
 		}
+	default:
+		// Other types contain no protected values constructed by these rules.
 	}
 }
 
@@ -521,6 +526,8 @@ func (s *scanner) protectedType(expression ast.Expr) (Rule, string) {
 			importPath = s.aliases[nameRoot.Name]
 			typeName = name.Sel.Name
 		}
+	default:
+		// Protected type names are bare identifiers or package selectors.
 	}
 	switch {
 	case importPath == enginePackage && typeName == settingsTypeName:
@@ -573,9 +580,8 @@ func (s *scanner) directory() string {
 	return filepath.ToSlash(filepath.Dir(s.relative))
 }
 
-// ownPackagePath maps a file's own package name to its import path, for bare
-// identifiers. A same-package test file cannot shadow these names, so the
-// bare identifier is always the type.
+// ownPackagePath maps recognized package names to their import paths for
+// classifying bare type identifiers.
 func ownPackagePath(packageName string) (string, bool) {
 	switch packageName {
 	case "engine":

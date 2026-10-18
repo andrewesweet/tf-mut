@@ -296,7 +296,7 @@ internal/report/     The report value and its renderings
 internal/tracing/    Run, mutant and phase spans over OTLP/HTTP
 internal/buildinfo/  Build metadata injected by the linker
 internal/buildchain/  Checks and update helpers for the shared build chain
-internal/testsupport/  File-writing helpers shared by the test suites
+internal/testsupport/  Shared test helpers and the testing-seam check
 scripts/             Private helpers behind the Just control plane
 tools/               Source-tool and Terraform-provider lock domains
 ```
