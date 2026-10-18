@@ -43,15 +43,16 @@ const (
 // RunRecord is one run block a verification leg executed, so a reader can see
 // what the leg's claim was made over.
 type RunRecord struct {
-	file   string
-	run    string
-	phase  int
-	status string
+	file      string
+	run       string
+	phase     int
+	status    string
+	elapsedMS *int64
 }
 
 // NewRunRecord records one executed run reference.
-func NewRunRecord(file, run string, phase int, status string) RunRecord {
-	return RunRecord{file: file, run: run, phase: phase, status: status}
+func NewRunRecord(file, run string, phase int, status string, elapsedMS *int64) RunRecord {
+	return RunRecord{file: file, run: run, phase: phase, status: status, elapsedMS: elapsedMS}
 }
 
 // File is the test file the run block was executed from.
@@ -66,6 +67,8 @@ func (r RunRecord) Phase() int { return r.phase }
 
 // Status is the run's outcome as Terraform reported it.
 func (r RunRecord) Status() string { return r.status }
+
+func (r RunRecord) ElapsedMS() *int64 { return r.elapsedMS }
 
 // Leg is the outcome of one half of the verification contract.
 type Leg struct {
