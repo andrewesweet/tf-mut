@@ -1,15 +1,14 @@
 package engine
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 
 	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/store"
 )
 
 // M3b.3 (#49): the baseline file under the normative gate truth table (C8).
@@ -27,12 +26,10 @@ import (
 // DefaultBaselineName is the project-local baseline file.
 const DefaultBaselineName = ".tf-mut-baseline.json"
 
-// baselineFormatVersion is the file format contract.
-const baselineFormatVersion = "tf-mut-baseline-1"
-
-// baselineFileMode keeps the acceptance list owner-writable and world-read
-// only through the repository's own permissions.
-const baselineFileMode = 0o600
+// ErrBaselineFile reports a baseline file that could not be read: a corrupt
+// acceptance list must never fake an empty one. It is the store's sentinel,
+// carried here under the gate's own name.
+var ErrBaselineFile = store.ErrBaselineFile
 
 // Baseline failure modes.
 var (
@@ -47,28 +44,18 @@ var (
 	ErrBaselineUnobserved = errors.New(
 		"a baseline write requires a fully observed run",
 	)
-	// ErrBaselineFile reports a baseline file that could not be read: a
-	// corrupt acceptance list must never fake an empty one.
-	ErrBaselineFile = errors.New("the baseline file could not be read")
 )
 
-// acceptanceFile is the persisted acceptance list.
-type acceptanceFile struct {
-	FormatVersion string            `json:"format_version"`
-	Entries       []acceptanceEntry `json:"entries"`
-}
-
-// acceptanceEntry accepts one finding by stable ID and actionability class.
-type acceptanceEntry struct {
-	ID string `json:"id"`
-	// Actionable is the accepted actionability class: an accepted
-	// indeterminate whose diagnosis becomes actionable is new again.
-	Actionable bool `json:"actionable"`
-	// State, Site and Operator are context for the human reading the file;
-	// acceptance is decided by ID and class alone.
-	State    string `json:"state,omitempty"`
-	Site     string `json:"site,omitempty"`
-	Operator string `json:"operator,omitempty"`
+// BaselineStore is the acceptance list's persistence boundary. The engine
+// owns which findings are accepted — decided only by a full, unsampled,
+// freshly executed population — and resolves the path; the store owns the
+// file. A missing list is the empty adoption state; a corrupt one is an
+// error, never a fake empty list.
+type BaselineStore interface {
+	// Load reads the accepted entries at path.
+	Load(path string) ([]store.AcceptanceEntry, error)
+	// Save writes the accepted entries at path.
+	Save(path string, entries []store.AcceptanceEntry) error
 }
 
 // baselinePath resolves the baseline file location.
@@ -105,7 +92,7 @@ func applyBaselineGate(
 
 	path := baselinePath(settings, moduleDir)
 
-	accepted, err := readBaseline(path)
+	accepted, err := settings.baselineLoad(path)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +125,7 @@ func applyBaselineGate(
 			return nil, freshErr
 		}
 
-		if writeErr := writeBaseline(path, fresh, executed); writeErr != nil {
+		if writeErr := settings.baselineSave(path, acceptanceEntries(fresh, executed)); writeErr != nil {
 			return nil, writeErr
 		}
 
@@ -166,12 +153,12 @@ func applyBaselineGate(
 // classified rows decide, the aligned published rows carry the identities the
 // acceptance list is keyed by.
 func judgeFindings(
-	accepted []acceptanceEntry,
+	accepted []store.AcceptanceEntry,
 	executed []report.Mutant,
 	population oracle.Population,
 	full bool,
 ) (report.BaselineGate, map[int]string) {
-	acceptedByID := map[string]acceptanceEntry{}
+	acceptedByID := map[string]store.AcceptanceEntry{}
 	for _, entry := range accepted {
 		acceptedByID[entry.ID] = entry
 	}
@@ -275,37 +262,11 @@ func labelFinding(mutant *report.Mutant, status string) {
 	mutant.Provenance.BaselineStatus = status
 }
 
-// readBaseline loads the acceptance list. A missing file is an empty list —
-// that is what adoption looks like — and a corrupt one is an error.
-func readBaseline(path string) ([]acceptanceEntry, error) {
-	content, err := os.ReadFile(path) //nolint:gosec // module-relative baseline path.
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-
-		return nil, fmt.Errorf("%w: %s: %w", ErrBaselineFile, path, err)
-	}
-
-	decoded := acceptanceFile{} // decoded from disk.
-	if err := json.Unmarshal(content, &decoded); err != nil {
-		return nil, fmt.Errorf("%w: %s: %w", ErrBaselineFile, path, err)
-	}
-
-	if decoded.FormatVersion != baselineFormatVersion {
-		return nil, fmt.Errorf("%w: %s declares format %q, this build reads %q",
-			ErrBaselineFile, path, decoded.FormatVersion, baselineFormatVersion)
-	}
-
-	return decoded.Entries, nil
-}
-
-// writeBaseline persists the fresh population's findings as the accepted
-// list. It accepts a fresh population fact and is reachable no other way: a
-// list shaped by anything less than a full, unsampled, freshly executed run
-// silently shrinks every gate that reads it.
-func writeBaseline(path string, fresh oracle.Fresh, executed []report.Mutant) error {
-	entries := []acceptanceEntry{}
+// acceptanceEntries projects a fresh population's findings onto the accepted
+// list: one entry per finding, keyed by stable ID and actionability class,
+// sorted by ID so the file diffs deterministically.
+func acceptanceEntries(fresh oracle.Fresh, executed []report.Mutant) []store.AcceptanceEntry {
+	entries := []store.AcceptanceEntry{}
 	rows := fresh.Classified()
 
 	for index, mutant := range executed {
@@ -313,7 +274,7 @@ func writeBaseline(path string, fresh oracle.Fresh, executed []report.Mutant) er
 			continue
 		}
 
-		entries = append(entries, acceptanceEntry{
+		entries = append(entries, store.AcceptanceEntry{
 			ID:         mutant.ID,
 			Actionable: findingActionable(rows[index]),
 			State:      string(mutant.State),
@@ -322,7 +283,7 @@ func writeBaseline(path string, fresh oracle.Fresh, executed []report.Mutant) er
 		})
 	}
 
-	slices.SortFunc(entries, func(left, right acceptanceEntry) int {
+	slices.SortFunc(entries, func(left, right store.AcceptanceEntry) int {
 		if left.ID < right.ID {
 			return -1
 		}
@@ -334,19 +295,7 @@ func writeBaseline(path string, fresh oracle.Fresh, executed []report.Mutant) er
 		return 0
 	})
 
-	encoded, err := json.MarshalIndent(acceptanceFile{
-		FormatVersion: baselineFormatVersion,
-		Entries:       entries,
-	}, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encoding baseline: %w", err)
-	}
-
-	if err := os.WriteFile(path, append(encoded, '\n'), baselineFileMode); err != nil {
-		return fmt.Errorf("writing baseline: %w", err)
-	}
-
-	return nil
+	return entries
 }
 
 // checkBaselineWrite refuses a write off the full unsampled population,

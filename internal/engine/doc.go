@@ -11,9 +11,9 @@
 //
 // # Composition root
 //
-// dependencies.go declares Dependencies — the checkout resolver and tracer
-// factory — with DefaultDependencies, New and Engine. Run (engine.go) is the
-// default wiring over them and remains the seam.
+// dependencies.go declares Dependencies, its production defaults and the
+// composition root (New and Engine). Run (engine.go) is the default wiring
+// over them and remains the seam.
 //
 // # Requests and settings
 //
@@ -100,10 +100,15 @@
 //
 // # Persistence
 //
-// Three files own the on-disk formats: cache.go the verdict cache under
-// cacheFormatVersion; acceptance.go the acceptance list under
-// baselineFormatVersion; characterisewrite.go the generated-suite registry
-// under registryVersion.
+// The engine owns what is stored — the run key and every dimension it
+// hashes, which verdicts and findings are admitted, which files the
+// registry records — and declares the ports next to those policies:
+// cache.go the VerdictStore, acceptance.go the BaselineStore,
+// characterisewrite.go the RegistryStore. The on-disk formats live in
+// internal/store: the verdict cache under cacheFormatVersion, the
+// acceptance list under store.BaselineFormatVersion, the generated-suite
+// registry under store.RegistryFormatVersion. Dependencies selects the
+// filesystem implementations by default.
 //
 // # Projections
 //

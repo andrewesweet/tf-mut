@@ -199,6 +199,7 @@ this repository contract.
 | `internal/skill` | The shipped agent skills and the `skill install` write protocol |
 | `internal/config` | `.tf-mut.hcl` and the inline suppression directives |
 | `internal/sandbox` | Closure-rooted materialisation, provider and remote-module sharing, fresh-inode writes |
+| `internal/store` | Filesystem implementations of the engine's persistence ports; see the [package contract](internal/store/doc.go) |
 | `internal/tfexec` | The Terraform CLI: `version`, `init`, `validate`, `providers schema`, `fmt`, and the `test -json` stream |
 | `internal/report` | The report value, its state, diagnosis and metric definitions, and the seven reporter renderings (terminal, JSON, SARIF, mutation-testing-elements, HTML, JUnit, markdown) |
 | `internal/tracing` | The run's structure as OpenTelemetry spans — one per run, per mutant and per phase — over OTLP/HTTP, exporting only when an endpoint is configured |

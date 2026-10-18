@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -266,7 +267,7 @@ func TestTheDeadlineReplaysFromTheCache(t *testing.T) {
 	}
 
 	for _, path := range entries {
-		patchEntry(t, path, map[string]any{"deadline_reached": true})
+		patchEntry(t, path, map[string]any{"observed.deadline_reached": true})
 	}
 
 	second := cachedRun(t, config)
@@ -289,8 +290,8 @@ func TestTheDeadlineReplaysFromTheCache(t *testing.T) {
 	// version moved with the flag, so such an entry is a miss.
 	for _, path := range entries {
 		patchEntry(t, path, map[string]any{
-			"deadline_reached": true,
-			"format_version":   "tf-mut-cache-2",
+			"observed.deadline_reached": true,
+			"format_version":            "tf-mut-cache-2",
 		})
 	}
 
@@ -307,7 +308,9 @@ func TestTheDeadlineReplaysFromTheCache(t *testing.T) {
 	}
 }
 
-// deadlineEntries names every cache entry file the module's cache holds.
+// deadlineEntries names every stored cache entry file the module's cache
+// holds, the generation manifest aside — it is not an entry and carries no
+// observation to patch.
 func deadlineEntries(t *testing.T, module string) []string {
 	t.Helper()
 
@@ -321,7 +324,7 @@ func deadlineEntries(t *testing.T, module string) []string {
 	var paths []string
 
 	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), ".json") {
+		if strings.HasSuffix(entry.Name(), ".json") && !strings.HasSuffix(entry.Name(), "-manifest.json") {
 			paths = append(paths, filepath.Join(dir, entry.Name()))
 		}
 	}
@@ -329,7 +332,10 @@ func deadlineEntries(t *testing.T, module string) []string {
 	return paths
 }
 
-// patchEntry rewrites named members of one cache entry on disk.
+// patchEntry rewrites named members of one cache entry on disk. A key with
+// dots reaches through nested documents — since the observed-document
+// reshape the deadline flag lives inside the entry's observed member, and
+// the format version stays at the top.
 func patchEntry(t *testing.T, path string, patch map[string]any) {
 	t.Helper()
 
@@ -343,7 +349,20 @@ func patchEntry(t *testing.T, path string, patch map[string]any) {
 		t.Fatalf("decoding cache entry: %v", decodeErr)
 	}
 
-	maps.Copy(document, patch)
+	for _, name := range slices.Sorted(maps.Keys(patch)) {
+		parts := strings.Split(name, ".")
+		target := document
+		for _, part := range parts[:len(parts)-1] {
+			nested, ok := target[part].(map[string]any)
+			if !ok {
+				t.Fatalf("the cache entry has no %s document under %s", part, name)
+			}
+
+			target = nested
+		}
+
+		target[parts[len(parts)-1]] = patch[name]
+	}
 
 	encoded, encodeErr := json.Marshal(document)
 	if encodeErr != nil {

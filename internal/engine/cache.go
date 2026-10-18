@@ -11,13 +11,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
-	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/oracle"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
+	"github.com/andrewesweet/tf-mut/internal/store"
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
@@ -39,81 +38,54 @@ import (
 // protects this upgrade boundary. An older-format entry is a miss, not an
 // error. Selected verdicts are recomputed under the current execution and
 // oracle rules (TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError).
-const cacheFormatVersion = "tf-mut-cache-6"
+// The tf-mut-cache-7 bump moves the run's own observations out of the
+// storage schema's typed fields and into the opaque observed document the
+// engine alone decodes, so the store's document is the domain's
+// stored-record shape and no publication type.
+const cacheFormatVersion = "tf-mut-cache-7"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
-// The cache is private by construction: evidence may embed plan values and
-// source text.
-const (
-	cacheDirMode   = 0o700
-	cacheEntryMode = 0o600
-)
-
 // CacheMaxEntries is the deterministic size cap. Beyond it, stale-key entries
-// are evicted first, then current-key entries, each in name order.
+// are evicted first, then current-key entries, each in name order. The
+// filesystem store is built with this cap; the policy — that eviction is
+// deterministic and stale keys leave first — is the store's contract.
 const CacheMaxEntries = 8192
 
-// keyPrefixLength is the number of key characters an entry name carries, so
-// stale keys are recognisable without opening the entry.
-const keyPrefixLength = 16
+// VerdictStore is the verdict cache's persistence boundary. The engine owns
+// the run key and every dimension it hashes, decides which entries may
+// replay and which verdicts may be stored, and judges what a stored entry
+// means; the store owns the disk. Every irregularity on read is the absence
+// the caller recovers from — a miss, never an error.
+type VerdictStore interface {
+	// Get returns the stored entry for a mutant under a run key.
+	Get(runKey, mutantID string) (store.CacheEntry, bool)
+	// Put persists one entry under a run key.
+	Put(runKey, mutantID string, entry store.CacheEntry)
+	// Evict enforces the store's size cap: stale keys leave first, then the
+	// key named, each in name order.
+	Evict(runKey string)
+	// WriteManifest persists a generation's miss-explanation sidecar.
+	WriteManifest(runKey string, manifest store.CacheManifest)
+	// StoredManifests returns the stored generation manifests, newest first.
+	StoredManifests() []store.CacheManifest
+	// Lock serialises a batched read or write across concurrent invocations.
+	// The store's own methods take no lock; callers hold one across a batch.
+	Lock() (func(), error)
+}
 
-// verdictCache is one run's connection to the project-local cache.
+// verdictCache is one run's connection to the project-local cache: the run
+// key the engine computed, the manifest that explains it, and the store the
+// wiring selected. Everything here judges stored entries; everything on
+// disk happens behind the store.
 type verdictCache struct {
-	dir string
-	key string
+	store VerdictStore
+	key   string
 	// manifest is this run's key beside its environment digest and
 	// per-variable environment map. The store writes it next to
 	// the entries; a later run whose key misses diffs it to explain an
 	// environment change behind a miss.
-	manifest cacheManifest
-}
-
-// envComponent is the key-component kind the whole effective environment
-// hashes under. The miss explanation diffs it per variable, even when other
-// components also differ.
-const envComponent = "env"
-
-// manifestSuffix names the per-generation sidecar: the key prefix so a
-// stale generation is recognisable, and a fixed suffix no entry name can
-// carry — entry names pair the prefix with hex.
-const manifestSuffix = "-manifest.json"
-
-// cacheManifest is one generation's key beside its environment digest and
-// the environment as a map of variable name to the hash of its value set.
-// Values never reach this document — neither
-// the whole-environment lines the key hashes, nor any single value — so a
-// reader learns which names differ and nothing else.
-type cacheManifest struct {
-	FormatVersion string `json:"format_version"`
-	RunKey        string `json:"run_key"`
-	// Components carries only the environment component's hex digest.
-	Components map[string]string `json:"components"`
-	// Env maps each environment variable name to the hex digest of its value set.
-	Env map[string]string `json:"env"`
-}
-
-// cacheEntry is the persisted verdict of one mutant under one key: the
-// Oracle context's own record — the document oracle.ParseRecord rebuilds the
-// outcome from — and, beside it, what the run itself observed. The record is
-// the whole verdict; the observation fields are rehydrated as stored and are
-// never verdict content, so replay projects the record once, forward, through
-// the same projection a fresh verdict went through.
-type cacheEntry struct {
-	FormatVersion string        `json:"format_version"`
-	RunKey        string        `json:"run_key"`
-	MutantID      string        `json:"mutant_id"`
-	Record        oracle.Record `json:"record"`
-
-	Runs []report.RunOutcome `json:"runs"`
-	// Diagnostics are the runs' own observations. Where the outcome carries
-	// its diagnostics as evidence — a KilledByError or Invalid claim — the
-	// store stands these down, because the record is their only carrier and
-	// the replay's projection must have one writer per field.
-	Diagnostics     []report.Diagnostic `json:"diagnostics,omitempty"`
-	ExecutedRuns    int                 `json:"executed_runs"`
-	Validated       bool                `json:"validated"`
-	DeadlineReached bool                `json:"deadline_reached"`
+	manifest store.CacheManifest
 }
 
 // openCache computes the run key and opens the project-local cache. It
@@ -138,31 +110,19 @@ func openCache(
 	// No symlink traversal: the location must be a real directory or absent.
 	// A pre-existing directory with looser permissions is corrected to the
 	// mandatory 0700 — evidence may embed plan values and source text — and
-	// where it cannot be corrected the cache is not used at all.
-	if !ensureCacheDir(dir) {
+	// where it cannot be secured the cache is not used at all.
+	verdicts, err := settings.verdictStore(dir)
+	if err != nil {
 		return nil
 	}
 
-	return &verdictCache{dir: dir, key: key, manifest: manifest}
+	return &verdictCache{store: verdicts, key: key, manifest: manifest}
 }
 
-// ensureCacheDir makes the cache location a private real directory.
-func ensureCacheDir(dir string) bool {
-	info, err := os.Lstat(dir)
-	if err != nil {
-		return os.MkdirAll(dir, cacheDirMode) == nil
-	}
-
-	if !info.Mode().IsDir() {
-		return false
-	}
-
-	if info.Mode().Perm() == cacheDirMode {
-		return true
-	}
-
-	return os.Chmod(dir, cacheDirMode) == nil
-}
+// envComponent is the key-component kind the whole effective environment
+// hashes under. The miss explanation diffs it per variable, even when other
+// components also differ.
+const envComponent = "env"
 
 // keyRecorder hashes the key's (kind, name, value) sequence into the
 // overall digest and, beside it, into the environment digest. The overall
@@ -200,7 +160,7 @@ func cacheKey(
 	configuration discovery.Configuration,
 	settings settings, prepared warmWorkspace,
 	terraform tfexec.Version,
-) (string, cacheManifest, error) {
+) (string, store.CacheManifest, error) {
 	recorder := &keyRecorder{overall: sha256.New(), environment: sha256.New(), components: map[string]hash.Hash{}}
 	write := recorder.write
 
@@ -211,7 +171,7 @@ func cacheKey(
 	write("config", "", resolvedConfiguration(settings))
 
 	if err := writeClosure(write, configuration, settings, prepared, prepared.sources, nil); err != nil {
-		return "", cacheManifest{}, err
+		return "", store.CacheManifest{}, err
 	}
 
 	key := hex.EncodeToString(recorder.overall.Sum(nil))
@@ -220,7 +180,7 @@ func cacheKey(
 		logCacheKey(logger, key, recorder.components)
 	}
 
-	return key, cacheManifest{
+	return key, store.CacheManifest{
 		FormatVersion: cacheManifestFormatVersion,
 		RunKey:        key,
 		Components:    map[string]string{envComponent: hex.EncodeToString(recorder.environment.Sum(nil))},
@@ -586,12 +546,6 @@ func hashTree(write func(kind, name, value string), root string) error {
 	return nil
 }
 
-// manifestName is this generation's sidecar: the key prefix so stale
-// generations are recognisable, beside the entries it explains.
-func (c *verdictCache) manifestName() string {
-	return c.key[:keyPrefixLength] + manifestSuffix
-}
-
 // explainMiss compares the newest eligible stored generation against this run,
 // and reports the environment names that changed, even when other key
 // components also differ. No stored generation, an unchanged environment,
@@ -604,88 +558,39 @@ func (c *verdictCache) explainMiss(mutants []report.Mutant) *report.CacheMiss {
 		return nil
 	}
 
-	unlock, err := c.lock()
+	unlock, err := c.store.Lock()
 	if err != nil {
 		return nil
 	}
 
 	defer unlock()
 
-	type generation struct {
-		modified time.Time
-		name     string
-		manifest cacheManifest
-	}
-
-	generations := []generation{}
-
-	entries, err := os.ReadDir(c.dir)
-	if err != nil {
-		return nil
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), manifestSuffix) {
-			continue
-		}
-
-		info, infoErr := entry.Info()
-		if infoErr != nil || !info.Mode().IsRegular() {
-			continue
-		}
-
-		content, readErr := os.ReadFile(filepath.Join(c.dir, entry.Name()))
-		if readErr != nil {
-			continue
-		}
-
-		stored := cacheManifest{}
-		if json.Unmarshal(content, &stored) != nil || !validCacheManifest(stored, entry.Name()) {
-			continue
-		}
-
-		generations = append(generations, generation{
-			modified: info.ModTime(),
-			name:     entry.Name(),
-			manifest: stored,
-		})
-	}
-
-	slices.SortFunc(generations, func(a, b generation) int {
-		if !a.modified.Equal(b.modified) {
-			return b.modified.Compare(a.modified)
-		}
-
-		return strings.Compare(a.name, b.name)
-	})
-
-	for _, generation := range generations {
-		if generation.manifest.RunKey == c.key {
+	for _, previous := range c.store.StoredManifests() {
+		if previous.RunKey == c.key {
 			return nil
 		}
 
-		previous := verdictCache{dir: c.dir, key: generation.manifest.RunKey}
-		if !previous.hasUsableEntry(mutants) {
+		if !c.hasUsableEntry(previous.RunKey, mutants) {
 			continue
 		}
 
-		if c.manifest.Components[envComponent] == generation.manifest.Components[envComponent] {
+		if c.manifest.Components[envComponent] == previous.Components[envComponent] {
 			return nil
 		}
 
-		return diffEnvNames(generation.manifest.Env, c.manifest.Env)
+		return diffEnvNames(previous.Env, c.manifest.Env)
 	}
 
 	return nil
 }
 
-func (c *verdictCache) hasUsableEntry(mutants []report.Mutant) bool {
+func (c *verdictCache) hasUsableEntry(runKey string, mutants []report.Mutant) bool {
 	for _, mutant := range mutants {
 		if mutant.State != report.Pending {
 			continue
 		}
 
-		entry, found := c.read(mutant.ID)
+		entry, found := c.store.Get(runKey, mutant.ID)
 		if !found {
 			continue
 		}
@@ -698,39 +603,6 @@ func (c *verdictCache) hasUsableEntry(mutants []report.Mutant) bool {
 	}
 
 	return false
-}
-
-func validCacheManifest(manifest cacheManifest, name string) bool {
-	if manifest.FormatVersion != cacheManifestFormatVersion || !validCacheDigest(manifest.RunKey) {
-		return false
-	}
-
-	if name != manifest.RunKey[:keyPrefixLength]+manifestSuffix || manifest.Env == nil ||
-		len(manifest.Components) != 1 || !validCacheDigest(manifest.Components[envComponent]) {
-		return false
-	}
-
-	if (len(manifest.Env) == 0) != (manifest.Components[envComponent] == hashBytes(nil)) {
-		return false
-	}
-
-	for variable, digest := range manifest.Env {
-		if variable == "" || strings.ContainsAny(variable, "=\x00") || !validCacheDigest(digest) {
-			return false
-		}
-	}
-
-	return true
-}
-
-func validCacheDigest(digest string) bool {
-	if len(digest) != sha256.Size*2 {
-		return false
-	}
-
-	decoded, err := hex.DecodeString(digest)
-
-	return err == nil && hex.EncodeToString(decoded) == digest
 }
 
 // diffEnvNames reduces two per-variable digest maps to the sorted, bounded
@@ -790,15 +662,6 @@ func truncateEnvNames(miss *report.CacheMiss) bool {
 	return truncated
 }
 
-// entryName is the entry file for a mutant under this key: a key prefix so
-// stale keys are recognisable, and a digest of key and mutant so no input
-// ever becomes a path segment — the grammar permits no traversal.
-func (c *verdictCache) entryName(mutantID string) string {
-	digest := sha256.Sum256(fmt.Appendf(nil, "%s|%s", c.key, mutantID))
-
-	return c.key[:keyPrefixLength] + "-" + hex.EncodeToString(digest[:])[:32] + ".json"
-}
-
 // load replays cached verdicts onto the selected population, marking each
 // replayed mutant and returning the number of hits. Everything about the
 // mutant except the verdict — site, range, diff — stays as the current tree
@@ -807,7 +670,7 @@ func (c *verdictCache) entryName(mutantID string) string {
 // any other corruption. Each replayed outcome is classified onto the run's
 // population fact, row for row with the published mutants.
 func (c *verdictCache) load(mutants []report.Mutant, classified []oracle.Classified) int {
-	unlock, err := c.lock()
+	unlock, err := c.store.Lock()
 	if err != nil {
 		return 0
 	}
@@ -821,7 +684,7 @@ func (c *verdictCache) load(mutants []report.Mutant, classified []oracle.Classif
 			continue
 		}
 
-		entry, found := c.read(mutants[index].ID)
+		entry, found := c.store.Get(c.key, mutants[index].ID)
 		if !found {
 			continue
 		}
@@ -832,7 +695,7 @@ func (c *verdictCache) load(mutants []report.Mutant, classified []oracle.Classif
 
 		if mutants[index].Provenance != nil {
 			mutants[index].Provenance.Execution = report.ExecutionCached
-			mutants[index].Provenance.CacheKey = c.key[:keyPrefixLength]
+			mutants[index].Provenance.CacheKey = c.key[:store.KeyPrefixLength]
 		}
 
 		hits++
@@ -856,20 +719,25 @@ func (c *verdictCache) load(mutants []report.Mutant, classified []oracle.Classif
 // evidence, the projection below is their only writer and the stored
 // observation stands down. The outcome is classified onto the population
 // fact beside the published projection.
-func rehydrated(mutant *report.Mutant, classified *oracle.Classified, entry cacheEntry) bool {
+func rehydrated(mutant *report.Mutant, classified *oracle.Classified, entry store.CacheEntry) bool {
 	outcome, err := oracle.ParseRecord(entry.Record)
 	if err != nil {
 		return false
 	}
 
-	if len(entry.Diagnostics) > 0 {
-		mutant.Diagnostics = slices.Clone(entry.Diagnostics)
+	observed := observedRun{}
+	if err := json.Unmarshal(entry.Observed, &observed); err != nil {
+		return false
 	}
 
-	mutant.Runs = entry.Runs
-	mutant.ExecutedRuns = entry.ExecutedRuns
-	mutant.Validated = entry.Validated
-	mutant.DeadlineReached = entry.DeadlineReached
+	if len(observed.Diagnostics) > 0 {
+		mutant.Diagnostics = slices.Clone(observed.Diagnostics)
+	}
+
+	mutant.Runs = observed.Runs
+	mutant.ExecutedRuns = observed.ExecutedRuns
+	mutant.Validated = observed.Validated
+	mutant.DeadlineReached = observed.DeadlineReached
 
 	*mutant = project(*mutant, outcome)
 	*classified = oracle.Classified{Operator: classified.Operator, Outcome: outcome}
@@ -877,34 +745,24 @@ func rehydrated(mutant *report.Mutant, classified *oracle.Classified, entry cach
 	return true
 }
 
-// read opens one entry, treating every irregularity — a symlink, a parse
-// failure, a format or key mismatch — as a miss.
-func (c *verdictCache) read(mutantID string) (cacheEntry, bool) {
-	path := filepath.Join(c.dir, c.entryName(mutantID))
-
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return cacheEntry{}, false
-	}
-
-	content, err := os.ReadFile(path) //nolint:gosec // cache-owned digest-named path.
-	if err != nil {
-		return cacheEntry{}, false
-	}
-
-	entry := cacheEntry{} // decoded from disk.
-	if json.Unmarshal(content, &entry) != nil {
-		return cacheEntry{}, false
-	}
-
-	if entry.FormatVersion != cacheFormatVersion || entry.RunKey != c.key || entry.MutantID != mutantID {
-		return cacheEntry{}, false
-	}
-
-	return entry, true
+// observedRun is the run's own observation document, stored beside the
+// verdict's record and never part of it: the runs as executed, their
+// diagnostics where the record does not carry them as evidence, and the
+// execution counts. It is the publication-facing half of a cache entry, and
+// the store carries it as stored without opening it.
+type observedRun struct {
+	Runs []report.RunOutcome `json:"runs"`
+	// Diagnostics are the runs' own observations. Where the outcome carries
+	// its diagnostics as evidence — a KilledByError or Invalid claim — these
+	// stand down, because the record is their only carrier and the replay's
+	// projection must have one writer per field.
+	Diagnostics     []report.Diagnostic `json:"diagnostics,omitempty"`
+	ExecutedRuns    int                 `json:"executed_runs"`
+	Validated       bool                `json:"validated"`
+	DeadlineReached bool                `json:"deadline_reached"`
 }
 
-// store persists the fresh executed verdicts, then evicts deterministically.
+// persist stores the fresh executed verdicts, then evicts deterministically.
 // A Timeout is never stored: a budget overrun is not a fact about the module.
 // Each verdict is stored as the Oracle context's own record, taken from the
 // classified outcome — never from the published projection — so what the
@@ -912,8 +770,8 @@ func (c *verdictCache) read(mutantID string) (cacheEntry, bool) {
 // exactly. Where the outcome carries its diagnostics as evidence, the run's
 // own observations stand down: the record is their only carrier, and replay
 // must have one writer per field.
-func (c *verdictCache) store(mutants []report.Mutant, classified []oracle.Classified) {
-	unlock, err := c.lock()
+func (c *verdictCache) persist(mutants []report.Mutant, classified []oracle.Classified) {
+	unlock, err := c.store.Lock()
 	if err != nil {
 		return
 	}
@@ -932,66 +790,30 @@ func (c *verdictCache) store(mutants []report.Mutant, classified []oracle.Classi
 			diagnostics = nil
 		}
 
-		entry := cacheEntry{
-			FormatVersion:   cacheFormatVersion,
-			RunKey:          c.key,
-			MutantID:        mutant.ID,
-			Record:          outcome.Record(),
+		observed, err := json.Marshal(observedRun{
 			Runs:            mutant.Runs,
 			Diagnostics:     diagnostics,
 			ExecutedRuns:    mutant.ExecutedRuns,
 			Validated:       mutant.Validated,
 			DeadlineReached: mutant.DeadlineReached,
+		})
+		if err != nil {
+			continue
 		}
 
-		c.write(mutant.ID, entry)
+		entry := store.CacheEntry{
+			FormatVersion: cacheFormatVersion,
+			RunKey:        c.key,
+			MutantID:      mutant.ID,
+			Record:        outcome.Record(),
+			Observed:      observed,
+		}
+
+		c.store.Put(c.key, mutant.ID, entry)
 	}
 
-	c.writeManifest()
-	c.evict()
-}
-
-// writeManifest persists this generation's key beside its meaning — the
-// environment digest and the per-variable environment map, values never
-// included — so a later run can name environment changes behind a miss.
-// Best effort like every cache write: a lost manifest costs only the
-// explanation, never a verdict.
-func (c *verdictCache) writeManifest() {
-	encoded, err := json.Marshal(c.manifest)
-	if err != nil {
-		return
-	}
-
-	temporary, err := os.CreateTemp(c.dir, "manifest-*")
-	if err != nil {
-		return
-	}
-
-	name := temporary.Name()
-
-	if _, err := temporary.Write(encoded); err != nil {
-		_ = temporary.Close()
-		_ = os.Remove(name)
-
-		return
-	}
-
-	if err := temporary.Chmod(cacheEntryMode); err != nil {
-		_ = temporary.Close()
-		_ = os.Remove(name)
-
-		return
-	}
-
-	if err := temporary.Close(); err != nil {
-		_ = os.Remove(name)
-
-		return
-	}
-
-	if err := os.Rename(name, filepath.Join(c.dir, c.manifestName())); err != nil {
-		_ = os.Remove(name)
-	}
+	c.store.WriteManifest(c.key, c.manifest)
+	c.store.Evict(c.key)
 }
 
 // cacheable admits verdicts that executed and cannot drift: a Timeout may be
@@ -1014,104 +836,6 @@ func cacheable(mutant report.Mutant) bool {
 	default:
 		return false
 	}
-}
-
-// write persists one entry atomically: a temporary file in the same
-// directory, then a rename.
-func (c *verdictCache) write(mutantID string, entry cacheEntry) {
-	encoded, err := json.Marshal(entry)
-	if err != nil {
-		return
-	}
-
-	temporary, err := os.CreateTemp(c.dir, "write-*")
-	if err != nil {
-		return
-	}
-
-	name := temporary.Name()
-
-	if _, err := temporary.Write(encoded); err != nil {
-		_ = temporary.Close()
-		_ = os.Remove(name)
-
-		return
-	}
-
-	if err := temporary.Chmod(cacheEntryMode); err != nil {
-		_ = temporary.Close()
-		_ = os.Remove(name)
-
-		return
-	}
-
-	if err := temporary.Close(); err != nil {
-		_ = os.Remove(name)
-
-		return
-	}
-
-	if err := os.Rename(name, filepath.Join(c.dir, c.entryName(mutantID))); err != nil {
-		_ = os.Remove(name)
-	}
-}
-
-// evict enforces the deterministic size cap: stale-key entries leave first,
-// then current-key entries, each in name order.
-func (c *verdictCache) evict() {
-	entries, err := os.ReadDir(c.dir)
-	if err != nil {
-		return
-	}
-
-	stale := []string{}
-	current := []string{}
-
-	for _, entry := range entries {
-		name := entry.Name()
-		if !strings.HasSuffix(name, ".json") || entry.IsDir() {
-			continue
-		}
-
-		if strings.HasPrefix(name, c.key[:keyPrefixLength]+"-") {
-			current = append(current, name)
-		} else {
-			stale = append(stale, name)
-		}
-	}
-
-	slices.Sort(stale)
-	slices.Sort(current)
-
-	excess := len(stale) + len(current) - CacheMaxEntries
-
-	for _, name := range append(stale, current...) {
-		if excess <= 0 {
-			break
-		}
-
-		_ = os.Remove(filepath.Join(c.dir, name))
-		excess--
-	}
-}
-
-// lock takes the cache's advisory lock, serialising concurrent invocations.
-func (c *verdictCache) lock() (func(), error) {
-	file, err := os.OpenFile(filepath.Join(c.dir, "lock"), os.O_CREATE|os.O_RDWR, cacheEntryMode)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
-		_ = file.Close()
-
-		return nil, err
-	}
-
-	return func() {
-		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
-		_ = file.Close()
-	}, nil
 }
 
 func sortedKeys(values map[string][]byte) []string {
