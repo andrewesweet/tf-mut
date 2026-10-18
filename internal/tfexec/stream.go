@@ -123,7 +123,7 @@ func completed(ctx context.Context, command *exec.Cmd, started time.Time, stderr
 // RunPayload is one run block's `test_plan` or `test_state` document with
 // `provider_schemas` discarded.
 //
-// Discarding happens during decoding rather than after it: `-verbose` embeds
+// Discarding happens incrementally, before payload materialisation: `-verbose` embeds
 // the full provider schema in every per-run message — 19.5 MB per run block
 // against `hashicorp/aws` — so a decoder that materialised the message first
 // would allocate the whole stream regardless of what it kept.
@@ -163,8 +163,9 @@ const progressStarting = "starting"
 
 // decodeTestStream reads the whole `terraform test -json` stream.
 //
-// The stream is walked token by token so that the large payload members can be
-// skipped without being held: see RunPayload.
+// schemaFilter handles the provider_schemas skip before tokenisation. The
+// remaining stream is walked token by token without holding whole messages:
+// see RunPayload.
 func decodeTestStream(reader io.Reader) (TestResult, error) {
 	result := TestResult{
 		Runs:        []RunOutcome{},
@@ -182,7 +183,7 @@ func decodeTestStream(reader io.Reader) (TestResult, error) {
 	// neither outlives the stream.
 	clock := newStreamClock()
 
-	decoder := json.NewDecoder(reader)
+	decoder := json.NewDecoder(newSchemaFilter(reader))
 	decoder.UseNumber()
 
 	for {
