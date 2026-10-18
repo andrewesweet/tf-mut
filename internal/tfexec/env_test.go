@@ -26,14 +26,18 @@ import (
 // assertions on purpose rather than absorb them silently.
 //
 //nolint:gochecknoglobals // an immutable list of the names the tests assert on.
-var managedVariables = []string{goGCVariable, goMemoryLimitVariable, tfLogSDKVariable}
+var managedVariables = []string{contractGOGC, contractGOMEMLIMIT, contractTFLogSDK}
 
 const (
+	contractGOGC       = "GOGC"
+	contractGOMEMLIMIT = "GOMEMLIMIT"
+	contractTFLogSDK   = "TF_LOG_SDK"
+
 	// inheritedPath stands in for the rest of the caller's environment in the
 	// pure constructor tests.
 	inheritedPath = "PATH=/usr/bin"
 	// additionGOGC is a run's own override of the GOGC default.
-	additionGOGC = goGCVariable + "=50"
+	additionGOGC = contractGOGC + "=50"
 )
 
 // unsetVariable removes one variable from the test process's environment,
@@ -54,8 +58,31 @@ func unsetVariable(t *testing.T, name string) {
 	}
 
 	t.Cleanup(func() {
-		t.Setenv(name, previous)
+		if err := os.Setenv(name, previous); err != nil { //nolint:usetesting // t.Setenv registers another cleanup that would unset the restored value.
+			t.Errorf("restoring %s: %v", name, err)
+		}
 	})
+}
+
+func TestUnsetVariableRestoresTheOriginalEnvironment(t *testing.T) {
+	for _, name := range managedVariables {
+		for _, value := range []string{"", "caller-value"} {
+			t.Run(name+"="+value, func(t *testing.T) {
+				t.Setenv(name, value)
+
+				t.Run("unset", func(t *testing.T) {
+					unsetVariable(t, name)
+					if _, set := os.LookupEnv(name); set {
+						t.Fatalf("%s remains set", name)
+					}
+				})
+
+				if got, set := os.LookupEnv(name); !set || got != value {
+					t.Fatalf("restored %s = %q, set = %t; want %q, set = true", name, got, set, value)
+				}
+			})
+		}
+	}
 }
 
 // entriesNamed returns every environment entry carrying name, in order, so
@@ -81,9 +108,9 @@ func TestChildEnvironmentAddsTheDefaultsTheCallerHasNotSet(t *testing.T) {
 	environment := childEnvironment([]string{inheritedPath, "HOME=/home/dev"}, nil)
 
 	want := map[string]string{
-		goGCVariable:          "400",
-		goMemoryLimitVariable: "1073741824",
-		tfLogSDKVariable:      "off",
+		contractGOGC:       "400",
+		contractGOMEMLIMIT: "1073741824",
+		contractTFLogSDK:   "off",
 	}
 
 	for name, value := range want {
@@ -110,15 +137,15 @@ func TestChildEnvironmentHonoursAValueTheCallerAlreadySet(t *testing.T) {
 		}
 	}
 
-	if got := entriesNamed(environment, "GOGC"); !slices.Equal(got, []string{"GOGC=100"}) {
+	if got := entriesNamed(environment, contractGOGC); !slices.Equal(got, []string{"GOGC=100"}) {
 		t.Fatalf("child GOGC = %q, want the caller's [GOGC=100]", got)
 	}
 
-	if got := entriesNamed(environment, "TF_LOG_SDK"); !slices.Equal(got, []string{"TF_LOG_SDK=trace"}) {
+	if got := entriesNamed(environment, contractTFLogSDK); !slices.Equal(got, []string{"TF_LOG_SDK=trace"}) {
 		t.Fatalf("child TF_LOG_SDK = %q, want the caller's [TF_LOG_SDK=trace]", got)
 	}
 
-	if got := entriesNamed(environment, "GOMEMLIMIT"); !slices.Equal(got, []string{"GOMEMLIMIT=64MiB"}) {
+	if got := entriesNamed(environment, contractGOMEMLIMIT); !slices.Equal(got, []string{"GOMEMLIMIT=64MiB"}) {
 		t.Fatalf("child GOMEMLIMIT = %q, want the caller's [GOMEMLIMIT=64MiB]", got)
 	}
 }
@@ -128,7 +155,7 @@ func TestChildEnvironmentAppendsTheRunAdditionsLast(t *testing.T) {
 
 	environment := childEnvironment([]string{inheritedPath}, []string{additionGOGC})
 
-	got := entriesNamed(environment, goGCVariable)
+	got := entriesNamed(environment, contractGOGC)
 	if !slices.Equal(got, []string{"GOGC=400", additionGOGC}) {
 		t.Fatalf("child GOGC entries = %q, want the default then the addition in order", got)
 	}
@@ -198,9 +225,9 @@ func TestTheRunnerHandsTerraformThePerformanceDefaults(t *testing.T) {
 
 	environment := childEnvironmentOf(t, environmentDumpingRunner(t))
 
-	assertSingleEntry(t, environment, goGCVariable, "400")
-	assertSingleEntry(t, environment, goMemoryLimitVariable, "1073741824")
-	assertSingleEntry(t, environment, tfLogSDKVariable, "off")
+	assertSingleEntry(t, environment, contractGOGC, "400")
+	assertSingleEntry(t, environment, contractGOMEMLIMIT, "1073741824")
+	assertSingleEntry(t, environment, contractTFLogSDK, "off")
 
 	if _, found := environment["GIT_DIR"]; found {
 		t.Fatalf("child GIT_DIR = %q, want it stripped", environment["GIT_DIR"])
@@ -212,24 +239,24 @@ func TestTheRunnerHandsTerraformThePerformanceDefaults(t *testing.T) {
 }
 
 func TestTheRunnerKeepsTheValuesTheCallerSet(t *testing.T) {
-	t.Setenv(goGCVariable, "100")
-	t.Setenv(goMemoryLimitVariable, "512MiB")
-	unsetVariable(t, tfLogSDKVariable)
+	t.Setenv(contractGOGC, "100")
+	t.Setenv(contractGOMEMLIMIT, "512MiB")
+	unsetVariable(t, contractTFLogSDK)
 
 	environment := childEnvironmentOf(t, environmentDumpingRunner(t))
 
-	assertSingleEntry(t, environment, goGCVariable, "100")
-	assertSingleEntry(t, environment, goMemoryLimitVariable, "512MiB")
-	assertSingleEntry(t, environment, tfLogSDKVariable, "off")
+	assertSingleEntry(t, environment, contractGOGC, "100")
+	assertSingleEntry(t, environment, contractGOMEMLIMIT, "512MiB")
+	assertSingleEntry(t, environment, contractTFLogSDK, "off")
 }
 
 func TestTheRunnerAdditionsWinOverTheDefaults(t *testing.T) {
-	t.Setenv(goGCVariable, "100")
+	t.Setenv(contractGOGC, "100")
 
 	runner := environmentDumpingRunner(t)
 	runner.Env = []string{additionGOGC}
 
 	environment := childEnvironmentOf(t, runner)
 
-	assertSingleEntry(t, environment, goGCVariable, "50")
+	assertSingleEntry(t, environment, contractGOGC, "50")
 }
