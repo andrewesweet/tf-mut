@@ -225,11 +225,8 @@ The design targets unit tests where all provider behaviour is mocked: no credent
 cloud cost. Throughput depends dominantly on provider schema size — measured at ~43 mutants/s
 (8 cores) with a small-schema provider, and orders of magnitude less naively against
 `hashicorp/aws`, whose 14.5 MB schema is re-serialised into every verbose test message. The
-design's execution schedule — one `terraform test -verbose -json` invocation per mutant since
-2.17.0, with the fingerprint oracle judging survivors from that same stream (a two-phase
-schedule until then; [research note 23](docs/research/23-l2-single-verbose-phase.md)) — and
-run-block-level test selection exist to make the inner loop
-(`--since`, smoke tier) interactive on real modules regardless; full sweeps are scheduled
+design's [execution schedule](docs/design/product-design.md#execute) and test selection target
+an interactive inner loop (`--since`, smoke tier) on real modules; full sweeps are scheduled
 work. An independent adversarial review drove these corrections — see
 [`docs/reviews/2026-08-15-adversarial-review.md`](docs/reviews/2026-08-15-adversarial-review.md).
 
@@ -257,7 +254,7 @@ reproduction steps in [`docs/research/04-harness-spike.md`](docs/research/04-har
 | --- | --- |
 | `terraform init` costs 5.2 s; a mocked test run costs 0.167 s | Init once, then follow the [sandbox sharing rules](docs/design/product-design.md#execute) |
 | Local module paths in `.terraform/modules/modules.json` are **relative** | Provider sharing is safe and downward child-module mutations propagate; upward (`../`) sources require rooting the sandbox at their closure |
-| 100 mutants, 8 workers, mocked plan tests, small-schema provider: **2.3 s** | The inner loop can be interactive — with the single-invocation execution (two-phase until 2.17.0) and test selection the design specifies for real-provider schemas |
+| 100 mutants, 8 workers, mocked plan tests, small-schema provider: **2.3 s** | The inner loop can be interactive; see the [execution schedule](docs/design/product-design.md#execute) for real-provider constraints |
 | `-filter` is **file**-scoped, not run-scoped, and exits **0** when it matches nothing | Test selection is per-file; the executed-test count must be asserted explicitly |
 | `terraform validate` separates static from dynamic failure | Clean rule: validate fails ⇒ invalid mutant, discard; validate passes but run errors ⇒ killed |
 | Plan JSON fingerprints are stable under unobservable edits and move under behavioural ones | Automatic detection of mutants no assertion could possibly catch |

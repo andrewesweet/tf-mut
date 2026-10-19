@@ -84,9 +84,9 @@ func (o executionOracle) observeSurvivor(
 }
 
 // missingRuns is the operational refusal when a run block the baseline
-// fingerprinted produced no payload under the mutant: phase one reported every
-// run as passing, so a missing payload means the two phases disagree and
-// neither can be trusted over the other.
+// fingerprinted produced no payload under the mutant. Passing run statuses do
+// not prove that every baseline payload is present, including when a filter
+// selected fewer runs; missing evidence cannot support a fingerprint verdict.
 func missingRuns(verdict report.Mutant, delta fingerprint.Delta) *report.ExecutionError {
 	if len(delta.MissingRuns) == 0 {
 		return nil

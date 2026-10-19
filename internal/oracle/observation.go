@@ -71,14 +71,11 @@ func NewObservation(
 	}
 }
 
-// WithPhaseTwoDeadline records a phase-two fingerprint run that outlived its
+// WithPhaseTwoDeadline records a volatility re-run that outlived its
 // budget: the comparison it owed the oracle never arrived, and the precedence
 // table's deadline row decides instead. A survivor's phase one guarantees no
 // failed or errored run, so the deadline is reached with the table otherwise
 // clean — the overrun lands as a Timeout counted in the score's denominator.
-// Since 2.17.0 the survivor's primary fingerprint evidence arrives with the
-// mutant's own verbose stream, so the run this deadline bounds is the
-// volatility re-run.
 func (o Observation) WithPhaseTwoDeadline(budget time.Duration) Observation {
 	o.timedOut = true
 	o.budget = budget

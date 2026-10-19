@@ -230,7 +230,7 @@ discriminator between `Invalid` and `KilledByError`.
 Since 2.17.0 the engine executes **one** `terraform test -verbose -json` invocation per mutant
 and judges a phase-one survivor's fingerprint evidence from that same stream — the pre-2.17.0
 two-phase schedule, which re-ran survivors verbose because `-verbose` costs 20,288× the plain
-stream's output volume, is retired, and the volatility re-run is the only post-execution
+stream's output volume, is retired, and a survivor's volatility re-run is its only subsequent
 Terraform call. And the oracle never claims an equality it cannot prove: an unknown value in the
 mutation's forward cone — judged under the fail-closed address adapters, with the M2
 whole-payload rule as the floor wherever a mapping fails — or volatility it could not

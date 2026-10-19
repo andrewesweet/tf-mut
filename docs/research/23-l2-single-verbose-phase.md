@@ -33,12 +33,9 @@ larger than estimated, not smaller.
 
 ## 2. What shipped
 
-- **Engine**: `execute.go` dispatches every mutant's phase one with `Verbose: true`;
-  `oracle.go`'s `observeSurvivor` canonicalises the survivor's fingerprint evidence from the
-  payloads that invocation already produced. The fingerprint stage starts no Terraform child;
-  the volatility re-run (`fingerprintRun`, repurposed) is the only post-execution Terraform
-  call. `phaseTwo` is gone as a process stage; the constant survives as `phaseOne` because
-  pre-2.17.0 reports still carry phase-two rows.
+- **Engine**: `execute.go` and `oracle.go` implement the
+  [execution schedule](../design/product-design.md#execute). The `phaseTwo` constant was
+  removed; `phaseOne` remains as the marker for the run rows this engine publishes.
 - **Tests**: the §7 trial-report tests are rewritten against the single-phase contract —
   `TestEveryMutantIsJudgedFromOneVerboseInvocation` (exactly one `test` child per mutant, no
   phase-two rows, ≥1 fingerprint-dependent survivor),
@@ -70,14 +67,35 @@ strips drop `severity` on both legs with the dated reason (summary, detail and l
 fail the comparison); this note records the reproduction. The SARIF level maps from state and
 diagnosis, not severity, and is unaffected.
 
+To reproduce the upstream severity difference from the checkout root, stage a copy of the
+offline operators fixture and negate only its check condition:
+
+```bash
+mkdir -p .artifacts
+repro_dir=$(mktemp -d "$PWD/.artifacts/l2-check.XXXXXX")
+cp -R internal/engine/testdata/operators/. "$repro_dir/"
+sed -i 's/condition     = var.replicas > 0/condition     = !(var.replicas > 0)/' "$repro_dir/main.tf"
+mise exec -- just --command terraform -chdir="$repro_dir" init -backend=false
+mise exec -- just --command terraform -chdir="$repro_dir" test -json \
+  > "$repro_dir/plain.jsonl" || test "$?" -eq 1
+mise exec -- just --command terraform -chdir="$repro_dir" test -verbose -json \
+  > "$repro_dir/verbose.jsonl" || test "$?" -eq 1
+mise exec -- just --command jq -r \
+  'select(.type == "diagnostic") | .diagnostic | select(.detail | contains("replicas must be positive")) | .severity' \
+  "$repro_dir/plain.jsonl" "$repro_dir/verbose.jsonl"
+```
+
+Both test commands exit `1`; the final command prints `error`, then `warning`. The fixture
+uses only built-in `terraform_data` resources, and the source fixture remains unchanged.
+
 ## 4. The schema decision
 
-**Minor bump 2.17.0, one new file per version.** `run_outcome.phase` keeps its name, type and
-enum; what changed is which values an engine publishes (only `1`) and what `2` means to a
-consumer reading an old report (the pre-2.17.0 survivor-side fingerprint invocation). Under the
-repo's rule — changed semantics of an existing field is a minor version with the consumer
-contract documented — the bump carries rewritten descriptions on `runs` and `phase` and the new
-diagnostics note, and `docs/schema/report-2.17.0.json` is a new file beside its predecessors.
+**Minor bump 2.17.0, one new file per version.** The field layout and enumerations remain;
+changed execution semantics require a versioned consumer contract under the repository's
+schema rule. The [published schema](../schema/report-2.17.0.json) owns that contract for
+`runs[].phase`, per-mutant `telemetry.phases`, and diagnostic severity. In particular, consumers
+that attributed a Terraform child invocation to every fingerprint timing must read the
+updated phase description. Run-level `telemetry.phases` retains its meaning.
 
 ## 5. Deferred
 

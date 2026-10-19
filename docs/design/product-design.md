@@ -41,7 +41,8 @@ provider is involved. Measured honestly:
 The M1 measurement added one constraint the spike could not see: against `hashicorp/aws`,
 parallelism is worth **1.08×** between one and eight jobs, against 3.0× for a provider-free
 population of the same size. Starting the provider plugin dominates, so `--jobs` is a
-small-schema lever and test selection is the only one that matters on real modules.
+small-schema lever; the [L2 measurement](../research/23-l2-single-verbose-phase.md) establishes
+the benefit of reducing invocations on real modules.
 
 The product stance follows from engineering around that, not from ignoring it:
 
@@ -49,14 +50,10 @@ The product stance follows from engineering around that, not from ignoring it:
 inner loop — `--since` runs over changed lines and smoke-tier selection — it targets
 seconds-to-a-minute even on real-provider modules. Full `standard` sweeps of a large module
 are minutes-to-hours and are scheduled work, and the tool says so up front rather than
-pretending otherwise. The measured execution levers are the single verbose invocation and lazy
-validation: `terraform validate` runs only after a run-level error, and a phase-one survivor's
-fingerprint evidence is judged from the mutant's one `terraform test -verbose -json` stream —
-no second invocation. The predecessor two-phase split, which re-ran survivors verbose because
-`-verbose` costs 20,288× the plain stream's output volume, was retired by 2.17.0 after
-measurement: summed mutant wall-clock falls 22–40% across three real-provider suites with no
-state or diagnosis change ([research note 23](../research/23-l2-single-verbose-phase.md); the
-levers before it are in [research note 07](../research/07-m2-cost-model.md)). Run-block file splitting is dropped: it costs **7.8×** on an
+pretending otherwise. The [execution schedule](#execute) combines lazy validation —
+`terraform validate` runs only after a run-level error — with fingerprinting that needs
+no second invocation. The two-phase split, which re-ran survivors verbose, was retired after
+the [L2 measurement](../research/23-l2-single-verbose-phase.md). Run-block file splitting is dropped: it costs **7.8×** on an
 eight-run suite. Its ceiling under perfect selection across the M1 population of 40 mutants
 and eight run blocks is **3.8 s out of 128 s, or 3%**
 ([measured cost model](../research/07-m2-cost-model.md)).
@@ -285,9 +282,8 @@ Per mutant, in parallel across up to `--jobs` workers (see [parallelism defaults
    (validate passes after a run-level error). Mutants that pass or fail assertions — the
    majority — never pay for it.
 4. **Phase one:** `terraform -chdir=<sandbox> test -json -verbose -filter=<selected files>` —
-   the mutant's single invocation, verbose since 2.17.0 (the predecessor design ran it plain
-   and re-ran survivors verbose). Killed mutants stop here (after lazy validation if they
-   errored). After at least one run executes, phase one checks completeness unless the
+   the mutant's single invocation, verbose since 2.17.0. Killed mutants stop here (after lazy
+   validation if they errored). After at least one run executes, phase one checks completeness unless the
    invocation times out or reports a failing or erroring run. A non-zero exit is an execution
    error. So is an executed-run count below the baseline's, unless an explicit test-file
    filter is selected. These checks run before the survivor's fingerprint evidence is read.
@@ -298,12 +294,9 @@ Per mutant, in parallel across up to `--jobs` workers (see [parallelism defaults
 5. **The survivor's fingerprint evidence, from the same stream:** the plan fingerprints for
    the fingerprint-dependent states (`Survived` and its diagnoses, `StructurallyUnassertable`,
    `Unobservable`) and suggestion generation are canonicalised from the payloads the phase-one
-   invocation already produced — no second Terraform call. The two-phase split this replaces
-   existed because `-verbose` embeds the full provider schema per run-block message (C1) — a
-   26× marginal cost with `hashicorp/aws` — and only the surviving minority needed
-   fingerprints; 2.17.0 retired it after measurement because paying the verbose cost once per
-   mutant costs less than an invocation per survivor
-   ([research note 23](../research/23-l2-single-verbose-phase.md)).
+   invocation already produced — no second Terraform call. Only a survivor that needs a
+   volatility comparison re-runs Terraform. The [L2 research note](../research/23-l2-single-verbose-phase.md)
+   records the measurement that replaced the previous two-invocation schedule.
 6. Classify the mutant and delete the sandbox.
 
 Mutation evaluation stops dispatching after consecutive operational failures reach
@@ -902,10 +895,10 @@ on). Run-block file splitting costs 7.8× on an eight-run suite and saves at mos
 perfect selection: **it is dropped**, and R2-4's unreproduced state-identity closure leaves
 the milestone with it. Module-granular selection removes 0% of run-block executions on a
 single-module suite, so it ships as a correctness feature — `NoCoverage` assigned without
-execution — and not as a speed lever. Two-phase execution stays, justified by volume rather
-than time: `-verbose` costs 1.7× in wall time but **20,288×** in output bytes, 19.5 MB per
-run block, so the M2 decoder must stream and discard `provider_schemas` incrementally rather
-than buffer.
+execution — and not as a speed lever. The [M2 cost model](../research/07-m2-cost-model.md)
+owns the historical execution and streaming decisions; [Execute](#execute) owns the schedule
+that superseded them. The decoder must still stream and discard `provider_schemas`
+incrementally rather than buffer.
 
 What is left is the honesty half, and it is worth the milestone on its own: Tiers 1–3, the
 volatile mask, the full state model, survivor diagnosis, the reporters and the configuration

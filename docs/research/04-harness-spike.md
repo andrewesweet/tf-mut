@@ -211,13 +211,14 @@ corrupt.
 14.5 MB, and `-verbose` re-serialises the full schema into every per-run-block message. The
 review measured a 10-resource fully-mocked AWS module at ~0.36 mutants/s plain and ~0.10
 mutants/s with per-mutant `validate` + `-verbose` — roughly 100–400× below this fixture. The
-per-mutant sequence in the product design is two-phase for exactly this reason, and no number
-in this section should be extrapolated beyond small-schema providers. A real-provider
+current per-mutant sequence is defined in the product design's
+[execution schedule](../design/product-design.md#execute), and no number in this section
+should be extrapolated beyond small-schema providers. A real-provider
 re-measurement is the M1 exit gate.
 
 For fully-mocked plan-mode unit tests against small-schema providers, mutation testing is
 effectively free — well inside a pre-commit hook. For real-provider modules it is not, and
-the product design's stance (interactive inner loop via selection and two-phase execution;
+the product design's stance (interactive inner loop via selection;
 scheduled full sweeps) reflects the corrected numbers.
 
 The cost model is entirely different for apply-mode tests against real providers, where a
