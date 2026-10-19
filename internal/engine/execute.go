@@ -307,7 +307,8 @@ func evaluate(
 }
 
 // evaluateOne runs the mutant's evaluation itself: stage, mutate, execute,
-// observe, judge.
+// judge. The single invocation runs verbose, so a survivor's fingerprint
+// comparison reads the stream it produced.
 func evaluateOne(
 	ctx context.Context,
 	plan executionPlan,
@@ -331,6 +332,7 @@ func evaluateOne(
 	result, err := plan.runner.Test(ctx, built.ModuleDir, tfexec.TestOptions{
 		TestDirectory: plan.configuration.TestDirRelative(),
 		Filters:       plan.settings.TestSelection,
+		Verbose:       true,
 		Timeout:       budget,
 	})
 	testPhase(telemetry.child("test", result.Usage, result.Started)...)
@@ -395,13 +397,14 @@ func evaluateOne(
 
 	verdict = project(verdict, outcome)
 
-	// Phase two: only a phase-one survivor is fingerprinted, which is the whole
-	// point of the split.
+	// A phase-one survivor is fingerprinted from the stream phase one already
+	// produced — the invocation ran verbose, so no second Terraform call is
+	// made — and only a volatility re-run invokes Terraform again.
 	if !observation.NeedsPhaseTwo(outcome) {
 		return verdict, outcome, nil
 	}
 
-	return judge.observe(ctx, built, verdict, observation, outcome, telemetry)
+	return judge.observeSurvivor(ctx, built, verdict, observation, outcome, telemetry, result)
 }
 
 func materialiseMutant(plan executionPlan, index int, telemetry *mutantCollector) (sandbox.Sandbox, error) {

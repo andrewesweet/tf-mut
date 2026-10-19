@@ -551,7 +551,8 @@ estimates were 3–8× low.
 | 5 — domain packs (opt-in) | 3 form operators; the shipped `security-aws` enables 10 of the census's 115 candidates plus the one candidate #176 admitted | 0–50 |
 
 Duration depends dominantly on provider schema size and test selection, not on operator count
-(review C1). With the two-phase execution and run-block selection of the product design, the
+(review C1). With the product design's single-invocation execution (two-phase until 2.17.0)
+and its run-block selection, the
 realistic targets are: `smoke` tier in minutes on a real-provider module; a full `standard`
 sweep (~1200–2000 mutants here) is scheduled work; `--since`-scoped runs over a typical diff
 are the sub-minute case. The previously published "15–30 seconds on eight cores" figure was a

@@ -49,9 +49,14 @@ The product stance follows from engineering around that, not from ignoring it:
 inner loop — `--since` runs over changed lines and smoke-tier selection — it targets
 seconds-to-a-minute even on real-provider modules. Full `standard` sweeps of a large module
 are minutes-to-hours and are scheduled work, and the tool says so up front rather than
-pretending otherwise. The measured execution levers are the two-phase split and lazy
-validation: `terraform validate` runs only after a run-level error, and phase two runs only
-for phase-one survivors. Run-block file splitting is dropped: it costs **7.8×** on an
+pretending otherwise. The measured execution levers are the single verbose invocation and lazy
+validation: `terraform validate` runs only after a run-level error, and a phase-one survivor's
+fingerprint evidence is judged from the mutant's one `terraform test -verbose -json` stream —
+no second invocation. The predecessor two-phase split, which re-ran survivors verbose because
+`-verbose` costs 20,288× the plain stream's output volume, was retired by 2.17.0 after
+measurement: summed mutant wall-clock falls 22–40% across three real-provider suites with no
+state or diagnosis change ([research note 23](../research/23-l2-single-verbose-phase.md); the
+levers before it are in [research note 07](../research/07-m2-cost-model.md)). Run-block file splitting is dropped: it costs **7.8×** on an
 eight-run suite. Its ceiling under perfect selection across the M1 population of 40 mutants
 and eight run blocks is **3.8 s out of 128 s, or 3%**
 ([measured cost model](../research/07-m2-cost-model.md)).
@@ -279,21 +284,26 @@ Per mutant, in parallel across up to `--jobs` workers (see [parallelism defaults
    the mutant**. It distinguishes `Invalid` (validate fails) from `KilledByError`
    (validate passes after a run-level error). Mutants that pass or fail assertions — the
    majority — never pay for it.
-4. **Phase one:** `terraform -chdir=<sandbox> test -json -filter=<selected files>` — plain
-   output, no `-verbose`. Killed mutants stop here (after lazy validation if they errored).
-   After at least one run executes, phase one checks completeness unless the invocation
-   times out or reports a failing or erroring run. A non-zero exit is an execution error.
-   So is an executed-run count below the baseline's, unless an explicit test-file filter
-   is selected. These checks run before phase two. A zero-run result goes through lazy
-   validation: if valid and not timed out, it is refused without a verdict. A `-filter`
-   matching nothing exits zero, so this is a per-mutant invariant, not a baseline-only
-   check. Execution errors leave the mutant `Pending`,
+4. **Phase one:** `terraform -chdir=<sandbox> test -json -verbose -filter=<selected files>` —
+   the mutant's single invocation, verbose since 2.17.0 (the predecessor design ran it plain
+   and re-ran survivors verbose). Killed mutants stop here (after lazy validation if they
+   errored). After at least one run executes, phase one checks completeness unless the
+   invocation times out or reports a failing or erroring run. A non-zero exit is an execution
+   error. So is an executed-run count below the baseline's, unless an explicit test-file
+   filter is selected. These checks run before the survivor's fingerprint evidence is read.
+   A zero-run result goes through lazy validation: if valid and not timed out, it is refused
+   without a verdict. A `-filter` matching nothing exits zero, so this is a per-mutant
+   invariant, not a baseline-only check. Execution errors leave the mutant `Pending`,
    exclude it from scoring and caching, and make the command exit `2`.
-5. **Phase two, phase-one survivors only:** re-run with `-verbose -json` to obtain the plan
-   fingerprint for the fingerprint-dependent states (`Survived` and its diagnoses,
-   `StructurallyUnassertable`, `Unobservable`) and suggestion generation. This two-phase split exists because `-verbose` embeds the full
-   provider schema per run-block message (C1) — a 26× marginal cost with `hashicorp/aws` —
-   and only the surviving minority needs fingerprints.
+5. **The survivor's fingerprint evidence, from the same stream:** the plan fingerprints for
+   the fingerprint-dependent states (`Survived` and its diagnoses, `StructurallyUnassertable`,
+   `Unobservable`) and suggestion generation are canonicalised from the payloads the phase-one
+   invocation already produced — no second Terraform call. The two-phase split this replaces
+   existed because `-verbose` embeds the full provider schema per run-block message (C1) — a
+   26× marginal cost with `hashicorp/aws` — and only the surviving minority needed
+   fingerprints; 2.17.0 retired it after measurement because paying the verbose cost once per
+   mutant costs less than an invocation per survivor
+   ([research note 23](../research/23-l2-single-verbose-phase.md)).
 6. Classify the mutant and delete the sandbox.
 
 Mutation evaluation stops dispatching after consecutive operational failures reach
@@ -307,7 +317,7 @@ The trip applies to `run`, `suggest`, `curate` and mutation rounds of
 `characterise --until-dry`. It returns the operational exit code (`2`) and marks the
 score incomplete, even when every pending mutant was dispatched. A warning names the
 trip and the failure that began the streak. On a refused invocation, the warning travels
-with the error instead of a report. The [report schema](../schema/report-2.16.0.json)
+with the error instead of a report. The [report schema](../schema/report-2.17.0.json)
 owns the execution provenance and population-count contract for undispatched mutants.
 
 **The source tree is never written to.** This is a deliberate divergence from Oasis's
@@ -371,7 +381,7 @@ A test deadline remains visible even when an earlier failure determines the muta
 Terminal reports for every command include a trailing `Deadline reached` list when any
 mutant's test reached its budget; the Markdown summary also names these mutants. The JSON
 flag and its compatibility contract are defined in the
-[published report schema](../schema/report-2.16.0.json).
+[published report schema](../schema/report-2.17.0.json).
 
 Three R2 corrections are embedded there. **`MockMasked` is a diagnosis, not a state** (R2-8):
 as a state it overlapped `Survived` by definition. **`Timeout` sits in the denominator and
@@ -468,7 +478,7 @@ partitions. The **scored set** is `K + KE + S + NC + SU + T`; `Invalid`, `Unobse
 | **Reachability** | (K + KE + S + T) ÷ scored set | Coverage |
 
 `T` sits in every denominator it can reach (R2-11): machine load can then only *lower* a
-score, never raise it. The [published report schema](../schema/report-2.16.0.json) owns the
+score, never raise it. The [published report schema](../schema/report-2.17.0.json) owns the
 conditions that mark a score **incomplete**. `--min-score` gates fail on incomplete scores unless
 `--allow-incomplete-score` is passed. The `K` versus `KE` share is always displayed alongside
 the mutation score: a score composed mostly of `KE` means Terraform is doing the detecting,
@@ -557,7 +567,7 @@ The generator selects at most one candidate per survivor. It examines the comple
 delta across all runs, before report display truncation. Candidate selection tries value
 changes in run declaration order before output type, sensitivity and unknown metadata.
 Metadata never becomes an assertion. For metadata-only outcomes, see the
-[suggestion status contract](../schema/report-2.16.0.json#/$defs/suggestion_status).
+[suggestion status contract](../schema/report-2.17.0.json#/$defs/suggestion_status).
 Resource and data-source paths use the provider's attribute and nested-block
 schemas. Supported paths include list and tuple elements, and attributes inside single,
 group, list and map-nested blocks. Every scalar reference that descends into a value renders
@@ -608,7 +618,7 @@ claiming that the mutant survived. Execution failures, including deadlines and d
 errors, are recorded against the affected member and do not discard completed evidence
 or skip later members. An incomplete member cannot prove a kill.
 
-The [published report schema](../schema/report-2.16.0.json) owns the suggestion field
+The [published report schema](../schema/report-2.17.0.json) owns the suggestion field
 meanings and the consumer migration contract.
 
 For a target file with `n` candidates, attribution has a defensive cap of `2n + 1`
@@ -816,7 +826,7 @@ verdict for at least one pending mutant. If that generation's environment is unc
 or no such generation exists, it emits no explanation. When the environment differs, one
 terminal line names the added, removed and changed variables, never their values, even when
 other key components also differ. The JSON `cache_miss` fields and name-list bound follow the
-[published report schema](../schema/report-2.16.0.json#/$defs/cache_miss).
+[published report schema](../schema/report-2.17.0.json#/$defs/cache_miss).
 
 **One identifier names one mutant (report schema 2.6.0).** The mutant identifier is a content
 hash over the operator, the closure-relative path, the site address, the replaced content and
@@ -856,8 +866,8 @@ The moat is not the mutation engine — anyone can write operators. Nor is it su
 generation alone: once the baseline↔mutant plan delta exists as structured data, converting it
 into an `assert` block is mechanical, and a coding agent handed the delta could do it unaided
 (review m16). The defensible layer is the **verified classification and diagnosis loop plus
-the substrate that produces trustworthy deltas at all** — volatility masking, two-phase
-execution, state discrimination, per-mutant invariants — of which suggestion generation is the
+the substrate that produces trustworthy deltas at all** — volatility masking, fingerprint
+evidence from the mutant's own verbose stream, state discrimination, per-mutant invariants — of which suggestion generation is the
 cheapest consumer. That layer is also exactly what makes the tool a reliable substrate for
 agents (see `agent-integration.md`), which compounds rather than competes.
 
@@ -1022,8 +1032,8 @@ the limitations and the Oasis side-by-side are published in
    implementation (M2-2), clause retired by the M3 spec.** A mutation can expose volatility
    the baseline mask never saw. Rule as implemented and proven: when a survivor's delta is
    confined to schema-`computed` attributes or paths the static impure scan over the
-   *mutant's* AST marks suspicious, phase two re-runs that mutant once; attributes differing
-   across the two mutant runs are **undecidable, not maskable** — quoting M2-2: "A path
+   *mutant's* AST marks suspicious, the volatility re-run re-executes that mutant once;
+   attributes differing across the two mutant runs are **undecidable, not maskable** — quoting M2-2: "A path
    volatile in the mutant and stable in the baseline is undecidable, not maskable. Masking it
    on both sides erases the difference the mutation made." Residual undecidability is the
    `indeterminate-volatility` diagnosis. The original clause "a delta that then empties

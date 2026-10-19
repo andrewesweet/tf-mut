@@ -47,7 +47,12 @@ import (
 // internal/tfexec for every Terraform invocation. A stored verdict was
 // computed under the previous child environment, so it replays as a miss
 // and is re-executed, not trusted across the change.
-const cacheFormatVersion = "tf-mut-cache-8"
+// The tf-mut-cache-9 bump follows the single-phase execution: every mutant
+// is now judged from one verbose invocation, where the stored verdict's run
+// rows and child invocations record the two-phase schedule the engine no
+// longer follows. It replays as a miss and is re-executed, not trusted
+// across the change.
+const cacheFormatVersion = "tf-mut-cache-9"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 

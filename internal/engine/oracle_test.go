@@ -96,31 +96,54 @@ func TestAKnownPayloadLetsTheOracleProveUnobservability(t *testing.T) {
 	}
 }
 
-func TestPhaseTwoRunsOnlyForPhaseOneSurvivors(t *testing.T) {
+// TestEveryMutantIsJudgedFromOneVerboseInvocation holds the single-phase
+// execution contract: every executed mutant runs exactly one terraform test
+// invocation — verbose — and a survivor's fingerprint comparison reads that
+// same stream, so no mutant pays a second invocation and no run row names a
+// phase beyond the one execution. The skeleton fixture has no volatile
+// mutant, so one invocation is the whole budget for every verdict here, and
+// its survivors prove the fingerprint-dependent states are judged without a
+// second run.
+func TestEveryMutantIsJudgedFromOneVerboseInvocation(t *testing.T) {
 	t.Parallel()
 
 	result := runFixture(t, "skeleton")
 
-	for _, mutant := range result.Mutants {
-		verbose := 0
+	fingerprinted := 0
 
-		for _, run := range mutant.Runs {
-			if run.Phase == 2 {
-				verbose++
+	for _, mutant := range result.Mutants {
+		if mutant.Telemetry == nil {
+			t.Fatalf("%s mutant %s carries no execution record", mutant.State, mutant.ID)
+		}
+
+		invocations := 0
+
+		for _, child := range mutant.Telemetry.Children {
+			if child.Command == testSubcommand {
+				invocations += child.Invocations
 			}
 		}
 
-		fingerprinted := mutant.State == report.Survived ||
-			mutant.State == report.Unobservable ||
-			mutant.State == report.StructurallyUnassertable
-
-		if fingerprinted && verbose == 0 {
-			t.Fatalf("%s mutant %s was classified without a fingerprint run", mutant.State, mutant.ID)
+		if invocations != 1 {
+			t.Fatalf("%s mutant %s paid for %d test invocations, want the single verbose phase",
+				mutant.State, mutant.ID, invocations)
 		}
 
-		if !fingerprinted && verbose > 0 {
-			t.Fatalf("%s mutant %s paid for a fingerprint run it did not need", mutant.State, mutant.ID)
+		for _, run := range mutant.Runs {
+			if run.Phase != 1 {
+				t.Fatalf("%s mutant %s carries a run row from phase %d; the one execution is the whole mutant",
+					mutant.State, mutant.ID, run.Phase)
+			}
 		}
+
+		if mutant.State == report.Survived || mutant.State == report.Unobservable ||
+			mutant.State == report.StructurallyUnassertable {
+			fingerprinted++
+		}
+	}
+
+	if fingerprinted == 0 {
+		t.Fatal("the fixture produced no survivor, so the fingerprint-from-the-same-stream claim is vacuous")
 	}
 }
 

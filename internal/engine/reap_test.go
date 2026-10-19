@@ -26,7 +26,7 @@ func TestNormalExitReapsTheProcessGroup(t *testing.T) {
 		t.Skip("provider liveness reads Linux /proc process state")
 	}
 
-	for _, subcommand := range []string{"providers", "test"} {
+	for _, subcommand := range []string{"providers", testSubcommand} {
 		t.Run(subcommand, func(t *testing.T) {
 			t.Parallel()
 

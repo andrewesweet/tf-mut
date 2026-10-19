@@ -63,8 +63,8 @@
 //   - Execution: execute.go owns the plan and the workers (execute,
 //     executionPlan) and the consecutive-failure trip; oracle.go's
 //     executionOracle gathers phase-two evidence for phase-one survivors
-//     only; engine.go's executeWithCache replays and refreshes the
-//     verdict cache around them.
+//     from the mutant's single verbose invocation; engine.go's
+//     executeWithCache replays and refreshes the verdict cache around them.
 //
 //   - Population aggregates: engine.go's classifyRun and finishReport
 //     publish the population fact over the dispatcher events.go declares;

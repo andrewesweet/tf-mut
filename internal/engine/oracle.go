@@ -22,61 +22,53 @@ type executionOracle struct {
 	plan executionPlan
 }
 
-// observe gathers phase-two evidence for one phase-one survivor and projects
-// the outcome returned by oracle.Judge.
+// observeSurvivor judges a phase-one survivor from the verbose snapshot
+// phase one already produced and projects the outcome returned by
+// oracle.Judge.
 //
-// Phase two exists because `-verbose` embeds the whole provider schema in every
-// per-run message — 20,288 times the output volume, measured — so only the
-// non-killed minority may pay for it.
-func (o executionOracle) observe(
+// Phase one runs `-verbose`, so the mutant's own stream carries the plan
+// payloads the fingerprint comparison reads — no second Terraform call is
+// made. Only the volatility re-run invokes Terraform again.
+func (o executionOracle) observeSurvivor(
 	ctx context.Context,
 	built sandbox.Sandbox,
 	verdict report.Mutant,
 	observation oracle.Observation,
-	phaseOne oracle.Outcome,
+	executed oracle.Outcome,
 	telemetry *mutantCollector,
+	result tfexec.TestResult,
 ) (report.Mutant, oracle.Outcome, *report.ExecutionError) {
 	fingerprintPhase := telemetry.phase(phaseFingerprint)
-	run, err := o.fingerprintRun(ctx, built)
-	fingerprintPhase(telemetry.child("test", run.result.Usage, run.result.Started)...)
-	verdict.Runs = append(verdict.Runs, run.outcomes...)
-
-	budget := timeoutBudget(o.plan.settings, o.plan.prepared.baselineDuration)
-
-	if run.result.TimedOut {
-		verdict.DeadlineReached = true
-		oraclePhase := telemetry.phase(phaseOracle)
-		outcome := oracle.Judge(observation.WithPhaseTwoDeadline(budget))
-		oraclePhase()
-
-		return project(verdict, outcome), outcome, nil
+	payloads, err := fingerprint.Canonicalise(result.Payloads)
+	mask := o.plan.prepared.mask
+	var delta fingerprint.Delta
+	if err == nil {
+		delta = fingerprint.Compare(mask, o.plan.prepared.payloads, payloads)
 	}
+	fingerprintPhase()
 
 	if err != nil {
-		return verdict, phaseOne, &report.ExecutionError{
+		return verdict, executed, &report.ExecutionError{
 			MutantID: verdict.ID,
 			Site:     verdict.Site,
 			Message:  "the fingerprint run could not be evaluated: " + err.Error(),
 		}
 	}
 
-	mask := o.plan.prepared.mask
-	delta := fingerprint.Compare(mask, o.plan.prepared.payloads, run.payloads)
-
 	if refusal := missingRuns(verdict, delta); refusal != nil {
-		return verdict, phaseOne, refusal
+		return verdict, executed, refusal
 	}
 
 	observation = observation.WithPhaseTwo(
-		mutation.Operator(verdict.Operator), delta, mask, fingerprint.Unknowns(run.payloads),
+		mutation.Operator(verdict.Operator), delta, mask, fingerprint.Unknowns(payloads),
 	)
 
 	if observation.NeedsVolatilityRerun() {
 		var rerunErr *report.ExecutionError
-		observation, rerunErr = o.rerunForVolatility(ctx, built, verdict, run.payloads, observation,
+		observation, rerunErr = o.rerunForVolatility(ctx, built, verdict, payloads, observation,
 			telemetry)
 		if rerunErr != nil {
-			return verdict, phaseOne, rerunErr
+			return verdict, executed, rerunErr
 		}
 	}
 
@@ -217,22 +209,22 @@ func (o executionOracle) suspicion(index int) func(string) bool {
 	}
 }
 
-// fingerprintSnapshot is one verbose invocation's projected content: the
-// canonical payloads the oracle compares, the per-run-block outcomes the
-// verdict records, and the raw result whose usage the telemetry records.
-type fingerprintSnapshot struct {
+// rerunSnapshot is the volatility re-run's projected content: the canonical
+// payloads the second comparison reads and the raw result whose usage the
+// telemetry records and whose timeout decides the deadline row.
+type rerunSnapshot struct {
 	payloads []fingerprint.Payload
-	outcomes []report.RunOutcome
 	result   tfexec.TestResult
 }
 
-// fingerprintRun executes the verbose phase and projects its payloads. The
-// snapshot's result is the raw invocation, carried so the caller can record
-// the child process's usage against the phase that invoked it.
+// fingerprintRun executes the volatility re-run — the only Terraform call a
+// mutant can pay after its single verbose execution — and projects its
+// payloads. The result is carried raw so the caller can record the child
+// process's usage against the phase that invoked it.
 func (o executionOracle) fingerprintRun(
 	ctx context.Context,
 	built sandbox.Sandbox,
-) (fingerprintSnapshot, error) {
+) (rerunSnapshot, error) {
 	result, err := o.plan.runner.Test(ctx, built.ModuleDir, tfexec.TestOptions{
 		TestDirectory: o.plan.configuration.TestDirRelative(),
 		Filters:       o.plan.settings.TestSelection,
@@ -240,31 +232,23 @@ func (o executionOracle) fingerprintRun(
 		Timeout:       timeoutBudget(o.plan.settings, o.plan.prepared.baselineDuration),
 	})
 	if err != nil {
-		return fingerprintSnapshot{result: result}, err
+		return rerunSnapshot{result: result}, err
 	}
 
 	payloads, err := fingerprint.Canonicalise(result.Payloads)
 	if err != nil {
-		return fingerprintSnapshot{result: result}, err
+		return rerunSnapshot{result: result}, err
 	}
 
-	outcomes := make([]report.RunOutcome, 0, len(result.Runs))
-	for _, run := range result.Runs {
-		outcomes = append(outcomes, report.RunOutcome{
-			File: run.File, Run: run.Run, Phase: phaseTwo, Status: run.Status,
-			ElapsedMS: run.ElapsedMS,
-		})
-	}
-
-	return fingerprintSnapshot{payloads: payloads, outcomes: outcomes, result: result}, nil
+	return rerunSnapshot{payloads: payloads, result: result}, nil
 }
 
-// The two execution phases, recorded per run so that a reader can confirm the
-// verbose phase ran only where the design says it should.
-const (
-	phaseOne = 1
-	phaseTwo = 2
-)
+// phaseOne marks the run rows the mutant's single verbose execution produced.
+// The two-phase engine also wrote phase-two rows — one per run block of the
+// separate survivor-side fingerprint invocation; the single-phase engine
+// writes none. The value survives in the published schema so a reader of an
+// older report keeps a documented meaning for it.
+const phaseOne = 1
 
 // mutantScan runs the static impure scan over the mutant's own syntax.
 func (o executionOracle) mutantScan(index int) discovery.VolatilityScan {

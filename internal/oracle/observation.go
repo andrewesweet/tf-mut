@@ -76,6 +76,9 @@ func NewObservation(
 // table's deadline row decides instead. A survivor's phase one guarantees no
 // failed or errored run, so the deadline is reached with the table otherwise
 // clean — the overrun lands as a Timeout counted in the score's denominator.
+// Since 2.17.0 the survivor's primary fingerprint evidence arrives with the
+// mutant's own verbose stream, so the run this deadline bounds is the
+// volatility re-run.
 func (o Observation) WithPhaseTwoDeadline(budget time.Duration) Observation {
 	o.timedOut = true
 	o.budget = budget
@@ -179,9 +182,11 @@ func (o Observation) NeedsValidate() bool {
 	return o.erroredRuns || o.executedRuns == 0
 }
 
-// NeedsPhaseTwo reports the phase-two decision: phase two runs only for a
-// phase-one survivor — the state Judge leaves when phase one is out of
-// decisions — and only where phase two has not already decided.
+// NeedsPhaseTwo reports the phase-two decision: the fingerprint stage is
+// owed only for a phase-one survivor — the state Judge leaves when phase one
+// is out of decisions — and only where phase two has not already decided.
+// Since 2.17.0 the engine answers an affirmative from the survivor's own
+// verbose stream rather than a second invocation.
 func (o Observation) NeedsPhaseTwo(outcome Outcome) bool {
 	return outcome.State() == StateSurvived && !o.phaseTwoDecided
 }

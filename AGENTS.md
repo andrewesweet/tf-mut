@@ -227,8 +227,11 @@ statically **before** any Terraform runs — a provisioner must not execute in o
 refused, and no configured exclusion may reach them. `terraform validate` runs **only** where
 [`Observation.NeedsValidate`](internal/oracle/observation.go) requires it; its result is the sole
 discriminator between `Invalid` and `KilledByError`.
-Phase two runs **only** for phase-one survivors, because `-verbose` costs 20,288× the output
-volume. And the oracle never claims an equality it cannot prove: an unknown value in the
+Since 2.17.0 the engine executes **one** `terraform test -verbose -json` invocation per mutant
+and judges a phase-one survivor's fingerprint evidence from that same stream — the pre-2.17.0
+two-phase schedule, which re-ran survivors verbose because `-verbose` costs 20,288× the plain
+stream's output volume, is retired, and the volatility re-run is the only post-execution
+Terraform call. And the oracle never claims an equality it cannot prove: an unknown value in the
 mutation's forward cone — judged under the fail-closed address adapters, with the M2
 whole-payload rule as the floor wherever a mapping fails — or volatility it could not
 decompose, makes the comparison indeterminate rather than identical.

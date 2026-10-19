@@ -7,8 +7,8 @@
 package report
 
 // SchemaVersion is the version of the machine-readable report schema.
-// See docs/schema/report-2.16.0.json for the versioned consumer contract.
-const SchemaVersion = "2.16.0"
+// See docs/schema/report-2.17.0.json for the versioned consumer contract.
+const SchemaVersion = "2.17.0"
 
 // Command names what produced a report.
 type Command string
@@ -128,9 +128,12 @@ type Diagnostic struct {
 type RunOutcome struct {
 	File string `json:"file"`
 	Run  string `json:"run"`
-	// Phase is one (the plain classification run) or two (the verbose
-	// fingerprint run), so a reader can see that phase two ran only where the
-	// design says it should.
+	// Phase is the execution stage that produced the row: one, the mutant's
+	// own test invocation, or two, the survivor-side fingerprint invocation
+	// the pre-2.17.0 two-phase engine wrote. The single-phase engine executes
+	// one verbose invocation per mutant and publishes only phase-one rows
+	// (2.17.0); the value survives so an older report's rows keep their
+	// documented meaning.
 	Phase  int    `json:"phase"`
 	Status string `json:"status"`
 	// ElapsedMS is the run block's wall time in milliseconds, measured from
