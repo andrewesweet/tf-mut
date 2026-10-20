@@ -32,6 +32,7 @@ const (
 	suggestUnknownObjectFixture   = "suggest-unknown-object"
 	suggestUnknownPlanFixture     = "suggest-unknown-plan"
 	suggestUnknownAppliedFixture  = "suggest-unknown-applied"
+	suggestVolatileFixture        = "suggest-volatile"
 	suggestCountDeletionFixture   = "suggest-count-deletion"
 	suggestCountZeroFixture       = "suggest-count-zero"
 	suggestCollapseCarrierFixture = "suggest-collapse-carrier"
@@ -39,6 +40,7 @@ const (
 	suggestOutputMetadataFixture  = "suggest-output-metadata"
 	suggestOutputLaterRunFixture  = "suggest-output-later-run"
 	collEmptyOperator             = "COLL-EMPTY"
+	collDropEntryOperator         = "COLL-DROP-ENTRY"
 	standardTier                  = "standard"
 	verifiedStage                 = "verified"
 	appliedRun                    = "applied"
@@ -525,6 +527,54 @@ func TestAValueDeltaOutranksAnOutputsTypeMetadata(t *testing.T) {
 	if !found {
 		t.Fatalf("the key-drop survivor received no suggestion: %s",
 			statusSummary(result.Suggestions))
+	}
+}
+
+// TestAVolatileBaselineEntryIsSkippedAsVolatile is the D16 reproduction: a
+// survivor whose baseline value the volatile mask removed was reported as
+// skipped-unrenderable, with the mask's raw NUL byte in the reason. Declining
+// to pin the value is correct — a uuid() redraws every run — but the reason
+// must say the value is volatile, and no artefact may carry the control byte.
+func TestAVolatileBaselineEntryIsSkippedAsVolatile(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
+	}
+
+	requireProviderMirror(t)
+
+	request := dryRunRequest(t, copyFixture(t, suggestVolatileFixture))
+	request.IncludeOperators = []string{collDropEntryOperator}
+
+	result := runSuggest(t, request)
+
+	if len(result.Suggestions) != 4 {
+		t.Fatalf("want four suggestions for the four drop-entry survivors, got %+v",
+			result.Suggestions)
+	}
+
+	var sawCandidate int
+	for _, suggestion := range result.Suggestions {
+		if suggestion.Status == report.SuggestionCandidate {
+			sawCandidate++
+
+			continue
+		}
+
+		if suggestion.Status == report.SuggestionSkippedUnrenderable {
+			t.Fatalf("a volatile-masked baseline was reported unrenderable: %q",
+				suggestion.StatusReason)
+		}
+
+		if strings.ContainsRune(suggestion.StatusReason, '\x00') {
+			t.Fatalf("the reason carries the volatile mask's control byte: %q",
+				suggestion.StatusReason)
+		}
+	}
+
+	if sawCandidate != 2 {
+		t.Fatalf("the steady entries must still render, got %d candidates: %s",
+			sawCandidate, statusSummary(result.Suggestions))
 	}
 }
 

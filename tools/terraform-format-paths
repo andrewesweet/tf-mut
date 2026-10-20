@@ -209,6 +209,8 @@ internal/engine/testdata/suggest-unknown-applied/main.tf
 internal/engine/testdata/suggest-unknown-applied/tests/unit.tftest.hcl
 internal/engine/testdata/suggest-unknown-plan/main.tf
 internal/engine/testdata/suggest-unknown-plan/tests/unit.tftest.hcl
+internal/engine/testdata/suggest-volatile/main.tf
+internal/engine/testdata/suggest-volatile/tests/unit.tftest.hcl
 internal/engine/testdata/testdir-helper/child/main.tf
 internal/engine/testdata/testdir-helper/leaf/main.tf
 internal/engine/testdata/testdir-helper/main.tf

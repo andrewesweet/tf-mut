@@ -913,6 +913,62 @@ func TestTheSensitivityPredicateRefusesBeforeAnythingRenders(t *testing.T) {
 	}
 }
 
+// TestAVolatileMaskedBaselineIsNeverRendered is the D16 contract at the
+// rendering adapter: a baseline value the volatile mask removed — the whole
+// value, or a masked component inside a quoted rendering — is refused before
+// any rendering, with a refusal that says the value is volatile and carries
+// no control byte into any reason text.
+func TestAVolatileMaskedBaselineIsNeverRendered(t *testing.T) {
+	t.Parallel()
+
+	// The mask's wire form: the marker stands in for the component it removed,
+	// and a masked component inside a quoted rendering travels escaped.
+	const masked = "\x00"
+
+	for _, testCase := range []struct {
+		name     string
+		path     string
+		baseline string
+		schemas  tfexec.Schemas
+	}{
+		{
+			name:     "a whole output value the mask removed",
+			path:     "outputs.token.value",
+			baseline: masked,
+			schemas:  untyped(),
+		},
+		{
+			name:     "a dropped map entry whose value the mask removed",
+			path:     statePrefix + `example_thing.app].values.tags.team`,
+			baseline: masked,
+			schemas:  schemaTyping("tags", `["map","string"]`),
+		},
+		{
+			name:     "a quoted value with a masked component",
+			path:     "outputs.region.value",
+			baseline: `"eu-west-\x00"`,
+			schemas:  untyped(),
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := suggest.Express(
+				testCase.schemas, suggest.Evidence{},
+				changeAt(testCase.path, testCase.baseline),
+			)
+
+			if err == nil {
+				t.Fatalf("a volatile-masked baseline rendered rather than refused")
+			}
+
+			if strings.Contains(err.Error(), "\x00") {
+				t.Fatalf("the refusal carries the mask's control byte: %q", err.Error())
+			}
+		})
+	}
+}
+
 // TestAValueThePlanMarksUnknownIsRefusedUnderPlan is the plan-unknown
 // contract: under a `command = plan` run, a known-to-unknown delta whose
 // value side the mutant's own after_unknown record covers renders in no
