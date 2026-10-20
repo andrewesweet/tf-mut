@@ -159,7 +159,8 @@ widened without amending this section.
    contracts beyond exception 2's memory gate (`internal/tfexec/stream_test.go`), the child
    environment contract (`internal/tfexec/env_test.go`) — the document handed to `exec`, whose
    duplicate-name resolution and reach no real Terraform run observes on demand — the
-   shipped-pack contract (`internal/mutation/shipped_test.go`), and the suggestion contracts
+   shipped-pack contract (`internal/mutation/shipped_test.go`), the checkable-root table
+   (`internal/characterise/render_test.go`), and the suggestion contracts
    outside exception 4's matrices (`internal/suggest/evidence_contract_test.go`,
    `output_index_test.go`, `schema_wire_test.go`). These are contracts about documents, files
    and protocols the real binary cannot be driven into producing on demand, or invariants the
