@@ -18,11 +18,25 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/hclwrite"
 )
 
 // ErrSharedInode reports a mutated write that would have reached the source
 // tree through a shared inode. It is the R2-3 reproduction guard.
 var ErrSharedInode = errors.New("refusing to write a mutated file that shares an inode with the source tree")
+
+// ErrProviderChanged reports a warm provider binary whose size or
+// modification time no longer matches the stamp recorded at warm-up.
+//
+// The lock file a mutant sandbox receives records no hashes — that omission is
+// the point, it is what removes Terraform's per-command re-checksum of the
+// shared provider tree — so the stamp is the guard that keeps the skipped
+// verification honest: a tree that changed after the warm-up init verified it
+// is refused, not silently executed against.
+var ErrProviderChanged = errors.New("warm provider binary changed after warm-up")
 
 // DataDirName is Terraform's per-working-directory data directory.
 const DataDirName = ".terraform"
@@ -96,6 +110,13 @@ type Share struct {
 	DataDir string
 	// LockFile is the warm module's dependency lock file, when one exists.
 	LockFile string
+	// Guard, when set, is the warm provider tree's stamp record. The sandbox
+	// is refused before it is built when any recorded binary changed since
+	// warm-up, because the lock staged below records no hashes: the checksum
+	// that would have caught the change at execution time is the one this
+	// sandbox deliberately skips. The warm workspace itself shares unguarded
+	// — it runs the init and baselines that verify the full lock.
+	Guard *ProviderGuard
 }
 
 // Spec describes one sandbox to materialise.
@@ -139,6 +160,14 @@ func Materialise(spec Spec) (Sandbox, error) {
 		return Sandbox{}, fmt.Errorf("%w: %s", ErrTargetExists, spec.Target)
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return Sandbox{}, fmt.Errorf("inspecting %s: %w", spec.Target, err)
+	}
+
+	// The guard is checked before anything is built, so a refused sandbox
+	// leaves nothing behind and costs one stat per recorded provider.
+	if spec.Share != nil {
+		if err := spec.Share.Guard.Verify(); err != nil {
+			return Sandbox{}, err
+		}
 	}
 
 	if err := os.MkdirAll(spec.Target, directoryMode); err != nil {
@@ -596,10 +625,157 @@ func installLockFile(moduleDir, warmLockFile string) error {
 		return nil
 	}
 
-	target := filepath.Join(moduleDir, LockFileName)
-	if _, err := os.Stat(target); err == nil {
+	content, err := os.ReadFile(warmLockFile) //nolint:gosec // warm workspace path.
+	if err != nil {
+		return fmt.Errorf("reading lock file: %w", err)
+	}
+
+	staged, err := withoutHashes(warmLockFile, content)
+	if err != nil {
+		return err
+	}
+
+	// Written through the fresh-inode protocol: the sandbox lock is a new
+	// inode whether it replaces the source lock the closure walk already
+	// copied or appears where the source tree had none, so neither the source
+	// lock nor the warm lock is ever written to.
+	return WriteFresh(filepath.Join(moduleDir, LockFileName), warmLockFile, staged)
+}
+
+// withoutHashes parses the warm lock and removes every hashes argument, the
+// documented way for a lock to record none: an empty hashes list is an error
+// to Terraform's decoder, an absent argument is fine. With no hashes recorded
+// Terraform skips the per-command re-checksum of the shared provider tree —
+// the verification the warm-up init already paid against the same tree, and
+// both baselines re-paid — which is the per-invocation cost this staging
+// exists to remove. The warm workspace keeps its full, verified lock.
+//
+// A lock hclwrite cannot parse is a refusal, never a silent fall back to the
+// hashed copy: staging the hashes would silently reintroduce the cost, and a
+// silent fallback would hide a lock nothing else in the run re-parses.
+var errUnparseableLock = errors.New("lock file does not parse")
+
+func withoutHashes(name string, content []byte) ([]byte, error) {
+	file, diags := hclwrite.ParseConfig(content, name, hcl.InitialPos)
+	if diags.HasErrors() {
+		return nil, fmt.Errorf("%w: %s: %s", errUnparseableLock, name, diags.Error())
+	}
+
+	for _, block := range file.Body().Blocks() {
+		block.Body().RemoveAttribute("hashes")
+	}
+
+	return file.Bytes(), nil
+}
+
+// ProviderGuard is the warm provider tree's stamp record: the size and
+// modification time of every file reachable from the tree, taken once at
+// warm-up — after the init that verified the lock against that tree — and
+// re-checked, one stat per recorded provider, before any sandbox that shares
+// the tree is built.
+//
+// The residual risk it bounds is the time-of-check-to-time-of-use window the
+// hash-free lock opens: a provider binary replaced after the baseline would
+// otherwise execute in every sandbox without detection, where the full lock
+// would have had Terraform refuse it. The realistic hazard is integrity — a
+// concurrent init swapping a plugin-cache entry mid-run would silently change
+// verdicts instead of erroring them — and an attacker able to rewrite the
+// plugin cache can already replace the Terraform binary or tf-mut itself.
+type ProviderGuard struct {
+	stamps map[string]providerStamp
+}
+
+// providerStamp is one recorded binary's size and modification time.
+type providerStamp struct {
+	size  int64
+	mtime time.Time
+}
+
+// StampProviders walks the warm workspace's provider tree and records every
+// file reachable from it. A workspace without providers stamps nothing; its
+// guard verifies trivially.
+func StampProviders(warmDataDir string) (*ProviderGuard, error) {
+	guard := &ProviderGuard{stamps: map[string]providerStamp{}}
+	root := filepath.Join(warmDataDir, providersDir)
+
+	if _, err := os.Stat(root); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return guard, nil // a module without providers has no tree to guard.
+		}
+
+		return nil, fmt.Errorf("inspecting the warm provider tree: %w", err)
+	}
+
+	if err := stampTree(guard.stamps, root); err != nil {
+		return nil, err
+	}
+
+	return guard, nil
+}
+
+// stampTree records every file reachable from root. Symlinks are followed: a
+// warm provider tree reaches its packages through links into the plugin
+// cache, and the binary at the end of the link is the one that executes.
+func stampTree(stamps map[string]providerStamp, root string) error {
+	info, err := os.Stat(root)
+	if err != nil {
+		return fmt.Errorf("stamping the provider tree: %w", err)
+	}
+
+	if !info.IsDir() {
+		stamps[root] = providerStamp{size: info.Size(), mtime: info.ModTime()}
+
 		return nil
 	}
 
-	return copyFile(warmLockFile, target)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return fmt.Errorf("stamping the provider tree: %w", err)
+	}
+
+	for _, entry := range entries {
+		if err := stampTree(stamps, filepath.Join(root, entry.Name())); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Verify refuses a sandbox when any recorded binary's size or modification
+// time changed since warm-up, or when one disappeared. A nil guard — a share
+// without a stamp record, the warm workspace's own posture — verifies
+// trivially.
+func (g *ProviderGuard) Verify() error {
+	if g == nil {
+		return nil
+	}
+
+	// Sorted so the refusal names the same binary whichever order the map
+	// happens to visit in.
+	paths := make([]string, 0, len(g.stamps))
+	for path := range g.stamps {
+		paths = append(paths, path)
+	}
+
+	slices.Sort(paths)
+
+	for _, path := range paths {
+		stamp := g.stamps[path]
+
+		info, err := os.Stat(path)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return fmt.Errorf("%w: %s has disappeared", ErrProviderChanged, path)
+			}
+
+			return fmt.Errorf("re-checking the warm provider tree: %w", err)
+		}
+
+		if info.Size() != stamp.size || !info.ModTime().Equal(stamp.mtime) {
+			return fmt.Errorf("%w: %s changed since warm-up", ErrProviderChanged, path)
+		}
+	}
+
+	return nil
 }

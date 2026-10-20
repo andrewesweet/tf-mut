@@ -391,6 +391,7 @@ func stageSuite(
 		Staged:     staged,
 		Share: &sandbox.Share{
 			DataDir: stage.prepared.dataDir, LockFile: stage.prepared.lockFile,
+			Guard: stage.prepared.providerGuard,
 		},
 		Hardlink: true,
 	})

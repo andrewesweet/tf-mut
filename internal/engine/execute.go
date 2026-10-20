@@ -420,6 +420,7 @@ func materialiseMutant(plan executionPlan, index int, telemetry *mutantCollector
 		Share: &sandbox.Share{
 			DataDir:  plan.prepared.dataDir,
 			LockFile: plan.prepared.lockFile,
+			Guard:    plan.prepared.providerGuard,
 		},
 		Hardlink: true,
 	})

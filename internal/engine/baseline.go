@@ -26,6 +26,7 @@ type warmWorkspace struct {
 	moduleDir        string
 	dataDir          string
 	lockFile         string
+	providerGuard    *sandbox.ProviderGuard
 	schemas          tfexec.Schemas
 	baselineRuns     int
 	baselineDuration time.Duration
@@ -128,6 +129,10 @@ func warmUp(
 		prepared.lockFile = path
 	}
 
+	if stampErr := stampProviderTree(&prepared); stampErr != nil {
+		return warmWorkspace{}, stampErr
+	}
+
 	schemaPhase := collector.phase(phaseWarmSchema)
 	prepared.schemas, err = runner.ProvidersSchema(ctx, prepared.moduleDir, settings.preflightCap())
 	schemaPhase(collector.child("providers", prepared.schemas.Usage, prepared.schemas.Started)...)
@@ -164,6 +169,22 @@ func warmUp(
 	prepared.sources = sources
 
 	return prepared, nil
+}
+
+// stampProviderTree records the warm provider tree's binaries after the init
+// that verified the lock against it and before anything executes against it:
+// a binary that changes from here on is a refusal at the next sandbox rather
+// than a silently different verdict. The warm workspace itself keeps the full
+// lock, so its own invocations still pay the checksum they verify.
+func stampProviderTree(prepared *warmWorkspace) error {
+	guard, err := sandbox.StampProviders(prepared.dataDir)
+	if err != nil {
+		return err
+	}
+
+	prepared.providerGuard = guard
+
+	return nil
 }
 
 // runBaseline proves the suite is green before any mutant is trusted, times it
