@@ -590,8 +590,8 @@ func assertNoMaskControlByte(t *testing.T, result report.Report) {
 	t.Helper()
 
 	for name, render := range map[string]func(io.Writer, report.Report) error{
-		"JSON":     report.WriteJSON,
-		"terminal": report.WriteTerminal,
+		"JSON":           report.WriteJSON,
+		reporterTerminal: report.WriteTerminal,
 		"SARIF": func(writer io.Writer, value report.Report) error {
 			return report.WriteSARIF(writer, value, nil)
 		},
@@ -662,7 +662,7 @@ output "asserted" {
 		t.Fatalf("writing module: %v", err)
 	}
 	request := suggestRequest(t, module)
-	request.IncludeOperators = []string{"STR-CASE"}
+	request.IncludeOperators = []string{strCaseOperator}
 	result := runSuggest(t, request)
 	const want = `output.ignored == "a\u0000b"`
 	verified := withStatus(result, report.SuggestionVerified)

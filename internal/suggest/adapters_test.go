@@ -965,7 +965,7 @@ func TestAVolatileMaskedBaselineIsNeverRendered(t *testing.T) {
 				t.Fatalf("encoding evidence: %v", err)
 			}
 			var restored fingerprint.Change
-			if err := json.Unmarshal(encoded, &restored); err != nil {
+			if err = json.Unmarshal(encoded, &restored); err != nil {
 				t.Fatalf("decoding evidence: %v", err)
 			}
 			_, err = suggest.Express(testCase.schemas, suggest.Evidence{}, restored)
