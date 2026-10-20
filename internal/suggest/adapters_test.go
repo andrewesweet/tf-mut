@@ -11,6 +11,7 @@ import (
 	"github.com/zclconf/go-cty/cty"
 	"github.com/zclconf/go-cty/cty/function"
 	"github.com/zclconf/go-cty/cty/function/stdlib"
+	ctyjson "github.com/zclconf/go-cty/cty/json"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/fingerprint"
@@ -89,6 +90,9 @@ func untyped() tfexec.Schemas {
 
 const (
 	statePrefix            = "root_module.resources["
+	identityStatePath      = "outputs.identity.value"
+	identityChangePath     = "output_changes.identity.after"
+	regionsOutput          = "output.regions"
 	steadyBaseline         = `"steady"`
 	emptiedObject          = "{}"
 	secondValue            = `"second"`
@@ -427,6 +431,13 @@ func templateKeyRows() []renderingCase {
 			want: "try(example_thing.app.spec[0].replicas, null) == 3", refused: nil,
 		},
 		{
+			name: "a typed object attribute's nested fused list element",
+			path: statePrefix + "example_thing.app].values.spec[0].volumes[1]", baseline: steadyBaseline,
+			schemas: schemaTyping("spec",
+				`["list",["object",{"volumes":["list","string"]}]]`),
+			want: `try(example_thing.app.spec[0].volumes[1], null) == "steady"`, refused: nil,
+		},
+		{
 			name:     "a keyed entry whose key carries template syntax stays literal",
 			path:     statePrefix + "example_thing.app].values.triggers.${part}%{blk}",
 			baseline: steadyBaseline,
@@ -440,6 +451,16 @@ func templateKeyRows() []renderingCase {
 // scalarKeyRows holds the admitted scalar and keyed-scalar forms.
 func scalarKeyRows() []renderingCase {
 	return []renderingCase{
+		{
+			// R14: Go's own escapes — \b among them — are diagnostics in an HCL
+			// string. The key renders in the escape set HCL accepts.
+			name:     "a map attribute's control-character key renders in HCL escapes",
+			path:     statePrefix + "example_thing.app].values.triggers.a\u0008b",
+			baseline: steadyBaseline,
+			schemas:  schemaTyping("triggers", `["map","string"]`),
+			want:     "try(example_thing.app.triggers[\"a\\u0008b\"], null) == \"steady\"",
+			refused:  nil,
+		},
 		{
 			name:     "a map attribute's non-identifier key",
 			path:     statePrefix + "example_thing.app].values.triggers.app.kubernetes.io/part-of",
@@ -529,7 +550,7 @@ func mapBlockRows() []renderingCase {
 
 // keyRows holds the admitted keyed and scalar forms.
 func keyRows() []renderingCase {
-	return []renderingCase{
+	return append([]renderingCase{
 		{
 			name: "a map attribute's identifier key stays dotted",
 			path: statePrefix + "example_thing.app].values.triggers.plain", baseline: steadyBaseline,
@@ -548,10 +569,54 @@ func keyRows() []renderingCase {
 			schemas: schemaTyping("tags", `["map","string"]`),
 			want:    `try(example_thing.app.tags["0"], null) == "steady"`, refused: nil,
 		},
+	}, nullRows()...)
+}
+
+// nullRows holds the whole-output and container null forms: what a nulling
+// mutant proves, what the delta has to show before the assertion may claim
+// the baseline value was there, and what stays refused.
+func nullRows() []renderingCase {
+	return append([]renderingCase{
 		{
-			name: "a nulled whole output asserts non-null",
-			path: "outputs.identity.value", baseline: "", mutant: nulledValue,
-			schemas: untyped(), want: "output.identity != null", refused: nil,
+			name: "a nulled whole output the baseline never held is refused",
+			path: identityStatePath, baseline: "", mutant: nulledValue,
+			schemas: untyped(),
+			want:    "",
+			refused: suggest.ErrUnrenderable,
+		},
+		{
+			name: "a nulled whole output the delta proves non-null asserts non-null",
+			path: identityStatePath, baseline: "", mutant: nulledValue,
+			schemas: untyped(),
+			evidence: suggest.NewEvidence([]fingerprint.Change{
+				nulledAt(identityStatePath),
+				changeAt(identityStatePath, `"held"`),
+			}),
+			want: "output.identity != null", refused: nil,
+		},
+		{
+			// A plan's partial unknown marker proves the baseline value held a
+			// member, and a value with a member is not null.
+			name: "a nulled whole output a marked member proves non-null asserts non-null",
+			path: identityChangePath, baseline: "", mutant: nulledValue,
+			schemas: untyped(),
+			evidence: suggest.NewEvidence([]fingerprint.Change{
+				nulledAt(identityChangePath),
+				changeAt("output_changes.identity.after_unknown.principal_id", "true"),
+			}),
+			want: "output.identity != null", refused: nil,
+		},
+		{
+			// The whole-value marker proves only that the plan could read
+			// nothing — null included — so nothing is provable.
+			name: "a nulled whole output only a whole-value marker marks stays refused",
+			path: identityChangePath, baseline: "", mutant: nulledValue,
+			schemas: untyped(),
+			evidence: suggest.NewEvidence([]fingerprint.Change{
+				nulledAt(identityChangePath),
+				changeAt("output_changes.identity.after_unknown", "true"),
+			}),
+			want: "", refused: suggest.ErrUnrenderable,
 		},
 		{
 			name: "a nulled leaf with a baseline value asserts non-null",
@@ -576,11 +641,18 @@ func keyRows() []renderingCase {
 		},
 		{
 			name: "a length is never rendered from unknown elements",
-			path: "output_changes.identity.after", baseline: "{}", mutant: `"2"`,
+			path: identityChangePath, baseline: "{}", mutant: `"2"`,
 			schemas:  untyped(),
 			evidence: suggest.Evidence{UnknownMarkers: []string{"output_changes.identity.after_unknown.principal_id"}},
 			want:     "", refused: suggest.ErrUnrenderable,
 		},
+	}, countRows()...)
+}
+
+// countRows holds the vanishing-instance forms: the count equality a vanished
+// instance proves, and the index evidence that is no count equality.
+func countRows() []renderingCase {
+	return []renderingCase{
 		{
 			name:     "a vanished zeroth instance is a count equality",
 			path:     statePrefix + "example_thing.counted[0]].values.input",
@@ -691,7 +763,7 @@ func TestAbsenceTolerantFormsFailRatherThanError(t *testing.T) {
 			path:     "outputs.regions.value[0].short_name",
 			baseline: `"wu"`,
 			evidence: suggest.Evidence{OutputTypes: map[string]cty.Type{
-				"output.regions": cty.List(cty.Object(map[string]cty.Type{shortNameAttr: cty.String})),
+				regionsOutput: cty.List(cty.Object(map[string]cty.Type{shortNameAttr: cty.String})),
 			}},
 			schemas: untyped(), want: `try(output.regions[0].short_name, null) == "wu"`,
 		},
@@ -1151,4 +1223,224 @@ func assertAdapter(t *testing.T, expression string, err error, want string, refu
 
 func contains(haystack, needle string) bool {
 	return strings.Contains(haystack, needle)
+}
+
+const (
+	regionsStateValue = "outputs.regions.value"
+	regionsPlanAfter  = "output_changes.regions.after"
+	sourceAttribute   = "source"
+	emptyForm         = "empty"
+	settingsBlock     = "settings"
+	stringListType    = `["list","string"]`
+)
+
+func TestTypedMemberKeysPreserveTheirLiteralSpelling(t *testing.T) {
+	t.Parallel()
+
+	for _, key := range []struct{ value, quoted string }{
+		{"cost$", `"cost$"`},
+		{"tax%", `"tax%"`},
+		{"${part}%{blk}", `"$${part}%%{blk}"`},
+		{"a\b\f\v\ab", `"a\u0008\u000c\u000b\u0007b"`},
+		{"[prod]", `"[prod]"`},
+		{firstElementIndex, `"[0]"`},
+	} {
+		for _, declared := range []cty.Type{cty.Map(cty.String), cty.Object(map[string]cty.Type{key.value: cty.String})} {
+			t.Run(key.quoted+"/"+declared.FriendlyName(), func(t *testing.T) {
+				t.Parallel()
+
+				wire, err := ctyjson.MarshalType(declared)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				for _, prefix := range []string{
+					statePrefix + "example_thing.app].values.tags",
+					"resource_changes[example_thing.app].change.after.tags",
+					regionsStateValue, regionsPlanAfter,
+				} {
+					resource := "example_thing.app.tags"
+					if fingerprint.ParsePath(prefix).Address() == regionsOutput {
+						resource = regionsOutput
+					}
+
+					expression, err := suggest.Express(schemaTyping("tags", string(wire)),
+						suggest.Evidence{OutputTypes: map[string]cty.Type{regionsOutput: declared}},
+						changeAt(prefix+"."+key.value, steadyBaseline))
+					assertAdapter(t, expression, err, "try("+resource+"["+key.quoted+"], null) == "+steadyBaseline, nil)
+				}
+			})
+		}
+
+		t.Run("block/"+key.quoted, func(t *testing.T) {
+			t.Parallel()
+
+			schemas := schemaBlock(nil, map[string]tfexec.SchemaBlockType{
+				mountsBlock: {NestingMode: tfexec.NestingMap, Block: tfexec.SchemaBlock{
+					Attributes: map[string]tfexec.SchemaAttribute{
+						sourceAttribute: {Optional: true, Type: json.RawMessage(`"string"`)},
+					},
+				}},
+			})
+			expression, err := suggest.Express(schemas, suggest.Evidence{},
+				changeAt(statePrefix+"example_thing.app].values.mounts."+key.value+".source", steadyBaseline))
+			assertAdapter(t, expression, err,
+				"try(example_thing.app.mounts["+key.quoted+"].source, null) == "+steadyBaseline, nil)
+		})
+	}
+}
+
+func TestRecursiveAmbiguityNeverSelectsAnOuterLiteralKey(t *testing.T) {
+	t.Parallel()
+
+	for _, form := range []struct{ name, baseline, mutant string }{
+		{"scalar", steadyBaseline, ""},
+		{"null", steadyBaseline, nulledValue},
+		{emptyForm, "[]", ""},
+	} {
+		t.Run(form.name, func(t *testing.T) {
+			t.Parallel()
+
+			leaf := cty.String
+			if form.name == emptyForm {
+				leaf = cty.List(cty.String)
+			}
+			declared := cty.Object(map[string]cty.Type{
+				"a":      cty.Object(map[string]cty.Type{"b": cty.List(leaf), "b[0]": leaf}),
+				"a.b[0]": leaf,
+			})
+			wire, err := ctyjson.MarshalType(declared)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			for _, prefix := range []string{
+				statePrefix + "example_thing.app].values.tags", regionsStateValue, regionsPlanAfter,
+			} {
+				change := changeAt(prefix+".a.b[0]", form.baseline)
+				change.Mutant = form.mutant
+				expression, err := suggest.Express(schemaTyping("tags", string(wire)),
+					suggest.Evidence{OutputTypes: map[string]cty.Type{regionsOutput: declared}}, change)
+				assertAdapter(t, expression, err, "", suggest.ErrUnrenderable)
+			}
+		})
+	}
+}
+
+func TestInvalidFusedIndicesRemainLiteralKeys(t *testing.T) {
+	t.Parallel()
+
+	for _, index := range []string{"-1", "-0", "+0", "", "word"} {
+		for _, sequence := range []cty.Type{cty.List(cty.String), cty.Tuple([]cty.Type{cty.String})} {
+			t.Run(index+"/"+sequence.FriendlyName(), func(t *testing.T) {
+				t.Parallel()
+
+				key := "foo[" + index + "]"
+				declared := cty.Object(map[string]cty.Type{"foo": sequence, key: cty.String})
+				wire, err := ctyjson.MarshalType(declared)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, prefix := range []string{
+					statePrefix + "example_thing.app].values.tags",
+					"resource_changes[example_thing.app].change.after.tags",
+					regionsStateValue, regionsPlanAfter,
+				} {
+					resource := "example_thing.app.tags"
+					if fingerprint.ParsePath(prefix).Address() == regionsOutput {
+						resource = regionsOutput
+					}
+					expression, err := suggest.Express(schemaTyping("tags", string(wire)),
+						suggest.Evidence{OutputTypes: map[string]cty.Type{regionsOutput: declared}},
+						changeAt(prefix+"."+key, steadyBaseline))
+					assertAdapter(t, expression, err,
+						"try("+resource+`["`+key+`"], null) == "steady"`, nil)
+				}
+			})
+		}
+	}
+}
+
+func TestNestedTupleIndicesRequireUnsignedInRangePositions(t *testing.T) {
+	t.Parallel()
+
+	schemas := schemaBlock(nil, map[string]tfexec.SchemaBlockType{
+		settingsBlock: {NestingMode: tfexec.NestingSingle, Block: tfexec.SchemaBlock{
+			Attributes: map[string]tfexec.SchemaAttribute{
+				"items": {Optional: true, Type: json.RawMessage(`["tuple",["string"]]`)},
+			},
+		}},
+	})
+	for _, index := range []string{"-1", "-0", "+0", "0", "1", "word", "999999999999999999999999"} {
+		for _, prefix := range []string{
+			statePrefix + "example_thing.app].values.",
+			"resource_changes[example_thing.app].change.after.",
+		} {
+			t.Run(index+"/"+prefix, func(t *testing.T) {
+				t.Parallel()
+
+				want, refusal := "", suggest.ErrUnrenderable
+				if index == "0" {
+					want, refusal = `try(example_thing.app.settings.items[0], null) == "steady"`, nil
+				}
+				expression, err := suggest.Express(schemas, suggest.Evidence{},
+					changeAt(prefix+"settings.items["+index+"]", steadyBaseline))
+				assertAdapter(t, expression, err, want, refusal)
+			})
+		}
+	}
+}
+
+func TestNestedUntypedLeavesPreserveScalarFallback(t *testing.T) {
+	t.Parallel()
+
+	for _, block := range []struct {
+		mode, path, reference string
+	}{
+		{tfexec.NestingSingle, settingsBlock, settingsBlock},
+		{tfexec.NestingGroup, settingsBlock, settingsBlock},
+		{tfexec.NestingList, "settings[0]", "settings[0]"},
+		{tfexec.NestingMap, "settings.shared", `settings["shared"]`},
+	} {
+		for _, wire := range []string{`"dynamic"`, "", `"unsupported"`, `"string"`, stringListType} {
+			t.Run(block.mode+"/"+wire, func(t *testing.T) {
+				t.Parallel()
+
+				schemas := schemaBlock(nil, map[string]tfexec.SchemaBlockType{
+					settingsBlock: {NestingMode: block.mode, Block: tfexec.SchemaBlock{
+						Attributes: map[string]tfexec.SchemaAttribute{
+							"value": {Optional: true, Type: json.RawMessage(wire)},
+						},
+					}},
+				})
+				for _, provider := range schemas.ProviderSchemas {
+					provider.DataSourceSchemas["example_thing"] = provider.ResourceSchemas["example_thing"]
+				}
+				assertNestedUntypedLeafFallback(t, schemas, wire, block.path, block.reference)
+			})
+		}
+	}
+}
+
+func assertNestedUntypedLeafFallback(t *testing.T, schemas tfexec.Schemas, wire, path, reference string) {
+	t.Helper()
+
+	for _, resource := range []string{exampleResource, "data.example_thing.app"} {
+		for _, prefix := range []string{
+			statePrefix + resource + "].values.",
+			"resource_changes[" + resource + "].change.after.",
+		} {
+			for _, suffix := range []string{"", firstElementIndex, ".child"} {
+				expression, err := suggest.Express(schemas, suggest.Evidence{},
+					changeAt(prefix+path+".value"+suffix, steadyBaseline))
+				want, refusal := "", suggest.ErrUnrenderable
+				if (suffix == "" && wire != stringListType) ||
+					(suffix == firstElementIndex && wire == stringListType) {
+					want = "try(" + resource + "." + reference + ".value" + suffix + `, null) == "steady"`
+					refusal = nil
+				}
+				assertAdapter(t, expression, err, want, refusal)
+			}
+		}
+	}
 }

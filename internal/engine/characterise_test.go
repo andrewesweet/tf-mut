@@ -28,6 +28,7 @@ const (
 	untestedJSONTypeFixture     = "untested-json-type"
 	untestedJSONVariableFixture = "untested-json-variable"
 	untestedForEachKeysFixture  = "untested-foreach-keys"
+	untestedForEachClosing      = "untested-foreach-keys-closing"
 	untestedBranchesFixture     = "untested-branches"
 	untestedPersistentFixture   = "untested-lifecycle-persistence"
 	untestedAliasFixture        = "untested-configuration-aliases"
@@ -37,6 +38,7 @@ const (
 	secondaryConfiguration = "null.secondary"
 
 	rungOutputs    = "outputs"
+	rungCounts     = "counts"
 	rungConfigured = "configured"
 )
 
@@ -506,7 +508,7 @@ func TestAZeroOutputModuleEscalatesAndSaysSo(t *testing.T) {
 		t.Fatal("a module with no outputs did not escalate away from the outputs rung")
 	}
 
-	if block.Rung != "counts" || block.RungRequested != rungOutputs {
+	if block.Rung != rungCounts || block.RungRequested != rungOutputs {
 		t.Fatalf("rung = %s (requested %s), want counts escalated from outputs",
 			block.Rung, block.RungRequested)
 	}
@@ -1251,7 +1253,7 @@ func TestForEachKeysNeedingEscapesStillRenderAGreenSuite(t *testing.T) {
 	module := copyFixture(t, untestedForEachKeysFixture)
 
 	config := characteriseRequest(t, module)
-	config.PinRung = "counts"
+	config.PinRung = rungCounts
 
 	result, err := engine.Run(t.Context(), config)
 	if err != nil {
@@ -1261,6 +1263,38 @@ func TestForEachKeysNeedingEscapesStillRenderAGreenSuite(t *testing.T) {
 	if result.Characterisation == nil || !result.Characterisation.Complete {
 		t.Fatalf("the suite did not verify green: %+v", result.Characterisation)
 	}
+}
+
+// TestForEachKeysWithBracketsStillPinTheirKeySet holds the bracket contract at
+// the engine seam: a legal `for_each` key may contain the brackets an instance
+// address itself is written inside, and the counts rung's key-set pin quotes
+// the payload's instances whole. Cutting the address at its first `]` cut the
+// key instead, and the generated suite failed its own verification — a
+// generator defect the run reported as a red suite.
+func TestForEachKeysWithBracketsStillPinTheirKeySet(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, untestedForEachClosing)
+
+	config := characteriseRequest(t, module)
+	config.PinRung = rungCounts
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("characterise --pin counts: %v", err)
+	}
+
+	if result.Characterisation == nil || !result.Characterisation.Complete {
+		t.Fatalf("the suite did not verify green: %+v", result.Characterisation)
+	}
+
+	for _, pin := range result.Characterisation.Pins {
+		if strings.Contains(pin.Expression, `"brack]et"`) {
+			return
+		}
+	}
+
+	t.Fatalf("no key-set pin quotes the bracketed key whole: %+v", result.Characterisation.Pins)
 }
 
 // TestUntilDryRefusesAConfiguredNarrowing holds the preserved half of the

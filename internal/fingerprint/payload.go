@@ -446,20 +446,39 @@ func unknownAddress(path string) (string, bool) {
 	return "", false
 }
 
-// cutBracketed splits the contents of an already-opened bracket from what
+// CutBracketed splits the contents of an already-opened bracket from what
 // follows its matching close.
 //
 // Cutting at the first `]` would be wrong for every indexed instance: the
 // address inside `resource_changes[terraform_data.app[0]]` carries a bracket of
 // its own, and stopping at the inner one yields an address that names nothing.
-func cutBracketed(rest string) (inside, remainder string, ok bool) {
+// The scan therefore tracks depth — and quotes, because a `for_each` key may
+// carry brackets and quotes of its own, and a bracket inside a quoted key is
+// text, not structure. Backslash escapes are the HCL string's own.
+func CutBracketed(rest string) (inside, remainder string, ok bool) {
 	depth := 1
+	quoted := false
+	escaped := false
 
 	for index, letter := range rest {
-		switch letter {
-		case '[':
+		switch {
+		case quoted:
+			switch {
+			case escaped:
+				escaped = false
+			case letter == '\\':
+				escaped = true
+			case letter == '"':
+				quoted = false
+				continue
+			default:
+				continue
+			}
+		case letter == '"':
+			quoted = true
+		case letter == '[':
 			depth++
-		case ']':
+		case letter == ']':
 			depth--
 		default:
 			continue

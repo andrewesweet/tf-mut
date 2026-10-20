@@ -548,6 +548,11 @@ func onlyOnce(
 
 // instancesOf groups a state payload's resource instances by the collection
 // they belong to.
+//
+// The instance is cut at its matching close — a `for_each` key may carry
+// brackets and quotes of its own — and the collection is the instance's head,
+// everything before the key's opening bracket: a head cannot contain a bracket,
+// so the grouping never cuts inside a key.
 func instancesOf(payload fingerprint.Payload) map[string]map[string]bool {
 	instances := map[string]map[string]bool{}
 
@@ -557,12 +562,13 @@ func instancesOf(payload fingerprint.Payload) map[string]map[string]bool {
 			continue
 		}
 
-		instance, _, closed := strings.Cut(rest, "]")
+		instance, _, closed := fingerprint.CutBracketed(rest)
 		if !closed {
 			continue
 		}
 
-		collection := discovery.ParseAddr(instance).String()
+		collection, _, _ := strings.Cut(instance, "[")
+
 		if instances[collection] == nil {
 			instances[collection] = map[string]bool{}
 		}
