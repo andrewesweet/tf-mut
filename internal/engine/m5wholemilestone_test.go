@@ -141,8 +141,8 @@ func stripRunWallClock(t *testing.T, before, after map[string]any) {
 		t.Fatalf("the M5 base tree publishes schema %q, want 2.3.0", before["schema_version"])
 	}
 
-	if after["schema_version"] != "2.17.0" {
-		t.Fatalf("this tree publishes schema %q, want 2.17.0", after["schema_version"])
+	if after["schema_version"] != "2.18.0" {
+		t.Fatalf("this tree publishes schema %q, want 2.18.0", after["schema_version"])
 	}
 
 	delete(before, "schema_version")

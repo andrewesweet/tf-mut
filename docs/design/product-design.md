@@ -324,7 +324,7 @@ The trip applies to `run`, `suggest`, `curate` and mutation rounds of
 `characterise --until-dry`. It returns the operational exit code (`2`) and marks the
 score incomplete, even when every pending mutant was dispatched. A warning names the
 trip and the failure that began the streak. On a refused invocation, the warning travels
-with the error instead of a report. The [report schema](../schema/report-2.17.0.json)
+with the error instead of a report. The [report schema](../schema/report-2.18.0.json)
 owns the execution provenance and population-count contract for undispatched mutants.
 
 **The source tree is never written to.** This is a deliberate divergence from Oasis's
@@ -388,7 +388,7 @@ A test deadline remains visible even when an earlier failure determines the muta
 Terminal reports for every command include a trailing `Deadline reached` list when any
 mutant's test reached its budget; the Markdown summary also names these mutants. The JSON
 flag and its compatibility contract are defined in the
-[published report schema](../schema/report-2.17.0.json).
+[published report schema](../schema/report-2.18.0.json).
 
 Three R2 corrections are embedded there. **`MockMasked` is a diagnosis, not a state** (R2-8):
 as a state it overlapped `Survived` by definition. **`Timeout` sits in the denominator and
@@ -485,7 +485,7 @@ partitions. The **scored set** is `K + KE + S + NC + SU + T`; `Invalid`, `Unobse
 | **Reachability** | (K + KE + S + T) ÷ scored set | Coverage |
 
 `T` sits in every denominator it can reach (R2-11): machine load can then only *lower* a
-score, never raise it. The [published report schema](../schema/report-2.17.0.json) owns the
+score, never raise it. The [published report schema](../schema/report-2.18.0.json) owns the
 conditions that mark a score **incomplete**. `--min-score` gates fail on incomplete scores unless
 `--allow-incomplete-score` is passed. The `K` versus `KE` share is always displayed alongside
 the mutation score: a score composed mostly of `KE` means Terraform is doing the detecting,
@@ -579,7 +579,7 @@ The generator selects at most one candidate per survivor. It examines the comple
 delta across all runs, before report display truncation. Candidate selection tries value
 changes in run declaration order before output type, sensitivity and unknown metadata.
 Metadata never becomes an assertion. For metadata-only outcomes, see the
-[suggestion status contract](../schema/report-2.17.0.json#/$defs/suggestion_status).
+[suggestion status contract](../schema/report-2.18.0.json#/$defs/suggestion_status).
 Resource and data-source paths use the provider's attribute and nested-block
 schemas. Supported paths include list and tuple elements, and attributes inside single,
 group, list and map-nested blocks. Every scalar reference that descends into a value renders
@@ -598,7 +598,8 @@ member name. Set elements, untyped collection indices and unsupported continuati
 own after_unknown record covers — a deleted provider-computed attribute leaves it unknown
 at plan — is also `skipped-unrenderable`, with the reason naming the value: an equality
 over it would error with "Unknown condition value" when the suite replayed it, and the
-same delta under `command = apply` still renders.
+same delta under `command = apply` still renders. For volatile baseline refusals, see the
+[suggestion status contract](../schema/report-2.18.0.json#/$defs/suggestion_status).
 
 Alongside scalar equalities, candidates can assert emptiness with
 `try(length(value), null) == 0` or answer a mutant's null value with a non-null check.
@@ -630,7 +631,7 @@ claiming that the mutant survived. Execution failures, including deadlines and d
 errors, are recorded against the affected member and do not discard completed evidence
 or skip later members. An incomplete member cannot prove a kill.
 
-The [published report schema](../schema/report-2.17.0.json) owns the suggestion field
+The [published report schema](../schema/report-2.18.0.json) owns the suggestion field
 meanings and the consumer migration contract.
 
 For a target file with `n` candidates, attribution has a defensive cap of `2n + 1`
@@ -838,7 +839,7 @@ verdict for at least one pending mutant. If that generation's environment is unc
 or no such generation exists, it emits no explanation. When the environment differs, one
 terminal line names the added, removed and changed variables, never their values, even when
 other key components also differ. The JSON `cache_miss` fields and name-list bound follow the
-[published report schema](../schema/report-2.17.0.json#/$defs/cache_miss).
+[published report schema](../schema/report-2.18.0.json#/$defs/cache_miss).
 
 **One identifier names one mutant (report schema 2.6.0).** The mutant identifier is a content
 hash over the operator, the closure-relative path, the site address, the replaced content and

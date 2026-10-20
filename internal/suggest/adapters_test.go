@@ -913,6 +913,79 @@ func TestTheSensitivityPredicateRefusesBeforeAnythingRenders(t *testing.T) {
 	}
 }
 
+// TestAVolatileMaskedBaselineIsNeverRendered is the D16 contract at the
+// rendering adapter: a baseline value the volatile mask removed — the whole
+// value, a dropped map entry's value, or a masked component inside a quoted
+// rendering — is refused before any rendering, with the volatile refusal
+// rather than the unrenderable one, and no control byte in any reason text.
+func TestAVolatileMaskedBaselineIsNeverRendered(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name     string
+		path     string
+		baseline string
+		schemas  tfexec.Schemas
+	}{
+		{
+			name:     "a whole output value the mask removed",
+			path:     "outputs.token.value",
+			baseline: steadyBaseline,
+			schemas:  untyped(),
+		},
+		{
+			name:     "a dropped map entry whose value the mask removed",
+			path:     statePrefix + `example_thing.app].values.tags.team`,
+			baseline: steadyBaseline,
+			schemas:  schemaTyping("tags", `["map","string"]`),
+		},
+		{
+			name:     "a quoted value with a masked component",
+			path:     "outputs.region.value",
+			baseline: `"eu-west-token"`,
+			schemas:  untyped(),
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			mask := fingerprint.NewMask()
+			mask.Spans[testCase.path] = fingerprint.SyntaxSpan("", "", true)
+			if testCase.path == "outputs.region.value" {
+				mask.Spans[testCase.path] = fingerprint.SyntaxSpan("eu-west-", "", false)
+			}
+			baseline := fingerprint.Payload{Values: map[string]string{testCase.path: testCase.baseline}}
+			mutant := fingerprint.Payload{Values: map[string]string{}}
+			delta := fingerprint.Compare(mask, []fingerprint.Payload{baseline}, []fingerprint.Payload{mutant})
+			if len(delta.Changes) != 1 {
+				t.Fatalf("want one dropped value, got %+v", delta)
+			}
+			encoded, err := json.Marshal(delta.Changes[0])
+			if err != nil {
+				t.Fatalf("encoding evidence: %v", err)
+			}
+			var restored fingerprint.Change
+			if err = json.Unmarshal(encoded, &restored); err != nil {
+				t.Fatalf("decoding evidence: %v", err)
+			}
+			_, err = suggest.Express(testCase.schemas, suggest.Evidence{}, restored)
+
+			if !errors.Is(err, suggest.ErrVolatile) {
+				t.Fatalf("a volatile-masked baseline refused as %v, want the "+
+					"volatile refusal", err)
+			}
+
+			if errors.Is(err, suggest.ErrUnrenderable) {
+				t.Fatalf("the volatile refusal reports the value unrenderable: %v", err)
+			}
+
+			if strings.Contains(err.Error(), "\x00") {
+				t.Fatalf("the refusal carries the mask's control byte: %q", err.Error())
+			}
+		})
+	}
+}
+
 // TestAValueThePlanMarksUnknownIsRefusedUnderPlan is the plan-unknown
 // contract: under a `command = plan` run, a known-to-unknown delta whose
 // value side the mutant's own after_unknown record covers renders in no

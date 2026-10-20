@@ -43,9 +43,10 @@ type render struct {
 // equality renders the assert condition for one delta change, or fails closed.
 func (r render) equality(
 	parts traversalParts,
-	baseline, mutant string,
+	change fingerprint.Change,
 	evidence Evidence,
 ) (string, error) {
+	baseline, mutant := change.Baseline, change.Mutant
 	expression, resource, attribute := parts.expression, parts.resource, parts.attribute
 
 	// A path that continues past the value body — an element of a list-valued
@@ -97,6 +98,11 @@ func (r render) equality(
 	if baseline == "" {
 		return "", fmt.Errorf("%w: the value is absent from the baseline, and an "+
 			"assertion cannot express the absence of a value", ErrUnrenderable)
+	}
+
+	if change.BaselineVolatile {
+		return "", fmt.Errorf("%w: the volatile mask removed what a later run "+
+			"differs in, so no assertion can honestly pin it", ErrVolatile)
 	}
 
 	// A delta the mutant's own plan marks unknown: under a `command = plan`

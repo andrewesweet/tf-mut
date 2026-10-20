@@ -92,7 +92,7 @@ uses only built-in `terraform_data` resources, and the source fixture remains un
 
 **Minor bump 2.17.0, one new file per version.** The field layout and enumerations remain;
 changed execution semantics require a versioned consumer contract under the repository's
-schema rule. The [published schema](../schema/report-2.17.0.json) owns that contract for
+schema rule. The [published schema](../schema/report-2.18.0.json) owns that contract for
 `runs[].phase`, per-mutant `telemetry.phases`, and diagnostic severity. In particular, consumers
 that attributed a Terraform child invocation to every fingerprint timing must read the
 updated phase description. Run-level `telemetry.phases` retains its meaning.

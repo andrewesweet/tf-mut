@@ -52,7 +52,10 @@ import (
 // rows and child invocations record the two-phase schedule the engine no
 // longer follows. It replays as a miss and is re-executed, not trusted
 // across the change.
-const cacheFormatVersion = "tf-mut-cache-9"
+// The tf-mut-cache-10 bump requires stored changes to carry baseline mask
+// provenance. Replaying older observations would lose the volatile refusal
+// when suggestions are regenerated from cached evidence.
+const cacheFormatVersion = "tf-mut-cache-10"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
