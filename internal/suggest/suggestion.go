@@ -24,6 +24,9 @@ const (
 	// SkipSensitive marks a delta whose value — or an ancestor of it —
 	// Terraform marks sensitive. No artefact contains the value.
 	SkipSensitive SkipReason = "skipped-sensitive"
+	// SkipVolatile marks a delta whose baseline value the volatile mask
+	// removed: a later run differs, so no assertion can honestly pin it.
+	SkipVolatile SkipReason = "skipped-volatile"
 	// SkipUnaddressable marks a delta the address adapter could not express
 	// as a legal traversal in the selected run's target module.
 	SkipUnaddressable SkipReason = "skipped-unaddressable"

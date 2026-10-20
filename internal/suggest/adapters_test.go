@@ -915,9 +915,9 @@ func TestTheSensitivityPredicateRefusesBeforeAnythingRenders(t *testing.T) {
 
 // TestAVolatileMaskedBaselineIsNeverRendered is the D16 contract at the
 // rendering adapter: a baseline value the volatile mask removed — the whole
-// value, or a masked component inside a quoted rendering — is refused before
-// any rendering, with a refusal that says the value is volatile and carries
-// no control byte into any reason text.
+// value, a dropped map entry's value, or a masked component inside a quoted
+// rendering — is refused before any rendering, with the volatile refusal
+// rather than the unrenderable one, and no control byte in any reason text.
 func TestAVolatileMaskedBaselineIsNeverRendered(t *testing.T) {
 	t.Parallel()
 
@@ -958,8 +958,13 @@ func TestAVolatileMaskedBaselineIsNeverRendered(t *testing.T) {
 				changeAt(testCase.path, testCase.baseline),
 			)
 
-			if err == nil {
-				t.Fatalf("a volatile-masked baseline rendered rather than refused")
+			if !errors.Is(err, suggest.ErrVolatile) {
+				t.Fatalf("a volatile-masked baseline refused as %v, want the "+
+					"volatile refusal", err)
+			}
+
+			if errors.Is(err, suggest.ErrUnrenderable) {
+				t.Fatalf("the volatile refusal reports the value unrenderable: %v", err)
 			}
 
 			if strings.Contains(err.Error(), "\x00") {

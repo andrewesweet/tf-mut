@@ -14,7 +14,7 @@ import (
 )
 
 // schemaPath is the published contract the JSON reporter promises to keep.
-const schemaPath = "../../docs/schema/report-2.17.0.json"
+const schemaPath = "../../docs/schema/report-2.18.0.json"
 
 func TestPublishedSchemaMatchesTheReportersVersion(t *testing.T) {
 	t.Parallel()
@@ -456,7 +456,8 @@ func sampleSuggestions() []report.Suggestion {
 	}...)
 
 	for index, status := range []report.SuggestionStatus{
-		report.SuggestionSkippedSensitive, report.SuggestionSkippedUnaddressable,
+		report.SuggestionSkippedSensitive, report.SuggestionSkippedVolatile,
+		report.SuggestionSkippedUnaddressable,
 		report.SuggestionSkippedUnrenderable, report.SuggestionSkippedUnsupportedTarget,
 		report.SuggestionSkippedOutputMetadata,
 	} {

@@ -1,0 +1,1911 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/andrewesweet/tf-mut/docs/schema/report-2.18.0.json",
+  "title": "tf-mut report",
+  "description": "The machine-readable tf-mut report. The version in schema_version changes whenever a consumer could break: removed fields, renamed fields, or changed semantics of an existing field. Version 2 adds the fingerprint oracle's states and diagnoses, per-run phases, suppressions and per-operator error counts. Version 2.1.0 adds, additively: per-mutant provenance (selection, execution, cache key, baseline status), the selected/omitted/cached/fresh population split, the selection record, sampling metadata, and the gate table outcomes. Version 2.2.0 adds, additively: the suggestion outcome table with its closed status vocabulary and two-leg verification evidence, the record of what an --apply invocation wrote, and the sensitivity flag each delta change carries. The suggestion outcome table’s presence rules are normative and encoded: every skipped status carries no patch and a status_reason; refuted requires status_reason and verification; verified requires verified_digest and verification. Version 2.3.0 adds, additively: the characterisation block — scenarios, pins, TODOs, scaffolds, curate findings, generated files, the write record and the until-dry convergence evidence. Its status vocabularies are closed, and its presence rules are normative and encoded: every skipped pin carries no expression and a reason, every open TODO carries no executable content, and a sensitive value reaches no field at all. Extending one of these closed enumerations is a minor schema version with the consumer contract documented, not a silently additive change. Version 2.4.0 extends, additively: the mutant tier enumeration with `pack` — Tier 5, the domain packs, selected per pack and never in a default selection, so no report of a command run without a pack carries a `pack`-tier mutant; the per-mutant `origins` provenance; and the operator enumeration with the three lifecycle identifiers M5-0.1 admitted to `deep` on their kill witnesses (#157) and the two pack form operators M5c.1 admits (#160) — `PACK-FLIP` and `PACK-REPLACE`, the operators a pack entry parameterises — whose reports validate here. The consumer contract for `origins`: present exactly when at least one pack entry produced the mutant's bytes, never empty, and always present on a `pack`-tier mutant, whose bytes a pack entry produced by definition; each entry is `{ operator, pack, entry }` — the form operator the entry parameterised, the pack's name, and the entry's author-supplied label, the pair `(pack, entry)` being the origin's stable wire identity — sorted and deduplicated by `(pack, entry)`; aggregation is independent of which operator owns the row, so a language-operator row carries origins the same way a pack-operator row does, and a report produced with no pack selected carries none. Benchmark row outcomes are a separate benchmark document's vocabulary, not this report's. Version 2.5.0 extends, additively: the operator enumeration with the third pack form operator `PACK-WIDEN-CIDR`, which #176 implemented and admitted — the form a pack entry with `widen-cidr` parameterises, widening a top-level scalar IPv4 CIDR literal to `0.0.0.0/0`. Nothing else changes: a report of a command run with no pack selected is byte-identical under 2.4.0 and 2.5.0 semantics, and every 2.4.0 document without the new operator validates unchanged. Version 2.6.0 changes the mutant `id` derivation for identity collisions, with no field added, removed or renamed. The identity and acceptance-list migration contract is documented in docs/design/product-design.md. For a population with no collision, documents validate and read identically under 2.5.0 and 2.6.0 apart from the required schema_version stamp, which must match the schema used. Version 2.7.0 extends, additively: the run-level `telemetry` block — the command's wall time, the named phases it executed, the resource usage of every child Terraform process aggregated by subcommand, the instrumentation's own recorded cost, and a statement of what the child numbers cover — and per-mutant `telemetry` on every mutant the run executed. Both blocks are optional: the run-level block is absent for a command that runs no grading pipeline, and the per-mutant block is absent for a mutant never executed, a verdict replayed from the cache, or a state assigned statically. No existing field changed name, type or meaning, and no verdict, score or gate reads the telemetry: a report of the same verdicts differs from its 2.6.0 counterpart only in the new fields and the schema_version stamp. Version 2.8.0 changes the semantics of one existing field: `metrics.incomplete` widens from `a timeout made the score untrustworthy` to `the score is untrustworthy` — a timeout left part of the population unobserved, a non-empty population produced no score at all (including all-Invalid, all-Unobservable and all-Ignored populations), or at least 25% of the judged (non-Ignored) population was rejected by terraform validate. No field was added, removed or renamed, and the exit-code semantics are unchanged; a consumer treating the field as a do-not-publish marker needs no change; a consumer reading it as a timeout happened must read the widened contract. 2.9.0 is the deadline-visibility additive revision: the per-mutant `deadline_reached` flag — true exactly when this mutant's Terraform test invocation reached its execution budget, whatever verdict the runs that finished first earned. Verdict precedence is unchanged: a deadline does not replace an `invalid`, `killed` or `killed_by_error` verdict; otherwise it is `timeout`. Documents validated against this schema must carry the flag; a consumer that treats the field's absence as false reads 2.8.0 documents unchanged, and a consumer may ignore the field with no other change. Version 2.10.0 changes the semantics of one existing field: `metrics.incomplete` widens again to include a consecutive-failure trip that stopped the run early and left part of the population unobserved. Every tripped run is incomplete, including when the trip fired with zero undispatched mutants, because the operationally failed mutants remain unobserved. No field was added, removed or renamed, and the exit-code semantics are unchanged. A consumer treating the field as a do-not-publish marker needs no change; a consumer inferring a timeout, an unscored population or a high Invalid share must read the widened contract. Versions 2.9.0 and earlier remain published for consumers of those contracts. Version 2.10.0 also extends execution provenance with unexecuted for selected mutants never dispatched after a trip. These rows retain their selection provenance and contribute to neither population.fresh nor population.cached. Consumers must accept the unexecuted value or fail closed on an unknown execution value; selected minus fresh minus cached is the undispatched count. Version 2.11.0 extends, additively: the run-level telemetry block carries run_id, the one identifier that ties the run’s outputs together. It is the run span’s trace ID when tracing is enabled and a random identifier of the same 32-hex-character shape otherwise; every stderr line the tool writes during the run carries it as a `[run_id] ` prefix; and each mutant’s execution error is recorded as an event on that mutant’s span, carrying the same text the report carries. No existing field changed name, type or meaning, and no verdict, score or gate reads it: a report of the same verdicts differs from its 2.10.0 counterpart only in the new field and the schema_version stamp. Versions 2.10.0 and earlier remain published for consumers of those contracts. Version 2.12.0 extends, additively: the optional top-level cache_miss block, defined in $defs.cache_miss. No existing field changed name, type or meaning, and no verdict, score or gate reads it: a report of the same verdicts differs from its 2.11.0 counterpart only in the new block and the schema_version stamp. Versions 2.11.0 and earlier remain published for consumers of those contracts. Version 2.13.0 changes the semantics of one existing field: `metrics.incomplete` widens once more to include execution errors — any mutant that could not be evaluated at all marks the score incomplete, because its verdict was never reliably observed. No field was added, removed or renamed, and the exit-code semantics are unchanged. A consumer treating the field as a do-not-publish marker needs no change; a consumer inferring a trip, a timeout, an unscored population or a high Invalid share must read the widened contract. Versions 2.12.0 and earlier remain published for consumers of those contracts. Version 2.14.0 changes the suggestion verification semantics without changing the field layout. A verified suggestion requires a green baseline and a completed test failure against at least one listed mutant, not necessarily its carrier or every listed member. mutant_id is the carrier used to derive the stable suggestion identity; also_kills lists the other survivors folded into that assertion, not proven kills. verification.mutant.passed is the existential result across all listed members. Its detail names each member and its outcome, including execution failures; runs concatenates completed members' run records in verification order (mutant_id, then also_kills). An execution failure cannot prove a kill, discard completed evidence or skip later members. Consumers must not infer a carrier kill or universal kills from verified or also_kills membership. Version 2.13.0 remains published for consumers of the earlier meanings. Version 2.15.0 extends the closed suggestion status vocabulary; see $defs.suggestion_status for the metadata-only outcome. No existing field changed name, type or meaning. Consumers must accept the new status or fail closed on an unknown suggestion status. Version 2.14.0 remains published for consumers of the earlier vocabulary. Version 2.16.0 extends, additively, with the timing data that attributes run cost: per-run `elapsed_ms` on every run outcome — the run block's wall time measured from the starting and completion events the Terraform test stream already carries, absent where the stream carried no pair (a run block skipped after an earlier error completes without ever starting, and a stream cut short never completes the run); per-test-file timing on the baseline block, `files`, one entry per test file the baseline executed in completion order with its run count and wall time from the same stream, absent when no file completed; and `started_at` — the RFC 3339 UTC start instant — on `phase_timing` and on per-mutant `mutant_telemetry`, which until this version carried durations only. No existing field changed name, type or meaning, and no verdict, score or gate reads any of it: a report of the same verdicts differs from its 2.15.0 counterpart only in the new fields and the schema_version stamp. Version 2.15.0 remains published for consumers of the earlier contract. Version 2.17.0 changes mutant execution to one verbose invocation. The consumer migration contract is defined in $defs.run_outcome.properties.phase, $defs.mutant_telemetry.properties.phases and $defs.mutant.properties.diagnostics. No field or enumeration value is removed. Version 2.18.0 extends the closed suggestion status vocabulary with skipped-volatile, the outcome for a suggestion whose baseline value the volatile mask removed: a later run differs, so no assertion can honestly pin it. The skip says the value is volatile; the mask's marker byte reaches no reason, patch or expression. No existing field changed name, type or meaning. Consumers must accept the new status or fail closed on an unknown suggestion status. Version 2.17.0 remains published for consumers of the earlier vocabulary.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "command",
+    "module",
+    "terraform_version",
+    "test_directory",
+    "baseline",
+    "mutants",
+    "findings",
+    "metrics",
+    "operator_errors",
+    "suppressions",
+    "warnings",
+    "errors",
+    "population",
+    "selection"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.18.0"
+    },
+    "command": {
+      "type": "string",
+      "enum": [
+        "run",
+        "preview",
+        "suggest",
+        "characterise",
+        "curate",
+        "todos"
+      ]
+    },
+    "module": {
+      "type": "string",
+      "description": "Absolute directory of the module under test."
+    },
+    "closure_root": {
+      "type": "string",
+      "description": "Absolute directory containing every local module; mutant file paths are relative to it."
+    },
+    "terraform_version": {
+      "type": "string"
+    },
+    "test_directory": {
+      "type": "string",
+      "description": "Test directory, relative to the module."
+    },
+    "baseline": {
+      "type": "object",
+      "required": [
+        "runs",
+        "assertions",
+        "duration_ms",
+        "fingerprint",
+        "volatile_components"
+      ],
+      "properties": {
+        "runs": {
+          "type": "integer"
+        },
+        "assertions": {
+          "type": "integer"
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "fingerprint": {
+          "type": "string",
+          "description": "Composed masked fingerprint of the unmutated suite."
+        },
+        "volatile_components": {
+          "type": "array",
+          "description": "Canonical payload paths the volatile mask removes.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/file_timing"
+          },
+          "description": "One timing entry per test file the baseline executed, in completion order. Absent when no file completed; the entries' runs counts sum to runs."
+        }
+      }
+    },
+    "mutants": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/mutant"
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "mutation_score",
+        "assertion_score",
+        "reachability",
+        "incomplete",
+        "counts",
+        "diagnoses",
+        "scored"
+      ],
+      "properties": {
+        "mutation_score": {
+          "type": "number"
+        },
+        "assertion_score": {
+          "type": "number"
+        },
+        "reachability": {
+          "type": "number"
+        },
+        "incomplete": {
+          "type": "boolean",
+          "description": "True when the score is untrustworthy: a consecutive-failure trip stopped dispatching and left part of the population unobserved, a timeout left part unobserved, an execution error left a mutant unevaluated, a non-empty population produced no score at all (including all-Invalid, all-Unobservable and all-Ignored populations), or at least 25% of the judged (classified minus Ignored) population was rejected by terraform validate. Every trip sets it, including when zero selected mutants remained undispatched, because operationally failed mutants remain unobserved. Any execution error sets it, even when every other mutant was scored, because the errored mutant's verdict was never reliably observed. A truly empty classified population with no trip and no error does not set it. Version 2.8.0 widened this from timeouts alone; version 2.10.0 widens it again to include consecutive-failure trips; version 2.13.0 widens it once more to include execution errors."
+        },
+        "counts": {
+          "type": "object",
+          "description": "Number of mutants in each state.",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "diagnoses": {
+          "type": "object",
+          "description": "Number of survivors carrying each diagnosis.",
+          "additionalProperties": {
+            "type": "integer"
+          }
+        },
+        "scored": {
+          "type": "integer",
+          "description": "Killed + KilledByError + Survived + StructurallyUnassertable + NoCoverage + Timeout."
+        }
+      }
+    },
+    "operator_errors": {
+      "type": "array",
+      "description": "Per-operator generation quality, so that the selective-validation question can be answered from data.",
+      "items": {
+        "type": "object",
+        "required": [
+          "operator",
+          "generated",
+          "invalid",
+          "killed_by_error",
+          "error_rate"
+        ],
+        "properties": {
+          "operator": {
+            "$ref": "#/$defs/operator"
+          },
+          "generated": {
+            "type": "integer"
+          },
+          "invalid": {
+            "type": "integer"
+          },
+          "killed_by_error": {
+            "type": "integer"
+          },
+          "error_rate": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "suppressions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/suppression"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "errors": {
+      "type": "array",
+      "description": "Mutants that produced no trustworthy verdict. Never a survivor.",
+      "items": {
+        "type": "object",
+        "required": [
+          "mutant_id",
+          "site",
+          "message"
+        ],
+        "properties": {
+          "mutant_id": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "population": {
+      "$ref": "#/$defs/population"
+    },
+    "cache_miss": {
+      "$ref": "#/$defs/cache_miss"
+    },
+    "selection": {
+      "$ref": "#/$defs/selection"
+    },
+    "sampling": {
+      "$ref": "#/$defs/sampling"
+    },
+    "gates": {
+      "$ref": "#/$defs/gates"
+    },
+    "suggestions": {
+      "type": "array",
+      "description": "The generated assertion outcome table (2.2.0). Present only for the suggest command.",
+      "items": {
+        "$ref": "#/$defs/suggestion"
+      }
+    },
+    "apply": {
+      "$ref": "#/$defs/applied_suggestions"
+    },
+    "characterisation": {
+      "$ref": "#/$defs/characterisation",
+      "description": "The scaffold, pin, TODO and curate block (2.3.0). Present only for the characterise, todos and curate commands."
+    },
+    "telemetry": {
+      "$ref": "#/$defs/telemetry"
+    }
+  },
+  "$defs": {
+    "position": {
+      "type": "object",
+      "required": [
+        "line",
+        "column"
+      ],
+      "properties": {
+        "line": {
+          "type": "integer"
+        },
+        "column": {
+          "type": "integer"
+        }
+      }
+    },
+    "range": {
+      "type": "object",
+      "required": [
+        "file",
+        "start",
+        "end"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Path relative to the local-module closure root."
+        },
+        "start": {
+          "$ref": "#/$defs/position"
+        },
+        "end": {
+          "$ref": "#/$defs/position"
+        }
+      }
+    },
+    "operator": {
+      "type": "string",
+      "enum": [
+        "ARITH-SWAP",
+        "BOOL-AND-OR",
+        "BOOL-LITERAL-FLIP",
+        "BOOL-NEGATE-INSERT",
+        "BOOL-NEGATE-REMOVE",
+        "BOOL-OR-AND",
+        "CHECK-NEGATE",
+        "CHECK-REMOVE",
+        "CMP-BOUNDARY",
+        "CMP-EQ-NE",
+        "CMP-INVERT",
+        "COLL-DROP-ENTRY",
+        "COLL-DROP-FIRST",
+        "COLL-DROP-LAST",
+        "COLL-EMPTY",
+        "COLL-REVERSE",
+        "COND-FALSE",
+        "COND-NEGATE",
+        "COND-SWAP",
+        "COND-TRUE",
+        "COUNT-OFF-BY-ONE",
+        "COUNT-ONE",
+        "COUNT-ZERO",
+        "DEPENDS-DROP",
+        "DYNAMIC-ZERO",
+        "EXT-ATTR-DELETE",
+        "EXT-BODY-BLANK",
+        "EXT-LOCAL-NULL",
+        "EXT-MODULE-INPUT-DELETE",
+        "EXT-OUTPUT-NULL",
+        "EXT-RESOURCE-DELETE",
+        "FN-ARG-REORDER",
+        "FN-CAN-TRUE",
+        "FN-DROP-DEFAULT",
+        "FN-DROP-EXPANSION",
+        "FN-DROP-WRAPPER",
+        "FN-JOIN-SEP",
+        "FN-SWAP",
+        "FN-TRY-FIRST",
+        "FOR-DROP-GROUPING",
+        "FOR-DROP-IF",
+        "FOR-NEGATE-IF",
+        "FOR-SWAP-KV",
+        "FOREACH-EMPTY",
+        "FOREACH-TO-COUNT",
+        "HEREDOC-INDENT-FLIP",
+        "IDX-SHIFT",
+        "LC-IGNORE-ALL",
+        "LC-IGNORE-DROP",
+        "LC-REPLACE-TRIGGER-DROP",
+        "NULL-INJECT",
+        "NUM-NEGATE",
+        "NUM-OFF-BY-ONE",
+        "NUM-ZERO",
+        "OUT-SENSITIVE-FLIP",
+        "PACK-FLIP",
+        "PACK-REPLACE",
+        "PACK-WIDEN-CIDR",
+        "PRE-POST-NEGATE",
+        "PRE-POST-REMOVE",
+        "PROVIDER-ALIAS-SWAP",
+        "SPLAT-FIRST",
+        "STR-CASE",
+        "STR-EMPTY",
+        "TPL-DROP-INTERP",
+        "TPL-IF-COLLAPSE",
+        "TPL-STRIP-FLIP",
+        "VAR-DEFAULT-CHANGE",
+        "VAR-DEFAULT-NULL",
+        "VAR-DEFAULT-REMOVE",
+        "VAR-NULLABLE-FLIP",
+        "VAR-OPTIONAL-DEFAULT-DROP",
+        "VAR-SENSITIVE-FLIP",
+        "VAR-VALIDATION-NEGATE",
+        "VAR-VALIDATION-REMOVE",
+        "VAR-VALIDATION-WEAKEN"
+      ]
+    },
+    "diagnosis": {
+      "type": "string",
+      "description": "Set only for Survived. Exactly one, assigned by the normative precedence: indeterminate-unknown-values, indeterminate-volatility, weak-assertion, no-assertion, unasserted. The mock-masked value is deprecated: withdrawn in M3 (#50), retained so 2.0 documents stay valid, never emitted again.",
+      "enum": [
+        "indeterminate-unknown-values",
+        "indeterminate-volatility",
+        "mock-masked",
+        "weak-assertion",
+        "no-assertion",
+        "unasserted"
+      ]
+    },
+    "change": {
+      "type": "object",
+      "required": [
+        "run",
+        "path",
+        "baseline",
+        "mutant"
+      ],
+      "properties": {
+        "run": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string",
+          "description": "Canonical payload path."
+        },
+        "address": {
+          "type": "string",
+          "description": "Terraform address the path names, when it names one."
+        },
+        "baseline": {
+          "type": "string",
+          "description": "Canonical rendering; empty means the path was absent."
+        },
+        "mutant": {
+          "type": "string"
+        },
+        "sensitive": {
+          "type": "boolean",
+          "description": "Terraform marks this value, or a container of it, sensitive (2.2.0). Retention is not permission to render: it is what the suggestion engine refuses to inline the value from."
+        }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "required": [
+        "message",
+        "fix",
+        "evidence"
+      ],
+      "properties": {
+        "diagnosis": {
+          "$ref": "#/$defs/diagnosis"
+        },
+        "message": {
+          "type": "string"
+        },
+        "fix": {
+          "type": "string"
+        },
+        "evidence": {
+          "type": "object",
+          "properties": {
+            "delta": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/change"
+              }
+            },
+            "unknown_paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "volatile_components": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "unstable_attributes": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "assertion": {
+              "type": "string"
+            },
+            "closure_verdict": {
+              "type": "string"
+            },
+            "defeated_by": {
+              "type": "string"
+            },
+            "mock_resource": {
+              "type": "string",
+              "description": "Deprecated: carried only by the withdrawn mock-masked diagnosis (M3, #50); retained so 2.0 documents stay valid, never emitted again."
+            }
+          }
+        }
+      }
+    },
+    "suppression": {
+      "type": "object",
+      "required": [
+        "kind",
+        "accepted"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "comment",
+            "config-operator",
+            "config-path",
+            "config-resource"
+          ]
+        },
+        "operators": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason": {
+          "type": "string"
+        },
+        "accepted": {
+          "type": "boolean",
+          "description": "A directive without a reason does not suppress: the finding stands and the directive is reported here as rejected."
+        },
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "mutants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rejection": {
+          "type": "string"
+        }
+      }
+    },
+    "mutant": {
+      "type": "object",
+      "required": [
+        "id",
+        "operator",
+        "tier",
+        "module",
+        "site",
+        "range",
+        "diff",
+        "state",
+        "runs",
+        "executed_runs",
+        "validated",
+        "deadline_reached"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable content-derived mutant identifier. Its derivation, collision handling and stability contract are documented in docs/design/product-design.md."
+        },
+        "operator": {
+          "$ref": "#/$defs/operator"
+        },
+        "tier": {
+          "type": "string",
+          "enum": [
+            "smoke",
+            "standard",
+            "deep",
+            "pack"
+          ]
+        },
+        "module": {
+          "type": "string",
+          "description": "Module directory relative to the closure root."
+        },
+        "site": {
+          "type": "string",
+          "description": "Semantic address of the mutation site."
+        },
+        "resource": {
+          "type": "string",
+          "description": "Managed resource address the site belongs to, when it has one."
+        },
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "diff": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "Invalid",
+            "Killed",
+            "KilledByError",
+            "Timeout",
+            "Survived",
+            "StructurallyUnassertable",
+            "Unobservable",
+            "NoCoverage",
+            "Ignored",
+            "Pending"
+          ]
+        },
+        "verdict": {
+          "$ref": "#/$defs/verdict"
+        },
+        "runs": {
+          "type": "array",
+          "description": "Per-run outcomes, recorded orthogonally to the aggregate state. Since 2.17.0 the engine executes one verbose invocation per mutant and publishes only phase-one rows; a phase-two row appears only in a report published by the pre-2.17.0 two-phase engine, where it recorded the separate survivor-side fingerprint invocation (the same run block re-executed verbose). A consumer reading phase must treat 2 as that historical marker, never as a row a 2.17.0-or-later engine writes.",
+          "items": {
+            "$ref": "#/$defs/run_outcome"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "description": "The diagnostics the mutant's execution reported, in the engine's canonical order. They are lifted from the Terraform test stream the mutant's single invocation produced — verbose since 2.17.0 — so a severity is the stream's own. One consequence is dated: Terraform reports a failing check-block assertion as error in a plain stream and as warning under -verbose (verified against v1.15.8), so a check-block failure a pre-2.17.0 report carried at error carries warning here. State, summary and score are unaffected; a consumer keying on severity for check-block failures must read this note.",
+          "items": {
+            "type": "object",
+            "required": [
+              "severity",
+              "summary",
+              "detail"
+            ],
+            "properties": {
+              "severity": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              },
+              "range": {
+                "$ref": "#/$defs/range"
+              },
+              "test_file": {
+                "type": "string"
+              },
+              "test_run": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "executed_runs": {
+          "type": "integer"
+        },
+        "validated": {
+          "type": "boolean",
+          "description": "Whether lazy validation ran, which happens only after a run-level error."
+        },
+        "deadline_reached": {
+          "type": "boolean",
+          "description": "True exactly when this mutant's Terraform test invocation reached its execution budget, whatever the final verdict: the finished runs' verdicts stand and the state vocabulary is unchanged."
+        },
+        "suppression": {
+          "$ref": "#/$defs/suppression"
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        },
+        "origins": {
+          "type": "array",
+          "description": "The pack provenance (2.4.0): every (operator, pack, entry) whose rewrite produced this mutant's bytes, sorted and deduplicated by (pack, entry). Present exactly when at least one pack entry produced the mutant's bytes — never empty, and always present on a pack-tier mutant. Aggregation is independent of which operator owns the row, so a language-operator row carries origins the same way a pack-operator row does; a report produced with no pack selected carries none.",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "operator",
+              "pack",
+              "entry"
+            ],
+            "properties": {
+              "operator": {
+                "type": "string",
+                "description": "The catalogue identifier of the form operator the pack entry parameterised."
+              },
+              "pack": {
+                "type": "string",
+                "description": "The pack's name."
+              },
+              "entry": {
+                "type": "string",
+                "description": "The entry's author-supplied label; the pair (pack, entry) is the origin's stable wire identity."
+              }
+            }
+          }
+        },
+        "telemetry": {
+          "$ref": "#/$defs/mutant_telemetry"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "tier": {
+                "const": "pack"
+              }
+            },
+            "required": [
+              "tier"
+            ]
+          },
+          "then": {
+            "required": [
+              "origins"
+            ]
+          }
+        }
+      ]
+    },
+    "finding": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "address",
+        "module",
+        "range",
+        "message",
+        "mutants"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "pseudo-tested"
+          ]
+        },
+        "address": {
+          "type": "string"
+        },
+        "module": {
+          "type": "string"
+        },
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "message": {
+          "type": "string"
+        },
+        "mutants": {
+          "type": "array",
+          "description": "Identifiers of the mutants supporting the finding.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Why the mutant is in this run and how its verdict was obtained.",
+      "required": [
+        "selection",
+        "execution"
+      ],
+      "properties": {
+        "selection": {
+          "enum": [
+            "full",
+            "since",
+            "sample"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "execution": {
+          "description": "Fresh identifies a current evaluation; cached identifies a replayed verdict; unexecuted identifies a selected mutant never dispatched because a consecutive-failure trip stopped the run. Unexecuted mutants retain their selection provenance and Pending state, contribute to neither population.fresh nor population.cached, and leave selected minus fresh minus cached as the undispatched count. Version 2.10.0 extends this closed vocabulary with unexecuted; consumers must accept it or fail closed on an unknown execution value.",
+          "enum": [
+            "fresh",
+            "cached",
+            "unexecuted"
+          ]
+        },
+        "cache_key": {
+          "type": "string"
+        },
+        "baseline_status": {
+          "enum": [
+            "new",
+            "accepted",
+            "unobserved"
+          ]
+        }
+      }
+    },
+    "population": {
+      "type": "object",
+      "description": "The population split: what this run selected, left out, replayed and executed.",
+      "required": [
+        "selected",
+        "omitted",
+        "cached",
+        "fresh"
+      ],
+      "properties": {
+        "selected": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "omitted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cached": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "fresh": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "cache_miss": {
+      "type": "object",
+      "description": "The optional environment-change explanation (2.12.0); availability follows the cache contract in docs/design/product-design.md#10-ci-integration. Each present list contains sorted variable names, never values, with at least one name. The three lists jointly carry at most 32 names, filling added before removed before changed; truncated is true when names were omitted.",
+      "properties": {
+        "added": {
+          "type": "array",
+          "description": "Variable names the current environment carries that the stored generation did not.",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "removed": {
+          "type": "array",
+          "description": "Variable names the stored generation carried that the current environment does not.",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "changed": {
+          "type": "array",
+          "description": "Variable names both carry under different values.",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when the joint name-list bound omitted names; absent otherwise."
+        }
+      }
+    },
+    "selection": {
+      "type": "object",
+      "description": "How the population was chosen.",
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "full",
+            "since"
+          ]
+        },
+        "ref": {
+          "type": "string"
+        },
+        "forced_full": {
+          "type": "string",
+          "description": "Why a --since run fell back to the full population."
+        }
+      }
+    },
+    "sampling": {
+      "type": "object",
+      "description": "Sampling metadata. A sampled run is never authoritative.",
+      "required": [
+        "rate_percent",
+        "seed",
+        "authoritative"
+      ],
+      "properties": {
+        "rate_percent": {
+          "type": "number"
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "authoritative": {
+          "const": false
+        },
+        "gate_opt_in": {
+          "type": "boolean",
+          "description": "True where --allow-sampled-gate let this sample satisfy a gate."
+        }
+      }
+    },
+    "gate_outcome": {
+      "type": "object",
+      "description": "One row outcome of the normative gate table.",
+      "required": [
+        "evaluated"
+      ],
+      "properties": {
+        "evaluated": {
+          "type": "boolean"
+        },
+        "scope": {
+          "enum": [
+            "full",
+            "selected"
+          ]
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "refused": {
+          "type": "string"
+        }
+      }
+    },
+    "baseline_gate": {
+      "type": "object",
+      "description": "What the baseline file contributed to the run.",
+      "required": [
+        "path",
+        "accepted",
+        "matched",
+        "new",
+        "staleness_reported"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "accepted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "matched": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "new": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stale": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unobserved": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "staleness_reported": {
+          "type": "boolean"
+        },
+        "write": {
+          "enum": [
+            "permitted",
+            "refused",
+            "written"
+          ]
+        }
+      }
+    },
+    "gates": {
+      "type": "object",
+      "description": "The gate table's outcomes for this run.",
+      "required": [
+        "min_score",
+        "fail_on_new"
+      ],
+      "properties": {
+        "min_score": {
+          "$ref": "#/$defs/gate_outcome"
+        },
+        "fail_on_new": {
+          "$ref": "#/$defs/gate_outcome"
+        },
+        "baseline": {
+          "$ref": "#/$defs/baseline_gate"
+        }
+      }
+    },
+    "suggestion_status": {
+      "type": "string",
+      "description": "The closed suggestion status vocabulary. In 2.14.0 verified requires a green baseline and at least one listed mutant failing the assertion; it does not prove a carrier kill or a kill of every listed member. 2.15.0 adds skipped-output-metadata when the complete delta changes only an output's type or sensitivity metadata, with no output value difference to assert. These payload metadata fields are not assertion targets. 2.18.0 adds skipped-volatile when the suggestion's baseline value carries the volatile mask's marker — the mask removed what a later run differs in, so no assertion can honestly pin it; the reason text names the volatility and carries no marker byte.",
+      "enum": [
+        "candidate",
+        "verified",
+        "refuted",
+        "skipped-sensitive",
+        "skipped-unaddressable",
+        "skipped-unrenderable",
+        "skipped-volatile",
+        "skipped-unsupported-target",
+        "skipped-output-metadata"
+      ]
+    },
+    "verification_leg": {
+      "type": "object",
+      "required": [
+        "passed",
+        "runs",
+        "detail"
+      ],
+      "properties": {
+        "passed": {
+          "type": "boolean",
+          "description": "Whether the leg met its requirement: green for the baseline leg, at least one completed member failing for the aggregate mutant leg."
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/run_outcome"
+          }
+        },
+        "detail": {
+          "type": "string"
+        }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "required": [
+        "baseline",
+        "mutant"
+      ],
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/verification_leg",
+          "description": "The full suite, run once with the target file’s candidate batch applied. Green required."
+        },
+        "mutant": {
+          "$ref": "#/$defs/verification_leg",
+          "description": "Aggregate of this suggestion alone against mutant_id and each also_kills member in that order. Passed means at least one completed member failed. Detail names each member and its outcome, including execution failures; runs concatenates completed members' run records. Baseline-refuted suggestions carry a not-run mutant leg. No execution failure proves a kill, erases completed evidence or skips later members."
+        }
+      }
+    },
+    "suggestion": {
+      "type": "object",
+      "required": [
+        "id",
+        "mutant_id",
+        "target_file",
+        "target_run",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Content hash over the mutant identifier, the target run and the expression. Stable across runs."
+        },
+        "mutant_id": {
+          "type": "string",
+          "description": "The carrier survivor used to derive the stable suggestion identity. It need not be killed even when status is verified."
+        },
+        "also_kills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Further survivors folded into this candidate assertion. Each member is verified independently; membership is not proof of a kill. verification.mutant.detail names each member and its outcome."
+        },
+        "target_file": {
+          "type": "string",
+          "description": "Test file, relative to the module directory."
+        },
+        "target_run": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/suggestion_status"
+        },
+        "expression": {
+          "type": "string",
+          "description": "The generated assert condition. Absent for every status whose reason forbids one."
+        },
+        "patch": {
+          "type": "string",
+          "description": "Unified diff adding the assertion. Present only for candidate, verified and refuted: every skipped status carries no patch."
+        },
+        "verified_digest": {
+          "type": "string",
+          "description": "SHA-256 of the target file as verified, which binds an apply to what was proven."
+        },
+        "verification": {
+          "$ref": "#/$defs/verification"
+        },
+        "status_reason": {
+          "type": "string",
+          "description": "Required for every refuted and every skipped status."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "skipped-sensitive",
+                  "skipped-unaddressable",
+                  "skipped-unrenderable",
+                  "skipped-unsupported-target",
+                  "skipped-output-metadata"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "patch"
+              ]
+            },
+            "required": [
+              "status_reason"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "refuted"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "status_reason",
+              "verification"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "verified"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "verified_digest",
+              "verification"
+            ]
+          }
+        }
+      ]
+    },
+    "applied_suggestions": {
+      "type": "object",
+      "required": [
+        "requested",
+        "written"
+      ],
+      "properties": {
+        "requested": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "written": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Target files written, in write order."
+        },
+        "pending": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Target files a failure left unwritten."
+        },
+        "aborted": {
+          "type": "string",
+          "description": "Why the protocol refused or stopped. A preflight refusal writes nothing at all."
+        },
+        "partial": {
+          "type": "boolean",
+          "description": "Some files were written and others were not."
+        }
+      }
+    },
+    "run_outcome": {
+      "type": "object",
+      "required": [
+        "file",
+        "run",
+        "phase",
+        "status"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "run": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "integer",
+          "description": "The execution stage that produced the row: one, the mutant's own test invocation, or two, the survivor-side fingerprint invocation of the pre-2.17.0 two-phase engine. Since 2.17.0 only one is published.",
+          "enum": [
+            1,
+            2
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "fail",
+            "error",
+            "skip"
+          ]
+        },
+        "elapsed_ms": {
+          "type": "integer",
+          "description": "The run block's wall time in milliseconds, measured from the timestamps of the starting and completion events the Terraform test stream carries. Absent when the stream carried no pair to measure."
+        }
+      }
+    },
+    "pin_status": {
+      "type": "string",
+      "enum": [
+        "pinned",
+        "skipped-sensitive",
+        "skipped-unrenderable",
+        "skipped-volatile",
+        "skipped-mock-invented"
+      ],
+      "description": "Closed vocabulary. Only `pinned` carries an expression."
+    },
+    "todo_status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "answered",
+        "promoted",
+        "rejected"
+      ],
+      "description": "Closed vocabulary. Promotion is the only route from a TODO into executable test content."
+    },
+    "scaffold_status": {
+      "type": "string",
+      "enum": [
+        "scaffolded",
+        "promoted"
+      ],
+      "description": "Closed vocabulary. Scaffolded material is non-executable until it has been verified and promoted."
+    },
+    "curate_kind": {
+      "type": "string",
+      "enum": [
+        "empty-kill-set",
+        "subsumed",
+        "cross-scenario-redundant"
+      ],
+      "description": "Closed vocabulary of redundancy findings."
+    },
+    "assertion_provenance": {
+      "type": "string",
+      "enum": [
+        "generated-unmodified",
+        "generated-edited",
+        "pre-existing"
+      ],
+      "description": "Decided mechanically against the generated-assertion registry, never guessed."
+    },
+    "input_provenance": {
+      "type": "string",
+      "enum": [
+        "default",
+        "mined",
+        "typed",
+        "answered"
+      ],
+      "description": "Where a scenario's variable assignment came from, in the synthesis preference order."
+    },
+    "scenario": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "state_key",
+        "file",
+        "inputs"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Content hash over the module, the input assignment set and the state key."
+        },
+        "name": {
+          "type": "string"
+        },
+        "state_key": {
+          "type": "string",
+          "description": "Isolates the scenario's Terraform state from every other generated scenario, so its pins describe creates rather than updates."
+        },
+        "file": {
+          "type": "string",
+          "description": "The generated test file, relative to the module directory."
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "expression",
+              "provenance"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "expression": {
+                "type": "string",
+                "description": "The assignment as written into the run block. A sensitive or ephemeral variable carries the withheld marker instead of a value."
+              },
+              "provenance": {
+                "$ref": "#/$defs/input_provenance"
+              }
+            }
+          }
+        }
+      }
+    },
+    "pin": {
+      "type": "object",
+      "required": [
+        "id",
+        "scenario",
+        "address",
+        "status",
+        "rung"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Content hash over the scenario, the address and the expression. The address is the dedup key: one pin per address per run."
+        },
+        "scenario": {
+          "type": "string"
+        },
+        "address": {
+          "type": "string"
+        },
+        "expression": {
+          "type": "string",
+          "description": "The generated assert condition. Absent for every skipped status."
+        },
+        "status": {
+          "$ref": "#/$defs/pin_status"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Required for every skipped status."
+        },
+        "rung": {
+          "type": "string",
+          "enum": [
+            "outputs",
+            "counts",
+            "configured"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "skipped-sensitive",
+                  "skipped-unrenderable",
+                  "skipped-volatile",
+                  "skipped-mock-invented"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "expression"
+              ]
+            },
+            "required": [
+              "reason"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "pinned"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "expression"
+            ]
+          }
+        }
+      ]
+    },
+    "todo": {
+      "type": "object",
+      "required": [
+        "id",
+        "variable",
+        "status",
+        "range"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Content hash over the variable and the constraint range, so the identifier survives a resume."
+        },
+        "variable": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/todo_status"
+        },
+        "constraint": {
+          "type": "string",
+          "description": "The constraint expression verbatim."
+        },
+        "range": {
+          "$ref": "#/$defs/range"
+        },
+        "diagnostic": {
+          "type": "string",
+          "description": "The last attempt's failure, redacted."
+        },
+        "attempted": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The values already tried, redacted."
+        },
+        "artefact": {
+          "type": "string",
+          "description": "The non-executable file the TODO lives in, relative to the module directory."
+        }
+      }
+    },
+    "scaffold": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "address",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Content hash over the construct address."
+        },
+        "kind": {
+          "type": "string"
+        },
+        "address": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/scaffold_status"
+        },
+        "artefact": {
+          "type": "string"
+        }
+      }
+    },
+    "curate_finding": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "members",
+        "provenance",
+        "mutants",
+        "population_authoritative",
+        "message"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Content hash over the kind and the member set."
+        },
+        "kind": {
+          "$ref": "#/$defs/curate_kind"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "provenance": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/assertion_provenance"
+          },
+          "description": "One entry per member, in the same order."
+        },
+        "mutants": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "population_authoritative": {
+          "type": "boolean",
+          "const": true,
+          "description": "Always true: curate refuses a partial population at configuration time, and the flag is published so no consumer has to know the rule to apply it."
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "generated_file": {
+      "type": "object",
+      "required": [
+        "path",
+        "content",
+        "digest",
+        "executable",
+        "written"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Relative to the module directory."
+        },
+        "content": {
+          "type": "string",
+          "description": "The file's bytes as a report may publish them. Content travels in the report whenever a JSON reporter owns standard output. For a scenario with a sensitive input this is the *redacted* rendering: the assignment carries the withheld marker, because a secret may reach no report field."
+        },
+        "digest": {
+          "type": "string",
+          "description": "The digest of the bytes in `content`, and therefore of the *redacted* rendering wherever a scenario assigns a sensitive input. It is deliberately not the digest of the file on disk: `content` is a deterministic template, so publishing a digest of the executable bytes beside it would let a reader recover a withheld value by substituting candidates and comparing hashes. The digest of the written bytes is recorded in the module-local provenance registry (`.tf-mut-generated.json`), which is where the write protocol commits against it."
+        },
+        "executable": {
+          "type": "boolean",
+          "description": "False for the non-executable artefact class: the files `terraform test` never reads."
+        },
+        "written": {
+          "type": "boolean"
+        }
+      }
+    },
+    "characterise_write": {
+      "type": "object",
+      "required": [
+        "requested",
+        "input_digest"
+      ],
+      "properties": {
+        "requested": {
+          "type": "boolean"
+        },
+        "input_digest": {
+          "type": "string",
+          "description": "The digest of the input closure that made the scaffold green, re-checked immediately before each rename."
+        },
+        "written": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "refused": {
+          "type": "string"
+        },
+        "partial": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The files written before an abort, where the commit could not complete as a whole."
+        }
+      }
+    },
+    "convergence": {
+      "type": "object",
+      "required": [
+        "rounds",
+        "new_pins_per_round",
+        "stop_reason"
+      ],
+      "properties": {
+        "rounds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "new_pins_per_round": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "stop_reason": {
+          "type": "string",
+          "enum": [
+            "dry",
+            "bounded",
+            "refused"
+          ]
+        }
+      }
+    },
+    "characterisation": {
+      "type": "object",
+      "required": [
+        "rung",
+        "complete",
+        "scenarios",
+        "pins",
+        "files",
+        "staged"
+      ],
+      "properties": {
+        "rung": {
+          "type": "string",
+          "enum": [
+            "outputs",
+            "counts",
+            "configured"
+          ]
+        },
+        "rung_requested": {
+          "type": "string",
+          "enum": [
+            "outputs",
+            "counts",
+            "configured"
+          ],
+          "description": "Present only when the zero-output contract escalated away from it."
+        },
+        "escalated": {
+          "type": "boolean"
+        },
+        "escalation_reason": {
+          "type": "string"
+        },
+        "complete": {
+          "type": "boolean",
+          "description": "False whenever the selected rung produced no pins: a characterisation that pinned nothing may never report complete."
+        },
+        "scenarios": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scenario"
+          }
+        },
+        "pins": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/pin"
+          }
+        },
+        "todos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/todo"
+          }
+        },
+        "scaffolds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/scaffold"
+          }
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/generated_file"
+          }
+        },
+        "curate_findings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/curate_finding"
+          }
+        },
+        "write": {
+          "$ref": "#/$defs/characterise_write"
+        },
+        "convergence": {
+          "$ref": "#/$defs/convergence"
+        },
+        "staged": {
+          "type": "boolean",
+          "description": "The suite existed only as an overlay: no byte of the source tree was changed."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "escalated": {
+                "const": true
+              }
+            },
+            "required": [
+              "escalated"
+            ]
+          },
+          "then": {
+            "required": [
+              "rung_requested",
+              "escalation_reason"
+            ]
+          }
+        }
+      ]
+    },
+    "phase_timing": {
+      "type": "object",
+      "required": [
+        "phase",
+        "duration_ms",
+        "started_at"
+      ],
+      "properties": {
+        "phase": {
+          "type": "string",
+          "description": "The step's name, in the engine's own vocabulary."
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The step's wall time in milliseconds."
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The step's start as an RFC 3339 timestamp in UTC — the instant duration_ms is measured from."
+        }
+      },
+      "additionalProperties": false
+    },
+    "process_usage": {
+      "type": "object",
+      "required": [
+        "command",
+        "invocations",
+        "user_cpu_ms",
+        "system_cpu_ms",
+        "peak_rss_kb"
+      ],
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "The Terraform subcommand: version, init, providers, fmt, validate or test."
+        },
+        "invocations": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How many child processes the entry aggregates."
+        },
+        "user_cpu_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "User processor time in milliseconds, covering the terraform process and the descendants it waited for (Terraform reaps its provider plugins, so they are included)."
+        },
+        "system_cpu_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "System processor time in milliseconds, same coverage as user_cpu_ms."
+        },
+        "peak_rss_kb": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The maximum resident set size in kibibytes (the kernel's ru_maxrss on Linux), same coverage as user_cpu_ms."
+        }
+      },
+      "additionalProperties": false
+    },
+    "mutant_telemetry": {
+      "type": "object",
+      "required": [
+        "started_at",
+        "wall_ms",
+        "phases",
+        "children"
+      ],
+      "properties": {
+        "started_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The evaluation's start as an RFC 3339 timestamp in UTC — the instant wall_ms is measured from, published so an observation made outside this process can be tied to the mutant it belongs to."
+        },
+        "wall_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The mutant's whole evaluation wall time in milliseconds."
+        },
+        "phases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/phase_timing"
+          },
+          "description": "The steps its evaluation executed, in execution order: sandbox, test, and where the verdict needed them validate, fingerprint, volatility-rerun and oracle. Since 2.17.0, test includes the verbose payload production and decoding for the mutant’s single invocation; fingerprint measures canonicalisation and comparison of those payloads and starts no Terraform child. Before 2.17.0, fingerprint included a separate verbose test invocation. The optional volatility-rerun phase still records a further test invocation. Consumers must use children for process counts and must not compare fingerprint durations across this schedule change as equivalent work. Run-level telemetry.phases is unchanged."
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/process_usage"
+          },
+          "description": "One entry per child Terraform process the evaluation started, in start order."
+        }
+      },
+      "additionalProperties": false
+    },
+    "telemetry": {
+      "type": "object",
+      "required": [
+        "run_id",
+        "wall_ms",
+        "phases",
+        "children",
+        "overhead_ms",
+        "child_scope"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$",
+          "description": "The run's one identifier (2.11.0): the run span's trace ID when tracing is enabled, a random identifier of the same 32-hex-character shape otherwise. Every stderr line the tool writes during the run carries it as a `[run_id] ` prefix, so stderr, report and trace can be tied together; each mutant's execution error appears as an event on that mutant's span under the same trace."
+        },
+        "wall_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The engine invocation's wall time in milliseconds, including workspace cleanup, trace flushing and profile finalization."
+        },
+        "phases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/phase_timing"
+          },
+          "description": "The named steps the command executed, in completion order. Nested phases can overlap, and the list does not partition the wall time."
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/process_usage"
+          },
+          "description": "Every child Terraform process the command started, aggregated by subcommand in first-use order, including the processes each mutant's evaluation started."
+        },
+        "overhead_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Synchronous recording time in milliseconds: timing and child bookkeeping, span creation, attribute recording and span completion. Excludes asynchronous export, shutdown and the clock reads that bracket recording."
+        },
+        "child_scope": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A statement of what the per-child numbers cover, so no consumer has to know the rusage rule to read them honestly."
+        }
+      },
+      "additionalProperties": false
+    },
+    "file_timing": {
+      "type": "object",
+      "description": "One test file's wall time in the suite a run executed, from the stream the run already produced. The file's duration spans its run blocks and the teardown between them, so it is not the sum of its runs' elapsed times.",
+      "required": [
+        "file",
+        "runs"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "The test file's path, as the stream names it."
+        },
+        "runs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The number of run blocks the file reported, executed or skipped."
+        },
+        "elapsed_ms": {
+          "type": "integer",
+          "description": "The file's wall time in milliseconds, measured from the timestamps of the test file's starting and completion events. Absent when the stream carried no pair."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

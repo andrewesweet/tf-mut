@@ -534,6 +534,12 @@ func expressChange(renderer render, evidence Evidence, change fingerprint.Change
 // patch, no error message, and nothing any reporter renders.
 var ErrSensitive = errors.New("the delta's value is sensitive")
 
+// ErrVolatile reports a delta whose baseline value the volatile mask removed.
+// The marker the mask substitutes is unexported — no consumer should depend on
+// what the stand-in is — and the refusal carries it in no artefact: the reason
+// names the volatility, and the byte never travels.
+var ErrVolatile = errors.New("the delta's baseline value is volatile")
+
 // onlyOutputMetadata reports whether every change names an output's type or
 // sensitivity metadata — the metadata no assertion addresses — rather than
 // an unknown marker, which is evidence about the comparison and keeps the
@@ -570,6 +576,8 @@ func reasonOf(err error) SkipReason {
 	switch {
 	case errors.Is(err, ErrSensitive):
 		return SkipSensitive
+	case errors.Is(err, ErrVolatile):
+		return SkipVolatile
 	case errors.Is(err, ErrUnaddressable):
 		return SkipUnaddressable
 	default:

@@ -53,6 +53,28 @@ func SyntaxSpan(prefix, suffix string, whole bool) Span {
 	return Span{Prefix: prefix, Suffix: suffix, Whole: whole, FromSyntax: true}
 }
 
+// IsVolatile reports whether a masked payload rendering carries the marker
+// the mask substitutes for a component it removed: whole, where the mask
+// removed the value's every component, or escaped inside a quoted rendering,
+// where it removed a middle one. Consumers of masked values — the suggestion
+// renderer among them — refuse such a rendering through this predicate rather
+// than the marker's byte itself: no consumer should depend on what the
+// stand-in is.
+func IsVolatile(rendering string) bool {
+	if strings.Contains(rendering, volatileMarker) {
+		return true
+	}
+
+	// A quoted rendering carries the marker escaped, under the same
+	// strconv.Unquote convention every consumer decodes the payload's strings
+	// with; unquote and ask again about the value the rendering denotes.
+	if text, err := strconv.Unquote(rendering); err == nil {
+		return strings.Contains(text, volatileMarker)
+	}
+
+	return false
+}
+
 // Empty reports whether the mask removes nothing.
 func (m Mask) Empty() bool {
 	return len(m.Spans) == 0 && len(m.Undecidable) == 0

@@ -99,6 +99,17 @@ func (r render) equality(
 			"assertion cannot express the absence of a value", ErrUnrenderable)
 	}
 
+	// A baseline rendering the volatile marker appears in — the value the
+	// volatile mask removed whole, or a quoted value with a masked middle —
+	// refuses before any scalar or collection rendering: the mask removed
+	// what a later run differs in, and no assertion can honestly pin it. The
+	// refusal names the volatility; the marker's byte never reaches a reason
+	// (D16).
+	if fingerprint.IsVolatile(baseline) {
+		return "", fmt.Errorf("%w: the volatile mask removed what a later run "+
+			"differs in, so no assertion can honestly pin it", ErrVolatile)
+	}
+
 	// A delta the mutant's own plan marks unknown: under a `command = plan`
 	// run the value cannot be read by any assertion, so the equality would
 	// error with "Unknown condition value" when the suite replays it against

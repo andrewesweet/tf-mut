@@ -530,11 +530,11 @@ func TestAValueDeltaOutranksAnOutputsTypeMetadata(t *testing.T) {
 	}
 }
 
-// TestAVolatileBaselineEntryIsSkippedAsVolatile is the D16 reproduction: a
-// survivor whose baseline value the volatile mask removed was reported as
-// skipped-unrenderable, with the mask's raw NUL byte in the reason. Declining
-// to pin the value is correct — a uuid() redraws every run — but the reason
-// must say the value is volatile, and no artefact may carry the control byte.
+// TestAVolatileBaselineEntryIsSkippedAsVolatile is the D16 repair at the seam:
+// a survivor whose baseline value the volatile mask removed is skipped with a
+// reason that says the value is volatile — not skipped-unrenderable with the
+// mask's control byte in the text. The steady entries in the same fixture
+// still render, so the new reason stays selective.
 func TestAVolatileBaselineEntryIsSkippedAsVolatile(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
@@ -553,28 +553,34 @@ func TestAVolatileBaselineEntryIsSkippedAsVolatile(t *testing.T) {
 			result.Suggestions)
 	}
 
-	var sawCandidate int
+	var volatile, candidate int
 	for _, suggestion := range result.Suggestions {
-		if suggestion.Status == report.SuggestionCandidate {
-			sawCandidate++
-
-			continue
-		}
-
-		if suggestion.Status == report.SuggestionSkippedUnrenderable {
-			t.Fatalf("a volatile-masked baseline was reported unrenderable: %q",
-				suggestion.StatusReason)
-		}
+		assertPresenceRules(t, suggestion)
 
 		if strings.ContainsRune(suggestion.StatusReason, '\x00') {
 			t.Fatalf("the reason carries the volatile mask's control byte: %q",
 				suggestion.StatusReason)
 		}
+
+		if suggestion.Status == report.SuggestionSkippedVolatile {
+			volatile++
+
+			continue
+		}
+
+		if suggestion.Status == report.SuggestionCandidate {
+			candidate++
+
+			continue
+		}
+
+		t.Fatalf("a suggestion neither rendered nor skipped volatile: %s %q",
+			suggestion.Status, suggestion.StatusReason)
 	}
 
-	if sawCandidate != 2 {
-		t.Fatalf("the steady entries must still render, got %d candidates: %s",
-			sawCandidate, statusSummary(result.Suggestions))
+	if volatile != 2 || candidate != 2 {
+		t.Fatalf("want the two volatile entries skipped and the two steady entries "+
+			"rendered, got %s", statusSummary(result.Suggestions))
 	}
 }
 
@@ -703,7 +709,8 @@ func statusSummary(suggestions []report.Suggestion) string {
 
 	for _, status := range []report.SuggestionStatus{
 		report.SuggestionVerified, report.SuggestionCandidate, report.SuggestionRefuted,
-		report.SuggestionSkippedSensitive, report.SuggestionSkippedUnaddressable,
+		report.SuggestionSkippedSensitive, report.SuggestionSkippedVolatile,
+		report.SuggestionSkippedUnaddressable,
 		report.SuggestionSkippedUnrenderable, report.SuggestionSkippedUnsupportedTarget,
 	} {
 		if counts[status] > 0 {
@@ -1095,7 +1102,7 @@ func TestTheSameShapeUnderApplyIsStillSuggestedAndVerifies(t *testing.T) {
 func loadPublishedSchema(t *testing.T) map[string]any {
 	t.Helper()
 
-	content, err := os.ReadFile("../../docs/schema/report-2.17.0.json")
+	content, err := os.ReadFile("../../docs/schema/report-2.18.0.json")
 	if err != nil {
 		t.Fatalf("reading the published schema: %v", err)
 	}

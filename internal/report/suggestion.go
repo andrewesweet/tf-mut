@@ -1,6 +1,6 @@
 package report
 
-// The suggestion outcome model (report-2.17.0).
+// The suggestion outcome model (report-2.18.0).
 //
 // It is the whole normative table of the M4 spec's M2 disposition, expressed
 // once: a suggestion is an object with a stable identity, exactly one status
@@ -27,6 +27,9 @@ const (
 	// SuggestionSkippedSensitive marks a delta whose value — or an ancestor of
 	// it — Terraform marks sensitive. No artefact contains the value.
 	SuggestionSkippedSensitive SuggestionStatus = "skipped-sensitive"
+	// SuggestionSkippedVolatile marks a delta whose baseline value the volatile
+	// mask removed: a later run differs, so no assertion can honestly pin it.
+	SuggestionSkippedVolatile SuggestionStatus = "skipped-volatile"
 	// SuggestionSkippedUnaddressable marks a delta the address adapter could
 	// not express as a legal traversal in the selected run's target module.
 	SuggestionSkippedUnaddressable SuggestionStatus = "skipped-unaddressable"
@@ -47,9 +50,9 @@ const (
 // the "no patch" rule turns on. The vocabulary is closed, so anything else —
 // including a value from a future schema — is not a skip.
 func (s SuggestionStatus) Skipped() bool {
-	return s == SuggestionSkippedSensitive || s == SuggestionSkippedUnaddressable ||
-		s == SuggestionSkippedUnrenderable || s == SuggestionSkippedUnsupportedTarget ||
-		s == SuggestionSkippedOutputMetadata
+	return s == SuggestionSkippedSensitive || s == SuggestionSkippedVolatile ||
+		s == SuggestionSkippedUnaddressable || s == SuggestionSkippedUnrenderable ||
+		s == SuggestionSkippedUnsupportedTarget || s == SuggestionSkippedOutputMetadata
 }
 
 // VerificationLeg is the outcome of one half of the verification contract.

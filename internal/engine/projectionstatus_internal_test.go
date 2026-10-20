@@ -156,6 +156,10 @@ func exerciseSuggestionStatuses(
 				want: report.SuggestionSkippedSensitive,
 			},
 			{
+				constant: "SkipVolatile", reason: suggest.SkipVolatile,
+				want: report.SuggestionSkippedVolatile,
+			},
+			{
 				constant: "SkipUnaddressable", reason: suggest.SkipUnaddressable,
 				want: report.SuggestionSkippedUnaddressable,
 			},

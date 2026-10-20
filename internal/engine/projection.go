@@ -313,6 +313,8 @@ func projectSkipReason(reason suggest.SkipReason) report.SuggestionStatus {
 	switch reason {
 	case suggest.SkipSensitive:
 		return report.SuggestionSkippedSensitive
+	case suggest.SkipVolatile:
+		return report.SuggestionSkippedVolatile
 	case suggest.SkipUnaddressable:
 		return report.SuggestionSkippedUnaddressable
 	case suggest.SkipUnrenderable:
