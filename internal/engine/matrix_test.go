@@ -429,6 +429,63 @@ func TestTheUnanswerableWarningSkipsTestHelpersAndQualifiesModulePaths(t *testin
 	}
 }
 
+func TestTheUnanswerableWarningIncludesProductionModulesUnderTheTestDirectory(t *testing.T) {
+	t.Parallel()
+
+	for _, testDirectory := range []string{engine.DefaultTestDirectory, "."} {
+		for _, syntax := range []string{"hcl", jsonTestSyntax} {
+			t.Run(testDirectory+"/"+syntax, func(t *testing.T) {
+				t.Parallel()
+
+				module := copyFixture(t, "unanswered-helpers")
+				for _, child := range []string{"alpha", "beta"} {
+					if err := os.Rename(filepath.Join(module, child), filepath.Join(module, "tests", child)); err != nil {
+						t.Fatalf("moving production child under tests: %v", err)
+					}
+				}
+
+				testsupport.WriteFile(t, filepath.Join(module, mainFile), "resource \"terraform_data\" \"bare\" {}\n")
+
+				if syntax == jsonTestSyntax {
+					testsupport.WriteFile(t, filepath.Join(module, "modules.tf.json"),
+						`{"module":{"alpha":{"source":"./tests/alpha"}}}`)
+					testsupport.WriteFile(t, filepath.Join(module, "tests", "alpha", "modules.tf.json"),
+						`{"module":{"beta":{"source":"../beta"}}}`)
+				} else {
+					appendFile(t, filepath.Join(module, mainFile), "\nmodule \"alpha\" { source = \"./tests/alpha\" }\n")
+					appendFile(t, filepath.Join(module, "tests", "alpha", mainFile),
+						"\nmodule \"beta\" { source = \"../beta\" }\n")
+				}
+
+				suitePath := filepath.Join(module, "tests", "unit.tftest.hcl")
+				testsupport.WriteFile(t, suitePath, strings.ReplaceAll(readFile(t, suitePath),
+					"module.alpha.ready && module.beta.ready", "module.alpha.ready && terraform_data.bare.input == null"))
+
+				if testDirectory == "." {
+					if err := os.Rename(suitePath, filepath.Join(module, "unit.tftest.hcl")); err != nil {
+						t.Fatalf("moving suite to module root: %v", err)
+					}
+				}
+
+				request := baseConfig(t, module)
+				request.TestDirectory = testDirectory
+
+				result, err := engine.Run(t.Context(), request)
+				if err != nil {
+					t.Fatalf("run with production modules under tests: %v", err)
+				}
+
+				want := "3 resource(s) have no mutant under any enabled operator, so this run says nothing about them: " +
+					"terraform_data.bare, tests/alpha/terraform_data.bare, tests/beta/terraform_data.bare"
+
+				if !slices.Contains(result.Warnings, want) {
+					t.Fatalf("warnings = %v, want %q", result.Warnings, want)
+				}
+			})
+		}
+	}
+}
+
 func TestASampledRunDoesNotNameResourcesTheSampleMerelyDropped(t *testing.T) {
 	t.Parallel()
 

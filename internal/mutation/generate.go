@@ -151,13 +151,8 @@ func (g Generator) Generate() (Result, error) {
 
 	mutants := []Mutant{}
 	warnings := []string{}
-	production := g.productionModules()
 
-	for _, module := range g.Configuration.Modules {
-		if !production[module.Dir] && g.underTestDirectory(module.Dir) {
-			continue
-		}
-
+	for _, module := range SurfaceModules(g.Configuration, g.TestDirectory) {
 		produced, err := g.generateModule(module, sources)
 		if err != nil {
 			return Result{}, err
@@ -194,17 +189,7 @@ func (g Generator) Generate() (Result, error) {
 
 // underTestDirectory reports whether an absolute path sits inside the
 // configured test directory, whose files the surface excludes by default.
-func (g Generator) underTestDirectory(path string) bool {
-	return UnderTestDirectory(g.TestDirectory, path)
-}
-
-// UnderTestDirectory reports whether an absolute path sits inside the given
-// test directory, whose files the mutation surface excludes by default: a
-// helper module under it is part of the test's scaffolding, not of the module
-// under test. An empty test directory excludes nothing. The surface's
-// consumers that speak about modules — the warning over resources no operator
-// reached — must exclude the same modules with this same rule.
-func UnderTestDirectory(testDirectory, path string) bool {
+func underTestDirectory(testDirectory, path string) bool {
 	if testDirectory == "" {
 		return false
 	}
@@ -215,14 +200,30 @@ func UnderTestDirectory(testDirectory, path string) bool {
 		!strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
-func (g Generator) productionModules() map[string]bool {
+// SurfaceModules returns production modules and modules outside the test directory.
+func SurfaceModules(configuration discovery.Configuration, testDirectory string) []discovery.Module {
+	production := productionModules(configuration)
+	modules := make([]discovery.Module, 0, len(configuration.Modules))
+
+	for _, module := range configuration.Modules {
+		if !production[module.Dir] && underTestDirectory(testDirectory, module.Dir) {
+			continue
+		}
+
+		modules = append(modules, module)
+	}
+
+	return modules
+}
+
+func productionModules(configuration discovery.Configuration) map[string]bool {
 	modules := map[string]discovery.Module{}
-	for _, module := range g.Configuration.Modules {
+	for _, module := range configuration.Modules {
 		modules[module.Dir] = module
 	}
 
 	production := map[string]bool{}
-	queue := []string{g.Configuration.ModuleDir}
+	queue := []string{configuration.ModuleDir}
 
 	for len(queue) > 0 {
 		directory := queue[0]
