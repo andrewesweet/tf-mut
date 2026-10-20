@@ -89,6 +89,9 @@ func untyped() tfexec.Schemas {
 
 const (
 	statePrefix            = "root_module.resources["
+	identityStatePath      = "outputs.identity.value"
+	identityChangePath     = "output_changes.identity.after"
+	regionsOutput          = "output.regions"
 	steadyBaseline         = `"steady"`
 	emptiedObject          = "{}"
 	secondValue            = `"second"`
@@ -427,6 +430,13 @@ func templateKeyRows() []renderingCase {
 			want: "try(example_thing.app.spec[0].replicas, null) == 3", refused: nil,
 		},
 		{
+			name: "a typed object attribute's nested fused list element",
+			path: statePrefix + "example_thing.app].values.spec[0].volumes[1]", baseline: steadyBaseline,
+			schemas: schemaTyping("spec",
+				`["list",["object",{"volumes":["list","string"]}]]`),
+			want: `try(example_thing.app.spec[0].volumes[1], null) == "steady"`, refused: nil,
+		},
+		{
 			name:     "a keyed entry whose key carries template syntax stays literal",
 			path:     statePrefix + "example_thing.app].values.triggers.${part}%{blk}",
 			baseline: steadyBaseline,
@@ -440,6 +450,16 @@ func templateKeyRows() []renderingCase {
 // scalarKeyRows holds the admitted scalar and keyed-scalar forms.
 func scalarKeyRows() []renderingCase {
 	return []renderingCase{
+		{
+			// R14: Go's own escapes — \b among them — are diagnostics in an HCL
+			// string. The key renders in the escape set HCL accepts.
+			name:     "a map attribute's control-character key renders in HCL escapes",
+			path:     statePrefix + "example_thing.app].values.triggers.a\u0008b",
+			baseline: steadyBaseline,
+			schemas:  schemaTyping("triggers", `["map","string"]`),
+			want:     "try(example_thing.app.triggers[\"a\\u0008b\"], null) == \"steady\"",
+			refused:  nil,
+		},
 		{
 			name:     "a map attribute's non-identifier key",
 			path:     statePrefix + "example_thing.app].values.triggers.app.kubernetes.io/part-of",
@@ -529,7 +549,7 @@ func mapBlockRows() []renderingCase {
 
 // keyRows holds the admitted keyed and scalar forms.
 func keyRows() []renderingCase {
-	return []renderingCase{
+	return append([]renderingCase{
 		{
 			name: "a map attribute's identifier key stays dotted",
 			path: statePrefix + "example_thing.app].values.triggers.plain", baseline: steadyBaseline,
@@ -548,10 +568,54 @@ func keyRows() []renderingCase {
 			schemas: schemaTyping("tags", `["map","string"]`),
 			want:    `try(example_thing.app.tags["0"], null) == "steady"`, refused: nil,
 		},
+	}, nullRows()...)
+}
+
+// nullRows holds the whole-output and container null forms: what a nulling
+// mutant proves, what the delta has to show before the assertion may claim
+// the baseline value was there, and what stays refused.
+func nullRows() []renderingCase {
+	return append([]renderingCase{
 		{
-			name: "a nulled whole output asserts non-null",
-			path: "outputs.identity.value", baseline: "", mutant: nulledValue,
-			schemas: untyped(), want: "output.identity != null", refused: nil,
+			name: "a nulled whole output the baseline never held is refused",
+			path: identityStatePath, baseline: "", mutant: nulledValue,
+			schemas: untyped(),
+			want:    "",
+			refused: suggest.ErrUnrenderable,
+		},
+		{
+			name: "a nulled whole output the delta proves non-null asserts non-null",
+			path: identityStatePath, baseline: "", mutant: nulledValue,
+			schemas: untyped(),
+			evidence: suggest.NewEvidence([]fingerprint.Change{
+				nulledAt(identityStatePath),
+				changeAt(identityStatePath, `"held"`),
+			}),
+			want: "output.identity != null", refused: nil,
+		},
+		{
+			// A plan's partial unknown marker proves the baseline value held a
+			// member, and a value with a member is not null.
+			name: "a nulled whole output a marked member proves non-null asserts non-null",
+			path: identityChangePath, baseline: "", mutant: nulledValue,
+			schemas: untyped(),
+			evidence: suggest.NewEvidence([]fingerprint.Change{
+				nulledAt(identityChangePath),
+				changeAt("output_changes.identity.after_unknown.principal_id", "true"),
+			}),
+			want: "output.identity != null", refused: nil,
+		},
+		{
+			// The whole-value marker proves only that the plan could read
+			// nothing — null included — so nothing is provable.
+			name: "a nulled whole output only a whole-value marker marks stays refused",
+			path: identityChangePath, baseline: "", mutant: nulledValue,
+			schemas: untyped(),
+			evidence: suggest.NewEvidence([]fingerprint.Change{
+				nulledAt(identityChangePath),
+				changeAt("output_changes.identity.after_unknown", "true"),
+			}),
+			want: "", refused: suggest.ErrUnrenderable,
 		},
 		{
 			name: "a nulled leaf with a baseline value asserts non-null",
@@ -576,11 +640,18 @@ func keyRows() []renderingCase {
 		},
 		{
 			name: "a length is never rendered from unknown elements",
-			path: "output_changes.identity.after", baseline: "{}", mutant: `"2"`,
+			path: identityChangePath, baseline: "{}", mutant: `"2"`,
 			schemas:  untyped(),
 			evidence: suggest.Evidence{UnknownMarkers: []string{"output_changes.identity.after_unknown.principal_id"}},
 			want:     "", refused: suggest.ErrUnrenderable,
 		},
+	}, countRows()...)
+}
+
+// countRows holds the vanishing-instance forms: the count equality a vanished
+// instance proves, and the index evidence that is no count equality.
+func countRows() []renderingCase {
+	return []renderingCase{
 		{
 			name:     "a vanished zeroth instance is a count equality",
 			path:     statePrefix + "example_thing.counted[0]].values.input",
@@ -691,7 +762,7 @@ func TestAbsenceTolerantFormsFailRatherThanError(t *testing.T) {
 			path:     "outputs.regions.value[0].short_name",
 			baseline: `"wu"`,
 			evidence: suggest.Evidence{OutputTypes: map[string]cty.Type{
-				"output.regions": cty.List(cty.Object(map[string]cty.Type{shortNameAttr: cty.String})),
+				regionsOutput: cty.List(cty.Object(map[string]cty.Type{shortNameAttr: cty.String})),
 			}},
 			schemas: untyped(), want: `try(output.regions[0].short_name, null) == "wu"`,
 		},

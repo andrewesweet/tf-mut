@@ -61,8 +61,8 @@ func TestANulledValueRequiresAnUnambiguousBaselineMember(t *testing.T) {
 	}{
 		{"state resource", statePrefix + "example_thing.app].values.triggers"},
 		{"plan resource", "resource_changes[example_thing.app].change.after.triggers"},
-		{"state output", "outputs.identity.value"},
-		{"plan output", "output_changes.identity.after"},
+		{"state output", identityStatePath},
+		{"plan output", identityChangePath},
 	} {
 		for _, suffix := range []string{".b", firstElementIndex} {
 			t.Run(representation.name+suffix, func(t *testing.T) {

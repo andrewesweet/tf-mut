@@ -32,7 +32,14 @@ import (
 
 // nullMarker is the spelling Terraform gives a value that is null, in test
 // payloads and in assertion expressions alike.
-const nullMarker = "null"
+const (
+	nullMarker = "null"
+
+	// canonicalTrue is the payload's canonical spelling of a JSON true — the
+	// value an unknown-marker record carries when the plan could not read the
+	// part it marks.
+	canonicalTrue = "true"
+)
 
 // Defect is a deliberately wrong assertion the generator can be made to emit.
 //
@@ -422,6 +429,7 @@ func (e *Evidence) absorb(change fingerprint.Change, changes []fingerprint.Chang
 
 	if parsed.IsUnknownMarker() {
 		e.UnknownMarkers = append(e.UnknownMarkers, change.Path)
+		e.proveFromMarker(parsed, change)
 	}
 
 	if change.Mutant == nullMarker && !e.ProvenNonNull[change.Path] {
@@ -429,6 +437,34 @@ func (e *Evidence) absorb(change fingerprint.Change, changes []fingerprint.Chang
 	}
 
 	e.countInstance(parsed, change, changes)
+}
+
+// proveFromMarker records the non-null proof a partial unknown-marker carries.
+// A marker that marks a part of its value proves the value itself was there on
+// the baseline: the part hangs from a structure, and a structure is not null.
+// The whole-value marker proves only that the plan could read nothing, null
+// included. The proof reaches every container the marked part hangs from, so a
+// null-form question about any of them is answered by it.
+func (e *Evidence) proveFromMarker(parsed fingerprint.Path, change fingerprint.Change) {
+	if change.Baseline != canonicalTrue || !parsed.MarksValuePart() {
+		return
+	}
+
+	base, found := parsed.UnknownValueBase()
+	if !found {
+		return
+	}
+
+	for {
+		e.ProvenNonNull[base] = true
+
+		index := strings.LastIndex(base, ".")
+		if index < 0 {
+			return
+		}
+
+		base = base[:index]
+	}
 }
 
 // proveNonNull marks a nulled container non-null where any peer change carries

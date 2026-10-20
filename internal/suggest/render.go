@@ -57,21 +57,21 @@ func (r render) equality(
 	continued := strings.HasPrefix(attribute, "[") || len(parts.source.Segments()) > 1 ||
 		(strings.HasPrefix(resource, "output.") && strings.Contains(attribute, "["))
 
-	normalize := func() (string, error) {
+	normalize := func(need terminal) (string, error) {
 		if !continued {
 			return expression, nil
 		}
 
-		return r.spellContinuation(parts.source, resource, attribute, evidence.OutputTypes[resource])
+		return r.spellContinuation(parts.source, resource, attribute, evidence.OutputTypes[resource], need)
 	}
 
 	// A mutant that nulls the value is answered by an inequality, whatever the
 	// baseline held: it is true on the baseline and false under the mutant.
-	// A whole value absent from the baseline payload is a non-empty container —
-	// empty ones render — and anything else needs the delta to have proven the
-	// baseline value existed.
-	if mutant == nullMarker && (attribute == "" || baseline != "" || evidence.ProvenNonNull[parts.path]) {
-		spelled, err := normalize()
+	// The baseline has to prove the value was there — present in the payload,
+	// or proven non-null by the neighbourhood the delta carries — because a
+	// wholly unknown value makes `!= null` an assertion about nothing.
+	if mutant == nullMarker && (baseline != "" || evidence.ProvenNonNull[parts.path]) {
+		spelled, err := normalize(terminalAny)
 		if err != nil {
 			return "", err
 		}
@@ -123,7 +123,7 @@ func (r render) equality(
 	// the baseline could not know: the plan marks those, and a length over
 	// unknowns is a lie the baseline run exposes.
 	if baseline == emptyObject || baseline == emptyArray {
-		spelled, err := normalize()
+		spelled, err := normalize(terminalCollection)
 		if err != nil {
 			return "", err
 		}
@@ -140,7 +140,7 @@ func (r render) equality(
 
 	switch {
 	case continued:
-		spelled, err := normalize()
+		spelled, err := normalize(terminalScalar)
 		if err != nil {
 			return "", err
 		}
@@ -194,15 +194,20 @@ func countEquality(resource, mutant string, evidence Evidence) (string, bool, er
 // entry. The walk starts from the resource address and consumes one path
 // segment at a time, so every spelling it emits is one the segment in front of
 // it justifies.
-func (r render) spellContinuation(p fingerprint.Path, resource, attribute string, outputType cty.Type) (string, error) {
+func (r render) spellContinuation(
+	p fingerprint.Path,
+	resource, attribute string,
+	outputType cty.Type,
+	need terminal,
+) (string, error) {
 	segments := p.Segments()
 
 	kind, resourceType, ok := schemaCoordinates(resource)
 	if !ok {
 		// No provider schema types an output. The walk uses the baseline's
-		// published output type to justify each index, and a
-		// further segment is a traversal only if it is an identifier.
-		suffix, err := walkIndicesAndNames(attribute, segments, outputType)
+		// published output type to justify each step; where nothing types it,
+		// the walk keeps the grammar floor the payload alone can justify.
+		suffix, err := walkOutputPath(attribute, segments, outputType, need)
 		if err != nil {
 			return "", err
 		}
@@ -220,12 +225,12 @@ func (r render) spellContinuation(p fingerprint.Path, resource, attribute string
 		return "", nestedValue(attribute)
 	}
 
-	builder := &strings.Builder{}
-	if err := r.walkBlockSteps(kind, resourceType, root, segments, builder); err != nil {
+	body, err := r.walkBlockSteps(kind, resourceType, root, segments, need)
+	if err != nil {
 		return "", err
 	}
 
-	spelled := resource + builder.String()
+	spelled := resource + body
 	if err := parseTraversal(spelled); err != nil {
 		return "", notDotted(spelled)
 	}
@@ -241,9 +246,9 @@ func (r render) walkBlockSteps(
 	kind, resourceType string,
 	block tfexec.SchemaBlock,
 	steps []string,
-	builder *strings.Builder,
-) error {
-	insideBlock := false
+	need terminal,
+) (string, error) {
+	suffix := &strings.Builder{}
 	path := []string{}
 
 	for i := 0; i < len(steps); i++ {
@@ -251,75 +256,67 @@ func (r render) walkBlockSteps(
 		name, key, indexed := cutIndex(step)
 		path = append(path, name)
 
-		if blockType, found := block.BlockTypes[name]; found {
-			if blockType.NestingMode == tfexec.NestingMap && !indexed {
-				consumed, nested, err := mapBlockStep(blockType, name, steps, i, builder)
-				if err != nil {
-					return err
-				}
-
-				block = nested
-				insideBlock = true
-				i += consumed
-
-				continue
+		nested, isBlock := block.BlockTypes[name]
+		if !isBlock {
+			if _, found := block.Attributes[name]; !found {
+				return "", nestedValue(strings.Join(steps, "."))
 			}
 
-			piece, nested, err := blockTypeStep(blockType, name, key, indexed)
+			described, _ := r.schemas.Attribute(kind, resourceType, path)
+
+			tail, err := walkAttributeSteps(described, name, key, indexed, steps[i+1:], need)
 			if err != nil {
-				return err
+				return "", err
 			}
 
-			builder.WriteString(piece)
-			block = nested
-			insideBlock = true
+			return suffix.String() + tail, nil
+		}
+
+		// A map-nested block's key travels as the next dotted segment —
+		// `mounts.shared.source` — because the payload flattens every key
+		// on its dots; an attached bracketed key is the same key written
+		// inline. Every other nesting mode spells itself through the same
+		// step.
+		if nested.NestingMode == tfexec.NestingMap && !indexed {
+			piece, inner, err := mapKeyStep(nested, name, steps, i)
+			if err != nil {
+				return "", err
+			}
+
+			suffix.WriteString(piece)
+			block = inner
+			i++
 
 			continue
 		}
 
-		if _, found := block.Attributes[name]; !found {
-			return nestedValue(strings.Join(steps, "."))
+		piece, inner, err := blockTypeStep(nested, name, key, indexed)
+		if err != nil {
+			return "", err
 		}
 
-		described, _ := r.schemas.Attribute(kind, resourceType, path)
-
-		return walkAttributeSteps(described, name, key, indexed, steps[i+1:], builder)
+		suffix.WriteString(piece)
+		block = inner
 	}
 
-	if insideBlock {
-		return fmt.Errorf("%w: the path ends at a nested block, and no scalar "+
-			"equality reads a block value", ErrUnrenderable)
-	}
-
-	return nil
+	return "", fmt.Errorf("%w: the path ends at a nested block, and no scalar "+
+		"equality reads a block value", ErrUnrenderable)
 }
 
-// mapBlockStep consumes a map-nested block step and its payload key. The key
-// travels as the next dotted segment — `mounts.shared.source` — and an
-// attached bracketed key is the same key written inline. A path that stops at
-// the block names no entry, and no assertion can read the block set itself.
-// The int is how many extra steps the key consumed; the render lands in the
-// builder the walk shares.
-func mapBlockStep(
-	blockType tfexec.SchemaBlockType,
+// mapKeyStep renders a map-nested block's key step: the key is the next dotted
+// segment, and the path must carry one.
+func mapKeyStep(
+	nested tfexec.SchemaBlockType,
 	name string,
 	steps []string,
 	i int,
-	builder *strings.Builder,
-) (int, tfexec.SchemaBlock, error) {
+) (string, tfexec.SchemaBlock, error) {
 	if i+1 >= len(steps) {
-		return 0, tfexec.SchemaBlock{}, fmt.Errorf("%w: the block %s is map-nested, "+
+		return "", tfexec.SchemaBlock{}, fmt.Errorf("%w: the block %s is map-nested, "+
 			"and the payload path names no key for it", ErrUnrenderable, name)
 	}
 
-	piece, nested, err := blockTypeStep(blockType, name, steps[i+1], true)
-	if err != nil {
-		return 0, tfexec.SchemaBlock{}, err
-	}
-
-	builder.WriteString(piece)
-
-	return 1, nested, nil
+	return blockTypeStep(nested, name, steps[i+1], true)
 }
 
 // blockTypeStep renders one nested-block step under its nesting mode's rules:
@@ -364,146 +361,238 @@ func blockTypeStep(
 
 // walkAttributeSteps renders the remainder of a path that has entered an
 // attribute: the attribute is consumed, its element indexed if the path did,
-// and everything after it is consumed in type space.
+// and everything after it is consumed in type space by the walk the type
+// justifies. The leaf the form needs decides where the walk may stop.
 func walkAttributeSteps(
 	attribute tfexec.Attribute,
 	name, key string,
 	indexed bool,
 	rest []string,
-	builder *strings.Builder,
-) error {
-	builder.WriteString("." + name)
+	need terminal,
+) (string, error) {
+	spelled := "." + name
 
 	declared, known := attribute.ValueType()
 
-	if indexed {
-		if !known {
-			return fmt.Errorf("%w: no provider schema types %s, so %s cannot be told "+
-				"apart from a set, which has no index", ErrUnrenderable, name, name+"["+key+"]")
-		}
-
-		element, err := indexType(declared, name, key)
-		if err != nil {
-			return err
-		}
-
-		builder.WriteString("[" + key + "]")
-
+	if !indexed {
 		if len(rest) == 0 {
-			return leafRefusal(name+"["+key+"]", element, true)
+			return spelled, need.accepts(declared)
 		}
 
-		return walkTypeSteps(element, rest, builder)
-	}
+		if !known {
+			return "", fmt.Errorf("%w: no provider schema types %s, so nothing can tell the "+
+				"rest of the path from a map key", ErrUnrenderable, name)
+		}
 
-	if len(rest) == 0 {
-		return leafRefusal(name, declared, known)
+		continued, err := walkTypeSteps(declared, rest, need)
+		if err != nil {
+			return "", err
+		}
+
+		return spelled + continued, nil
 	}
 
 	if !known {
-		return fmt.Errorf("%w: no provider schema types %s, so nothing can tell the "+
-			"rest of the path from a map key", ErrUnrenderable, name)
+		return "", fmt.Errorf("%w: no provider schema types %s, so %s cannot be told "+
+			"apart from a set, which has no index", ErrUnrenderable, name, name+"["+key+"]")
 	}
 
-	return walkTypeSteps(declared, rest, builder)
+	element, err := indexType(declared, name, key)
+	if err != nil {
+		return "", err
+	}
+
+	spelled += "[" + key + "]"
+
+	if len(rest) == 0 {
+		return spelled, need.accepts(element)
+	}
+
+	continued, err := walkTypeSteps(element, rest, need)
+	if err != nil {
+		return "", err
+	}
+
+	return spelled + continued, nil
+}
+
+// terminal is the leaf shape a form needs from the walk: the scalar equality
+// needs a primitive, the emptiness form anything `length` reads — a collection,
+// or a string, whose length Terraform also takes — and the null comparison any
+// value it can reach.
+type terminal int
+
+const (
+	terminalScalar terminal = iota
+	terminalCollection
+	terminalAny
+)
+
+func (need terminal) accepts(declared cty.Type) error {
+	switch need {
+	case terminalScalar:
+		if declared.IsPrimitiveType() {
+			return nil
+		}
+
+		return fmt.Errorf("%w: the value is typed %s, which no scalar equality can "+
+			"express", ErrUnrenderable, declared.FriendlyName())
+	case terminalCollection:
+		if declared == cty.Number || declared == cty.Bool {
+			return fmt.Errorf("%w: the value is typed %s, and only a collection or a "+
+				"string has a length to compare", ErrUnrenderable, declared.FriendlyName())
+		}
+
+		return nil
+	case terminalAny:
+		return nil
+	default:
+		return fmt.Errorf("%w: the leaf shape %d is one no equality form names",
+			ErrUnrenderable, need)
+	}
+}
+
+// stepReading is one reading a type justifies for the path's next segments:
+// the traversal it adds, the type it leaves the walk holding, and how many
+// payload segments it consumed.
+type stepReading struct {
+	spelling string
+	declared cty.Type
+	consumed int
 }
 
 // walkTypeSteps renders a path's remaining segments inside a value's type.
-func walkTypeSteps(declared cty.Type, steps []string, builder *strings.Builder) error {
-	if len(steps) == 0 {
-		return fmt.Errorf("%w: the value is typed %s, which no scalar equality can "+
-			"express", ErrUnrenderable, declared.FriendlyName())
+// Every step must be a reading the type itself justifies — a member of an
+// object or map, an index into a list or tuple — and exactly one such reading
+// may survive; two are ambiguity the payload cannot resolve, and none is a
+// path the type refuses.
+func walkTypeSteps(declared cty.Type, steps []string, need terminal) (string, error) {
+	suffix, ok := uniqueReading(declared, steps, need)
+	if !ok {
+		return "", nestedValue(strings.Join(steps, "."))
 	}
 
-	step := steps[0]
-
-	switch {
-	case declared.IsListType():
-		key, ok := pureIndex(step)
-		if !ok {
-			return indexRefusal(declared, step)
-		}
-
-		builder.WriteString("[" + key + "]")
-
-		return walkTypeSteps(declared.ElementType(), steps[1:], builder)
-	case declared.IsTupleType():
-		key, ok := pureIndex(step)
-		if !ok {
-			return indexRefusal(declared, step)
-		}
-
-		types := declared.TupleElementTypes()
-		position, err := strconv.Atoi(key)
-		if err != nil || position >= len(types) {
-			return indexRefusal(declared, step)
-		}
-
-		builder.WriteString("[" + key + "]")
-
-		return walkTypeSteps(types[position], steps[1:], builder)
-	case declared.IsSetType():
-		return fmt.Errorf("%w: the value is typed %s, and a set has no index an "+
-			"assertion could name", ErrUnrenderable, declared.FriendlyName())
-	case declared.IsMapType():
-		return keyedSteps(declared.ElementType(), nil, steps, builder)
-	case declared.IsObjectType():
-		return keyedSteps(cty.NilType, declared.AttributeTypes(), steps, builder)
-	default:
-		return fmt.Errorf("%w: the value is typed %s, which has no members for the "+
-			"rest of the path to name", ErrUnrenderable, declared.FriendlyName())
-	}
+	return suffix, nil
 }
 
-// keyedSteps renders a keyed collection's remainder: the key may span several
-// payload segments — a dot is a member of a Kubernetes label key as much as a
-// path separator — so every split of the remainder is a candidate and the
-// element type decides which of them is real. Exactly one must survive.
-func keyedSteps(
-	element cty.Type,
-	attributes map[string]cty.Type,
-	steps []string,
-	builder *strings.Builder,
-) error {
-	winner := -1
-	for split := 1; split <= len(steps); split++ {
-		declared, ok := keyedElementAt(element, attributes, steps[:split])
-		if !ok || !consumes(declared, steps[split:]) {
+// uniqueReading resolves a typed path to exactly one reading, down to a leaf
+// the form accepts. Each step enumerates the readings its type justifies and
+// the rest of the path filters them.
+func uniqueReading(declared cty.Type, steps []string, need terminal) (string, bool) {
+	if len(steps) == 0 {
+		return "", need.accepts(declared) == nil
+	}
+
+	readings, ok := stepReads(declared, steps)
+	if !ok {
+		return "", false
+	}
+
+	spelled := ""
+	winners := 0
+
+	for _, candidate := range readings {
+		continuation, ok := uniqueReading(candidate.declared, steps[candidate.consumed:], need)
+		if !ok {
 			continue
 		}
 
-		if winner >= 0 {
-			return nestedValue(strings.Join(steps, "."))
+		if winners > 0 {
+			return "", false
 		}
 
-		winner = split
+		winners++
+		spelled = candidate.spelling + continuation
 	}
 
-	if winner < 0 {
-		return nestedValue(strings.Join(steps, "."))
-	}
-
-	key := strings.Join(steps[:winner], ".")
-	if discovery.ValidIdentifier(key) {
-		builder.WriteString("." + key)
-	} else {
-		builder.WriteString("[" + quoteKey(key) + "]")
-	}
-
-	if len(steps[winner:]) == 0 {
-		// The key named the whole remainder, and `consumes` proved the element
-		// is a scalar leaf before this candidate won.
-		return nil
-	}
-
-	declared, _ := keyedElementAt(element, attributes, steps[:winner])
-
-	return walkTypeSteps(declared, steps[winner:], builder)
+	return spelled, winners == 1
 }
 
-// keyedElementAt resolves a candidate key against a keyed collection's
-// element type: any key for a map, a named attribute for an object.
-func keyedElementAt(
+// stepReads renders one step of a typed walk: the readings the type itself
+// justifies for the path's leading segments. The bool reports whether any
+// reading exists.
+func stepReads(declared cty.Type, steps []string) ([]stepReading, bool) {
+	switch {
+	case declared.IsListType():
+		key, isIndex := pureIndex(steps[0])
+		if !isIndex {
+			return nil, false
+		}
+
+		return []stepReading{{spelling: "[" + key + "]", declared: declared.ElementType(), consumed: 1}}, true
+	case declared.IsTupleType():
+		key, isIndex := pureIndex(steps[0])
+		if !isIndex {
+			return nil, false
+		}
+
+		position, err := strconv.Atoi(key)
+		if err != nil || position >= len(declared.TupleElementTypes()) {
+			return nil, false
+		}
+
+		return []stepReading{{
+			spelling: "[" + key + "]", declared: declared.TupleElementTypes()[position], consumed: 1,
+		}}, true
+	case declared.IsSetType():
+		return nil, false
+	case declared.IsMapType():
+		return keyedReads(declared.ElementType(), nil, steps)
+	case declared.IsObjectType():
+		return keyedReads(cty.NilType, declared.AttributeTypes(), steps)
+	default:
+		return nil, false
+	}
+}
+
+// keyedReads renders a keyed collection's step. The key may span several
+// payload segments — a dot is a member of a Kubernetes label key as much as a
+// path separator — so every split of the step window is a candidate, and the
+// rest of the path decides which of them is real. A leading bracket asks for
+// an index, which no keyed type takes.
+func keyedReads(
+	element cty.Type,
+	attributes map[string]cty.Type,
+	steps []string,
+) ([]stepReading, bool) {
+	if strings.HasPrefix(steps[0], "[") {
+		return nil, false
+	}
+
+	var readings []stepReading
+
+	// The fused reading: `aliases[0]` may name the member `aliases` indexed
+	// by 0, which the member's own type has to justify.
+	name, key, indexed := cutIndex(steps[0])
+	if indexed && name != "" {
+		if member, found := keyedMember(element, attributes, []string{name}); found {
+			declared, err := indexType(member, name, key)
+			if err == nil {
+				readings = append(readings, stepReading{
+					spelling: memberSpelling(name) + "[" + key + "]", declared: declared, consumed: 1,
+				})
+			}
+		}
+	}
+
+	// The whole-window readings: the key spans one or more payload segments.
+	for split := 1; split <= len(steps); split++ {
+		declared, found := keyedMember(element, attributes, steps[:split])
+		if !found {
+			continue
+		}
+
+		readings = append(readings, stepReading{
+			spelling: memberSpelling(strings.Join(steps[:split], ".")), declared: declared, consumed: split,
+		})
+	}
+
+	return readings, len(readings) > 0
+}
+
+// keyedMember resolves a candidate key against a keyed collection's element
+// type: any key for a map, a named attribute for an object.
+func keyedMember(
 	element cty.Type,
 	attributes map[string]cty.Type,
 	key []string,
@@ -517,55 +606,16 @@ func keyedElementAt(
 	return declared, found
 }
 
-// consumes reports whether a type consumes the rest of a payload path down to
-// a scalar leaf — the validation half of keyedSteps' candidate enumeration,
-// which must not render into the builder it is still deciding for.
-func consumes(declared cty.Type, steps []string) bool {
-	if len(steps) == 0 {
-		return declared.IsPrimitiveType()
+// memberSpelling spells a member reference: a valid identifier stays dotted,
+// everything else — a Kubernetes label key, a literal key spelled like an
+// index — reads in index form, because the dotted spelling would assert a
+// different attribute.
+func memberSpelling(key string) string {
+	if discovery.ValidIdentifier(key) {
+		return "." + key
 	}
 
-	switch {
-	case declared.IsListType():
-		_, ok := pureIndex(steps[0])
-
-		return ok && consumes(declared.ElementType(), steps[1:])
-	case declared.IsTupleType():
-		key, ok := pureIndex(steps[0])
-		if !ok {
-			return false
-		}
-
-		position, err := strconv.Atoi(key)
-
-		return err == nil && position < len(declared.TupleElementTypes()) &&
-			consumes(declared.TupleElementTypes()[position], steps[1:])
-	case declared.IsSetType():
-		return false
-	case declared.IsMapType():
-		return keyedConsumes(declared.ElementType(), nil, steps)
-	case declared.IsObjectType():
-		return keyedConsumes(cty.NilType, declared.AttributeTypes(), steps)
-	default:
-		return false
-	}
-}
-
-func keyedConsumes(element cty.Type, attributes map[string]cty.Type, steps []string) bool {
-	winners := 0
-
-	for split := 1; split <= len(steps); split++ {
-		declared, ok := keyedElementAt(element, attributes, steps[:split])
-		if !ok {
-			continue
-		}
-
-		if consumes(declared, steps[split:]) {
-			winners++
-		}
-	}
-
-	return winners == 1
+	return "[" + quoteKey(key) + "]"
 }
 
 // indexType resolves a bracketed step against the type it indexes.
@@ -603,17 +653,8 @@ func pureIndex(segment string) (key string, ok bool) {
 	return index, digitsOnly(index)
 }
 
-// leafRefusal refuses a path that ends on a typed non-scalar leaf, keeping the
-// leafEquality contract: a scalar equality can only express a scalar, or a
-// value nothing types.
-func leafRefusal(name string, declared cty.Type, known bool) error {
-	if known && !declared.IsPrimitiveType() {
-		return fmt.Errorf("%w: the provider types %s as %s, which no scalar "+
-			"equality can express", ErrUnrenderable, name, declared.FriendlyName())
-	}
-
-	return nil
-}
+// leafRefusal's work now belongs to `terminal.accepts`: the form that asks
+// for the walk decides what may sit at its end.
 
 func indexRefusal(declared cty.Type, segment string) error {
 	return fmt.Errorf("%w: the provider types the value as %s, which cannot be "+
@@ -633,83 +674,80 @@ func notDotted(expression string) error {
 		ErrUnrenderable, expression)
 }
 
-// walkIndicesAndNames renders an output's element path — indices as written,
-// further names as dotted attributes — and refuses anything else. A name
-// segment may carry an attached index, `aliases[0]`, which renders as the
-// name and the index consumed separately. Each index needs published type
-// evidence. The walk accepts at most one member name; deeper continuations
-// remain refused.
-func walkIndicesAndNames(attribute string, segments []string, declared cty.Type) (string, error) {
-	builder := strings.Builder{}
-	names := 0
-
-	for _, segment := range segments {
-		if strings.HasPrefix(segment, "[") {
-			name, key, indexed := cutIndex(segment)
-			if name != "" || !indexed || !digitsOnly(key) {
-				return "", nestedValue(attribute)
-			}
-
-			element, err := outputIndexType(declared, attribute, "output", key)
-			if err != nil {
-				return "", err
-			}
-			declared = element
-
-			builder.WriteString(segment)
-
-			continue
-		}
-
-		name, key, indexed := cutIndex(segment)
-		if !discovery.ValidIdentifier(name) || (indexed && !digitsOnly(key)) {
-			return "", nestedValue(attribute)
-		}
-
-		names++
-		if names > 1 {
-			return "", nestedValue(attribute)
-		}
-
-		builder.WriteString(".")
-		builder.WriteString(name)
-
-		if declared != cty.NilType && declared.IsObjectType() && declared.HasAttribute(name) {
-			declared = declared.AttributeType(name)
-		} else {
-			declared = cty.NilType
-		}
-
-		if indexed {
-			element, err := outputIndexType(declared, attribute, name, key)
-			if err != nil {
-				return "", err
-			}
-			declared = element
-			builder.WriteString("[" + key + "]")
-		}
+// walkOutputPath renders an output's element path from the type the baseline
+// publishes for it. Every step must be a reading the type itself justifies —
+// a member of an object or map, an index into a list or tuple — and exactly
+// one such reading may survive. Where nothing types the output the walk keeps
+// the grammar floor, the only path the payload alone can justify.
+func walkOutputPath(attribute string, segments []string, outputType cty.Type, need terminal) (string, error) {
+	if outputType == cty.NilType {
+		return grammarFloor(attribute, segments)
 	}
 
-	return builder.String(), nil
+	return walkTypeSteps(outputType, segments, need)
 }
 
-func outputIndexType(declared cty.Type, attribute, name, key string) (cty.Type, error) {
-	if declared == cty.NilType {
-		return cty.NilType, nestedValue(attribute)
+// grammarFloor is the output walk where nothing types the output: one
+// identifier member, or nothing. A bracketed or multi-segment path needs type
+// evidence, and there is none.
+func grammarFloor(attribute string, segments []string) (string, error) {
+	if len(segments) != 1 {
+		return "", nestedValue(attribute)
 	}
 
-	return indexType(declared, name, key)
+	name, _, indexed := cutIndex(segments[0])
+	if indexed || !discovery.ValidIdentifier(name) {
+		return "", nestedValue(attribute)
+	}
+
+	return "." + name, nil
 }
 
-// quoteKey renders a payload key as an HCL quoted string. strconv.Quote
-// escapes the bytes, but not the template sequences: inside HCL a `${` or
-// `%{` starts an interpolation or directive even in a quoted string, and
-// only the doubled marker spells it literally.
+// quoteKey renders a payload key as an HCL quoted string.
+//
+// HCL's escape set is narrower than Go's — a string literal accepts only
+// `\n`, `\r`, `\t`, `\"`, `\\`, `\uXXXX` and `\UXXXXXXXX`, and a rune
+// outside the set is an "Invalid escape sequence" diagnostic, so Go's own
+// quoting cannot be reused: its `\b`, `\f`, `\v` and `\a` are diagnostics
+// here. Every other rune is written as itself, and inside HCL a `${` or `%{`
+// starts an interpolation or directive even in a quoted string, so only the
+// doubled marker spells it literally.
 func quoteKey(key string) string {
-	quoted := strconv.Quote(key)
-	quoted = strings.ReplaceAll(quoted, "${", "$${")
+	builder := &strings.Builder{}
+	builder.WriteByte('"')
 
-	return strings.ReplaceAll(quoted, "%{", "%%{")
+	for _, letter := range key {
+		switch letter {
+		case '\n':
+			builder.WriteString(`\n`)
+		case '\r':
+			builder.WriteString(`\r`)
+		case '\t':
+			builder.WriteString(`\t`)
+		case '"':
+			builder.WriteString(`\"`)
+		case '\\':
+			builder.WriteString(`\\`)
+		case '$', '%':
+			// A template marker is always doubled. A marker its brace follows
+			// becomes the literal sequence; a lone marker stays itself, because
+			// the parser reads `$$` with no brace as a literal pair.
+			builder.WriteRune(letter)
+			builder.WriteRune(letter)
+		default:
+			if letter < 0x20 || letter == 0x7f {
+				fmt.Fprintf(builder, `\u%04x`, letter)
+
+				break
+			}
+
+			builder.WriteRune(letter)
+		}
+	}
+
+	builder.WriteByte('"')
+
+	return builder.String()
 }
 
 // digitsOnly reports whether a bracketed key is a numeric index.

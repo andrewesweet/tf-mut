@@ -60,7 +60,7 @@ func ParsePath(raw string) Path {
 		p.kind = pathPlanResource
 
 		rest := strings.TrimPrefix(raw, resourceChanges+"[")
-		p.owner, p.body, _ = cutBracketed(rest)
+		p.owner, p.body, _ = CutBracketed(rest)
 	case strings.HasPrefix(raw, outputChanges+"."):
 		p.kind = pathPlanOutput
 		p.owner, p.body, _ = strings.Cut(strings.TrimPrefix(raw, outputChanges+"."), ".")
@@ -68,7 +68,7 @@ func ParsePath(raw string) Path {
 		p.kind = pathStateResource
 
 		rest := strings.TrimPrefix(raw, rootModule+".resources[")
-		p.owner, p.body, _ = cutBracketed(rest)
+		p.owner, p.body, _ = CutBracketed(rest)
 	case strings.HasPrefix(raw, stateOutputs+"."):
 		p.kind = pathStateOutput
 		p.owner, p.body, _ = strings.Cut(strings.TrimPrefix(raw, stateOutputs+"."), ".")
@@ -201,6 +201,31 @@ func (p Path) UnknownValueBase() (string, bool) {
 	}
 }
 
+// MarksValuePart reports whether an unknown-marker path marks a part of its
+// value — a member or an element — rather than the whole value. The marker
+// record continues past the whole-value marker spelling exactly where a part
+// is marked, and a value with a marked part cannot have been null on the
+// baseline: the part hangs from a structure, and a structure is not null.
+func (p Path) MarksValuePart() bool {
+	if _, found := p.UnknownValueBase(); !found {
+		return false
+	}
+
+	//nolint:exhaustive // only the two plan records carry markers; the default arm is the refusal.
+	switch p.kind {
+	case pathPlanOutput:
+		rest, _ := strings.CutPrefix(p.body, afterUnknown)
+
+		return rest != ""
+	case pathPlanResource:
+		rest, _ := strings.CutPrefix(p.body, "."+changeAfterUnknown)
+
+		return rest != ""
+	default:
+		return false
+	}
+}
+
 // IsOutputMetadata reports whether the path names an output record's metadata
 // — its type descriptor or a sensitivity or unknown marker — rather than its
 // value.
@@ -281,7 +306,7 @@ func (p Path) CountedInstance() (resource string, index int, ok bool) {
 // it is answered on the canonical string.
 func (p Path) CountedInstanceRoot() string {
 	start := strings.IndexByte(p.raw, '[') + 1
-	address, _, _ := cutBracketed(p.raw[start:])
+	address, _, _ := CutBracketed(p.raw[start:])
 
 	return p.raw[:start] + address + "]"
 }
@@ -377,7 +402,7 @@ func (p Path) unknownOutputBase() (string, bool) {
 	// member of the collection itself. The bracketed key is consumed
 	// depth-matched, and what follows must be empty or dotted.
 	if rest, cut := strings.CutPrefix(marked, "["); cut {
-		index, remainder, closed := cutBracketed(rest)
+		index, remainder, closed := CutBracketed(rest)
 		if !closed || (remainder != "" && remainder[0] != '.') {
 			return "", false
 		}
