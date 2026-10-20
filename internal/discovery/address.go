@@ -95,6 +95,17 @@ func BlockAddr(kind string, labels []string) (string, bool) {
 	}
 }
 
+// RootAddr truncates an address to its first two dot-separated segments.
+// It reports false when the address has fewer than two segments.
+func RootAddr(address string) (string, bool) {
+	parts := strings.Split(address, ".")
+	if len(parts) < addressParts {
+		return "", false
+	}
+
+	return parts[0] + "." + parts[1], true
+}
+
 // splitAddress splits on dots outside instance keys, dropping the keys and
 // keeping splat steps as the wildcard.
 func splitAddress(address string) []string {

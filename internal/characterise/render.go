@@ -9,6 +9,8 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/zclconf/go-cty/cty"
+
+	"github.com/andrewesweet/tf-mut/internal/discovery"
 )
 
 // Redacted and Executable name the two renderings of one generated file.
@@ -329,21 +331,12 @@ func ScaffoldFile(testDirRel, id string) string {
 	return path.Join(testDirRel, filePrefix+ExpectPrefix+id+fileSuffix)
 }
 
-// Checkable reduces an unassertable construct's site to the object
-// `expect_failures` can name: a variable, an output, or the resource whose
-// lifecycle block carries the condition.
+// Checkable derives an unassertable construct's expect_failures target using
+// discovery.RootAddr. It does not validate whether Terraform accepts the result;
+// answered scaffolds are verified before promotion.
 func Checkable(site string) (string, bool) {
-	parts := strings.Split(site, ".")
-	if len(parts) < checkableParts {
-		return "", false
-	}
-
-	return parts[0] + "." + parts[1], true
+	return discovery.RootAddr(site)
 }
-
-// checkableParts is the length of the shortest address `expect_failures`
-// accepts: `var.<name>`, `output.<name>` or `<type>.<name>`.
-const checkableParts = 2
 
 // AnsweredVariables reads a scaffold answer — an object expression naming the
 // inputs that make the construct fail — into per-variable assignments.
