@@ -1,9 +1,8 @@
 # 24 — L6: the hash-free sandbox lock and the provider-tree guard
 
-What building lever L6 measured, decided and deferred. L6 stages every mutant sandbox a copy of
-the warm lock file with the `hashes` arguments removed, so Terraform skips the per-command
-re-checksum of the shared provider tree; a guard stamps each warm provider binary's size and
-modification time at warm-up and refuses a sandbox whose tree changed since. The trial evidence
+What building lever L6 measured, decided and deferred. The
+[execution contract](../design/product-design.md#execute) owns lock staging and provider-guard
+behaviour. The trial evidence
 in `/home/andre/tools/firstmate/data/tfmut-perf-l6-provider-hash-trial/report.md`
 (task `tfmut-perf-l6-provider-hash-trial`, 2026-10-19 to 2026-10-20, master `15b79f0` + L1 #267
 + L3 #268 + L2 #269) gated the build; this note records what the implementation added. Evidence
@@ -34,34 +33,15 @@ that measurement.
 
 **The saving is hardware-dependent.** On CPUs without SHA-NI it is large and scales with
 provider bytes; the L4 report's laptop measured the same checksum at 0.45 CPU-s with SHA-NI, so
-there the saving is likely a few per cent (Inferred — not measured on such a machine). The
-[execution schedule](../design/product-design.md#execute) states this dependence.
+there the saving is likely a few per cent (Inferred — not measured on such a machine).
 
-## 2. What shipped
+## 2. Implementation and regression evidence
 
-- **Staging.** Only mutant execution opts into `sandbox.Share.HashFreeLock`.
-  `sandbox.installLockFile` then stages the warm lock with every `hashes` argument removed via
-  `hclwrite`, written through the fresh-inode protocol, so the source lock and the warm lock are never
-  written to and a sandbox lock is a new inode whether it replaces the source lock the closure
-  walk copied or appears where the source tree had none. The warm-up `init`, `providers schema`,
-  both baselines, everything that installs providers, and every non-mutant staged run keep the
-  full, verified lock. Suggestion verification legs, characterisation harvest and verification,
-  and `--until-dry` staging leave an existing sandbox lock untouched or copy the warm lock's
-  bytes when one is missing. The verification L6 skips inside mutant-execution sandboxes is
-  still paid by warm-up and baselines against the same tree.
-- **Fail-closed on a lock that does not parse.** A warm lock `hclwrite` cannot parse refuses the
-  mutant-execution sandbox (`errUnparseableLock`); it is never staged with its hashes intact,
-  which would silently reintroduce the cost, and never silently skipped, which would hide the failure.
-- **The guard.** After the warm-up `init` verified the lock, `sandbox.StampProviders` records
-  the size and modification time of every file reachable from the warm provider tree, following
-  the symlinks into the user-level plugin cache the tree executes through. Every
-  sandbox that shares the tree re-checks the stamps before it is built — one `stat` per recorded
-  file — and is refused with the named error `sandbox.ErrProviderChanged` when one changed or
-  disappeared. Nothing is created for a refused sandbox. Through the engine seam the refusal is
-  that mutant's execution error ("sandbox could not be materialised: warm provider binary
-  changed after warm-up: …"); a tree swapped mid-run therefore errors the following mutants
-  instead of silently changing their verdicts, and the consecutive-failure trip ends the run
-  with the refusal in view.
+- **Implementation.** [`sandbox.Share`](../../internal/sandbox/sandbox.go) documents the
+  `HashFreeLock` opt-in and `Guard`; `materialiseMutant` in
+  [`execute.go`](../../internal/engine/execute.go) is the engine's only hash-free opt-in.
+  The [execution contract](../design/product-design.md#execute) specifies which paths retain
+  the full lock, including every non-mutant staged run.
 - **Tests.** The staged-lock document contracts and the guard refusals are exercised directly
   over the package (`internal/sandbox/lock_test.go`, `internal/sandbox/guard_test.go`), under
   the testing seam's recorded exception 9: the real binary cannot be driven into producing each
@@ -85,8 +65,9 @@ the package about to execute still matches the lock's `h1:` checksum (Supported:
 as the run: with a user-level plugin cache, the warm tree's symlinks lead into a directory any
 same-user process — including a concurrent `terraform init` — can write. The realistic hazard
 is integrity: a swap mid-run would silently change mutant verdicts instead of erroring them.
-The guard closes exactly that window as far as size and mtime can see it. It does not see a
-same-length, same-mtime forgery; but an attacker able to rewrite the plugin cache can already
+The guard detects changes visible in size or mtime before sandbox creation. It does not detect
+a change after that check and before provider execution, or a same-length, same-mtime forgery.
+An attacker able to rewrite the plugin cache can already
 replace the Terraform binary or tf-mut itself, so the security delta against that adversary is
 unchanged (Inferred, from the trial's security note). Files added to the tree are not stamped —
 the lock pins which version path executes, so an addition is not reachable.

@@ -109,7 +109,10 @@ type Share struct {
 	// DataDir is the warm module's .terraform directory.
 	DataDir string
 	// LockFile is the warm module's dependency lock file, when one exists.
-	LockFile     string
+	LockFile string
+	// HashFreeLock stages LockFile without hashes for mutant execution only.
+	// Leave false for provider installation and all non-mutant staged runs:
+	// they retain an existing sandbox lock or copy the warm lock unchanged.
 	HashFreeLock bool
 	// Guard, when set, is the warm provider tree's stamp record. The sandbox
 	// is refused before it is built when any recorded binary changed since
@@ -650,6 +653,9 @@ func installLockFile(moduleDir, warmLockFile string, hashFree bool) error {
 	return WriteFresh(target, warmLockFile, staged)
 }
 
+// errUnparseableLock reports a warm lock that cannot be staged without hashes.
+var errUnparseableLock = errors.New("lock file does not parse")
+
 // withoutHashes parses the warm lock and removes every hashes argument, the
 // documented way for a lock to record none: an empty hashes list is an error
 // to Terraform's decoder, an absent argument is fine. With no hashes recorded
@@ -661,8 +667,6 @@ func installLockFile(moduleDir, warmLockFile string, hashFree bool) error {
 // A lock hclwrite cannot parse is a refusal, never a silent fall back to the
 // hashed copy: staging the hashes would silently reintroduce the cost, and a
 // silent fallback would hide a lock nothing else in the run re-parses.
-var errUnparseableLock = errors.New("lock file does not parse")
-
 func withoutHashes(name string, content []byte) ([]byte, error) {
 	file, diags := hclwrite.ParseConfig(content, name, hcl.InitialPos)
 	if diags.HasErrors() {
