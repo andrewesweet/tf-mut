@@ -81,3 +81,37 @@ func TestANulledValueRequiresAnUnambiguousBaselineMember(t *testing.T) {
 		}
 	}
 }
+
+func TestOutputContainersUseStructuralNonNullEvidence(t *testing.T) {
+	t.Parallel()
+
+	for _, prefix := range []string{regionsStateValue, regionsPlanAfter} {
+		for _, suffix := range []string{".member", firstElementIndex} {
+			for _, baseline := range []string{steadyBaseline, nulledValue} {
+				t.Run(prefix+suffix+baseline, func(t *testing.T) {
+					t.Parallel()
+
+					nulled := nulledAt(prefix)
+					evidence := suggest.NewEvidence([]fingerprint.Change{nulled, changeAt(prefix+suffix, baseline)})
+					expression, err := suggest.Express(untyped(), evidence, nulled)
+					assertAdapter(t, expression, err, "output.regions != null", nil)
+				})
+			}
+		}
+	}
+	for _, suffix := range []string{".member", firstElementIndex} {
+		t.Run("unknown"+suffix, func(t *testing.T) {
+			t.Parallel()
+
+			nulled := nulledAt(regionsPlanAfter)
+			evidence := suggest.NewEvidence([]fingerprint.Change{
+				nulled, changeAt("output_changes.regions.after_unknown"+suffix, "true"),
+			})
+			expression, err := suggest.Express(untyped(), evidence, nulled)
+			assertAdapter(t, expression, err, "output.regions != null", nil)
+			if evidence.ProvenNonNull[nulled.Path+suffix] {
+				t.Fatal("an unknown leaf was inferred non-null from its own marker")
+			}
+		})
+	}
+}
