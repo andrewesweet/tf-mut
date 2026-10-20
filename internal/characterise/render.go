@@ -331,9 +331,9 @@ func ScaffoldFile(testDirRel, id string) string {
 	return path.Join(testDirRel, filePrefix+ExpectPrefix+id+fileSuffix)
 }
 
-// Checkable reduces an unassertable construct's site to the object
-// `expect_failures` can name: a variable, an output, or the resource whose
-// lifecycle block carries the condition.
+// Checkable derives an unassertable construct's expect_failures target using
+// discovery.RootAddr. It does not validate whether Terraform accepts the result;
+// answered scaffolds are verified before promotion.
 func Checkable(site string) (string, bool) {
 	return discovery.RootAddr(site)
 }
