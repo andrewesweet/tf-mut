@@ -374,15 +374,15 @@ func walkAttributeSteps(
 
 	declared, known := attribute.ValueType()
 
-	if !indexed {
-		if len(rest) == 0 {
-			if !known {
-				return spelled, nil
-			}
-
-			return spelled, need.accepts(declared)
+	if !indexed && len(rest) == 0 {
+		if !known {
+			return spelled, nil
 		}
 
+		return spelled, need.accepts(declared)
+	}
+
+	if !indexed {
 		if !known {
 			return "", fmt.Errorf("%w: no provider schema types %s, so nothing can tell the "+
 				"rest of the path from a map key", ErrUnrenderable, name)
@@ -483,6 +483,8 @@ func walkTypeSteps(declared cty.Type, steps []string, need terminal) (string, er
 // the form accepts. Each step enumerates the readings its type justifies and
 // the rest of the path filters them.
 func uniqueReading(declared cty.Type, steps []string, need terminal) (string, int) {
+	const ambiguousReadings = 2
+
 	if len(steps) == 0 {
 		if need.accepts(declared) != nil {
 			return "", 0
@@ -507,7 +509,7 @@ func uniqueReading(declared cty.Type, steps []string, need terminal) (string, in
 
 		winners += matches
 		if winners > 1 {
-			return "", 2
+			return "", ambiguousReadings
 		}
 
 		spelled = candidate.spelling + continuation

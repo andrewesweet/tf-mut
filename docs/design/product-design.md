@@ -582,18 +582,30 @@ Metadata never becomes an assertion. For metadata-only outcomes, see the
 [suggestion status contract](../schema/report-2.18.0.json#/$defs/suggestion_status).
 Resource and data-source paths use the provider's attribute and nested-block
 schemas. Supported paths include list and tuple elements, and attributes inside single,
-group, list and map-nested blocks. Every scalar reference that descends into a value renders
+group, list and map-nested blocks. Typed attribute paths can combine member names and indices,
+such as `spec[0].volumes[1]`. Resource instance addresses retain numeric `count` indices and
+string `for_each` keys, including quoted keys containing brackets.
+Every scalar reference that descends into a value renders
 as `try(reference, null)`, so a missing key, attribute or instance fails the assertion
 instead of erroring the run. Only a test failure verifies a suggestion.
 Non-identifier keys keep their quoted spelling inside the traversal, such as
 `try(null_resource.app.triggers["app.kubernetes.io/part-of"], null)`. Quoting preserves
-literal HCL template markers in keys. A whole value — an output or resource address with
+literal HCL template markers (`${` and `%{`) in keys and uses HCL escapes for control
+characters, such as `"a\u0008b"`. Other dollar and percent signs remain unchanged.
+A whole value — an output or resource address with
 no descent — keeps its direct equality.
 
 Output element paths continue directly from the output address, such as
 `try(output.region_list[0].short_name, null)`. Each index requires the baseline's published
-type to identify a list or tuple. Output continuations accept at most one identifier
-member name. Set elements, untyped collection indices and unsupported continuations report
+type to identify a list or tuple. Without a baseline type, only a single identifier
+member is supported. With a baseline type, the walker can
+combine nested object or map members and list or tuple indices, including fused
+`name[index]` segments. It considers both member/index paths and literal keys containing
+dots or brackets, and renders only when exactly one reading reaches a type the assertion
+form accepts. For example, `list(map(list(string)))` can justify
+`output.regions[0].k[1]` for a scalar equality; an object containing both a string key
+`"aliases[0]"` and a list-of-strings member `aliases` cannot disambiguate their scalar paths.
+Set elements, untyped collection indices, ambiguous paths and unsupported continuations report
 `skipped-unrenderable`. Under a `command = plan` run, a delta whose value side the mutant's
 own after_unknown record covers — a deleted provider-computed attribute leaves it unknown
 at plan — is also `skipped-unrenderable`, with the reason naming the value: an equality
@@ -603,7 +615,10 @@ same delta under `command = apply` still renders. For volatile baseline refusals
 
 Alongside scalar equalities, candidates can assert emptiness with
 `try(length(value), null) == 0` or answer a mutant's null value with a non-null check.
-Non-null checks use the same reference guard for descended values.
+Non-null checks require a carried baseline value or evidence proving the value was non-null;
+a whole-value unknown marker alone is insufficient. They use the same reference guard for
+descended values. The typed walker permits container terminals for null and emptiness forms,
+while scalar equalities require primitive terminals.
 The emptiness guard covers both the read and the length operation, so a missing or null
 value returns false. A recognised carried unknown marker beneath the value prevents an
 empty-value assertion. For counted resources whose instance

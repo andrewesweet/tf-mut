@@ -22,7 +22,7 @@ import (
 var ErrUnaddressable = errors.New("no legal assertion expression addresses this delta")
 
 // traversalParts is what the address adapter hands the rendering contract:
-// the legal expression, the resource address and attribute path the type
+// the provisional expression, the resource address and attribute path the type
 // lookup is keyed by, the canonical payload path the evidence is keyed by,
 // and that path's parsed value, so the renderer reads the grammar instead of
 // re-splitting the attribute strings.
@@ -83,9 +83,9 @@ func traversal(path string) (traversalParts, error) {
 		}
 	}
 
-	// A path that continues past its first segment is rendered by the walk,
-	// which owns the parse floor for the expression it builds; the dotted
-	// spelling above is only provisional there.
+	// Output members and paths that continue past their first segment are
+	// rendered by the walk, which owns the parse floor for the expression it
+	// builds; the dotted spelling above is only provisional there.
 	if strings.HasPrefix(attribute, "[") || len(parsed.Segments()) > 1 ||
 		(strings.HasPrefix(resource, "output.") && attribute != "") {
 		return traversalParts{
