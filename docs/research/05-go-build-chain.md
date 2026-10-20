@@ -515,9 +515,7 @@ upload necessarily run in GitHub's code-scanning environment, while the Go build
 ordinary quality gates remain the same Just recipes used locally. The repository is public so
 GitHub code scanning is available without a private-repository entitlement.
 
-SBOM/license inventory and signed release provenance remain sensible release-phase additions.
-They are not initial blocking gates until the project chooses a license and has release
-artifacts.
+SBOM/license inventory and signed release provenance remain optional release-phase additions.
 
 ## CI topology
 
