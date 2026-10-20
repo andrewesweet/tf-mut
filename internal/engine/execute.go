@@ -418,9 +418,10 @@ func materialiseMutant(plan executionPlan, index int, telemetry *mutantCollector
 		Target:     target,
 		Mutations:  map[string][]byte{mutant.File: mutant.Mutated},
 		Share: &sandbox.Share{
-			DataDir:  plan.prepared.dataDir,
-			LockFile: plan.prepared.lockFile,
-			Guard:    plan.prepared.providerGuard,
+			DataDir:      plan.prepared.dataDir,
+			LockFile:     plan.prepared.lockFile,
+			HashFreeLock: true,
+			Guard:        plan.prepared.providerGuard,
 		},
 		Hardlink: true,
 	})

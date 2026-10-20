@@ -109,12 +109,11 @@ type Share struct {
 	// DataDir is the warm module's .terraform directory.
 	DataDir string
 	// LockFile is the warm module's dependency lock file, when one exists.
-	LockFile string
+	LockFile     string
+	HashFreeLock bool
 	// Guard, when set, is the warm provider tree's stamp record. The sandbox
 	// is refused before it is built when any recorded binary changed since
-	// warm-up, because the lock staged below records no hashes: the checksum
-	// that would have caught the change at execution time is the one this
-	// sandbox deliberately skips. The warm workspace itself shares unguarded
+	// warm-up. The warm workspace itself shares unguarded
 	// — it runs the init and baselines that verify the full lock.
 	Guard *ProviderGuard
 }
@@ -526,7 +525,7 @@ func shareDataDir(moduleDir string, share Share) error {
 		return err
 	}
 
-	return installLockFile(moduleDir, share.LockFile)
+	return installLockFile(moduleDir, share.LockFile, share.HashFreeLock)
 }
 
 func linkProviders(dataDir, warmDataDir string) error {
@@ -620,9 +619,18 @@ func linkVendored(record moduleRecord, warmDataDir, dataDir string) error {
 	return nil
 }
 
-func installLockFile(moduleDir, warmLockFile string) error {
+func installLockFile(moduleDir, warmLockFile string, hashFree bool) error {
 	if warmLockFile == "" {
 		return nil
+	}
+
+	target := filepath.Join(moduleDir, LockFileName)
+	if !hashFree {
+		if _, err := os.Stat(target); err == nil {
+			return nil
+		}
+
+		return copyFile(warmLockFile, target)
 	}
 
 	content, err := os.ReadFile(warmLockFile) //nolint:gosec // warm workspace path.
@@ -639,7 +647,7 @@ func installLockFile(moduleDir, warmLockFile string) error {
 	// inode whether it replaces the source lock the closure walk already
 	// copied or appears where the source tree had none, so neither the source
 	// lock nor the warm lock is ever written to.
-	return WriteFresh(filepath.Join(moduleDir, LockFileName), warmLockFile, staged)
+	return WriteFresh(target, warmLockFile, staged)
 }
 
 // withoutHashes parses the warm lock and removes every hashes argument, the

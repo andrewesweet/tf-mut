@@ -259,15 +259,19 @@ Per mutant, in parallel across up to `--jobs` workers (see [parallelism defaults
    optimisations for large closures. The sandbox gets its **own `.terraform` directory**
    containing a synthesised `modules.json` (needed for run-block file splitting).
    `.terraform.lock.hcl` is always present — omitting it classifies the entire population
-   `Invalid` with zero tests executed (m14) — and since L6 the sandbox's copy is **staged from
-   the warm lock with the `hashes` arguments removed** ([24](../research/24-l6-hash-free-sandbox-lock.md)):
+   `Invalid` with zero tests executed (m14) — and since L6 the mutant-execution sandbox's copy
+   is **staged from the warm lock with the `hashes` arguments removed**
+   ([24](../research/24-l6-hash-free-sandbox-lock.md)):
    with no hashes recorded, Terraform skips its per-command re-checksum of the shared provider
    tree, a fixed cost the warm-up `init` and both baselines had already paid against the same
    tree. The saving is hardware-dependent: measured at 3.3–5.4 CPU-s per invocation and 24–28%
    of whole runs on hardware without SHA-NI, likely a few per cent on SHA-NI hardware. The
-   warm workspace, both baselines and anything that installs providers keep the full verified
-   lock. Because the sandbox skips the checksum Terraform would run at execution time, warm-up
-   stamps every provider binary's size and modification time, and a sandbox whose tree changed
+   warm workspace, both baselines, anything that installs providers, and every non-mutant
+   staged run keep the full verified lock, including until-dry staging, suggestion verification
+   legs, and characterisation harvest and verification. Those staged runs preserve an existing
+   sandbox lock or copy the warm lock unchanged when one is missing. Because the mutant sandbox
+   skips the checksum Terraform would run at execution time, warm-up stamps every provider
+   binary's size and modification time, and a sandbox whose tree changed
    after warm-up is refused (`sandbox.ErrProviderChanged`) instead of silently executed
    against. Two sharing rules, both review-corrected:
    `providers/` is shared read-only (symlink, NTFS junction on Windows, `TF_DATA_DIR` as the

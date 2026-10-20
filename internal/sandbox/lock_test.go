@@ -86,7 +86,7 @@ func writeLockFixture(t *testing.T, lock string) lockFixture {
 
 // stageSandbox materialises one sandbox over the lock fixture the way the
 // engine does, and returns where the sandbox's own lock landed.
-func stageSandbox(t *testing.T, sourceRoot, warmDataDir, warmLockFile string) string {
+func stageSandbox(t *testing.T, sourceRoot, warmDataDir, warmLockFile string, hashFree bool) string {
 	t.Helper()
 
 	target := filepath.Join(t.TempDir(), "sandbox")
@@ -96,9 +96,11 @@ func stageSandbox(t *testing.T, sourceRoot, warmDataDir, warmLockFile string) st
 		ModuleRel:  ".",
 		Target:     target,
 		Share: &sandbox.Share{
-			DataDir:  warmDataDir,
-			LockFile: warmLockFile,
+			DataDir:      warmDataDir,
+			LockFile:     warmLockFile,
+			HashFreeLock: hashFree,
 		},
+		Hardlink: true,
 	})
 	if err != nil {
 		t.Fatalf("materialising: %v", err)
@@ -111,7 +113,7 @@ func TestTheStagedLockIsTheWarmLockWithoutHashes(t *testing.T) {
 	t.Parallel()
 
 	fixture := writeLockFixture(t, lockWithHashes)
-	staged := stageSandbox(t, fixture.sourceRoot, fixture.warmDataDir, fixture.warmLock)
+	staged := stageSandbox(t, fixture.sourceRoot, fixture.warmDataDir, fixture.warmLock, true)
 
 	content, err := os.ReadFile(staged) //nolint:gosec // test-owned temporary path.
 	if err != nil {
@@ -164,7 +166,7 @@ func TestStagingKeepsTheWarmAndSourceLocksByteIdentical(t *testing.T) {
 		t.Fatalf("reading the source lock: %v", err)
 	}
 
-	stageSandbox(t, fixture.sourceRoot, fixture.warmDataDir, fixture.warmLock)
+	stageSandbox(t, fixture.sourceRoot, fixture.warmDataDir, fixture.warmLock, true)
 
 	warmAfter, err := os.ReadFile(fixture.warmLock)
 	if err != nil {
@@ -189,7 +191,7 @@ func TestTheStagedLockIsAFreshInode(t *testing.T) {
 	t.Parallel()
 
 	fixture := writeLockFixture(t, lockWithHashes)
-	staged := stageSandbox(t, fixture.sourceRoot, fixture.warmDataDir, fixture.warmLock)
+	staged := stageSandbox(t, fixture.sourceRoot, fixture.warmDataDir, fixture.warmLock, true)
 
 	stagedInfo, err := os.Stat(staged)
 	if err != nil {
@@ -222,7 +224,7 @@ func TestAMissingWarmLockLeavesTheSandboxWithoutALockFile(t *testing.T) {
 		t.Fatalf("removing %s: %v", fixture.sourceLock, err)
 	}
 
-	staged := stageSandbox(t, fixture.sourceRoot, fixture.warmDataDir, "")
+	staged := stageSandbox(t, fixture.sourceRoot, fixture.warmDataDir, "", true)
 
 	if _, err := os.Stat(staged); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("the sandbox gained a lock file the warm workspace never had")
@@ -244,8 +246,9 @@ func TestAnUnparseableWarmLockRefusesTheSandbox(t *testing.T) {
 		ModuleRel:  ".",
 		Target:     target,
 		Share: &sandbox.Share{
-			DataDir:  fixture.warmDataDir,
-			LockFile: fixture.warmLock,
+			DataDir:      fixture.warmDataDir,
+			LockFile:     fixture.warmLock,
+			HashFreeLock: true,
 		},
 	})
 	if err == nil {
@@ -254,5 +257,41 @@ func TestAnUnparseableWarmLockRefusesTheSandbox(t *testing.T) {
 
 	if errors.Is(err, sandbox.ErrProviderChanged) {
 		t.Errorf("error = %v, want a lock-parse refusal", err)
+	}
+}
+
+func TestNonMutantStagingPreservesFullLocks(t *testing.T) {
+	t.Parallel()
+
+	for _, existing := range []bool{true, false} {
+		name := "missing source lock"
+		if existing {
+			name = "existing source lock"
+		}
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			fixture := writeLockFixture(t, lockWithHashes)
+			want := lockWithHashes
+			if existing {
+				want = strings.Replace(lockWithHashes, "3.2.3", "3.2.2", 1)
+				if err := os.WriteFile(fixture.sourceLock, []byte(want), 0o600); err != nil {
+					t.Fatalf("writing the source lock: %v", err)
+				}
+			} else if err := os.Remove(fixture.sourceLock); err != nil {
+				t.Fatalf("removing the source lock: %v", err)
+			}
+
+			staged := stageSandbox(t, fixture.sourceRoot, fixture.warmDataDir, fixture.warmLock, false)
+			content, err := os.ReadFile(staged) //nolint:gosec // test-owned temporary path.
+			if err != nil {
+				t.Fatalf("reading the staged lock: %v", err)
+			}
+
+			if string(content) != want {
+				t.Error("non-mutant staging changed the full lock, including its provider hashes")
+			}
+		})
 	}
 }

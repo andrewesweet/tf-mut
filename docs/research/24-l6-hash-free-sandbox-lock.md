@@ -39,17 +39,19 @@ there the saving is likely a few per cent (Inferred — not measured on such a m
 
 ## 2. What shipped
 
-- **Staging.** `sandbox.installLockFile` — the path every sandbox that shares the warm provider
-  tree goes through (`run` execution, `suggest` verification, `characterise` staged runs,
-  `--until-dry`) — stages the warm lock with every `hashes` argument removed via `hclwrite`,
-  written through the fresh-inode protocol, so the source lock and the warm lock are never
+- **Staging.** Only mutant execution opts into `sandbox.Share.HashFreeLock`.
+  `sandbox.installLockFile` then stages the warm lock with every `hashes` argument removed via
+  `hclwrite`, written through the fresh-inode protocol, so the source lock and the warm lock are never
   written to and a sandbox lock is a new inode whether it replaces the source lock the closure
   walk copied or appears where the source tree had none. The warm-up `init`, `providers schema`,
-  both baselines and everything that installs providers keep the full, verified lock — the
-  verification L6 skips inside sandboxes is still paid, once, against the same tree.
+  both baselines, everything that installs providers, and every non-mutant staged run keep the
+  full, verified lock. Suggestion verification legs, characterisation harvest and verification,
+  and `--until-dry` staging leave an existing sandbox lock untouched or copy the warm lock's
+  bytes when one is missing. The verification L6 skips inside mutant-execution sandboxes is
+  still paid by warm-up and baselines against the same tree.
 - **Fail-closed on a lock that does not parse.** A warm lock `hclwrite` cannot parse refuses the
-  sandbox (`errUnparseableLock`); it is never staged with its hashes intact, which would
-  silently reintroduce the cost, and never silently skipped, which would hide the failure.
+  mutant-execution sandbox (`errUnparseableLock`); it is never staged with its hashes intact,
+  which would silently reintroduce the cost, and never silently skipped, which would hide the failure.
 - **The guard.** After the warm-up `init` verified the lock, `sandbox.StampProviders` records
   the size and modification time of every file reachable from the warm provider tree, following
   the symlinks into the user-level plugin cache the tree executes through. Every
@@ -64,10 +66,12 @@ there the saving is likely a few per cent (Inferred — not measured on such a m
   over the package (`internal/sandbox/lock_test.go`, `internal/sandbox/guard_test.go`), under
   the testing seam's recorded exception 9: the real binary cannot be driven into producing each
   document shape on demand, and the report has no surface that observes the staged bytes. The
-  documents asserted: the staged lock records no hashes and keeps every locked version and
-  constraint; the warm and source locks stay byte-identical; the staged lock shares no inode
-  with either; an unparseable warm lock refuses. The guard refusals asserted: growth (size),
-  touch (mtime), removal, and a change behind the plugin-cache symlink each refuse a sandbox;
+  documents asserted: the mutant-execution staged lock records no hashes and keeps every locked
+  version and constraint; the warm and source locks stay byte-identical; the staged lock shares no inode
+  with either; an unparseable warm lock refuses mutant staging; a non-mutant staged lock keeps
+  its full bytes, including `h1:` hashes, whether retained from the source or copied from warm-up.
+  The guard refusals asserted: growth (size), touch (mtime), removal, and a change behind the
+  plugin-cache symlink each refuse a sandbox;
   an unchanged tree and a providerless workspace materialise; a refusal leaves no directory.
   Every verdict these documents lead to is still asserted through the engine seam: the offline
   fixture suite and the provider-mirror fixtures — which install `hashicorp/null` from the
