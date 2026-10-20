@@ -479,7 +479,12 @@ not the tests.
 
 The no-mutant resource warning considers every enabled operator's generated population
 before `--since` or `--sample` selection. It does not warn about a resource merely because
-selection omitted its mutants.
+selection omitted its mutants. It considers only resources in the
+[mutation surface](mutation-operators.md#the-mutation-surface), so excluded test helpers
+produce no warning. Non-root resource addresses carry their module's closure-relative
+directory path, for example `alpha/terraform_data.bare`, to distinguish same-named resources
+in different modules. Root-module addresses remain unqualified, for example
+`terraform_data.bare`.
 
 Given Oasis's finding that 78% of survivors were uncovered, the gap between the first two
 numbers is usually the most actionable thing on the screen. A module at 25% / 80% / 31% has a
