@@ -359,10 +359,24 @@ func TestAResourceNoOperatorCanMutateIsWarnedAbout(t *testing.T) {
 	// enabled operator produced any mutant for a resource.
 	silent := runFixture(t, "no-optional-arguments")
 
-	if !slices.ContainsFunc(silent.Warnings, func(warning string) bool {
-		return strings.Contains(warning, "says nothing about them")
-	}) {
+	warning := ""
+
+	for _, candidate := range silent.Warnings {
+		if strings.Contains(candidate, "says nothing about them") {
+			warning = candidate
+
+			break
+		}
+	}
+
+	if warning == "" {
 		t.Fatalf("a resource no operator reached produced no warning: %v", silent.Warnings)
+	}
+
+	// The fixture's unanswerable resource sits in the root module, whose
+	// addresses carry no module path: the colon proves nothing precedes it.
+	if !strings.Contains(warning, ": terraform_data.bare") {
+		t.Fatalf("the warning does not name the bare root-module address unqualified: %s", warning)
 	}
 
 	answered := runFixture(t, "skeleton")
@@ -371,6 +385,47 @@ func TestAResourceNoOperatorCanMutateIsWarnedAbout(t *testing.T) {
 		return strings.Contains(warning, "says nothing about them")
 	}) {
 		t.Fatalf("a fully covered module raised the unanswerable warning: %v", answered.Warnings)
+	}
+}
+
+// The unanswered-helpers fixture: three same-named terraform_data.bare
+// resources, none of which any enabled operator can reach. Two sit in
+// production child modules and stay in the warning, qualified by their module
+// path so the entries are distinguishable; the third sits in a helper module
+// under the test directory, which the mutation surface has excluded since
+// #191, so warning about it would grade the suite's scaffolding, not the
+// module under test.
+func TestTheUnanswerableWarningSkipsTestHelpersAndQualifiesModulePaths(t *testing.T) {
+	t.Parallel()
+
+	result := runFixture(t, "unanswered-helpers")
+
+	warning := ""
+
+	for _, candidate := range result.Warnings {
+		if strings.Contains(candidate, "says nothing about them") {
+			warning = candidate
+
+			break
+		}
+	}
+
+	if warning == "" {
+		t.Fatalf("a module with unanswerable resources raised no warning: %v", result.Warnings)
+	}
+
+	for _, path := range []string{"alpha/terraform_data.bare", "beta/terraform_data.bare"} {
+		if !strings.Contains(warning, path) {
+			t.Fatalf("the warning does not name %s by its module path: %s", path, warning)
+		}
+	}
+
+	if strings.Contains(warning, "tests/") {
+		t.Fatalf("the warning names a resource under the test directory: %s", warning)
+	}
+
+	if got := strings.Count(warning, "terraform_data.bare"); got != 2 {
+		t.Fatalf("the warning names %d unanswerable resources, want the two production ones: %s", got, warning)
 	}
 }
 

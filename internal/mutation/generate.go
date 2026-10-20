@@ -195,11 +195,21 @@ func (g Generator) Generate() (Result, error) {
 // underTestDirectory reports whether an absolute path sits inside the
 // configured test directory, whose files the surface excludes by default.
 func (g Generator) underTestDirectory(path string) bool {
-	if g.TestDirectory == "" {
+	return UnderTestDirectory(g.TestDirectory, path)
+}
+
+// UnderTestDirectory reports whether an absolute path sits inside the given
+// test directory, whose files the mutation surface excludes by default: a
+// helper module under it is part of the test's scaffolding, not of the module
+// under test. An empty test directory excludes nothing. The surface's
+// consumers that speak about modules — the warning over resources no operator
+// reached — must exclude the same modules with this same rule.
+func UnderTestDirectory(testDirectory, path string) bool {
+	if testDirectory == "" {
 		return false
 	}
 
-	relative, err := filepath.Rel(g.TestDirectory, path)
+	relative, err := filepath.Rel(testDirectory, path)
 
 	return err == nil && relative != ".." &&
 		!strings.HasPrefix(relative, ".."+string(filepath.Separator))
