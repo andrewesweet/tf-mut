@@ -388,14 +388,10 @@ if [ "$2" = test ] && [[ "$1" == -chdir=*/m0* ]]; then
   dir="${1#-chdir=}"
   count_file="$dir/.tf-mut-test-invocations"
   count=0
-  if [ -f "$count_file" ]; then
-    read -r count < "$count_file"
-  fi
+  [ -f "$count_file" ] && read -r count < "$count_file"
   count=$((count + 1))
   printf '%s\n' "$count" > "$count_file"
-  if [ "$count" -ge 2 ]; then
-    ` + napLine + `
-  fi
+  [ "$count" -ge 2 ] && ` + napLine + `
 fi
 exec terraform "$@"
 `

@@ -8,175 +8,92 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 )
 
-// Observation is everything the engine measured about one mutant, assembled
-// for the precedence table to judge. Its fields are unexported: the engine
-// builds it through the With constructors from its measurements: the mutant's
-// operator, the unknown paths, the masked delta and mask,
-// the unstable components, the closure's Reach, the phase-one status, the
-// diagnostics and the validate verdict — and every decision over those facts
-// belongs to the oracle. The engine keeps every I/O duty: running Terraform,
-// canonicalising payloads, building the graph cone. The four func fields are
-// the fail-closed adapters over the engine's measured sources: the graph
-// cone, the output and local closure, the provider schemas' computed flags
-// and the mutant's own volatility scan.
-type Observation struct {
+// Measurement is everything the engine measured about one mutant, plus the
+// fail-closed adapters over the engine's measured sources: the single value
+// NewObservation builds an Observation from. Every field names what it
+// carries, so the caller assembles the value by name instead of knowing the
+// order the oracle reads it in.
+//
+// The zero value means "not supplied", exactly as the optional evidence of
+// the observation always has: a validate verdict never recorded, a phase-two
+// comparison never made, an adapter never wired (a nil adapter is supplied by
+// no caller, and the engine wires all four at assembly). The engine keeps
+// every I/O duty — running Terraform, canonicalising payloads, building the
+// graph cone — and every decision over these facts belongs to the oracle.
+type Measurement struct {
 	// Phase one: what the executed runs reported.
-	failedRuns   bool
-	erroredRuns  bool
-	executedRuns int
-	timedOut     bool
-	budget       time.Duration
-	diagnostics  []Diagnostic
+	FailedRuns   bool
+	ErroredRuns  bool
+	ExecutedRuns int
+	TimedOut     bool
+	Budget       time.Duration
+	Diagnostics  []Diagnostic
 
-	// The validate verdict, recorded by WithValidateVerdict when the engine
-	// honoured NeedsValidate. Until then no verdict that needs it can be
-	// judged.
-	validateValid      bool
-	invalidDiagnostics []Diagnostic
+	// The validate verdict: recorded where the engine honoured NeedsValidate.
+	// Until then no verdict that needs it can be judged.
+	ValidateValid      bool
+	InvalidDiagnostics []Diagnostic
 
-	// Phase two: what the fingerprint comparison measured, recorded by
-	// WithPhaseTwo and WithSecondRun.
-	phaseTwoDecided bool
-	operator        mutation.Operator
-	delta           fingerprint.Delta
-	mask            fingerprint.Mask
-	unstable        []string
-	unknowns        []string
+	// Phase two: what the fingerprint comparison measured — the mutant's
+	// operator, the masked delta against the baseline, the mask it was
+	// compared under, the unknown paths the payload carries, and the
+	// attributes that differed across the mutant's own two runs once the
+	// volatility re-run recorded its comparison.
+	PhaseTwoDecided bool
+	Operator        mutation.Operator
+	Delta           fingerprint.Delta
+	Mask            fingerprint.Mask
+	Unknowns        []string
+	Unstable        []string
 
 	// The fail-closed adapters over the engine's measured sources.
-	inCone     func(payloadAddress string) bool
-	reads      func(address string) discovery.Reach
-	computed   func(kind, resource, attribute string) (computed, known bool)
-	suspicious func(resource string) bool
+	InCone func(payloadAddress string) bool
+	// Reads adapts the output and local closure: what the closure concludes
+	// about an address's assertions.
+	Reads func(address string) discovery.Reach
+	// ComputedAttributes adapts the provider schemas: whether an attribute is
+	// computed, and whether the schema knows the attribute at all.
+	ComputedAttributes func(kind, resource, attribute string) (computed, known bool)
+	// Suspicious adapts the static impure scan over the mutant's own syntax:
+	// whether the scan marks a resource suspicious.
+	Suspicious func(resource string) bool
 }
 
-// NewObservation starts an observation from what phase one measured: whether
-// any run reported fail or error, how many runs executed, whether the run
-// exceeded its budget, the budget it was measured against, and the runs'
-// diagnostics.
-func NewObservation(
-	failedRuns, erroredRuns bool,
-	executedRuns int,
-	timedOut bool,
-	budget time.Duration,
-	diagnostics []Diagnostic,
-) Observation {
-	return Observation{
-		failedRuns:   failedRuns,
-		erroredRuns:  erroredRuns,
-		executedRuns: executedRuns,
-		timedOut:     timedOut,
-		budget:       budget,
-		diagnostics:  diagnostics,
-	}
+// Observation is everything the engine measured about one mutant, assembled
+// for the precedence table to judge. It is built only through NewObservation,
+// from one Measurement value; every decision over those facts — the
+// predicates below and Judge's precedence table — belongs to the oracle.
+type Observation struct {
+	measured Measurement
 }
 
-// WithPhaseTwoDeadline records a volatility re-run that outlived its
-// budget: the comparison it owed the oracle never arrived, and the precedence
-// table's deadline row decides instead. A survivor's phase one guarantees no
-// failed or errored run, so the deadline is reached with the table otherwise
-// clean — the overrun lands as a Timeout counted in the score's denominator.
-func (o Observation) WithPhaseTwoDeadline(budget time.Duration) Observation {
-	o.timedOut = true
-	o.budget = budget
-
-	return o
-}
-
-// WithValidateVerdict records the terraform validate verdict. The engine runs
-// validate exactly where NeedsValidate says the table needs it and records
-// the result here before calling Judge: the diagnostics are the merged,
-// ordered list an Invalid claim is made from.
-func (o Observation) WithValidateVerdict(valid bool, invalidDiagnostics []Diagnostic) Observation {
-	o.validateValid = valid
-	o.invalidDiagnostics = invalidDiagnostics
-
-	return o
-}
-
-// WithCone adapts the mutation's forward cone to a payload address: whether
-// an unknown at the address lies in the cone. An unmappable site keeps the
-// whole-payload floor, so the engine's adapter answers true for every
-// address there.
-func (o Observation) WithCone(inCone func(payloadAddress string) bool) Observation {
-	o.inCone = inCone
-
-	return o
-}
-
-// WithClosure adapts the output and local closure: what the closure concludes
-// about an address's assertions.
-func (o Observation) WithClosure(reads func(address string) discovery.Reach) Observation {
-	o.reads = reads
-
-	return o
-}
-
-// WithComputedAttributes adapts the provider schemas: whether an attribute is
-// computed, and whether the schema knows the attribute at all.
-func (o Observation) WithComputedAttributes(
-	computed func(kind, resource, attribute string) (computed, known bool),
-) Observation {
-	o.computed = computed
-
-	return o
-}
-
-// WithSuspicion adapts the static impure scan over the mutant's own syntax:
-// whether the scan marks a resource suspicious.
-func (o Observation) WithSuspicion(suspicious func(resource string) bool) Observation {
-	o.suspicious = suspicious
-
-	return o
-}
-
-// WithPhaseTwo records the first fingerprint comparison: the mutant's
-// operator, the masked delta against the baseline, the mask it was compared
-// under, and the unknown paths the payload carries.
-func (o Observation) WithPhaseTwo(
-	operator mutation.Operator,
-	delta fingerprint.Delta,
-	mask fingerprint.Mask,
-	unknowns []string,
-) Observation {
-	o.phaseTwoDecided = true
-	o.operator = operator
-	o.delta = delta
-	o.mask = mask
-	o.unknowns = unknowns
-
-	return o
-}
-
-// WithSecondRun records the comparison after the volatility re-run: the
-// recomputed delta and mask, and the attributes that differed across the
-// mutant's own two runs.
-func (o Observation) WithSecondRun(delta fingerprint.Delta, mask fingerprint.Mask, unstable []string) Observation {
-	o.delta = delta
-	o.mask = mask
-	o.unstable = unstable
-
-	return o
+// NewObservation assembles an observation from the one Measurement the
+// engine measured: what the executed runs reported, the validate verdict
+// where it was owed, the fingerprint comparison where phase two decided, and
+// the fail-closed adapters over the engine's measured sources. The engine
+// calls it wherever it asks the oracle a question or requests a judgement.
+func NewObservation(measured Measurement) Observation {
+	return Observation{measured: measured}
 }
 
 // DeadlineExceeded reports whether a deadline recorded anywhere in the
-// observation — phase one's budget or a survivor-side run's — has fired. The
+// measurement — phase one's budget or a survivor-side run's — has fired. The
 // engine records the fact on the verdict so the report shows the deadline
 // behind whatever verdict the precedence table earned.
 func (o Observation) DeadlineExceeded() bool {
-	return o.timedOut
+	return o.measured.TimedOut
 }
 
 // NeedsValidate reports whether the precedence table needs the validate
 // verdict: after a run-level error or a zero-run result, unless an assertion
-// already caught the mutant. The engine records the verdict with
-// WithValidateVerdict before calling Judge.
+// already caught the mutant. The engine records the verdict in the
+// measurement before calling Judge.
 func (o Observation) NeedsValidate() bool {
-	if o.failedRuns {
+	if o.measured.FailedRuns {
 		return false
 	}
 
-	return o.erroredRuns || o.executedRuns == 0
+	return o.measured.ErroredRuns || o.measured.ExecutedRuns == 0
 }
 
 // NeedsPhaseTwo reports the phase-two decision: the fingerprint stage is
@@ -185,14 +102,14 @@ func (o Observation) NeedsValidate() bool {
 // Since 2.17.0 the engine answers an affirmative from the survivor's own
 // verbose stream rather than a second invocation.
 func (o Observation) NeedsPhaseTwo(outcome Outcome) bool {
-	return outcome.State() == StateSurvived && !o.phaseTwoDecided
+	return outcome.State() == StateSurvived && !o.measured.PhaseTwoDecided
 }
 
 // NoVerdictPossible reports that no run block executed, so no verdict is
 // possible. A refusal at the engine, never a verdict: a filter that matches
 // nothing exits zero and must never be read as survival.
 func (o Observation) NoVerdictPossible() bool {
-	return o.executedRuns == 0
+	return o.measured.ExecutedRuns == 0
 }
 
 // NeedsVolatilityRerun applies the mutation-introduced volatility rule (spec
@@ -204,7 +121,7 @@ func (o Observation) NoVerdictPossible() bool {
 // static impure scan over the *mutant's* own syntax marks suspicious, the
 // mutant is run once more and the difference between its two runs is masked.
 func (o Observation) NeedsVolatilityRerun() bool {
-	if len(o.delta.Changes) == 0 {
+	if len(o.measured.Delta.Changes) == 0 {
 		return false
 	}
 
@@ -212,8 +129,8 @@ func (o Observation) NeedsVolatilityRerun() bool {
 		return true
 	}
 
-	for _, address := range o.delta.Addresses() {
-		if o.suspicious(resourceOf(address)) {
+	for _, address := range o.measured.Delta.Addresses() {
+		if o.measured.Suspicious(resourceOf(address)) {
 			return true
 		}
 	}
