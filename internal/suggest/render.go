@@ -376,6 +376,10 @@ func walkAttributeSteps(
 
 	if !indexed {
 		if len(rest) == 0 {
+			if !known {
+				return spelled, nil
+			}
+
 			return spelled, need.accepts(declared)
 		}
 
@@ -619,12 +623,12 @@ func memberSpelling(key string) string {
 
 // indexType resolves a bracketed step against the type it indexes.
 func indexType(declared cty.Type, name, key string) (cty.Type, error) {
+	if !digitsOnly(key) {
+		return cty.NilType, indexRefusal(declared, name+"["+key+"]")
+	}
+
 	switch {
 	case declared.IsListType():
-		if !digitsOnly(key) {
-			return cty.NilType, indexRefusal(declared, name+"["+key+"]")
-		}
-
 		return declared.ElementType(), nil
 	case declared.IsTupleType():
 		position, err := strconv.Atoi(key)

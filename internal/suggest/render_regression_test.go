@@ -130,3 +130,115 @@ func TestOutputContainersUseStructuralNonNullEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestInvalidFusedIndicesRemainLiteralKeys(t *testing.T) {
+	t.Parallel()
+
+	for _, index := range []string{"-1", "-0", "+0", "", "word"} {
+		for _, sequence := range []cty.Type{cty.List(cty.String), cty.Tuple([]cty.Type{cty.String})} {
+			t.Run(index+"/"+sequence.FriendlyName(), func(t *testing.T) {
+				t.Parallel()
+
+				key := "foo[" + index + "]"
+				declared := cty.Object(map[string]cty.Type{"foo": sequence, key: cty.String})
+				wire, err := ctyjson.MarshalType(declared)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, prefix := range []string{
+					statePrefix + "example_thing.app].values.tags",
+					"resource_changes[example_thing.app].change.after.tags",
+					"outputs.regions.value", "output_changes.regions.after",
+				} {
+					resource := "example_thing.app.tags"
+					if fingerprint.ParsePath(prefix).Address() == regionsOutput {
+						resource = regionsOutput
+					}
+					expression, err := suggest.Express(schemaTyping("tags", string(wire)),
+						suggest.Evidence{OutputTypes: map[string]cty.Type{regionsOutput: declared}},
+						changeAt(prefix+"."+key, steadyBaseline))
+					assertAdapter(t, expression, err,
+						"try("+resource+`["`+key+`"], null) == "steady"`, nil)
+				}
+			})
+		}
+	}
+}
+
+func TestNestedTupleIndicesRequireUnsignedInRangePositions(t *testing.T) {
+	t.Parallel()
+
+	schemas := schemaBlock(nil, map[string]tfexec.SchemaBlockType{
+		"settings": {NestingMode: tfexec.NestingSingle, Block: tfexec.SchemaBlock{
+			Attributes: map[string]tfexec.SchemaAttribute{
+				"items": {Optional: true, Type: json.RawMessage(`["tuple",["string"]]`)},
+			},
+		}},
+	})
+	for _, index := range []string{"-1", "-0", "+0", "0", "1", "word", "999999999999999999999999"} {
+		for _, prefix := range []string{
+			statePrefix + "example_thing.app].values.",
+			"resource_changes[example_thing.app].change.after.",
+		} {
+			t.Run(index+"/"+prefix, func(t *testing.T) {
+				t.Parallel()
+
+				want, refusal := "", suggest.ErrUnrenderable
+				if index == "0" {
+					want, refusal = `try(example_thing.app.settings.items[0], null) == "steady"`, nil
+				}
+				expression, err := suggest.Express(schemas, suggest.Evidence{},
+					changeAt(prefix+"settings.items["+index+"]", steadyBaseline))
+				assertAdapter(t, expression, err, want, refusal)
+			})
+		}
+	}
+}
+
+func TestNestedUntypedLeavesPreserveScalarFallback(t *testing.T) {
+	t.Parallel()
+
+	for _, block := range []struct {
+		mode, path, reference string
+	}{
+		{tfexec.NestingSingle, "settings", "settings"},
+		{tfexec.NestingGroup, "settings", "settings"},
+		{tfexec.NestingList, "settings[0]", "settings[0]"},
+		{tfexec.NestingMap, "settings.shared", `settings["shared"]`},
+	} {
+		for _, wire := range []string{`"dynamic"`, "", `"unsupported"`, `"string"`, `["list","string"]`} {
+			t.Run(block.mode+"/"+wire, func(t *testing.T) {
+				t.Parallel()
+
+				schemas := schemaBlock(nil, map[string]tfexec.SchemaBlockType{
+					"settings": {NestingMode: block.mode, Block: tfexec.SchemaBlock{
+						Attributes: map[string]tfexec.SchemaAttribute{
+							"value": {Optional: true, Type: json.RawMessage(wire)},
+						},
+					}},
+				})
+				for _, provider := range schemas.ProviderSchemas {
+					provider.DataSourceSchemas["example_thing"] = provider.ResourceSchemas["example_thing"]
+				}
+				for _, resource := range []string{exampleResource, "data.example_thing.app"} {
+					for _, prefix := range []string{
+						statePrefix + resource + "].values.",
+						"resource_changes[" + resource + "].change.after.",
+					} {
+						for _, suffix := range []string{"", "[0]", ".child"} {
+							expression, err := suggest.Express(schemas, suggest.Evidence{},
+								changeAt(prefix+block.path+".value"+suffix, steadyBaseline))
+							want, refusal := "", suggest.ErrUnrenderable
+							if (suffix == "" && wire != `["list","string"]`) ||
+								(suffix == "[0]" && wire == `["list","string"]`) {
+								want = "try(" + resource + "." + block.reference + ".value" + suffix + `, null) == "steady"`
+								refusal = nil
+							}
+							assertAdapter(t, expression, err, want, refusal)
+						}
+					}
+				}
+			})
+		}
+	}
+}

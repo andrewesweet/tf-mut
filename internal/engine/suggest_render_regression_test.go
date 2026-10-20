@@ -91,3 +91,59 @@ func TestLiteralOutputMemberPinsVerifyThroughTerraform(t *testing.T) {
 		}
 	}
 }
+
+func TestSignedIndexKeysVerifySuggestionAndPinPaths(t *testing.T) {
+	t.Parallel()
+
+	const moduleSource = `output "regions" {
+  value = {
+    foo = ["a"]
+    "foo[-1]" = "steady"
+    "foo[-0]" = "steady"
+    "foo[+0]" = "steady"
+  }
+}
+`
+	for _, command := range []string{"suggest", "characterise"} {
+		t.Run(command, func(t *testing.T) {
+			t.Parallel()
+
+			module := t.TempDir()
+			if command == "suggest" {
+				module = copyFixture(t, suggestOutputList)
+			}
+			testsupport.WriteFile(t, filepath.Join(module, mainFile), moduleSource)
+			verified := map[string]bool{}
+			if command == "suggest" {
+				request := suggestRequest(t, module)
+				request.IncludeOperators = []string{"STR-CASE"}
+				result := runSuggest(t, request)
+				for _, suggestion := range result.Suggestions {
+					verified[suggestion.Expression] = suggestion.Status == report.SuggestionVerified &&
+						suggestion.Verification != nil && suggestion.Verification.Baseline.Passed && suggestion.Verification.Mutant.Passed
+				}
+			} else {
+				result, err := engine.Run(t.Context(), characteriseRequest(t, module))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if result.Characterisation == nil || !result.Characterisation.Complete {
+					t.Fatalf("the suite did not verify green: %+v", result.Characterisation)
+				}
+				for _, pin := range result.Characterisation.Pins {
+					verified[pin.Expression] = pin.Status == report.Pinned
+				}
+			}
+			for _, want := range []string{
+				`try(output.regions["foo[-1]"], null) == "steady"`,
+				`try(output.regions["foo[-0]"], null) == "steady"`,
+				`try(output.regions["foo[+0]"], null) == "steady"`,
+				`try(output.regions.foo[0], null) == "a"`,
+			} {
+				if !verified[want] {
+					t.Fatalf("no verified expression %s: %+v", want, verified)
+				}
+			}
+		})
+	}
+}
