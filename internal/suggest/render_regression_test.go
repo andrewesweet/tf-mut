@@ -12,6 +12,15 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
+const (
+	regionsStateValue = "outputs.regions.value"
+	regionsPlanAfter  = "output_changes.regions.after"
+	sourceAttribute   = "source"
+	emptyForm         = "empty"
+	settingsBlock     = "settings"
+	stringListType    = `["list","string"]`
+)
+
 func TestTypedMemberKeysPreserveTheirLiteralSpelling(t *testing.T) {
 	t.Parallel()
 
@@ -21,7 +30,7 @@ func TestTypedMemberKeysPreserveTheirLiteralSpelling(t *testing.T) {
 		{"${part}%{blk}", `"$${part}%%{blk}"`},
 		{"a\b\f\v\ab", `"a\u0008\u000c\u000b\u0007b"`},
 		{"[prod]", `"[prod]"`},
-		{"[0]", `"[0]"`},
+		{firstElementIndex, `"[0]"`},
 	} {
 		for _, declared := range []cty.Type{cty.Map(cty.String), cty.Object(map[string]cty.Type{key.value: cty.String})} {
 			t.Run(key.quoted+"/"+declared.FriendlyName(), func(t *testing.T) {
@@ -32,7 +41,11 @@ func TestTypedMemberKeysPreserveTheirLiteralSpelling(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				for _, prefix := range []string{statePrefix + "example_thing.app].values.tags", "resource_changes[example_thing.app].change.after.tags", "outputs.regions.value", "output_changes.regions.after"} {
+				for _, prefix := range []string{
+					statePrefix + "example_thing.app].values.tags",
+					"resource_changes[example_thing.app].change.after.tags",
+					regionsStateValue, regionsPlanAfter,
+				} {
 					resource := "example_thing.app.tags"
 					if fingerprint.ParsePath(prefix).Address() == regionsOutput {
 						resource = regionsOutput
@@ -51,7 +64,9 @@ func TestTypedMemberKeysPreserveTheirLiteralSpelling(t *testing.T) {
 
 			schemas := schemaBlock(nil, map[string]tfexec.SchemaBlockType{
 				mountsBlock: {NestingMode: tfexec.NestingMap, Block: tfexec.SchemaBlock{
-					Attributes: map[string]tfexec.SchemaAttribute{"source": {Optional: true, Type: json.RawMessage(`"string"`)}},
+					Attributes: map[string]tfexec.SchemaAttribute{
+						sourceAttribute: {Optional: true, Type: json.RawMessage(`"string"`)},
+					},
 				}},
 			})
 			expression, err := suggest.Express(schemas, suggest.Evidence{},
@@ -68,13 +83,13 @@ func TestRecursiveAmbiguityNeverSelectsAnOuterLiteralKey(t *testing.T) {
 	for _, form := range []struct{ name, baseline, mutant string }{
 		{"scalar", steadyBaseline, ""},
 		{"null", steadyBaseline, nulledValue},
-		{"empty", "[]", ""},
+		{emptyForm, "[]", ""},
 	} {
 		t.Run(form.name, func(t *testing.T) {
 			t.Parallel()
 
 			leaf := cty.String
-			if form.name == "empty" {
+			if form.name == emptyForm {
 				leaf = cty.List(cty.String)
 			}
 			declared := cty.Object(map[string]cty.Type{
@@ -86,7 +101,9 @@ func TestRecursiveAmbiguityNeverSelectsAnOuterLiteralKey(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			for _, prefix := range []string{statePrefix + "example_thing.app].values.tags", "outputs.regions.value", "output_changes.regions.after"} {
+			for _, prefix := range []string{
+				statePrefix + "example_thing.app].values.tags", regionsStateValue, regionsPlanAfter,
+			} {
 				change := changeAt(prefix+".a.b[0]", form.baseline)
 				change.Mutant = form.mutant
 				expression, err := suggest.Express(schemaTyping("tags", string(wire)),
@@ -100,8 +117,8 @@ func TestRecursiveAmbiguityNeverSelectsAnOuterLiteralKey(t *testing.T) {
 func TestOutputContainersUseStructuralNonNullEvidence(t *testing.T) {
 	t.Parallel()
 
-	for _, prefix := range []string{"outputs.regions.value", "output_changes.regions.after"} {
-		for _, suffix := range []string{".member", "[0]"} {
+	for _, prefix := range []string{regionsStateValue, regionsPlanAfter} {
+		for _, suffix := range []string{".member", firstElementIndex} {
 			for _, baseline := range []string{steadyBaseline, nulledValue} {
 				t.Run(prefix+suffix+baseline, func(t *testing.T) {
 					t.Parallel()
@@ -114,11 +131,11 @@ func TestOutputContainersUseStructuralNonNullEvidence(t *testing.T) {
 			}
 		}
 	}
-	for _, suffix := range []string{".member", "[0]"} {
+	for _, suffix := range []string{".member", firstElementIndex} {
 		t.Run("unknown"+suffix, func(t *testing.T) {
 			t.Parallel()
 
-			nulled := nulledAt("output_changes.regions.after")
+			nulled := nulledAt(regionsPlanAfter)
 			evidence := suggest.NewEvidence([]fingerprint.Change{
 				nulled, changeAt("output_changes.regions.after_unknown"+suffix, "true"),
 			})
@@ -148,7 +165,7 @@ func TestInvalidFusedIndicesRemainLiteralKeys(t *testing.T) {
 				for _, prefix := range []string{
 					statePrefix + "example_thing.app].values.tags",
 					"resource_changes[example_thing.app].change.after.tags",
-					"outputs.regions.value", "output_changes.regions.after",
+					regionsStateValue, regionsPlanAfter,
 				} {
 					resource := "example_thing.app.tags"
 					if fingerprint.ParsePath(prefix).Address() == regionsOutput {
@@ -169,7 +186,7 @@ func TestNestedTupleIndicesRequireUnsignedInRangePositions(t *testing.T) {
 	t.Parallel()
 
 	schemas := schemaBlock(nil, map[string]tfexec.SchemaBlockType{
-		"settings": {NestingMode: tfexec.NestingSingle, Block: tfexec.SchemaBlock{
+		settingsBlock: {NestingMode: tfexec.NestingSingle, Block: tfexec.SchemaBlock{
 			Attributes: map[string]tfexec.SchemaAttribute{
 				"items": {Optional: true, Type: json.RawMessage(`["tuple",["string"]]`)},
 			},
@@ -201,17 +218,17 @@ func TestNestedUntypedLeavesPreserveScalarFallback(t *testing.T) {
 	for _, block := range []struct {
 		mode, path, reference string
 	}{
-		{tfexec.NestingSingle, "settings", "settings"},
-		{tfexec.NestingGroup, "settings", "settings"},
+		{tfexec.NestingSingle, settingsBlock, settingsBlock},
+		{tfexec.NestingGroup, settingsBlock, settingsBlock},
 		{tfexec.NestingList, "settings[0]", "settings[0]"},
 		{tfexec.NestingMap, "settings.shared", `settings["shared"]`},
 	} {
-		for _, wire := range []string{`"dynamic"`, "", `"unsupported"`, `"string"`, `["list","string"]`} {
+		for _, wire := range []string{`"dynamic"`, "", `"unsupported"`, `"string"`, stringListType} {
 			t.Run(block.mode+"/"+wire, func(t *testing.T) {
 				t.Parallel()
 
 				schemas := schemaBlock(nil, map[string]tfexec.SchemaBlockType{
-					"settings": {NestingMode: block.mode, Block: tfexec.SchemaBlock{
+					settingsBlock: {NestingMode: block.mode, Block: tfexec.SchemaBlock{
 						Attributes: map[string]tfexec.SchemaAttribute{
 							"value": {Optional: true, Type: json.RawMessage(wire)},
 						},
@@ -220,25 +237,31 @@ func TestNestedUntypedLeavesPreserveScalarFallback(t *testing.T) {
 				for _, provider := range schemas.ProviderSchemas {
 					provider.DataSourceSchemas["example_thing"] = provider.ResourceSchemas["example_thing"]
 				}
-				for _, resource := range []string{exampleResource, "data.example_thing.app"} {
-					for _, prefix := range []string{
-						statePrefix + resource + "].values.",
-						"resource_changes[" + resource + "].change.after.",
-					} {
-						for _, suffix := range []string{"", "[0]", ".child"} {
-							expression, err := suggest.Express(schemas, suggest.Evidence{},
-								changeAt(prefix+block.path+".value"+suffix, steadyBaseline))
-							want, refusal := "", suggest.ErrUnrenderable
-							if (suffix == "" && wire != `["list","string"]`) ||
-								(suffix == "[0]" && wire == `["list","string"]`) {
-								want = "try(" + resource + "." + block.reference + ".value" + suffix + `, null) == "steady"`
-								refusal = nil
-							}
-							assertAdapter(t, expression, err, want, refusal)
-						}
-					}
-				}
+				assertNestedUntypedLeafFallback(t, schemas, wire, block.path, block.reference)
 			})
+		}
+	}
+}
+
+func assertNestedUntypedLeafFallback(t *testing.T, schemas tfexec.Schemas, wire, path, reference string) {
+	t.Helper()
+
+	for _, resource := range []string{exampleResource, "data.example_thing.app"} {
+		for _, prefix := range []string{
+			statePrefix + resource + "].values.",
+			"resource_changes[" + resource + "].change.after.",
+		} {
+			for _, suffix := range []string{"", firstElementIndex, ".child"} {
+				expression, err := suggest.Express(schemas, suggest.Evidence{},
+					changeAt(prefix+path+".value"+suffix, steadyBaseline))
+				want, refusal := "", suggest.ErrUnrenderable
+				if (suffix == "" && wire != stringListType) ||
+					(suffix == firstElementIndex && wire == stringListType) {
+					want = "try(" + resource + "." + reference + ".value" + suffix + `, null) == "steady"`
+					refusal = nil
+				}
+				assertAdapter(t, expression, err, want, refusal)
+			}
 		}
 	}
 }
