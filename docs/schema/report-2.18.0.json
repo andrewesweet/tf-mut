@@ -1092,6 +1092,7 @@
               "status": {
                 "enum": [
                   "skipped-sensitive",
+                  "skipped-volatile",
                   "skipped-unaddressable",
                   "skipped-unrenderable",
                   "skipped-unsupported-target",

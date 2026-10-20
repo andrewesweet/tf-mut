@@ -921,10 +921,6 @@ func TestTheSensitivityPredicateRefusesBeforeAnythingRenders(t *testing.T) {
 func TestAVolatileMaskedBaselineIsNeverRendered(t *testing.T) {
 	t.Parallel()
 
-	// The mask's wire form: the marker stands in for the component it removed,
-	// and a masked component inside a quoted rendering travels escaped.
-	const masked = "\x00"
-
 	for _, testCase := range []struct {
 		name     string
 		path     string
@@ -934,29 +930,45 @@ func TestAVolatileMaskedBaselineIsNeverRendered(t *testing.T) {
 		{
 			name:     "a whole output value the mask removed",
 			path:     "outputs.token.value",
-			baseline: masked,
+			baseline: steadyBaseline,
 			schemas:  untyped(),
 		},
 		{
 			name:     "a dropped map entry whose value the mask removed",
 			path:     statePrefix + `example_thing.app].values.tags.team`,
-			baseline: masked,
+			baseline: steadyBaseline,
 			schemas:  schemaTyping("tags", `["map","string"]`),
 		},
 		{
 			name:     "a quoted value with a masked component",
 			path:     "outputs.region.value",
-			baseline: `"eu-west-\x00"`,
+			baseline: `"eu-west-token"`,
 			schemas:  untyped(),
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := suggest.Express(
-				testCase.schemas, suggest.Evidence{},
-				changeAt(testCase.path, testCase.baseline),
-			)
+			mask := fingerprint.NewMask()
+			mask.Spans[testCase.path] = fingerprint.SyntaxSpan("", "", true)
+			if testCase.path == "outputs.region.value" {
+				mask.Spans[testCase.path] = fingerprint.SyntaxSpan("eu-west-", "", false)
+			}
+			baseline := fingerprint.Payload{Values: map[string]string{testCase.path: testCase.baseline}}
+			mutant := fingerprint.Payload{Values: map[string]string{}}
+			delta := fingerprint.Compare(mask, []fingerprint.Payload{baseline}, []fingerprint.Payload{mutant})
+			if len(delta.Changes) != 1 {
+				t.Fatalf("want one dropped value, got %+v", delta)
+			}
+			encoded, err := json.Marshal(delta.Changes[0])
+			if err != nil {
+				t.Fatalf("encoding evidence: %v", err)
+			}
+			var restored fingerprint.Change
+			if err := json.Unmarshal(encoded, &restored); err != nil {
+				t.Fatalf("decoding evidence: %v", err)
+			}
+			_, err = suggest.Express(testCase.schemas, suggest.Evidence{}, restored)
 
 			if !errors.Is(err, suggest.ErrVolatile) {
 				t.Fatalf("a volatile-masked baseline refused as %v, want the "+

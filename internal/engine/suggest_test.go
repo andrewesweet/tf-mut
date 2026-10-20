@@ -3,6 +3,7 @@ package engine_test
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -582,6 +583,106 @@ func TestAVolatileBaselineEntryIsSkippedAsVolatile(t *testing.T) {
 		t.Fatalf("want the two volatile entries skipped and the two steady entries "+
 			"rendered, got %s", statusSummary(result.Suggestions))
 	}
+	assertNoMaskControlByte(t, result)
+}
+
+func assertNoMaskControlByte(t *testing.T, result report.Report) {
+	t.Helper()
+
+	for name, render := range map[string]func(io.Writer, report.Report) error{
+		"JSON":     report.WriteJSON,
+		"terminal": report.WriteTerminal,
+		"SARIF": func(writer io.Writer, value report.Report) error {
+			return report.WriteSARIF(writer, value, nil)
+		},
+	} {
+		var output strings.Builder
+		if err := render(&output, result); err != nil {
+			t.Fatalf("rendering %s: %v", name, err)
+		}
+		if strings.ContainsRune(output.String(), '\x00') || strings.Contains(output.String(), `\u0000`) {
+			t.Fatalf("%s carries the mask's control byte: %q", name, output.String())
+		}
+	}
+}
+
+func TestVolatileEvidenceIsSafeAcrossReportsAndCacheReplay(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, suggestBasicFixture)
+	const source = `resource "terraform_data" "app" {
+  input = {
+    env   = "steady"
+    token = uuid()
+  }
+}
+
+output "ignored" {
+  value = terraform_data.app.input
+}
+
+output "asserted" {
+  value = "asserted"
+}
+`
+	if err := os.WriteFile(filepath.Join(module, mainFile), []byte(source), 0o600); err != nil {
+		t.Fatalf("writing module: %v", err)
+	}
+	request := dryRunRequest(t, module)
+	request.IncludeOperators = []string{collDropEntryOperator}
+
+	for attempt := range 2 {
+		result := runSuggest(t, request)
+		if attempt == 1 && result.Population.Cached == 0 {
+			t.Fatalf("the repeated run replayed no cached evidence: %+v", result.Population)
+		}
+		if len(withStatus(result, report.SuggestionSkippedVolatile)) == 0 {
+			t.Fatalf("no volatile skip: %+v", result.Suggestions)
+		}
+		if len(withStatus(result, report.SuggestionCandidate)) == 0 {
+			t.Fatalf("no stable candidate: %+v", result.Suggestions)
+		}
+		assertNoMaskControlByte(t, result)
+	}
+}
+
+func TestAStableNULStringCanBeSuggestedAndPinned(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, suggestBasicFixture)
+	const source = `output "ignored" {
+  value = join("\u0000", ["a", "b"])
+}
+
+output "asserted" {
+  value = "asserted"
+}
+`
+	if err := os.WriteFile(filepath.Join(module, mainFile), []byte(source), 0o600); err != nil {
+		t.Fatalf("writing module: %v", err)
+	}
+	request := suggestRequest(t, module)
+	request.IncludeOperators = []string{"STR-CASE"}
+	result := runSuggest(t, request)
+	const want = `output.ignored == "a\u0000b"`
+	verified := withStatus(result, report.SuggestionVerified)
+	if len(verified) != 1 || verified[0].Expression != want {
+		t.Fatalf("stable NUL output was not verified as %q: %+v", want, result.Suggestions)
+	}
+
+	if err := os.RemoveAll(filepath.Join(module, "tests")); err != nil {
+		t.Fatalf("removing suite: %v", err)
+	}
+	characterise := characteriseRequest(t, module)
+	characterise.PinRung = rungOutputs
+	pinned, err := engine.Run(t.Context(), characterise)
+	if err != nil {
+		t.Fatalf("characterise: %v", err)
+	}
+	if pinned.Characterisation == nil || !pinned.Characterisation.Complete {
+		t.Fatalf("stable NUL output was not characterised: %+v", pinned)
+	}
+	assertPinnedOutputAssertions(t, pinned.Characterisation.Pins, map[string]string{"output.ignored": want})
 }
 
 func TestOutputValueSelectionUsesCompleteDelta(t *testing.T) {

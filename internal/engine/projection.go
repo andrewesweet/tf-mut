@@ -209,7 +209,7 @@ const SensitiveWithheld = report.SensitiveWithheld
 // that "the path was not there" stays distinguishable from "it was withheld".
 func withheld(sensitive bool, rendering string) string {
 	if !sensitive || rendering == "" {
-		return rendering
+		return strings.ReplaceAll(rendering, "\x00", `\x00`)
 	}
 
 	return SensitiveWithheld

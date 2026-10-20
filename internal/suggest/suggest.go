@@ -523,7 +523,7 @@ func expressChange(renderer render, evidence Evidence, change fingerprint.Change
 		return "", err
 	}
 
-	return renderer.equality(parts, change.Baseline, change.Mutant, evidence)
+	return renderer.equality(parts, change, evidence)
 }
 
 // ErrSensitive reports a delta whose value Terraform marks sensitive.

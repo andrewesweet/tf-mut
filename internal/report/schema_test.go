@@ -801,30 +801,38 @@ func validateConditional(root, clause map[string]any, document any, path string)
 	return problems
 }
 
-func TestSchemaRejectsAPatchOnASkippedSuggestion(t *testing.T) {
+func TestSchemaRejectsInvalidSkippedSuggestions(t *testing.T) {
 	t.Parallel()
 
-	sample := sampleReport()
-
-	for index := range sample.Suggestions {
-		if sample.Suggestions[index].Status.Skipped() {
-			sample.Suggestions[index].Patch = samplePatch
-
-			break
+	for _, suggestion := range sampleSuggestions() {
+		if !suggestion.Status.Skipped() {
+			continue
 		}
-	}
+		for _, defect := range []string{"patch", "missing reason"} {
+			t.Run(string(suggestion.Status)+"/"+defect, func(t *testing.T) {
+				t.Parallel()
 
-	encoded, err := json.Marshal(sample)
-	if err != nil {
-		t.Fatalf("encoding report: %v", err)
-	}
-
-	document := any(nil)
-	if err := json.Unmarshal(encoded, &document); err != nil {
-		t.Fatalf("decoding report: %v", err)
-	}
-
-	if problems := validate(loadSchema(t), loadSchema(t), document, "$"); len(problems) == 0 {
-		t.Fatal("the schema accepted a patch on a skipped suggestion")
+				invalid := suggestion
+				if defect == "patch" {
+					invalid.Patch = samplePatch
+				} else {
+					invalid.StatusReason = ""
+				}
+				sample := sampleReport()
+				sample.Suggestions = []report.Suggestion{invalid}
+				encoded, err := json.Marshal(sample)
+				if err != nil {
+					t.Fatalf("encoding report: %v", err)
+				}
+				var document any
+				if err := json.Unmarshal(encoded, &document); err != nil {
+					t.Fatalf("decoding report: %v", err)
+				}
+				schema := loadSchema(t)
+				if problems := validate(schema, schema, document, "$"); len(problems) == 0 {
+					t.Fatalf("the schema accepted %s with %s", suggestion.Status, defect)
+				}
+			})
+		}
 	}
 }

@@ -43,9 +43,10 @@ type render struct {
 // equality renders the assert condition for one delta change, or fails closed.
 func (r render) equality(
 	parts traversalParts,
-	baseline, mutant string,
+	change fingerprint.Change,
 	evidence Evidence,
 ) (string, error) {
+	baseline, mutant := change.Baseline, change.Mutant
 	expression, resource, attribute := parts.expression, parts.resource, parts.attribute
 
 	// A path that continues past the value body — an element of a list-valued
@@ -99,13 +100,7 @@ func (r render) equality(
 			"assertion cannot express the absence of a value", ErrUnrenderable)
 	}
 
-	// A baseline rendering the volatile marker appears in — the value the
-	// volatile mask removed whole, or a quoted value with a masked middle —
-	// refuses before any scalar or collection rendering: the mask removed
-	// what a later run differs in, and no assertion can honestly pin it. The
-	// refusal names the volatility; the marker's byte never reaches a reason
-	// (D16).
-	if fingerprint.IsVolatile(baseline) {
+	if change.BaselineVolatile {
 		return "", fmt.Errorf("%w: the volatile mask removed what a later run "+
 			"differs in, so no assertion can honestly pin it", ErrVolatile)
 	}

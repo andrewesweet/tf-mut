@@ -15,8 +15,9 @@ type Change struct {
 	// names one.
 	Address string `json:"address"`
 	// Baseline and Mutant are the canonical renderings, with "" for absent.
-	Baseline string `json:"baseline"`
-	Mutant   string `json:"mutant"`
+	Baseline         string `json:"baseline"`
+	Mutant           string `json:"mutant"`
+	BaselineVolatile bool   `json:"baseline_volatile,omitempty"`
 	// Sensitive reports that either payload — baseline or mutant — marks the
 	// value at this path, or an ancestor of it, sensitive; or that either
 	// rendering is a value some payload marks sensitive anywhere in the run
@@ -126,6 +127,11 @@ func Compare(mask Mask, baseline, mutant []Payload) Delta {
 	}
 
 	slices.Sort(delta.MissingRuns)
+	for index, change := range delta.Changes {
+		_, masked := mask.Spans[change.Path]
+		delta.Changes[index].BaselineVolatile = masked && change.Baseline != ""
+	}
+
 	slices.SortFunc(delta.Changes, func(left, right Change) int {
 		if left.Run != right.Run {
 			return strings.Compare(left.Run, right.Run)
