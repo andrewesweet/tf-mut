@@ -9,6 +9,9 @@ On this fixture, **run-block file splitting adds cost, and the milestone as scop
 measured speed lever for real-provider modules.** The evidence is below; the consequences for
 the roadmap are in §5. [§4](#4-where-the-time-goes) also records the later real-suite
 measurement that corrected the startup attribution and limits these conclusions to this fixture.
+The later [L2 measurement](23-l2-single-verbose-phase.md) supersedes this note's recommendation
+to keep two-phase execution; the [product design](../design/product-design.md#execute) owns
+the current schedule. The streaming-memory requirement remains.
 
 ## Method
 

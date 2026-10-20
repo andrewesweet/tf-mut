@@ -13,8 +13,11 @@ import (
 //
 // The table judges in two phases, in order. Phase one decides from what the
 // executed runs reported; a phase-one survivor is the one state it cannot
-// decide, and phase two — the fingerprint comparison the engine was told to
-// run by Observation.NeedsPhaseTwo — decides what survival means.
+// decide, and phase two — the fingerprint comparison, gathered whenever
+// Observation.NeedsPhaseTwo says the verdict needs it — decides what
+// survival means. Since 2.17.0 the engine gathers that comparison from the
+// mutant's own verbose stream rather than a second invocation; the phase
+// names are the oracle's evidence stages, not a process schedule.
 func Judge(o Observation) Outcome {
 	// Killed is checked before Invalid even though the precedence table ranks
 	// Invalid first. The two cannot both apply: a statically invalid

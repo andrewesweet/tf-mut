@@ -933,7 +933,10 @@ func assertMutantPhaseChildCounts(t *testing.T, mutant report.Mutant) {
 	expected := map[string]int{}
 	for _, phase := range mutant.Telemetry.Phases {
 		switch phase.Phase {
-		case "test", "fingerprint", "volatility-rerun":
+		// The mutant's own test invocation and the volatility re-run start a
+		// Terraform child; the fingerprint phase is the comparison over the
+		// stream the test invocation already produced, so it starts none.
+		case testSubcommand, "volatility-rerun":
 			expected[testSubcommand]++
 		case "validate":
 			expected["validate"]++

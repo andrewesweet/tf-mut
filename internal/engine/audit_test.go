@@ -232,7 +232,7 @@ func TestTheHonestyGateCoversEveryNamedReproduction(t *testing.T) {
 		"the honest unasserted fallback":            "TestADefeatedClosureDiagnosesUnassertedAndNamesTheConstruct",
 		"structurally unassertable constructs":      "TestConstructsWithNoProjectionAreStructurallyUnassertable",
 		"diagnosis exclusivity":                     "TestTheHigherDiagnosisWinsWhenTwoPredicatesHold",
-		"two-phase execution":                       "TestPhaseTwoRunsOnlyForPhaseOneSurvivors",
+		"single-phase execution":                    "TestEveryMutantIsJudgedFromOneVerboseInvocation",
 		"the pinned format-version range":           "TestAPayloadOutsideThePinnedVersionRangeIsAnOperationalFailure",
 		"the streaming memory bound":                "TestVerboseDecodeOfALargeStreamStaysWithinTheHeapCeiling",
 	}

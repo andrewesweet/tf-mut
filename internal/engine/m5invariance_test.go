@@ -114,6 +114,25 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantUnderTheLifecycleOperator
 // carries — the telemetry blocks, and since 2.16.0 the per-run elapsed times —
 // both of which are this run's own cost, not the verdict. The before leg
 // predates the fields, so stripping keeps the comparison about the verdicts.
+//
+// It also normalises the run rows to the schedule-free shape both engines
+// publish: the single-phase engine executes one verbose invocation per mutant
+// and writes one phase-one row per run block, where the two-phase engine
+// wrote a second phase-two row of the same run block for its survivors. A
+// row is identified by its file, run block and status — the phase stamp and
+// the duplicate row record which invocation produced it, and since 2.17.0
+// that is schedule detail, so rows are deduplicated on the identity and the
+// stamp is dropped on both sides. A phase-two row whose status disagrees with
+// its phase-one row survives the deduplication and fails the comparison, as
+// any real verdict difference should.
+//
+// It also drops each diagnostic's severity. Since 2.17.0 the single mutant
+// invocation is verbose, and Terraform grades a failing check-block assertion
+// warning under -verbose where the plain stream grades it error (verified
+// against v1.15.8); the severity is the stream's presentation, not the
+// verdict, so the proofs strip it on both sides and compare the diagnostic's
+// content — summary, detail, location — instead. Every other diagnostic
+// field still fails the comparison when the underlying diagnostic moves.
 func stripPerMutantWallClock(document map[string]any) {
 	mutants, ok := document["mutants"].([]any)
 	if !ok {
@@ -129,15 +148,59 @@ func stripPerMutantWallClock(document map[string]any) {
 			// the flag the way they strip the telemetry.
 			delete(mutant, "deadline_reached")
 
-			if runs, ok := mutant["runs"].([]any); ok {
-				for _, runEntry := range runs {
-					if run, ok := runEntry.(map[string]any); ok {
-						delete(run, "elapsed_ms")
+			if diagnostics, ok := mutant["diagnostics"].([]any); ok {
+				for _, diagnosticEntry := range diagnostics {
+					if diagnostic, ok := diagnosticEntry.(map[string]any); ok {
+						delete(diagnostic, "severity")
 					}
 				}
 			}
+
+			if runs, ok := mutant["runs"].([]any); ok {
+				mutant["runs"] = normaliseRunRows(runs)
+			}
 		}
 	}
+}
+
+// normaliseRunRows deduplicates a mutant's run rows on (file, run, status),
+// keeping the first row of each identity in published order, and drops the
+// phase stamp. See stripPerMutantWallClock for why.
+func normaliseRunRows(runs []any) []any {
+	type identity struct{ file, run, status string }
+
+	seen := map[identity]bool{}
+	normalised := make([]any, 0, len(runs))
+
+	for _, runEntry := range runs {
+		run, ok := runEntry.(map[string]any)
+		if !ok {
+			normalised = append(normalised, runEntry)
+
+			continue
+		}
+
+		delete(run, "elapsed_ms")
+		delete(run, "phase")
+
+		file, fileOK := run["file"].(string)
+		runName, runOK := run["run"].(string)
+		status, statusOK := run["status"].(string)
+		if !fileOK || !runOK || !statusOK {
+			normalised = append(normalised, runEntry)
+
+			continue
+		}
+
+		key := identity{file: file, run: runName, status: status}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		normalised = append(normalised, runEntry)
+	}
+
+	return normalised
 }
 
 // assertDiagnosticsAreCanonicallyOrdered holds the engine's published-order

@@ -217,24 +217,25 @@ func TestABaselineThatOutlivesItsPreflightCapFailsOperationallyNamingThePhase(t 
 	}
 }
 
-// TestAPhaseTwoRunThatOutlivesTheBudgetLandsInTheDenominator holds the
-// survivor-side contract: the verbose fingerprint run is bounded by the same
-// budget phase one was, so an overrun there is a Timeout verdict counted in
-// the score's denominator and the score is marked incomplete — not a hang,
-// and not a survival judged from a truncated run.
+// TestTheExecutionThatOutlivesTheBudgetLandsInTheDenominator holds the
+// survivor-side contract: the mutant's single verbose execution is bounded by
+// the same budget it always was, so an overrun there is a Timeout verdict
+// counted in the score's denominator and the score is marked incomplete —
+// not a hang, and not a survival judged from a truncated run.
 //
-// The wrapper sleeps only on verbose runs of mutant sandboxes: phase one is
-// not verbose and the baseline runs in the warm workspace, so both complete,
-// and the deadline provably fires in phase two — the mutant carries the
-// phase-one run block it completed.
-func TestAPhaseTwoRunThatOutlivesTheBudgetLandsInTheDenominator(t *testing.T) {
+// The wrapper sleeps only on verbose runs of mutant sandboxes: the baseline
+// runs in the warm workspace, so it completes and calibrates the budget, and
+// the deadline provably fires in the mutant's own execution — the invocation
+// slept past its budget before Terraform produced a run block, so a
+// completed verdict-bearing row would mean the deadline fired somewhere else.
+func TestTheExecutionThatOutlivesTheBudgetLandsInTheDenominator(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, preflightFixture)
 
 	config := baseConfig(t, module)
 	config.TerraformBinary = sleepingTerraform(t,
-		`[ "$2" = test ] && [[ "$1" == */m0* ]] && [[ "$*" == *-verbose* ]]`, 30)
+		`[ "$2" = test ] && [[ "$1" == */m0* ]] && [[ " $* " == *" -verbose "* ]]`, 30)
 	config.TimeoutFloor = 2 * time.Second
 	config.IncludeOperators = []string{string(mutation.StrCase)}
 
@@ -247,22 +248,21 @@ func TestAPhaseTwoRunThatOutlivesTheBudgetLandsInTheDenominator(t *testing.T) {
 		t.Fatalf("no mutant landed as a Timeout: %v", result.Metrics.Counts)
 	}
 
-	completedPhaseOne := false
-
 	for _, mutant := range result.Mutants {
 		if mutant.State != report.Timeout {
 			continue
 		}
 
+		if !mutant.DeadlineReached {
+			t.Fatalf("a Timeout mutant without its deadline record: %+v", mutant)
+		}
+
 		for _, run := range mutant.Runs {
-			if run.Phase == 1 && run.Status != tfexec.StatusSkip {
-				completedPhaseOne = true
+			if run.Status != tfexec.StatusSkip {
+				t.Fatalf("the overrun execution completed a %s run row, so the deadline did not "+
+					"fire in the sleeping execution: %+v", run.Status, mutant.Runs)
 			}
 		}
-	}
-
-	if !completedPhaseOne {
-		t.Fatal("no Timeout mutant carries a completed phase-one run, so the deadline did not provably fire in phase two")
 	}
 
 	if !result.Metrics.Incomplete {

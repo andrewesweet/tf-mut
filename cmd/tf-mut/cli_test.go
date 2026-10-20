@@ -526,7 +526,9 @@ func assertDocumentRepairs(t *testing.T, documents vocabularyDocuments) {
 	containsToken(t, productOpening,
 		"`terraform validate` runs only after a run-level error", "product-design validation rule")
 	containsToken(t, productOpening,
-		"phase two runs only\nfor phase-one survivors", "product-design phase-two rule")
+		"no second invocation", "product-design single-invocation rule")
+	containsToken(t, productOpening,
+		"two-phase split, which re-ran survivors verbose", "product-design retired-schedule note")
 	containsToken(t, productOpening, "Run-block file splitting is dropped", "product-design dropped split")
 	containsToken(t, productOpening, "7.8×", "product-design split measurement")
 	containsToken(t, productOpening,

@@ -59,13 +59,14 @@ func phaseOneTerraform(t *testing.T, filter, completion string) string {
 		filter = "-filter=" + filter
 	}
 
+	// The mutant's execution is verbose under the single-phase contract, so
+	// the doctoring applies to the mutant's one invocation. The baseline runs
+	// in the warm workspace, outside the case's sandbox pattern, and passes
+	// through untouched.
 	script := `#!/usr/bin/env bash
 if [ "$2" = test ]; then
   case "$1" in
     */m[0-9][0-9][0-9][0-9]-*)
-      for argument in "$@"; do
-        if [ "$argument" = -verbose ]; then exec terraform "$@"; fi
-      done
       terraform "$@" ` + filter + `
       ` + completion + `
       ;;
@@ -207,7 +208,16 @@ func TestPhaseOneTruncationPreservesVerdicts(t *testing.T) {
 	}
 }
 
-func TestPhaseOneFilteredPassingRunsReachPhaseTwo(t *testing.T) {
+// TestAFilteredShortStreamIsFingerprintedFromItsOwnRun holds the filtered
+// selection's single-phase contract: a selection that runs fewer run blocks
+// than the unfiltered baseline fingerprinted is not a truncation, so the
+// mutant's passing stream is fingerprinted and the comparison runs on it.
+// The comparison refuses — the baseline fingerprinted a run block the filtered
+// stream never delivered, the latent filtered-run refusal recorded as a
+// follow-up in docs/research/23-l2-single-verbose-phase.md — and the refusal
+// is the fingerprint one, not the phase-one truncation refusal, which is what
+// proves the stream reached the comparison at all.
+func TestAFilteredShortStreamIsFingerprintedFromItsOwnRun(t *testing.T) {
 	t.Parallel()
 
 	request := baseConfig(t, phaseOneModule(t, phaseOneNonNullCondition))
@@ -226,10 +236,14 @@ func TestPhaseOneFilteredPassingRunsReachPhaseTwo(t *testing.T) {
 	}
 
 	for _, run := range mutant.Runs {
-		if run.Phase == 2 {
-			return
+		if run.Phase != 1 {
+			t.Fatalf("the filtered stream was re-run for its fingerprint: %+v", mutant.Runs)
 		}
 	}
 
-	t.Fatalf("a filtered short stream was refused before fingerprinting: %+v", result.Errors)
+	if len(result.Errors) != 1 || !strings.Contains(result.Errors[0].Message,
+		"the fingerprint run produced no payload for") {
+		t.Fatalf("want the fingerprint refusal the comparison raised over the mutant's own stream: %+v",
+			result.Errors)
+	}
 }

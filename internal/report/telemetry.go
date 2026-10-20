@@ -52,8 +52,10 @@ type MutantTelemetry struct {
 	// WallMS is the mutant's whole evaluation wall time in milliseconds.
 	WallMS int64 `json:"wall_ms"`
 	// Phases are the steps its evaluation executed, in execution order:
-	// sandbox, test, and — where the verdict needed them — validate,
-	// fingerprint, volatility-rerun and oracle.
+	// sandbox, test, and — where the verdict needed them — validate, the
+	// fingerprint comparison (since 2.17.0 no Terraform invocation of its
+	// own: it reads the stream the test phase produced), volatility-rerun
+	// and oracle.
 	Phases []PhaseTiming `json:"phases"`
 	// Children carries one entry per child Terraform process the evaluation
 	// started, in start order.
