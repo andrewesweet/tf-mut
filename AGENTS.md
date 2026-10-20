@@ -319,3 +319,7 @@ Uses the default canonical triage labels. See `docs/agents/triage-labels.md`.
 ### Domain docs
 
 Single-context: root `CONTEXT.md` and `docs/adr/`. See `docs/agents/domain.md`.
+
+### Verification
+
+`.agents/skills/verify-tf-mut/` drives the real CLI against the offline fixtures end to end — Launch, Doctor, Drive, Evidence, Cleanup plus the feature map — so a change can cite a repeatable proof.
