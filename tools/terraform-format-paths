@@ -216,6 +216,11 @@ internal/engine/testdata/testdir-helper/tests/main.tf
 internal/engine/testdata/testdir-helper/tests/setup/main.tf
 internal/engine/testdata/testdir-helper/tests/unit.tftest.hcl
 internal/engine/testdata/unformatted/tests/unit.tftest.hcl
+internal/engine/testdata/unanswered-helpers/alpha/main.tf
+internal/engine/testdata/unanswered-helpers/beta/main.tf
+internal/engine/testdata/unanswered-helpers/main.tf
+internal/engine/testdata/unanswered-helpers/tests/helper/main.tf
+internal/engine/testdata/unanswered-helpers/tests/unit.tftest.hcl
 internal/engine/testdata/unit-directory-modulecall/child/main.tf
 internal/engine/testdata/unit-directory-modulecall/main.tf
 internal/engine/testdata/unit-directory-modulecall/tests/unit/unit.tftest.hcl

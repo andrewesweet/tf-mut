@@ -359,10 +359,24 @@ func TestAResourceNoOperatorCanMutateIsWarnedAbout(t *testing.T) {
 	// enabled operator produced any mutant for a resource.
 	silent := runFixture(t, "no-optional-arguments")
 
-	if !slices.ContainsFunc(silent.Warnings, func(warning string) bool {
-		return strings.Contains(warning, "says nothing about them")
-	}) {
+	warning := ""
+
+	for _, candidate := range silent.Warnings {
+		if strings.Contains(candidate, "says nothing about them") {
+			warning = candidate
+
+			break
+		}
+	}
+
+	if warning == "" {
 		t.Fatalf("a resource no operator reached produced no warning: %v", silent.Warnings)
+	}
+
+	// The fixture's unanswerable resource sits in the root module, whose
+	// addresses carry no module path: the colon proves nothing precedes it.
+	if !strings.Contains(warning, ": terraform_data.bare") {
+		t.Fatalf("the warning does not name the bare root-module address unqualified: %s", warning)
 	}
 
 	answered := runFixture(t, "skeleton")
@@ -372,6 +386,112 @@ func TestAResourceNoOperatorCanMutateIsWarnedAbout(t *testing.T) {
 	}) {
 		t.Fatalf("a fully covered module raised the unanswerable warning: %v", answered.Warnings)
 	}
+}
+
+// The unanswered-helpers fixture: three same-named terraform_data.bare
+// resources, none of which any enabled operator can reach. Two sit in
+// production child modules and stay in the warning, qualified by their module
+// path so the entries are distinguishable; the third sits in a helper module
+// under the test directory, which the mutation surface has excluded since
+// #191, so warning about it would grade the suite's scaffolding, not the
+// module under test.
+func TestTheUnanswerableWarningSkipsTestHelpersAndQualifiesModulePaths(t *testing.T) {
+	t.Parallel()
+
+	result := runFixture(t, "unanswered-helpers")
+
+	warning := ""
+
+	for _, candidate := range result.Warnings {
+		if strings.Contains(candidate, "says nothing about them") {
+			warning = candidate
+
+			break
+		}
+	}
+
+	if warning == "" {
+		t.Fatalf("a module with unanswerable resources raised no warning: %v", result.Warnings)
+	}
+
+	for _, path := range []string{"alpha/terraform_data.bare", "beta/terraform_data.bare"} {
+		if !strings.Contains(warning, path) {
+			t.Fatalf("the warning does not name %s by its module path: %s", path, warning)
+		}
+	}
+
+	if strings.Contains(warning, "tests/") {
+		t.Fatalf("the warning names a resource under the test directory: %s", warning)
+	}
+
+	if got := strings.Count(warning, "terraform_data.bare"); got != 2 {
+		t.Fatalf("the warning names %d unanswerable resources, want the two production ones: %s", got, warning)
+	}
+}
+
+func TestTheUnanswerableWarningIncludesProductionModulesUnderTheTestDirectory(t *testing.T) {
+	t.Parallel()
+
+	for _, testDirectory := range []string{engine.DefaultTestDirectory, "."} {
+		for _, syntax := range []string{hclTestSyntax, jsonTestSyntax} {
+			t.Run(testDirectory+"/"+syntax, func(t *testing.T) {
+				t.Parallel()
+
+				module := unansweredProductionModulesUnderTests(t, testDirectory, syntax)
+
+				request := baseConfig(t, module)
+				request.TestDirectory = testDirectory
+
+				result, err := engine.Run(t.Context(), request)
+				if err != nil {
+					t.Fatalf("run with production modules under tests: %v", err)
+				}
+
+				want := "3 resource(s) have no mutant under any enabled operator, so this run says nothing about them: " +
+					"terraform_data.bare, tests/alpha/terraform_data.bare, tests/beta/terraform_data.bare"
+
+				if !slices.Contains(result.Warnings, want) {
+					t.Fatalf("warnings = %v, want %q", result.Warnings, want)
+				}
+			})
+		}
+	}
+}
+
+func unansweredProductionModulesUnderTests(t *testing.T, testDirectory, syntax string) string {
+	t.Helper()
+
+	module := copyFixture(t, "unanswered-helpers")
+	for _, child := range []string{"alpha", "beta"} {
+		if err := os.Rename(filepath.Join(module, child), filepath.Join(module, "tests", child)); err != nil {
+			t.Fatalf("moving production child under tests: %v", err)
+		}
+	}
+
+	testsupport.WriteFile(t, filepath.Join(module, mainFile), "resource \"terraform_data\" \"bare\" {}\n")
+
+	if syntax == jsonTestSyntax {
+		testsupport.WriteFile(t, filepath.Join(module, "modules.tf.json"),
+			`{"module":{"alpha":{"source":"./tests/alpha"}}}`)
+		testsupport.WriteFile(t, filepath.Join(module, "tests", "alpha", "modules.tf.json"),
+			`{"module":{"beta":{"source":"../beta"}}}`)
+	} else {
+		appendFile(t, filepath.Join(module, mainFile), "\nmodule \"alpha\" { source = \"./tests/alpha\" }\n")
+		appendFile(t, filepath.Join(module, "tests", "alpha", mainFile),
+			"\nmodule \"beta\" { source = \"../beta\" }\n")
+	}
+
+	suitePath := filepath.Join(module, "tests", "unit.tftest.hcl")
+	testsupport.WriteFile(t, suitePath, strings.ReplaceAll(readFile(t, suitePath),
+		"module.alpha.ready && module.beta.ready", "module.alpha.ready && terraform_data.bare.input == null"))
+
+	if testDirectory == "." {
+		if err := os.Rename(suitePath, filepath.Join(module, "unit.tftest.hcl")); err != nil {
+			t.Fatalf("moving suite to module root: %v", err)
+		}
+	}
+
+	return module
 }
 
 func TestASampledRunDoesNotNameResourcesTheSampleMerelyDropped(t *testing.T) {

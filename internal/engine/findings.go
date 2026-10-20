@@ -183,15 +183,28 @@ func unanswerableResources(configuration discovery.Configuration, mutants []repo
 		}
 	}
 
+	root := configuration.RootRelative()
 	missing := []string{}
 
-	for _, module := range configuration.Modules {
+	for _, module := range mutation.SurfaceModules(configuration, configuration.Tests.Dir) {
+		// Helper modules under the test directory are the suite's scaffolding,
+		// which the mutation surface already excludes; warning about the
+		// resources their operators never reach would grade the fixture, not
+		// the module. The exclusion is the surface's own rule.
 		for _, resource := range module.Resources {
 			if covered[module.Rel+"|"+resource.Address] {
 				continue
 			}
 
-			missing = append(missing, resource.Address)
+			// A bare address cannot tell two same-named resources in
+			// different modules apart, so every non-root entry carries its
+			// module's closure-relative path.
+			address := resource.Address
+			if module.Rel != root {
+				address = module.Rel + "/" + resource.Address
+			}
+
+			missing = append(missing, address)
 		}
 	}
 

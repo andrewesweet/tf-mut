@@ -85,7 +85,7 @@ func TestACustomTestDirectoryInstallsItsHelperModules(t *testing.T) {
 func TestTheModuleRootStaysMutableUnderARootColocatedTestDirectory(t *testing.T) {
 	t.Parallel()
 
-	for _, syntax := range []string{"hcl", jsonTestSyntax} {
+	for _, syntax := range []string{hclTestSyntax, jsonTestSyntax} {
 		t.Run(syntax, func(t *testing.T) {
 			t.Parallel()
 
@@ -164,7 +164,7 @@ func TestAHelperRootedAtTheTestDirectoryIsNotMutated(t *testing.T) {
 func TestAProductionModuleUnderTheTestDirectoryStaysMutable(t *testing.T) {
 	t.Parallel()
 
-	for _, syntax := range []string{"hcl", jsonTestSyntax} {
+	for _, syntax := range []string{hclTestSyntax, jsonTestSyntax} {
 		t.Run(syntax, func(t *testing.T) {
 			t.Parallel()
 
