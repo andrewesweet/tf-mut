@@ -17,6 +17,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/testsupport"
+	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
 // TestADeadlineExpiredRunLeavesNoProviderProcessBehind holds the D11 road-test
@@ -372,7 +373,96 @@ func patchEntry(t *testing.T, path string, patch map[string]any) {
 	testsupport.WriteFile(t, path, string(encoded))
 }
 
-// pluginCacheDir reads the plugin cache directory back out of the request the
+// rerunSleepingTerraform wraps the real Terraform binary and sleeps instead of
+// executing on a mutant sandbox's second test invocation. Since the
+// single-invocation schedule a mutant sandbox receives exactly one test call
+// in phase one and, for a survivor the volatility rule sends back, one
+// re-run — so the second call is provably the volatility re-run, and the
+// deadline the test stages cannot have fired in phase one.
+func rerunSleepingTerraform(t *testing.T, nap int) string {
+	t.Helper()
+
+	napLine := fmt.Sprintf("sleep %d", nap)
+	script := `#!/usr/bin/env bash
+if [ "$2" = test ] && [[ "$1" == -chdir=*/m0* ]]; then
+  dir="${1#-chdir=}"
+  count_file="$dir/.tf-mut-test-invocations"
+  count=0
+  if [ -f "$count_file" ]; then
+    read -r count < "$count_file"
+  fi
+  count=$((count + 1))
+  printf '%s\n' "$count" > "$count_file"
+  if [ "$count" -ge 2 ]; then
+    ` + napLine + `
+  fi
+fi
+exec terraform "$@"
+`
+
+	path := filepath.Join(t.TempDir(), "terraform-sleeping-rerun")
+
+	testsupport.WriteExecutable(t, path, script)
+
+	return path
+}
+
+// TestAVolatilityRerunThatOutlivesTheBudgetLandsInTheDenominator holds the
+// survivor-side deadline contract: the volatility re-run — the only Terraform
+// call a survivor can still pay — is bounded by the same budget phase one
+// was, so an overrun there records the deadline on the observation and the
+// precedence table's deadline row decides. The mutant lands as a Timeout
+// counted in the score's denominator, not as a survival diagnosed from a
+// comparison the overrun never delivered.
+//
+// The wrapper sleeps on the second test invocation of a mutant sandbox only:
+// the baseline completes in the warm workspace and calibrates the budget,
+// phase one completes and leaves passing run rows, and the deadline provably
+// fires in the re-run — a survivor diagnosis, or a skipped run row, would
+// mean the deadline fired somewhere else.
+func TestAVolatilityRerunThatOutlivesTheBudgetLandsInTheDenominator(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "mutant-volatile")
+
+	config := baseConfig(t, module)
+	config.TerraformBinary = rerunSleepingTerraform(t, 30)
+	config.TimeoutFloor = 2 * time.Second
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if result.Count(report.Timeout) == 0 {
+		t.Fatalf("no mutant landed as a Timeout from its volatility re-run: %v", result.Metrics.Counts)
+	}
+
+	for _, mutant := range result.Mutants {
+		if mutant.State != report.Timeout {
+			continue
+		}
+
+		if !mutant.DeadlineReached {
+			t.Fatalf("a Timeout mutant without its deadline record: %+v", mutant)
+		}
+
+		if len(mutant.Runs) == 0 {
+			t.Fatalf("the re-run deadline landed on a mutant whose phase one never ran: %+v", mutant)
+		}
+
+		for _, run := range mutant.Runs {
+			if run.Status != tfexec.StatusPass {
+				t.Fatalf("phase one did not complete before the deadline fired: a %s run row means "+
+					"the deadline did not fire in the volatility re-run: %+v", run.Status, mutant.Runs)
+			}
+		}
+	}
+
+	if !result.Metrics.Incomplete {
+		t.Fatal("a run with a Timeout was not marked incomplete")
+	}
+}
 
 // pluginCacheDir reads the plugin cache directory back out of the request the
 // test will run, so the scan watches the directory this run's plugins are
