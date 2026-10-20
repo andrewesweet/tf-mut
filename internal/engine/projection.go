@@ -207,6 +207,8 @@ const SensitiveWithheld = report.SensitiveWithheld
 
 // withheld replaces a sensitive rendering, and leaves an absent one absent so
 // that "the path was not there" stays distinguishable from "it was withheld".
+// It escapes raw mask control bytes only at publication; internal comparisons
+// and suggestion generation retain the canonical renderings.
 func withheld(sensitive bool, rendering string) string {
 	if !sensitive || rendering == "" {
 		return strings.ReplaceAll(rendering, "\x00", `\x00`)

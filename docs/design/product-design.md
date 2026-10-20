@@ -593,12 +593,8 @@ member name. Set elements, untyped collection indices and unsupported continuati
 own after_unknown record covers — a deleted provider-computed attribute leaves it unknown
 at plan — is also `skipped-unrenderable`, with the reason naming the value: an equality
 over it would error with "Unknown condition value" when the suite replayed it, and the
-same delta under `command = apply` still renders. A delta whose baseline value the volatile
-mask removed — the marker standing for the whole value, or escaped inside a quoted
-rendering whose middle the mask removed — is `skipped-volatile`: a later run differs in
-what was removed, so no assertion can honestly pin it. The refusal is detected through
-the fingerprint package's exported predicate, before any scalar or collection rendering,
-and the mask's marker byte reaches no reason, patch or expression.
+same delta under `command = apply` still renders. For volatile baseline refusals, see the
+[suggestion status contract](../schema/report-2.18.0.json#/$defs/suggestion_status).
 
 Alongside scalar equalities, candidates can assert emptiness with
 `try(length(value), null) == 0` or answer a mutant's null value with a non-null check.
