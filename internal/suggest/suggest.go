@@ -456,14 +456,17 @@ func (e *Evidence) proveFromMarker(parsed fingerprint.Path, change fingerprint.C
 	}
 
 	for {
-		e.ProvenNonNull[base] = true
-
-		index := strings.LastIndex(base, ".")
+		index := strings.LastIndexAny(base, ".[")
 		if index < 0 {
 			return
 		}
 
 		base = base[:index]
+		if _, _, ok := fingerprint.ParsePath(base).Split(); !ok {
+			return
+		}
+
+		e.ProvenNonNull[base] = true
 	}
 }
 
@@ -472,14 +475,15 @@ func (e *Evidence) proveFromMarker(parsed fingerprint.Path, change fingerprint.C
 // is provable rather than an absence the baseline shared.
 func (e *Evidence) proveNonNull(parsed fingerprint.Path, change fingerprint.Change, changes []fingerprint.Change) {
 	address, attribute, split := parsed.Split()
-	container := split && !strings.HasPrefix(address, "output.") && discovery.ValidIdentifier(attribute)
+	container := split && ((strings.HasPrefix(address, "output.") && attribute == "") ||
+		(!strings.HasPrefix(address, "output.") && discovery.ValidIdentifier(attribute)))
 
 	for _, other := range changes {
-		if other.Run != change.Run || other.Baseline == "" || other.Baseline == nullMarker {
+		if other.Run != change.Run || other.Baseline == "" {
 			continue
 		}
 
-		if other.Path == change.Path ||
+		if (other.Path == change.Path && other.Baseline != nullMarker) ||
 			(container && (strings.HasPrefix(other.Path, change.Path+".") ||
 				strings.HasPrefix(other.Path, change.Path+"["))) {
 			e.ProvenNonNull[change.Path] = true

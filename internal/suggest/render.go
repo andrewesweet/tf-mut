@@ -55,7 +55,7 @@ func (r render) equality(
 	// that spelling; the provisional dotted join the address adapter emitted
 	// is never asserted on its own.
 	continued := strings.HasPrefix(attribute, "[") || len(parts.source.Segments()) > 1 ||
-		(strings.HasPrefix(resource, "output.") && strings.Contains(attribute, "["))
+		(strings.HasPrefix(resource, "output.") && attribute != "")
 
 	normalize := func(need terminal) (string, error) {
 		if !continued {
@@ -467,8 +467,8 @@ type stepReading struct {
 // may survive; two are ambiguity the payload cannot resolve, and none is a
 // path the type refuses.
 func walkTypeSteps(declared cty.Type, steps []string, need terminal) (string, error) {
-	suffix, ok := uniqueReading(declared, steps, need)
-	if !ok {
+	suffix, readings := uniqueReading(declared, steps, need)
+	if readings != 1 {
 		return "", nestedValue(strings.Join(steps, "."))
 	}
 
@@ -478,34 +478,38 @@ func walkTypeSteps(declared cty.Type, steps []string, need terminal) (string, er
 // uniqueReading resolves a typed path to exactly one reading, down to a leaf
 // the form accepts. Each step enumerates the readings its type justifies and
 // the rest of the path filters them.
-func uniqueReading(declared cty.Type, steps []string, need terminal) (string, bool) {
+func uniqueReading(declared cty.Type, steps []string, need terminal) (string, int) {
 	if len(steps) == 0 {
-		return "", need.accepts(declared) == nil
+		if need.accepts(declared) != nil {
+			return "", 0
+		}
+
+		return "", 1
 	}
 
 	readings, ok := stepReads(declared, steps)
 	if !ok {
-		return "", false
+		return "", 0
 	}
 
 	spelled := ""
 	winners := 0
 
 	for _, candidate := range readings {
-		continuation, ok := uniqueReading(candidate.declared, steps[candidate.consumed:], need)
-		if !ok {
+		continuation, matches := uniqueReading(candidate.declared, steps[candidate.consumed:], need)
+		if matches == 0 {
 			continue
 		}
 
-		if winners > 0 {
-			return "", false
+		winners += matches
+		if winners > 1 {
+			return "", 2
 		}
 
-		winners++
 		spelled = candidate.spelling + continuation
 	}
 
-	return spelled, winners == 1
+	return spelled, winners
 }
 
 // stepReads renders one step of a typed walk: the readings the type itself
@@ -548,17 +552,12 @@ func stepReads(declared cty.Type, steps []string) ([]stepReading, bool) {
 // keyedReads renders a keyed collection's step. The key may span several
 // payload segments — a dot is a member of a Kubernetes label key as much as a
 // path separator — so every split of the step window is a candidate, and the
-// rest of the path decides which of them is real. A leading bracket asks for
-// an index, which no keyed type takes.
+// rest of the path decides which of them is real.
 func keyedReads(
 	element cty.Type,
 	attributes map[string]cty.Type,
 	steps []string,
 ) ([]stepReading, bool) {
-	if strings.HasPrefix(steps[0], "[") {
-		return nil, false
-	}
-
 	var readings []stepReading
 
 	// The fused reading: `aliases[0]` may name the member `aliases` indexed
@@ -716,7 +715,7 @@ func quoteKey(key string) string {
 	builder := &strings.Builder{}
 	builder.WriteByte('"')
 
-	for _, letter := range key {
+	for index, letter := range key {
 		switch letter {
 		case '\n':
 			builder.WriteString(`\n`)
@@ -729,11 +728,10 @@ func quoteKey(key string) string {
 		case '\\':
 			builder.WriteString(`\\`)
 		case '$', '%':
-			// A template marker is always doubled. A marker its brace follows
-			// becomes the literal sequence; a lone marker stays itself, because
-			// the parser reads `$$` with no brace as a literal pair.
 			builder.WriteRune(letter)
-			builder.WriteRune(letter)
+			if index+1 < len(key) && key[index+1] == '{' {
+				builder.WriteRune(letter)
+			}
 		default:
 			if letter < 0x20 || letter == 0x7f {
 				fmt.Fprintf(builder, `\u%04x`, letter)

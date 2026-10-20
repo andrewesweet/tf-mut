@@ -86,7 +86,8 @@ func traversal(path string) (traversalParts, error) {
 	// A path that continues past its first segment is rendered by the walk,
 	// which owns the parse floor for the expression it builds; the dotted
 	// spelling above is only provisional there.
-	if strings.HasPrefix(attribute, "[") || len(parsed.Segments()) > 1 {
+	if strings.HasPrefix(attribute, "[") || len(parsed.Segments()) > 1 ||
+		(strings.HasPrefix(resource, "output.") && attribute != "") {
 		return traversalParts{
 			expression: expression, resource: resource, attribute: attribute,
 			path: path, source: parsed,
