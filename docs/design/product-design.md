@@ -258,8 +258,22 @@ Per mutant, in parallel across up to `--jobs` workers (see [parallelism defaults
    target's contents under the link's own name. Reflinks and overlay mounts remain planned
    optimisations for large closures. The sandbox gets its **own `.terraform` directory**
    containing a synthesised `modules.json` (needed for run-block file splitting).
-   `.terraform.lock.hcl` is always copied — omitting it classifies the entire population
-   `Invalid` with zero tests executed (m14). Two sharing rules, both review-corrected:
+   When warm-up produces a `.terraform.lock.hcl`, every mutant sandbox receives it — omitting
+   a required lock classifies the population `Invalid` with zero tests executed (m14). Since L6,
+   the mutant-execution copy is **staged from the warm lock with the `hashes` arguments removed**.
+   With no hashes recorded, Terraform skips its per-command re-checksum of the shared provider
+   tree, a fixed cost the warm-up `init` and both baselines had already paid against the same
+   tree. See the [L6 measurement and hardware limits](../research/24-l6-hash-free-sandbox-lock.md#1-the-measurement-that-gated-the-build)
+   for the hardware-dependent saving. A warm lock that cannot be parsed refuses mutant staging.
+   The warm workspace, both baselines, anything that installs providers, and every non-mutant
+   staged run keep the full verified lock, including until-dry staging, suggestion verification
+   legs, and characterisation harvest and verification. Those staged runs preserve an existing
+   sandbox lock or copy the warm lock unchanged when one is missing. Because the mutant sandbox
+   skips the checksum Terraform would run at execution time, warm-up stamps every file's size
+   and modification time in the provider tree, following symlinks. Every subsequent sandbox
+   sharing that tree checks those stamps before creation; a changed or missing file refuses
+   staging (`sandbox.ErrProviderChanged`). The [guard's limits](../research/24-l6-hash-free-sandbox-lock.md#3-what-the-guard-bounds-and-what-it-does-not)
+   describe what size and modification time cannot detect. Two sharing rules, both review-corrected:
    `providers/` is shared read-only (symlink, NTFS junction on Windows, `TF_DATA_DIR` as the
    portable fallback;
    verified: eight concurrent readers neither contend nor corrupt), and — R2-7 — **remote
