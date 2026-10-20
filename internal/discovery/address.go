@@ -95,65 +95,16 @@ func BlockAddr(kind string, labels []string) (string, bool) {
 	}
 }
 
-// RootAddr truncates a canonical address to the address of the block the
-// value hangs from, rendered through BlockAddr: the root an `expect_failures`
-// entry names — a variable, an output, a check, a managed resource or a data
-// source. It reports false when the address does not reach such a block:
-// too few segments, a module call with nothing after it, or a kind with no
-// block address of its own (a locals value names its attributes, and
-// Terraform refuses it as an expect_failures target).
+// RootAddr truncates an address to its first two dot-separated segments.
+// It reports false when the address has fewer than two segments.
 func RootAddr(address string) (string, bool) {
-	parsed := ParseAddr(address)
-
-	root, labels := blockRoot(parsed.Parts)
-	if labels == nil {
+	parts := strings.Split(address, ".")
+	if len(parts) < addressParts {
 		return "", false
 	}
 
-	rendered, ok := BlockAddr(root, labels)
-	if !ok {
-		return "", false
-	}
-
-	for _, name := range parsed.ModulePath {
-		call, _ := BlockAddr(moduleBlock, []string{name})
-		rendered = call + "." + rendered
-	}
-
-	return rendered, true
+	return parts[0] + "." + parts[1], true
 }
-
-// blockRoot decides the block kind and labels an address's node segments
-// begin with: one label for a kind that addresses its block by name, the two
-// labels after the data prefix, and for anything else a managed resource's
-// type and name. It reports no labels when the segments do not reach a block
-// root of any kind.
-func blockRoot(parts []string) (string, []string) {
-	switch {
-	case len(parts) < addressParts:
-		return "", nil
-	case parts[0] == variableRoot:
-		return variableBlock, parts[1:2]
-	case parts[0] == outputBlock:
-		return outputBlock, parts[1:2]
-	case parts[0] == checkBlock:
-		return checkBlock, parts[1:2]
-	case parts[0] == dataBlock:
-		if len(parts) < addressParts+1 {
-			return "", nil
-		}
-
-		return dataBlock, parts[1:3]
-	case parts[0] == localPrefix:
-		return "", nil
-	default:
-		return resourceBlock, parts[:2]
-	}
-}
-
-// localPrefix is the address word for a locals value: the block keyword
-// gains an s, the address does not.
-const localPrefix = "local"
 
 // splitAddress splits on dots outside instance keys, dropping the keys and
 // keeping splat steps as the wildcard.

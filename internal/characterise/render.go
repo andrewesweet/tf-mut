@@ -332,12 +332,8 @@ func ScaffoldFile(testDirRel, id string) string {
 }
 
 // Checkable reduces an unassertable construct's site to the object
-// `expect_failures` can name: a variable, an output, a check block, or the
-// resource or data source whose lifecycle block carries the condition. The
-// rendering belongs to discovery — RootAddr truncates the site to its block
-// root and BlockAddr renders it — so there is one owner for block-address
-// rendering, and a root Terraform would refuse (`local.<name>`) is refused
-// here rather than rendered.
+// `expect_failures` can name: a variable, an output, or the resource whose
+// lifecycle block carries the condition.
 func Checkable(site string) (string, bool) {
 	return discovery.RootAddr(site)
 }
