@@ -316,4 +316,4 @@ See [Reporters](docs/design/product-design.md#9-reporters) for the rendering con
 
 ## Licence
 
-No licence is specified.
+tf-mut is released under the [MIT Licence](LICENSE).
