@@ -563,10 +563,11 @@ func finishRunReport(
 }
 
 // applyGates runs the static safety gates and the JSON floor's static half.
-// A run is refused at a gate; a preview executes nothing and cannot be
-// refused, so it carries the gates' verdict in the warnings instead: a pass
-// contributes the same advisories a run would, a refusal contributes a
-// warning quoting that refusal in full.
+// A run is refused at a gate; a preview carries the gates' verdict in the
+// warnings instead: a pass contributes the same advisories a run would, a
+// refusal contributes a warning quoting that refusal in full. Preview executes
+// no test run blocks; refusing it here would hide the population from the
+// person deciding whether to accept the risk.
 func applyGates(
 	configuration discovery.Configuration,
 	settings settings,
@@ -608,9 +609,6 @@ func mutate(
 	moduleDir string,
 	collector *runCollector,
 ) (report.Report, oracle.Population, error) {
-	// The gates guard execution, and a preview executes nothing. Refusing a
-	// preview would only hide the population from the person deciding whether
-	// to accept the risk.
 	settings, warnings, err := applyGates(configuration, settings, collector)
 	if err != nil {
 		return report.Report{}, oracle.Population{}, err
