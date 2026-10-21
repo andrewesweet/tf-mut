@@ -8,25 +8,28 @@ review:
       instructions: |
         tf-mut is a mutation-testing engine for `terraform test`; its promises are
         determinism, fail-closed honesty and containment. Treat these as review failures:
-        - A suggestion or pin emitted without both verification legs - a green baseline
-          with the assertion applied, and the same assertion failing under the mutant - or
+        - A suggestion marked verified without both verification legs - a green baseline
+          with the assertion applied, and the same assertion failing under a listed mutant - or
           a skip reason invented outside the context's closed skip vocabulary.
-        - A verdict, mutant ID, cache hit or report that could differ between two identical
-          runs, or two different mutants that share one content-derived ID.
-        - Anything that lets a mutant sandbox reach the network, the host provider tree or
-          the user's real Terraform state. Safety-gate refusals stay static (decided before
-          any Terraform run) and are never weakened, and provider verification is never
-          relaxed outside a mutant sandbox.
-        - A secret, credential or session-specific value leaking into a report, a log or
-          any other artefact tf-mut writes.
+        - Semantic results (verdicts, survivors, suggestions) or mutant IDs that differ
+          between identical runs, or different mutants sharing one content-derived ID.
+          Run identifiers and timings may vary.
+        - Unauthorised sandbox writes or escapes, including access to real Terraform state.
+          Provider and immutable module sharing via symlinks is supported; network execution
+          is allowed only when the safety flags permit it. Safety-gate refusals stay static
+          (before any Terraform run), and provider verification is never relaxed outside a
+          mutant sandbox.
+        - Sensitive data, including secrets and credentials, leaking into a report, log or
+          other artefact. Run identifiers and timings are allowed.
+        Skip findings for fixture paths and generated output, including docs/reference/cli.md
+        and any file stating it is generated.
         Every finding must cite file-and-line evidence. A defect this change did not
         introduce is pre-existing: label it as such instead of asking this change to fix
         it. At most a few style-only findings per review, and never blocking on them.
     - path: "internal/sandbox/**"
       instructions: |
-        Containment boundary. A write outside the materialised closure, a shared file that
-        resolves outside it (a symlink followed instead of copied), or state that outlives
-        the sandbox is a failure.
+        Containment boundary. Reject unauthorised writes, escapes and state that outlives
+        the sandbox. Provider and immutable module sharing via symlinks is supported.
     - path: "internal/tfexec/**"
       instructions: |
         This package controls the environment tf-mut hands Terraform. Strip variables that
@@ -42,8 +45,7 @@ review:
         actual statuses.
     - path: "internal/engine/testdata/**"
       instructions: |
-        Fixture modules. Skip style and design findings. The only real failure here is a
-        fixture that needs the network or real providers when its name does not say so.
+        Fixture modules. Skip findings.
     - path: "internal/tfexec/testdata/**"
       instructions: |
         Recorded real Terraform output and fuzz corpus. Skip findings; these bytes are
@@ -52,9 +54,15 @@ review:
       instructions: |
         Deliberate seam-rule breach fixtures. Skip findings; breaking the rules is the
         point.
-    - path: "docs/schema/**"
+    - path: "docs/schema/sarif-2.1.0.json"
       instructions: |
-        Vendored third-party schemas. Skip findings.
+        Vendored third-party schema. Skip findings.
+    - path: "docs/schema/mutation-testing-report-2.0.0.json"
+      instructions: |
+        Vendored third-party schema. Skip findings.
+    - path: "docs/schema/junit-jenkins.xsd"
+      instructions: |
+        Vendored third-party schema. Skip findings.
     - path: "research/**"
       instructions: |
         Spike fixtures and the pinned benchmark corpus. Skip findings; measurement
