@@ -1,0 +1,69 @@
+# Repository review guidance for the no-mistakes gate.
+# Honored only from the default branch (docs: review.path_instructions, trusted copy).
+# Failure modes are the repository's own: AGENTS.md standing rules and the road-test
+# defects (D5, D7-D9, D11, F11) - determinism, fail-closed honesty, containment.
+review:
+  path_instructions:
+    - path: "**"
+      instructions: |
+        tf-mut is a mutation-testing engine for `terraform test`; its promises are
+        determinism, fail-closed honesty and containment. Treat these as review failures:
+        - A suggestion marked verified without both verification legs - a green baseline
+          with the assertion applied, and the same assertion failing under a listed mutant - or
+          a skip reason invented outside the context's closed skip vocabulary.
+        - Semantic results (verdicts, survivors, suggestions) or mutant IDs that differ
+          between identical runs, or different mutants sharing one content-derived ID.
+          Run identifiers and timings may vary.
+        - Unauthorised sandbox writes or escapes, including access to real Terraform state.
+          Provider and immutable module sharing via symlinks is supported; network execution
+          is allowed only when the safety flags permit it. Safety-gate refusals stay static
+          (before any Terraform run), and provider verification is never relaxed outside a
+          mutant sandbox.
+        - Sensitive data, including secrets and credentials, leaking into a report, log or
+          other artefact. Run identifiers and timings are allowed.
+        Skip findings for fixture paths and generated output, including docs/reference/cli.md
+        and any file stating it is generated.
+        Every finding must cite file-and-line evidence. A defect this change did not
+        introduce is pre-existing: label it as such instead of asking this change to fix
+        it. At most a few style-only findings per review, and never blocking on them.
+    - path: "internal/sandbox/**"
+      instructions: |
+        Containment boundary. Reject unauthorised writes, escapes and state that outlives
+        the sandbox. Provider and immutable module sharing via symlinks is supported.
+    - path: "internal/tfexec/**"
+      instructions: |
+        This package controls the environment tf-mut hands Terraform. Strip variables that
+        redirect a subprocess at another location, keep the ones that authenticate one, and
+        a killed Terraform process must take its provider plugins with it (own process
+        group, group-signalled cancel, WaitDelay) - an orphaned plugin breaks the host's
+        next `terraform init` through the plugin cache.
+    - path: "internal/suggest/**"
+      instructions: |
+        Suggestion soundness. The rendering, addressing and sensitivity adapters fail
+        closed: a value an adapter cannot render or address is skipped with a reason from
+        the closed vocabulary, never guessed at, and a refutation is worded from the legs'
+        actual statuses.
+    - path: "internal/engine/testdata/**"
+      instructions: |
+        Fixture modules. Skip findings.
+    - path: "internal/tfexec/testdata/**"
+      instructions: |
+        Recorded real Terraform output and fuzz corpus. Skip findings; these bytes are
+        evidence, not prose.
+    - path: "internal/testsupport/seamlint/testdata/**"
+      instructions: |
+        Deliberate seam-rule breach fixtures. Skip findings; breaking the rules is the
+        point.
+    - path: "docs/schema/sarif-2.1.0.json"
+      instructions: |
+        Vendored third-party schema. Skip findings.
+    - path: "docs/schema/mutation-testing-report-2.0.0.json"
+      instructions: |
+        Vendored third-party schema. Skip findings.
+    - path: "docs/schema/junit-jenkins.xsd"
+      instructions: |
+        Vendored third-party schema. Skip findings.
+    - path: "research/**"
+      instructions: |
+        Spike fixtures and the pinned benchmark corpus. Skip findings; measurement
+        material, not product code.
