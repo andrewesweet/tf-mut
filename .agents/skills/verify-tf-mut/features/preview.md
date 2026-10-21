@@ -1,7 +1,7 @@
 # preview
 
-`tf-mut preview` lists the mutants a run would generate — operator, site and diff — and
-executes nothing. It is the dry-run surface for the mutation catalogue.
+`tf-mut preview` lists the mutants a run would generate — operator, site and diff — without
+running Terraform tests. It is the dry-run surface for the mutation catalogue.
 
 ## Sub-features
 
@@ -33,8 +33,8 @@ Preconditions:
 
 ## Gotchas
 
-- A preview is static: if it prints test-run output or takes more than moments, the binary
-  or the invocation is wrong.
+- Preview still initialises a sandbox and reads provider schemas. Setup time alone is not
+  a failure; test-run output is, because preview must not execute a suite.
 - The three expected mutants come from the fixture's single string-valued output and
   the `EXT-OUTPUT-NULL`, `STR-CASE` and `STR-EMPTY` applicability rows in
   `docs/design/mutation-operators.md`. Change the expectation only after identifying a

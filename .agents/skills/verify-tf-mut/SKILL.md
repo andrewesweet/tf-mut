@@ -145,7 +145,7 @@ and shown in the body here.
 driving conventions and proof standards:
 
 - [run](./features/run.md) — score a module's suite by mutating it; report survivors with exit 1.
-- [preview](./features/preview.md) — list the mutants a run would generate, executing nothing.
+- [preview](./features/preview.md) — inspect the generated mutation population.
 - [suggest](./features/suggest.md) — generate and verify the assertion that kills a survivor.
 - [characterise](./features/characterise.md) — scaffold a first suite for an untested module.
 - [todos](./features/todos.md) — list the judgement points characterisation refuses to guess at.

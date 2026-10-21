@@ -58,7 +58,7 @@ state, commands, and observable proof.
 ## Features
 
 - [run](./run.md) scores a module's suite by mutating it and reporting what the suite detects.
-- [preview](./preview.md) lists the mutants a run would generate without executing anything.
+- [preview](./preview.md) covers inspection of the generated mutation population.
 - [suggest](./suggest.md) generates, verifies and renders the assertion that kills a survivor.
 - [characterise](./characterise.md) scaffolds a first test suite for a module without one.
 - [todos](./todos.md) lists the judgement points characterisation refuses to guess at.

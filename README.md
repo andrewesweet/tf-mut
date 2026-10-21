@@ -79,7 +79,7 @@ For format and lint checks without the full bootstrap, see
 
 ```bash
 tf-mut run     [flags] [PATH]   # mutate the module and report pseudo-tested resources
-tf-mut preview [flags] [PATH]   # list the mutants as diffs, executing nothing
+tf-mut preview [flags] [PATH]   # list the mutants as diffs
 tf-mut suggest [flags] [PATH]   # generate and verify assertions for survivors
 tf-mut characterise [flags] [PATH] # scaffold and verify a first suite
 tf-mut todos   [flags] [PATH]   # list open characterisation judgement points
@@ -94,8 +94,8 @@ argument out measures the current directory.
 The build writes `.artifacts/bin/tf-mut`. Run the examples below from this checkout's root;
 `mise exec` supplies the pinned Terraform and other tools.
 
-The three commands a first run needs are `preview`, which lists the mutants as diffs without
-executing anything; `run`, which mutates the module and reports what the suite does not check;
+The three commands a first run needs are `preview`, which lists the mutants as diffs;
+`run`, which mutates the module and reports what the suite does not check;
 and `suggest`, which generates and verifies the assertions that kill the survivors:
 
 ```bash
