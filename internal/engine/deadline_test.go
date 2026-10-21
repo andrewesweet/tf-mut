@@ -423,6 +423,7 @@ func TestAVolatilityRerunThatOutlivesTheBudgetLandsInTheDenominator(t *testing.T
 
 	config := baseConfig(t, module)
 	config.TerraformBinary = rerunSleepingTerraform(t, 30)
+	config.TimeoutFactor = 0.0001
 	config.TimeoutFloor = 2 * time.Second
 
 	result, err := engine.Run(t.Context(), config)

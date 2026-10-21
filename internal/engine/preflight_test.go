@@ -236,6 +236,7 @@ func TestTheExecutionThatOutlivesTheBudgetLandsInTheDenominator(t *testing.T) {
 	config := baseConfig(t, module)
 	config.TerraformBinary = sleepingTerraform(t,
 		`[ "$2" = test ] && [[ "$1" == */m0* ]] && [[ " $* " == *" -verbose "* ]]`, 30)
+	config.TimeoutFactor = 0.0001
 	config.TimeoutFloor = 2 * time.Second
 	config.IncludeOperators = []string{string(mutation.StrCase)}
 
