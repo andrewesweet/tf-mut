@@ -14,12 +14,13 @@ import (
 // carries, so the caller assembles the value by name instead of knowing the
 // order the oracle reads it in.
 //
-// The zero value means "not supplied", exactly as the optional evidence of
-// the observation always has: a validate verdict never recorded, a phase-two
-// comparison never made, an adapter never wired (a nil adapter is supplied by
-// no caller, and the engine wires all four at assembly). The engine keeps
-// every I/O duty — running Terraform, canonicalising payloads, building the
-// graph cone — and every decision over these facts belongs to the oracle.
+// Optional evidence retains its zero value until measured: the validate verdict
+// is recorded when NeedsValidate requires it, and PhaseTwoDecided marks a
+// completed fingerprint comparison. The engine must wire all four adapters
+// before requesting decisions that use them; nil adapters have no fallback.
+// The engine keeps every I/O duty — running Terraform, canonicalising payloads,
+// building the graph cone — and every decision over these facts belongs to the
+// oracle.
 type Measurement struct {
 	// Phase one: what the executed runs reported.
 	FailedRuns   bool
@@ -31,6 +32,7 @@ type Measurement struct {
 
 	// The validate verdict: recorded where the engine honoured NeedsValidate.
 	// Until then no verdict that needs it can be judged.
+	// InvalidDiagnostics merges the test and validate diagnostics in sorted order.
 	ValidateValid      bool
 	InvalidDiagnostics []Diagnostic
 
@@ -46,7 +48,9 @@ type Measurement struct {
 	Unknowns        []string
 	Unstable        []string
 
-	// The fail-closed adapters over the engine's measured sources.
+	// InCone reports whether a payload address lies in the mutation's forward
+	// cone. An unmappable site must answer true for every address, preserving
+	// the whole-payload unknown floor.
 	InCone func(payloadAddress string) bool
 	// Reads adapts the output and local closure: what the closure concludes
 	// about an address's assertions.
