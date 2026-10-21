@@ -372,14 +372,16 @@ func evaluateOne(
 	}
 
 	judge := executionOracle{plan: plan}
-	observation := judge.observation(index, verdict, observed, result, budget)
+	measured := judge.measurement(index, verdict, observed, result, budget)
+	observation := oracle.NewObservation(measured)
 
 	if observation.NeedsValidate() {
 		var failure *report.ExecutionError
-		verdict, observation, failure = judge.validate(ctx, built, verdict, observed, observation, telemetry)
+		verdict, measured, failure = judge.validate(ctx, built, verdict, observed, measured, telemetry)
 		if failure != nil {
 			return verdict, plan.classified[index].Outcome, failure
 		}
+		observation = oracle.NewObservation(measured)
 	}
 
 	outcome := oracle.Judge(observation)
@@ -404,7 +406,7 @@ func evaluateOne(
 		return verdict, outcome, nil
 	}
 
-	return judge.observeSurvivor(ctx, built, verdict, observation, outcome, telemetry, result)
+	return judge.observeSurvivor(ctx, built, verdict, measured, outcome, telemetry, result)
 }
 
 func materialiseMutant(plan executionPlan, index int, telemetry *mutantCollector) (sandbox.Sandbox, error) {
@@ -489,9 +491,9 @@ func (o executionOracle) validate(
 	built sandbox.Sandbox,
 	verdict report.Mutant,
 	observed []oracle.Diagnostic,
-	observation oracle.Observation,
+	measured oracle.Measurement,
 	telemetry *mutantCollector,
-) (report.Mutant, oracle.Observation, *report.ExecutionError) {
+) (report.Mutant, oracle.Measurement, *report.ExecutionError) {
 	validatePhase := telemetry.phase(phaseValidate)
 	// validate is bounded by the absolute preflight cap, not the mutant's
 	// execution budget: it is the precedence table's sole discriminator
@@ -501,7 +503,7 @@ func (o executionOracle) validate(
 	validation, err := o.plan.runner.Validate(ctx, built.ModuleDir, o.plan.settings.preflightCap())
 	defer validatePhase(telemetry.child("validate", validation.Usage, validation.Started)...)
 	if err != nil {
-		return verdict, observation, &report.ExecutionError{
+		return verdict, measured, &report.ExecutionError{
 			MutantID: verdict.ID,
 			Site:     verdict.Site,
 			Message:  "terraform validate could not be executed: " + err.Error(),
@@ -511,14 +513,19 @@ func (o executionOracle) validate(
 	verdict.Validated = true
 
 	if validation.Valid {
-		return verdict, observation.WithValidateVerdict(true, nil), nil
+		measured.ValidateValid = true
+		measured.InvalidDiagnostics = nil
+
+		return verdict, measured, nil
 	}
 
 	merged := append(slices.Clone(observed), diagnostics(validation.Diagnostics)...)
 	slices.SortFunc(merged, compareDiagnostics)
 	verdict.Diagnostics = projectDiagnostics(merged)
+	measured.ValidateValid = false
+	measured.InvalidDiagnostics = merged
 
-	return verdict, observation.WithValidateVerdict(false, merged), nil
+	return verdict, measured, nil
 }
 
 func runOutcomes(result tfexec.TestResult) []report.RunOutcome {

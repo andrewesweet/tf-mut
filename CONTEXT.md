@@ -110,11 +110,10 @@ declared by `internal/report`; they are not invitations to add aliases.
 
 ### Oracle / Verdict
 
-- **Observation:** the canonical Terraform payload captured for comparison.
-  `oracle.Observation` bundles run statuses, diagnostics, the validate verdict, the
-  masked delta and unknown paths. The engine assembles these measurements and
-  fail-closed adapters. `oracle.Judge` applies the verdict precedence in the core
-  context.
+- **Observation:** the evidence about one mutant assembled for the oracle to judge.
+  The engine supplies measurements and fail-closed adapters through the
+  [observation construction contract](internal/oracle/observation.go).
+  `oracle.Judge` applies the verdict precedence in the core context.
 - **Mask:** a component-granular record of volatility discovered by baseline evidence
   or static scan: volatile components are removed before comparison while stable
   template components remain observable. If volatility cannot be decomposed

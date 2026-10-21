@@ -24,25 +24,25 @@ func Judge(o Observation) Outcome {
 	// configuration never reaches an assertion, so it cannot produce a run that
 	// reports fail. Checking here keeps the M11 speed win — the killed majority
 	// never pays for validate — without changing any verdict.
-	if o.failedRuns {
+	if o.measured.FailedRuns {
 		return newKilled()
 	}
 
-	if o.erroredRuns || o.executedRuns == 0 {
+	if o.measured.ErroredRuns || o.measured.ExecutedRuns == 0 {
 		// validate is the sole discriminator between Invalid and
 		// KilledByError, and the engine ran it because NeedsValidate said the
 		// branch was reachable.
-		if !o.validateValid {
-			return newInvalid(o.invalidDiagnostics)
+		if !o.measured.ValidateValid {
+			return newInvalid(o.measured.InvalidDiagnostics)
 		}
 
-		if o.erroredRuns {
-			return newKilledByError(o.diagnostics)
+		if o.measured.ErroredRuns {
+			return newKilledByError(o.measured.Diagnostics)
 		}
 	}
 
-	if o.timedOut {
-		return newTimedOut(o.budget)
+	if o.measured.TimedOut {
+		return newTimedOut(o.measured.Budget)
 	}
 
 	// A zero-run result that reaches the fallthrough below is provisional.
@@ -50,7 +50,7 @@ func Judge(o Observation) Outcome {
 
 	// Phase one is out of decisions: the mutant survived everything phase one
 	// can see, and phase two decides what that means.
-	if !o.phaseTwoDecided {
+	if !o.measured.PhaseTwoDecided {
 		return newSurvivedPhaseOne()
 	}
 
@@ -59,9 +59,9 @@ func Judge(o Observation) Outcome {
 	// fail-closed adapters — an unmappable site keeps the whole-payload
 	// floor, an unmappable unknown counts as in-cone.
 	unknowns := o.blockingUnknowns()
-	operator := o.operator
+	operator := o.measured.Operator
 
-	if proven(o.delta) {
+	if proven(o.measured.Delta) {
 		return o.diagnoseDelta()
 	}
 
@@ -83,11 +83,11 @@ func Judge(o Observation) Outcome {
 	case !mutation.Projects(operator):
 		return newStructurallyUnassertable(operator)
 	case len(unknowns) > 0:
-		return SurvivedIndeterminateUnknowns(unknowns, o.mask)
-	case o.delta.Indeterminate:
-		return SurvivedIndeterminateVolatility(o.delta, o.mask, o.unstable)
+		return SurvivedIndeterminateUnknowns(unknowns, o.measured.Mask)
+	case o.measured.Delta.Indeterminate:
+		return SurvivedIndeterminateVolatility(o.measured.Delta, o.measured.Mask, o.measured.Unstable)
 	default:
-		return newUnobservable(o.mask)
+		return newUnobservable(o.measured.Mask)
 	}
 }
 
@@ -98,8 +98,8 @@ func Judge(o Observation) Outcome {
 func (o Observation) blockingUnknowns() []string {
 	blocking := []string{}
 
-	for _, unknown := range o.unknowns {
-		if o.inCone(unknown) {
+	for _, unknown := range o.measured.Unknowns {
+		if o.measured.InCone(unknown) {
 			blocking = append(blocking, unknown)
 		}
 	}
@@ -125,26 +125,26 @@ func (o Observation) diagnoseDelta() Outcome {
 	// attributable to the module wherever the attribute is configurable, and
 	// a computed-only attribute cannot produce one. The delta falls through
 	// to the closure diagnoses, which is what it always was.
-	for _, address := range o.delta.Addresses() {
-		if closureVerdict := o.reads(address); closureVerdict.Read {
-			return SurvivedWeakAssertion(o.delta, o.mask, address, closureVerdict)
+	for _, address := range o.measured.Delta.Addresses() {
+		if closureVerdict := o.measured.Reads(address); closureVerdict.Read {
+			return SurvivedWeakAssertion(o.measured.Delta, o.measured.Mask, address, closureVerdict)
 		}
 	}
 
-	for _, address := range o.delta.Addresses() {
-		if closureVerdict := o.reads(address); closureVerdict.Defeated {
-			return SurvivedUnasserted(o.delta, o.mask, address, closureVerdict)
+	for _, address := range o.measured.Delta.Addresses() {
+		if closureVerdict := o.measured.Reads(address); closureVerdict.Defeated {
+			return SurvivedUnasserted(o.measured.Delta, o.measured.Mask, address, closureVerdict)
 		}
 	}
 
-	return SurvivedNoAssertion(o.delta, o.mask)
+	return SurvivedNoAssertion(o.measured.Delta, o.measured.Mask)
 }
 
 // computedConfined reports a delta that lies entirely in attributes the
 // provider computes, which is the shape a mock's invented value takes.
 func (o Observation) computedConfined() bool {
-	addresses := o.delta.Addresses()
-	if len(addresses) == 0 || !allAddressed(o.delta) {
+	addresses := o.measured.Delta.Addresses()
+	if len(addresses) == 0 || !allAddressed(o.measured.Delta) {
 		return false
 	}
 
@@ -154,7 +154,7 @@ func (o Observation) computedConfined() bool {
 			return false
 		}
 
-		computed, known := o.computed(coordinates.kind, coordinates.resource, coordinates.attribute)
+		computed, known := o.measured.ComputedAttributes(coordinates.kind, coordinates.resource, coordinates.attribute)
 		if !known || !computed {
 			return false
 		}

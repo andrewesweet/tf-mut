@@ -33,7 +33,7 @@ func (o executionOracle) observeSurvivor(
 	ctx context.Context,
 	built sandbox.Sandbox,
 	verdict report.Mutant,
-	observation oracle.Observation,
+	measured oracle.Measurement,
 	executed oracle.Outcome,
 	telemetry *mutantCollector,
 	result tfexec.TestResult,
@@ -59,17 +59,21 @@ func (o executionOracle) observeSurvivor(
 		return verdict, executed, refusal
 	}
 
-	observation = observation.WithPhaseTwo(
-		mutation.Operator(verdict.Operator), delta, mask, fingerprint.Unknowns(payloads),
-	)
+	measured.PhaseTwoDecided = true
+	measured.Operator = mutation.Operator(verdict.Operator)
+	measured.Delta = delta
+	measured.Mask = mask
+	measured.Unknowns = fingerprint.Unknowns(payloads)
+	observation := oracle.NewObservation(measured)
 
 	if observation.NeedsVolatilityRerun() {
 		var rerunErr *report.ExecutionError
-		observation, rerunErr = o.rerunForVolatility(ctx, built, verdict, payloads, observation,
+		measured, rerunErr = o.rerunForVolatility(ctx, built, verdict, payloads, measured,
 			telemetry)
 		if rerunErr != nil {
 			return verdict, executed, rerunErr
 		}
+		observation = oracle.NewObservation(measured)
 	}
 
 	if observation.DeadlineExceeded() {
@@ -102,7 +106,7 @@ func missingRuns(verdict report.Mutant, delta fingerprint.Delta) *report.Executi
 
 // rerunForVolatility runs the mutant once more and re-compares under the
 // mutant's own volatility: the attributes that differed across its two runs.
-// A re-run that outlives the budget records the deadline on the observation
+// A re-run that outlives the budget records the deadline on the measurement
 // instead of a comparison: a decomposable volatility the run never delivered
 // is judged as the overrun it is, not as an equality it did not prove.
 func (o executionOracle) rerunForVolatility(
@@ -110,20 +114,21 @@ func (o executionOracle) rerunForVolatility(
 	built sandbox.Sandbox,
 	verdict report.Mutant,
 	payloads []fingerprint.Payload,
-	observation oracle.Observation,
+	measured oracle.Measurement,
 	telemetry *mutantCollector,
-) (oracle.Observation, *report.ExecutionError) {
+) (oracle.Measurement, *report.ExecutionError) {
 	rerunPhase := telemetry.phase(phaseVolatilityRerun)
 	second, err := o.fingerprintRun(ctx, built)
 	defer rerunPhase(telemetry.child("test", second.result.Usage, second.result.Started)...)
 	if second.result.TimedOut {
-		return observation.WithPhaseTwoDeadline(
-			timeoutBudget(o.plan.settings, o.plan.prepared.baselineDuration),
-		), nil
+		measured.TimedOut = true
+		measured.Budget = timeoutBudget(o.plan.settings, o.plan.prepared.baselineDuration)
+
+		return measured, nil
 	}
 
 	if err != nil {
-		return observation, &report.ExecutionError{
+		return measured, &report.ExecutionError{
 			MutantID: verdict.ID,
 			Site:     verdict.Site,
 			Message:  "the volatility re-run could not be evaluated: " + err.Error(),
@@ -133,11 +138,11 @@ func (o executionOracle) rerunForVolatility(
 	mutantMask := fingerprint.Derive(payloads, second.payloads)
 	mask := o.plan.prepared.mask.MergeMutantVolatility(mutantMask)
 
-	return observation.WithSecondRun(
-		fingerprint.Compare(mask, o.plan.prepared.payloads, payloads),
-		mask,
-		mutantMask.Paths(),
-	), nil
+	measured.Delta = fingerprint.Compare(mask, o.plan.prepared.payloads, payloads)
+	measured.Mask = mask
+	measured.Unstable = mutantMask.Paths()
+
+	return measured, nil
 }
 
 // computedOf adapts the schema lookup to the oracle's computed question: a
@@ -154,31 +159,31 @@ func computedOf(
 	}
 }
 
-// observation assembles what the engine measured for the oracle to judge:
+// measurement assembles what the engine measured for the oracle to judge:
 // the phase-one measurements — the runs' diagnostics already lifted into the
 // context's shape, so the observation judges what the report will show — plus
 // the fail-closed adapters over the graph cone, the output and local closure,
 // the provider schemas and the mutant's own volatility scan. The engine keeps
 // every I/O duty; the oracle judges.
-func (o executionOracle) observation(
+func (o executionOracle) measurement(
 	index int,
 	verdict report.Mutant,
 	observed []oracle.Diagnostic,
 	result tfexec.TestResult,
 	budget time.Duration,
-) oracle.Observation {
-	return oracle.NewObservation(
-		result.HasStatus(tfexec.StatusFail),
-		result.HasStatus(tfexec.StatusError),
-		verdict.ExecutedRuns,
-		result.TimedOut,
-		budget,
-		observed,
-	).
-		WithCone(o.coneOf(verdict)).
-		WithClosure(o.plan.closure.Reads).
-		WithComputedAttributes(computedOf(o.plan.prepared.schemas)).
-		WithSuspicion(o.suspicion(index))
+) oracle.Measurement {
+	return oracle.Measurement{
+		FailedRuns:         result.HasStatus(tfexec.StatusFail),
+		ErroredRuns:        result.HasStatus(tfexec.StatusError),
+		ExecutedRuns:       verdict.ExecutedRuns,
+		TimedOut:           result.TimedOut,
+		Budget:             budget,
+		Diagnostics:        observed,
+		InCone:             o.coneOf(verdict),
+		Reads:              o.plan.closure.Reads,
+		ComputedAttributes: computedOf(o.plan.prepared.schemas),
+		Suspicious:         o.suspicion(index),
+	}
 }
 
 // coneOf adapts the attribute-level reference graph to the payload-address
