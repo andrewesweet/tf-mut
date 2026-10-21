@@ -30,7 +30,15 @@ func TestHTMLViewerRendersInBrowser(t *testing.T) {
 	const source = `# </script><script>window.sourceExecuted = true</script>`
 	path := writeHTMLBrowserPage(t, directory, source)
 
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	// Hosted CI runners start Chrome far slower than a development
+	// workstation: three CI runs killed the browser at this deadline
+	// (30.03s, 30.45s, 31.71s) while the same commit passed at 13.16s on a
+	// rerun, and the failing logs show 4–12s of Chrome's budget spent
+	// retrying D-Bus autolaunch against a session bus that will never
+	// answer there. The deadline only has to bound a hung browser, not
+	// Chrome's startup tail, so it leaves headroom over the measured times
+	// instead of sitting just above the workstation's.
+	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
 	defer cancel()
 
 	//nolint:gosec // The executable comes only from exec.LookPath's fixed google-chrome name above.
@@ -39,6 +47,15 @@ func TestHTMLViewerRendersInBrowser(t *testing.T) {
 		"--no-first-run", "--no-default-browser-check",
 		"--user-data-dir="+filepath.Join(directory, "profile"),
 		"--dump-dom", "--virtual-time-budget=3000", "file://"+path)
+	// CI runners have no session bus, so the autolaunch retries above are
+	// pure loss: point the address at /dev/null — the official Chrome
+	// container image's own practice — to fail each probe immediately.
+	// A later duplicate key wins in exec's environment, so this also
+	// neutralises any inherited address pointing at an unresponsive bus.
+	command.Env = append(os.Environ(), "DBUS_SESSION_BUS_ADDRESS=/dev/null")
+	// After the deadline kill, a lingering renderer still holding the
+	// output pipe would extend the wait past the deadline; bound it.
+	command.WaitDelay = 10 * time.Second
 	var stderr strings.Builder
 	command.Stderr = &stderr
 
