@@ -53,7 +53,7 @@ $ tf-mut run --min-score 80 ./modules/vpc
 
 `tf-mut preview [flags] [PATH]`
 
-List the mutants that would be generated, as diffs, executing nothing
+List the mutants that would be generated, as diffs
 
 Prints the mutant population as unified diffs against the module source. No test run blocks execute.
 

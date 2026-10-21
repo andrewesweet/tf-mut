@@ -60,9 +60,9 @@ func prepare(
 		return warmWorkspace{}, err
 	}
 
-	// A preview executes nothing: it needs the schemas that gate the deletion
-	// operators, and no more. The workspace still exists because init cannot be
-	// allowed to write into the source tree.
+	// Preview needs the schemas that gate the deletion operators, but no
+	// baseline. The workspace still exists because init cannot be allowed to
+	// write into the source tree.
 	if settings.mode == previewMode {
 		return prepared, nil
 	}

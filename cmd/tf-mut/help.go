@@ -48,7 +48,7 @@ var commandDocs = []commandDoc{ //nolint:gochecknoglobals // the immutable help 
 	},
 	{
 		name:     previewCommand,
-		synopsis: "List the mutants that would be generated, as diffs, executing nothing",
+		synopsis: "List the mutants that would be generated, as diffs",
 		description: "Prints the mutant population as unified diffs against the module " +
 			"source. No test run blocks execute.",
 		arguments: "PATH  The module directory to preview (default \".\")",
