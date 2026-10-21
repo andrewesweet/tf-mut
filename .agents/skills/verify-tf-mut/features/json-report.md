@@ -38,5 +38,5 @@ Preconditions:
 - `schema_version` moves with intentional schema changes; assert its shape, not a pinned
   value — unless the change you are verifying is itself the schema change.
 - Characterisation commands (`characterise`, `todos`, `curate`) accept only the `terminal`
-  and `json` reporters; SARIF, HTML, MTE, JUnit and markdown belong to `run`, `preview`,
-  `suggest` and `curate`.
+  and `json` reporters; SARIF, HTML, MTE, JUnit and markdown belong to `run`, `preview`
+  and `suggest` only.
