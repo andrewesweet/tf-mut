@@ -1,0 +1,61 @@
+# Repository review guidance for the no-mistakes gate.
+# Honored only from the default branch (docs: review.path_instructions, trusted copy).
+# Failure modes are the repository's own: AGENTS.md standing rules and the road-test
+# defects (D5, D7-D9, D11, F11) - determinism, fail-closed honesty, containment.
+review:
+  path_instructions:
+    - path: "**"
+      instructions: |
+        tf-mut is a mutation-testing engine for `terraform test`; its promises are
+        determinism, fail-closed honesty and containment. Treat these as review failures:
+        - A suggestion or pin emitted without both verification legs - a green baseline
+          with the assertion applied, and the same assertion failing under the mutant - or
+          a skip reason invented outside the context's closed skip vocabulary.
+        - A verdict, mutant ID, cache hit or report that could differ between two identical
+          runs, or two different mutants that share one content-derived ID.
+        - Anything that lets a mutant sandbox reach the network, the host provider tree or
+          the user's real Terraform state. Safety-gate refusals stay static (decided before
+          any Terraform run) and are never weakened, and provider verification is never
+          relaxed outside a mutant sandbox.
+        - A secret, credential or session-specific value leaking into a report, a log or
+          any other artefact tf-mut writes.
+        Every finding must cite file-and-line evidence. A defect this change did not
+        introduce is pre-existing: label it as such instead of asking this change to fix
+        it. At most a few style-only findings per review, and never blocking on them.
+    - path: "internal/sandbox/**"
+      instructions: |
+        Containment boundary. A write outside the materialised closure, a shared file that
+        resolves outside it (a symlink followed instead of copied), or state that outlives
+        the sandbox is a failure.
+    - path: "internal/tfexec/**"
+      instructions: |
+        This package controls the environment tf-mut hands Terraform. Strip variables that
+        redirect a subprocess at another location, keep the ones that authenticate one, and
+        a killed Terraform process must take its provider plugins with it (own process
+        group, group-signalled cancel, WaitDelay) - an orphaned plugin breaks the host's
+        next `terraform init` through the plugin cache.
+    - path: "internal/suggest/**"
+      instructions: |
+        Suggestion soundness. The rendering, addressing and sensitivity adapters fail
+        closed: a value an adapter cannot render or address is skipped with a reason from
+        the closed vocabulary, never guessed at, and a refutation is worded from the legs'
+        actual statuses.
+    - path: "internal/engine/testdata/**"
+      instructions: |
+        Fixture modules. Skip style and design findings. The only real failure here is a
+        fixture that needs the network or real providers when its name does not say so.
+    - path: "internal/tfexec/testdata/**"
+      instructions: |
+        Recorded real Terraform output and fuzz corpus. Skip findings; these bytes are
+        evidence, not prose.
+    - path: "internal/testsupport/seamlint/testdata/**"
+      instructions: |
+        Deliberate seam-rule breach fixtures. Skip findings; breaking the rules is the
+        point.
+    - path: "docs/schema/**"
+      instructions: |
+        Vendored third-party schemas. Skip findings.
+    - path: "research/**"
+      instructions: |
+        Spike fixtures and the pinned benchmark corpus. Skip findings; measurement
+        material, not product code.
