@@ -23,9 +23,9 @@ Preconditions:
 - `$VERIFY_ROOT/modules/all-killed` is a fixture copy.
 
 - **Emit the report.** Run
-  `$BIN run --no-cache --output json=$EVIDENCE/run-all-killed.json "$VERIFY_ROOT/modules/all-killed"`.
+  `mise exec -- "$BIN" run --no-cache --output json=$EVIDENCE/run-all-killed.json "$VERIFY_ROOT/modules/all-killed"`.
   Exit code `0`; the artifact exists.
-- **Assert the contract.** `jq -e '.schema_version | test("^[0-9]+[.][0-9]+[.][0-9]+$")'
+- **Assert the contract.** `mise exec -- jq -e '.schema_version | test("^[0-9]+[.][0-9]+[.][0-9]+$")'
   "$EVIDENCE/run-all-killed.json"` succeeds; `.terraform_version` starts with `1.15.`;
   `.metrics.mutation_score == 1`; `.metrics.scored == 3`; `.metrics.counts.Killed == 3`.
 - **Provenance is present.** The same artifact has non-empty `.module` and `.closure_root`

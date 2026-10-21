@@ -29,8 +29,8 @@ A prepared worktree (one with `.tools/` already populated and the mise cache war
     mise exec -- just build
 
 The binary lands at `.artifacts/bin/tf-mut`. Launch is ready when the build exits 0 and
-`.artifacts/bin/tf-mut version` prints a non-empty version. The binary is disposable;
-the next Launch recreates it.
+`mise exec -- .artifacts/bin/tf-mut version` prints a non-empty version. The binary is
+disposable; the next Launch recreates it.
 
 Create the scratch root every drive writes into — outside the checkout, per run, never
 shared between concurrent verifications:
@@ -44,13 +44,15 @@ shared between concurrent verifications:
 One read-only pass that answers "is this checkout worth driving?". Run it first, and again
 whenever anything looks off. All commands run from the checkout root.
 
-- **Binary answers.** `.artifacts/bin/tf-mut version` prints a non-empty version (a git
-  short SHA, or `dev` for an untagged build). A missing binary means Launch never ran.
+- **Binary answers.** `mise exec -- .artifacts/bin/tf-mut version` prints a non-empty
+  version (a git short SHA, or `dev` for an untagged build). A missing binary means Launch
+  never ran.
 - **Binary is fresh.** `find cmd internal -name '*.go' -newer .artifacts/bin/tf-mut` prints
   nothing. Any output means source moved after the build: rebuild before trusting a verdict.
-- **Terraform is the pinned one.** `terraform version` prints `Terraform v1.15.8` — the
-  version `mise.toml` pins. Fixture verdicts are calibrated to it; another minor can flip
-  classifications. A missing terraform means `mise install` did not run.
+- **Terraform is the pinned one.** `mise exec -- terraform version` prints
+  `Terraform v1.15.8` — the version `mise.toml` pins. Fixture verdicts are calibrated to it;
+  another minor can flip classifications. A missing Terraform under `mise exec` means
+  the pinned tools are not installed.
 - **This is the checkout you built.** `git rev-parse --show-toplevel` resolves, and
   `.artifacts/bin/tf-mut` sits inside it. Driving a binary from another checkout proves
   nothing about this one.
@@ -80,14 +82,19 @@ Drive only the four.
 Every feature file in `features/` pairs each user action with a literal command and the
 observable result that proves it. Conventions:
 
-- Run the commands as written from the scratch root, with `$BIN` and `$VERIFY_ROOT` set as
-  above.
+- Run every recipe from the checkout root, with `$BIN` and `$VERIFY_ROOT` set as
+  above. Keep every tf-mut, Terraform and jq invocation under `mise exec --`: it resolves
+  this checkout's pinned tools and gives tf-mut the pinned child Terraform, even in a cold
+  shell without mise activation. Fixture and evidence paths are absolute; no directory
+  change is needed.
 - Assert the exit code and the quoted output lines. tf-mut exits `0` with nothing to report,
   `1` when it found something worth failing on, `2` when it could not produce a trustworthy
   result or the invocation was wrong — an expected `1` is a pass in the recipes that expect
   findings.
 - Never add `--allow-real-infrastructure`, `--allow-unsandboxed-effects`, `--write`,
-  `--force`, `--apply`, `--all-verified` or `--write-baseline`.
+  `--force`, `--apply`, `--all-verified` or `--write-baseline`. The sole exception is the
+  contradictory-flag preflight refusal check in `features/suggest.md`: it pairs
+  `--all-verified` with `--dry-run`, expects exit `2` and proves no tests were written.
 - No network: if a command hangs or reaches for a provider, stop and diagnose. The fixtures
   cannot need one.
 
@@ -105,7 +112,7 @@ recipes name the exact artifact each step writes. Proof standards:
 - Keep the artifact and the assertion together: a proof a later reader cannot re-check is
   not proof. Cleanup never removes `$EVIDENCE`.
 - Record the run's identity once per session:
-  `$BIN version > $EVIDENCE/version.txt`.
+  `mise exec -- "$BIN" version > "$EVIDENCE/version.txt"`.
 
 ## Cleanup
 

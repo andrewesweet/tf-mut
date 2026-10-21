@@ -22,7 +22,7 @@ Preconditions:
 - `$VERIFY_ROOT/modules/untested-branches` is a fixture copy (a module with no `tests/`).
 
 - **Scaffold the suite.** Run
-  `$BIN characterise "$VERIFY_ROOT/modules/untested-branches"`. Exit code `0`; stdout
+  `mise exec -- "$BIN" characterise "$VERIFY_ROOT/modules/untested-branches"`. Exit code `0`; stdout
   carries the plan header `granularity  outputs` and `pinned` with a nonzero count, then
   rendered `==> tests/characterise_defaults.tftest.hcl <==` sections whose scenario blocks
   named `run "characterise_flip_...` carry a `state_key` line, a `variables` block setting
@@ -33,7 +33,7 @@ Preconditions:
   `test ! -e "$VERIFY_ROOT/modules/untested-branches/tests"` succeeds: the module copy has
   no test directory, because characterisation wrote nothing.
 - **Persist the scaffold.** Run
-  `$BIN characterise "$VERIFY_ROOT/modules/untested-branches" > $EVIDENCE/characterise.txt`.
+  `mise exec -- "$BIN" characterise "$VERIFY_ROOT/modules/untested-branches" > $EVIDENCE/characterise.txt`.
   The artifact contains the same rendered sections.
 
 ## Gotchas

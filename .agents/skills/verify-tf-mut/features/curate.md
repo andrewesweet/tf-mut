@@ -22,12 +22,12 @@ Preconditions:
 - Doctor is green and `$BIN` is the fresh binary.
 - `$VERIFY_ROOT/modules/curate` is a fixture copy.
 
-- **Run the report.** Run `$BIN curate --no-cache "$VERIFY_ROOT/modules/curate"`. Exit code
+- **Run the report.** Run `mise exec -- "$BIN" curate --no-cache "$VERIFY_ROOT/modules/curate"`. Exit code
   `1` — redundancy is a finding; the stdout carries the plan header `granularity  outputs`
   and three finding rows whose statuses are `subsumed`, `empty-kill-set` and
   `cross-scenario-redundant`, each with a `cur-` identifier and a one-line reason.
 - **Persist the report.** Run
-  `$BIN curate --no-cache "$VERIFY_ROOT/modules/curate" > $EVIDENCE/curate.txt 2>&1`. The
+  `mise exec -- "$BIN" curate --no-cache "$VERIFY_ROOT/modules/curate" > $EVIDENCE/curate.txt 2>&1`. The
   artifact contains the same three statuses.
 
 ## Gotchas

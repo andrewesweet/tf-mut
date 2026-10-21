@@ -20,15 +20,18 @@ Preconditions:
 - Doctor is green and `$BIN` is the fresh binary.
 - `$VERIFY_ROOT/modules/untested-branches` is a fixture copy.
 
-- **Read the plan.** Run `$BIN todos "$VERIFY_ROOT/modules/untested-branches"`. Exit code
+- **Read the plan.** Run `mise exec -- "$BIN" todos "$VERIFY_ROOT/modules/untested-branches"`. Exit code
   `0`; stdout carries the plan header `granularity  outputs`, `scenarios` with count `2`,
   and `pinned` with count `0`.
 - **Persist the listing.** Run
-  `$BIN todos "$VERIFY_ROOT/modules/untested-branches" > $EVIDENCE/todos.txt`. The artifact
+  `mise exec -- "$BIN" todos "$VERIFY_ROOT/modules/untested-branches" > $EVIDENCE/todos.txt`. The artifact
   carries the same header.
 
 ## Gotchas
 
 - `todos` is read-only over a planned characterisation; it never writes.
-- Counts move with the fixture; assert the header shape and the exit code, and treat a
-  changed count as a fixture change to re-derive, not a harness failure.
+- Assert the counts as well as the header and exit code. The fixture's default `env`
+  and its `env == "prod"` branch justify two scenarios; `todos` plans without harvesting,
+  so it pins none. If counts change, identify a fixture or characterisation-contract
+  change and derive the new expectations from it. Changed CLI output alone does not
+  justify changing the expectations.

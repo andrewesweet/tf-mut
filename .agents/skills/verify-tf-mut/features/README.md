@@ -18,12 +18,16 @@ recipe.
 ## Driving conventions
 
 - Start every recipe from the baseline state unless its preconditions say otherwise.
+  Stay at the checkout root and use `mise exec --` for every tf-mut, Terraform and jq
+  invocation so this checkout's pins also reach tf-mut's child processes.
 - Treat every command as literal. Keep quoted names and flags unchanged.
 - Drive only fixture copies. The engine writes `.tf-mut-cache/` into the module it drives;
   the checkout's `internal/engine/testdata/` is never a drive target.
 - The safety flags `--allow-real-infrastructure` and `--allow-unsandboxed-effects` and the
   write flags `--write`, `--force`, `--apply`, `--all-verified`, `--write-baseline` appear
-  in no verification drive.
+  in no verification drive, except the contradictory-flag preflight refusal check in
+  [suggest](./suggest.md). That check pairs `--all-verified` with `--dry-run`, expects exit
+  `2` and proves no tests were written; successful apply operations remain excluded.
 - Exit codes are part of the behavior: `0` nothing to report, `1` findings worth failing
   on, `2` an untrustworthy result or a wrong invocation.
 

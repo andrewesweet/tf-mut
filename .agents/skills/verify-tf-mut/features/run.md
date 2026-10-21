@@ -8,7 +8,7 @@ when mutants survive — the findings that name what no assertion observes.
 
 - `run-clean` scores a fully-asserted module at 100% and exits 0.
 - `run-findings` reports surviving mutants with their diagnoses and exits 1.
-- `run-gate` fails a `--min-score` gate on a module whose score is below it.
+- `run-gate` passes a satisfied `--min-score` gate and fails an unsatisfied one.
 
 ## How to get to it (user POV)
 
@@ -22,21 +22,25 @@ Preconditions:
 - `$VERIFY_ROOT/modules/all-killed` and `$VERIFY_ROOT/modules/suggest-basic` are fixture
   copies.
 
-- **Clean module scores 100%.** Run `$BIN run --no-cache "$VERIFY_ROOT/modules/all-killed"`.
+- **Clean module scores 100%.** Run `mise exec -- "$BIN" run --no-cache "$VERIFY_ROOT/modules/all-killed"`.
   Exit code `0`; stdout carries `Mutation score` `100.0%` with
   `(3 of 3 scored mutants detected)`, and the counts line
   `Killed 3   KilledByError 0   Survived 0   Unassertable 0   NoCoverage 0`.
 - **Write the JSON proof.** Run
-  `$BIN run --no-cache --output json=$EVIDENCE/run-clean.json "$VERIFY_ROOT/modules/all-killed"`.
+  `mise exec -- "$BIN" run --no-cache --output json=$EVIDENCE/run-clean.json "$VERIFY_ROOT/modules/all-killed"`.
   Exit code `0`; the artifact has `.metrics.mutation_score == 1`, `.metrics.scored == 3`,
   `.metrics.counts.Killed == 3`.
 - **Untested constructs survive.** Run
-  `$BIN run --no-cache "$VERIFY_ROOT/modules/suggest-basic"`. Exit code `1`; the summary
+  `mise exec -- "$BIN" run --no-cache "$VERIFY_ROOT/modules/suggest-basic"`. Exit code `1`; the summary
   shows `Mutation score` `50.0%` with `(5 of 10 scored mutants detected)`, `Survived 5`, a
   `SURVIVED (5)` section whose mutants carry `Diagnosis: no-assertion`, and a
   `PSEUDO-TESTED RESOURCES (1)` section naming `terraform_data.ignored`.
-- **Gate on the score.** Run
-  `$BIN run --no-cache --min-score 100 "$VERIFY_ROOT/modules/suggest-basic"`. Exit code `1`:
+- **Pass the score gate despite survivors.** Run
+  `mise exec -- "$BIN" run --no-cache --min-score 0 "$VERIFY_ROOT/modules/suggest-basic"`.
+  Exit code `0` with the same `50.0%` score and five survivors: the explicit satisfied
+  gate determines the exit code. Ignoring `--min-score` would still exit `1`.
+- **Fail the score gate.** Run
+  `mise exec -- "$BIN" run --no-cache --min-score 100 "$VERIFY_ROOT/modules/suggest-basic"`. Exit code `1`:
   the score gate fails the run even though the run itself completed.
 
 ## Gotchas
