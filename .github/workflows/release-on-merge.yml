@@ -1,19 +1,17 @@
-# The merge-driven release trigger (F1, retro-11-flow): every push to master
-# tags the next patch version and runs the tag-driven release pipeline for
-# it, so merged changes reach a published release without a manual tag. The
+# The merge-driven release trigger (F1, retro-11-flow): pushes to master
+# request the next patch release through the tag-driven release pipeline,
+# so merged changes reach a published release without a manual tag. The
 # pipeline itself (release.yml) stays the only publisher and its gate,
 # packaging, checksum and rebuild jobs are unchanged in substance. This
 # workflow only decides the version, creates the tag, and calls the
 # pipeline: a tag created with the default token would not start a workflow,
 # so instead of pushing the tag and hoping, it calls release.yml directly
-# with the version as an input. scripts/next-patch-version owns the rule —
-# the successor of the latest vMAJOR.MINOR.PATCH tag, skipped when the push
-# carries no change since that tag — and this workflow never computes a
-# version itself. The workflow-level concurrency group queues concurrent
-# merges behind the run ahead, each recomputing from the tags that run
-# created, so two releases can neither race one version nor skip the gate;
-# an already-existing tag fails the run at creation rather than
-# double-publishing.
+# with the version as an input. The Go build-chain helper behind
+# scripts/next-patch-version decides the version. The concurrency group
+# keeps one running and one pending run. A later merge supersedes a pending
+# run; its changes ship in the next merge's release. Each retained run
+# recomputes from current tags. An existing tag at HEAD is reused until its
+# release is published.
 name: release-on-merge
 on:
   push:
@@ -23,6 +21,11 @@ permissions:
 concurrency:
   group: release-on-merge
   cancel-in-progress: false
+env:
+  GOTOOLCHAIN: local
+  MISE_LOCKED: "1"
+  MISE_CONFIG_DIR: ${{ github.workspace }}/.artifacts/mise-config
+  MISE_CACHE_DIR: ${{ github.workspace }}/.artifacts/cache/mise
 jobs:
   tag:
     name: Tag the next patch release
@@ -37,8 +40,15 @@ jobs:
           # The decision reads every release tag and the commit each names.
           fetch-depth: 0
           persist-credentials: false
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          version: 2026.10.7
+          install: true
+          cache: false
       - name: Decide the next patch version
         id: next
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           if version=$(scripts/next-patch-version); then
@@ -46,7 +56,7 @@ jobs:
           else
             code=$?
             if [[ $code -eq 2 ]]; then
-              echo "The push carries no change since the latest release; nothing to release."
+              echo "The tag at HEAD already has a published release; nothing to release."
               exit 0
             fi
             exit "$code"
@@ -58,8 +68,10 @@ jobs:
           VERSION: ${{ steps.next.outputs.version }}
         run: |
           set -euo pipefail
-          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
-            -f "ref=refs/tags/$VERSION" -f "sha=$GITHUB_SHA"
+          if ! git show-ref --verify --quiet "refs/tags/$VERSION"; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$VERSION" -f "sha=$GITHUB_SHA"
+          fi
   release:
     name: Run the release pipeline
     needs: tag

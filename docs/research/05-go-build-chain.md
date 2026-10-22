@@ -542,16 +542,25 @@ Recommended jobs:
 | Release (merge to master) | `release-on-merge` computes the next patch version with `scripts/next-patch-version`, tags the merge commit through the API, and calls the release workflow (`just test-release-decision` pins the rule) |
 
 The [release workflow](../../.github/workflows/release.yml) calls `ci.yml` before packaging.
-Every push to master that carries changes past the latest release also runs it automatically:
+Pushes to master request an automatic patch release:
 [release-on-merge](../../.github/workflows/release-on-merge.yml) tags the next patch version
-(the latest `v*` tag with its patch incremented — `scripts/next-patch-version`, the tested seam)
+(the greatest `vMAJOR.MINOR.PATCH` tag with its patch incremented, computed by the Go
+build-chain helper behind `scripts/next-patch-version`)
 and calls the release workflow through `workflow_call`, because a tag created with the default
 token would not start a workflow on its own. The version check inside packaging has two branches:
 the pushed tag must match the root [`VERSION`](../../VERSION) declaration (the manual path), and
 the automated input must be the immediate successor of the release that precedes it, re-derived
-independently by the same script (the automated path) — the tag stays the single source of the
-version either way, and a version that skips one is refused. Concurrent merges queue on one
-concurrency group and each run recomputes from the tags the run ahead created. When changing the
+independently by the same Go helper (the automated path) — the tag stays the single source of the
+version either way, and a version that skips one is refused. The merge workflow keeps
+`cancel-in-progress: false`. Its concurrency group retains one running and one pending run.
+A later merge supersedes a pending run, whose changes ship in the next merge's release.
+Each retained run computes its version from current tags. GitHub documents
+[`queue: max`](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#concurrency)
+for retaining more pending runs, but the pinned actionlint rejects that key. If HEAD already has a release tag without
+a published release, the workflow reuses that tag and calls the release pipeline. It skips only
+when that tag's release is already published, and fails if publication lookup fails. Neither path
+moves or deletes a tag. `just test-release-decision` executes the Go policy tests against temporary
+Git repositories, including both rerun cases. When changing the
 `VERSION` declaration, update the YAML example in [`ACTION.md`](../../ACTION.md) in the same change.
 `TestTheActionDocumentNamesTheDeclaredReleaseVersion` checks the active Action ref and version
 input against the declaration without querying Git tags.

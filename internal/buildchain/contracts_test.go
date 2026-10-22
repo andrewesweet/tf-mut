@@ -228,10 +228,6 @@ func assertWorkflowMisePins(t *testing.T) {
 	miseVersion := miseMinimumVersion(t, readRepositoryFile(t, "mise.toml"))
 	for _, workflowPath := range workflowPaths() {
 		workflow := readWorkflow(t, workflowPath)
-		// The invariant: a workflow that invokes the control plane runs the
-		// locked toolchain. A workflow with no `just` step has nothing to
-		// pin — the merge-driven release trigger only decides the version,
-		// tags it and calls the release pipeline.
 		found := false
 		for _, job := range workflow.Jobs {
 			for _, step := range job.Steps {
@@ -244,24 +240,10 @@ func assertWorkflowMisePins(t *testing.T) {
 				}
 			}
 		}
-		if runsJust(workflow) && !found {
+		if !found {
 			t.Errorf("%s has no mise setup", workflowPath)
 		}
 	}
-}
-
-// runsJust reports whether any run step of the workflow invokes the control
-// plane, and therefore the locked toolchain it requires.
-func runsJust(workflow workflowContract) bool {
-	for _, job := range workflow.Jobs {
-		for _, step := range job.Steps {
-			if slices.Contains(strings.Fields(step.Run), justCommand) {
-				return true
-			}
-		}
-	}
-
-	return false
 }
 
 func assertDependabotUpdatesActions(t *testing.T) {
