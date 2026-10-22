@@ -13,6 +13,7 @@ import (
 )
 
 const (
+	sourceToolMainVersion       = "v1.2.3"
 	sourceToolDependencyVersion = "v1.0.0"
 	sourceToolAddedReplacement  = "added-replacement"
 )
@@ -64,7 +65,7 @@ func TestEnsureToolsChecksSourceBuildIdentity(t *testing.T) {
 func writeSourceToolMismatch(t *testing.T, root, binary, module, mismatch string) {
 	t.Helper()
 
-	mainModule := debug.Module{Path: module, Version: "v1.2.3", Sum: "h1:main"}
+	mainModule := debug.Module{Path: module, Version: sourceToolMainVersion, Sum: "h1:main"}
 	dependency := debug.Module{Path: "example.com/dependency", Version: sourceToolDependencyVersion, Sum: "h1:dependency"}
 	info := debug.BuildInfo{GoVersion: runtime.Version(), Main: mainModule, Deps: []*debug.Module{&dependency}}
 	pinnedDependency := dependency
@@ -151,7 +152,7 @@ fi
 		if err := os.MkdirAll(filepath.Join(root, "tools", binary), testDirectoryMode); err != nil {
 			t.Fatal(err)
 		}
-		mainModule := debug.Module{Path: module, Version: "v1.2.3", Sum: "h1:main"}
+		mainModule := debug.Module{Path: module, Version: sourceToolMainVersion, Sum: "h1:main"}
 		dependency := debug.Module{Path: "example.com/dependency", Version: sourceToolDependencyVersion, Sum: "h1:dependency"}
 		writeSourceToolJSON(t, root, binary+"-modules.json", mainModule, dependency)
 		writeSourceToolJSON(t, root, binary+"-build.json", debug.BuildInfo{
