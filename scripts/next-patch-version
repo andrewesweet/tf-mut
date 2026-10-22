@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# The automated patch-release decision (F1, retro-11-flow): the next release
+# is the latest vMAJOR.MINOR.PATCH tag with its patch component incremented,
+# and a merge destination that already carries that tag releases nothing.
+# The default mode is the merge trigger's computation (release-on-merge.yml):
+# it prints the version to tag, or exits 2 when HEAD already carries the
+# latest release. --prev is the release pipeline's verification
+# (release.yml): it re-derives the version as the successor of the release
+# that strictly precedes the claimed one, so the tag stays the single source
+# of the version on the automated path. Every refusal is fail-closed: no
+# semantic tag, a malformed version, or a version with no predecessor is an
+# error, never a guess.
+set -euo pipefail
+
+usage() {
+  echo "usage: next-patch-version [--prev version]" >&2
+  exit 2
+}
+
+# Print the successor patch version of a vMAJOR.MINOR.PATCH tag.
+successor() {
+  local -a parts
+  IFS=. read -r -a parts <<<"${1#v}"
+  printf 'v%s.%s.%s\n' "${parts[0]}" "${parts[1]}" "$((10#${parts[2]} + 1))"
+}
+
+# Succeed when semantic version A is strictly older than semantic version B.
+older() {
+  local -a a b
+  local i
+  IFS=. read -r -a a <<<"${1#v}"
+  IFS=. read -r -a b <<<"${2#v}"
+  for i in 0 1 2; do
+    if ((10#${a[i]} < 10#${b[i]})); then
+      return 0
+    fi
+    if ((10#${a[i]} > 10#${b[i]})); then
+      return 1
+    fi
+  done
+  return 1
+}
+
+# List the repository's vMAJOR.MINOR.PATCH tags, newest version first; other
+# v* tags (v2, v0.1-rc1) name no release and are ignored.
+semantic_tags() {
+  git tag --list 'v*' --sort=-v:refname \
+    | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+    || true
+}
+
+case ${1-} in
+  '')
+    mapfile -t tags < <(semantic_tags)
+    latest=${tags[0]:-}
+    if [[ -z $latest ]]; then
+      echo "next-patch-version: no vMAJOR.MINOR.PATCH tag to succeed" >&2
+      exit 1
+    fi
+    if [[ $(git rev-parse HEAD) == "$(git rev-parse "${latest}^{commit}")" ]]; then
+      echo "next-patch-version: HEAD already carries the latest release $latest" >&2
+      exit 2
+    fi
+    successor "$latest"
+    ;;
+  --prev)
+    [[ $# -eq 2 ]] || usage
+    target=$2
+    if [[ ! $target =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      echo "next-patch-version: not a vMAJOR.MINOR.PATCH version: $target" >&2
+      exit 1
+    fi
+    mapfile -t tags < <(semantic_tags)
+    previous=
+    for tag in "${tags[@]}"; do
+      if older "$tag" "$target"; then
+        previous=$tag
+        break
+      fi
+    done
+    if [[ -z $previous ]]; then
+      echo "next-patch-version: no release tag precedes $target" >&2
+      exit 1
+    fi
+    successor "$previous"
+    ;;
+  *)
+    usage
+    ;;
+esac

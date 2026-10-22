@@ -539,10 +539,20 @@ Recommended jobs:
 | Explicit/network | `just test-integration`, `just test-performance` on trusted push/manual events only |
 | Weekly update | `just tools-update`, `just providers-update`, `just deps-update`, then open a pull request |
 | Release (`v*` tag push) | The pull-request recipes, then `just package-test-release VERSION OUT_DIR` |
+| Release (merge to master) | `release-on-merge` computes the next patch version with `scripts/next-patch-version`, tags the merge commit through the API, and calls the release workflow (`just test-release-decision` pins the rule) |
 
 The [release workflow](../../.github/workflows/release.yml) calls `ci.yml` before packaging.
-The pushed tag must match the root [`VERSION`](../../VERSION) declaration. When changing that
-declaration, update the YAML example in [`ACTION.md`](../../ACTION.md) in the same change.
+Every push to master that carries changes past the latest release also runs it automatically:
+[release-on-merge](../../.github/workflows/release-on-merge.yml) tags the next patch version
+(the latest `v*` tag with its patch incremented — `scripts/next-patch-version`, the tested seam)
+and calls the release workflow through `workflow_call`, because a tag created with the default
+token would not start a workflow on its own. The version check inside packaging has two branches:
+the pushed tag must match the root [`VERSION`](../../VERSION) declaration (the manual path), and
+the automated input must be the immediate successor of the release that precedes it, re-derived
+independently by the same script (the automated path) — the tag stays the single source of the
+version either way, and a version that skips one is refused. Concurrent merges queue on one
+concurrency group and each run recomputes from the tags the run ahead created. When changing the
+`VERSION` declaration, update the YAML example in [`ACTION.md`](../../ACTION.md) in the same change.
 `TestTheActionDocumentNamesTheDeclaredReleaseVersion` checks the active Action ref and version
 input against the declaration without querying Git tags.
 

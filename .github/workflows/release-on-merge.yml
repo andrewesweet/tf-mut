@@ -1,0 +1,74 @@
+# The merge-driven release trigger (F1, retro-11-flow): every push to master
+# tags the next patch version and runs the tag-driven release pipeline for
+# it, so merged changes reach a published release without a manual tag. The
+# pipeline itself (release.yml) stays the only publisher and its gate,
+# packaging, checksum and rebuild jobs are unchanged in substance. This
+# workflow only decides the version, creates the tag, and calls the
+# pipeline: a tag created with the default token would not start a workflow,
+# so instead of pushing the tag and hoping, it calls release.yml directly
+# with the version as an input. scripts/next-patch-version owns the rule —
+# the successor of the latest vMAJOR.MINOR.PATCH tag, skipped when the push
+# carries no change since that tag — and this workflow never computes a
+# version itself. The workflow-level concurrency group queues concurrent
+# merges behind the run ahead, each recomputing from the tags that run
+# created, so two releases can neither race one version nor skip the gate;
+# an already-existing tag fails the run at creation rather than
+# double-publishing.
+name: release-on-merge
+on:
+  push:
+    branches: [master]
+permissions:
+  contents: read
+concurrency:
+  group: release-on-merge
+  cancel-in-progress: false
+jobs:
+  tag:
+    name: Tag the next patch release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # The release tag — this workflow's only write.
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The decision reads every release tag and the commit each names.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Decide the next patch version
+        id: next
+        run: |
+          set -euo pipefail
+          if version=$(scripts/next-patch-version); then
+            printf 'version=%s\n' "$version" >>"$GITHUB_OUTPUT"
+          else
+            code=$?
+            if [[ $code -eq 2 ]]; then
+              echo "The push carries no change since the latest release; nothing to release."
+              exit 0
+            fi
+            exit "$code"
+          fi
+      - name: Create the release tag
+        if: steps.next.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$VERSION" -f "sha=$GITHUB_SHA"
+  release:
+    name: Run the release pipeline
+    needs: tag
+    if: needs.tag.outputs.version != ''
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.tag.outputs.version }}
+    permissions:
+      # The pipeline narrows this itself: its workflow-level declaration
+      # keeps every job but the publication at read, and only the publish
+      # job writes the release.
+      contents: write # Letting the called pipeline publish the release.
