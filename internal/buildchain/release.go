@@ -41,7 +41,7 @@ func NextPatchVersion(ctx context.Context, root string, args []string) (string, 
 		target := parseReleaseVersions(args[1])[0]
 		for _, version := range versions {
 			if compareReleaseVersions(version, target) < 0 {
-				return version.successor(), nil
+				return version.successor(ctx, root)
 			}
 		}
 		return "", fmt.Errorf("%w: %s", errNoPreviousRelease, args[1])
@@ -65,7 +65,7 @@ func NextPatchVersion(ctx context.Context, root string, args []string) (string, 
 		}
 		return tag, nil
 	}
-	return versions[0].successor(), nil
+	return versions[0].successor(ctx, root)
 }
 
 func parseReleaseVersions(tags string) []releaseVersion {
@@ -95,9 +95,12 @@ func compareReleaseVersions(a, b releaseVersion) int {
 	return 0
 }
 
-func (version releaseVersion) successor() string {
+func (version releaseVersion) successor(ctx context.Context, root string) (string, error) {
+	if _, err := releaseCommand(ctx, root, "git", "merge-base", "--is-ancestor", version.tag+"^{commit}", "HEAD"); err != nil {
+		return "", err
+	}
 	patch := new(big.Int).Add(&version.parts[2], big.NewInt(1))
-	return fmt.Sprintf("v%s.%s.%s", &version.parts[0], &version.parts[1], patch)
+	return fmt.Sprintf("v%s.%s.%s", &version.parts[0], &version.parts[1], patch), nil
 }
 
 func releaseCommand(ctx context.Context, root, name string, args ...string) (string, error) {

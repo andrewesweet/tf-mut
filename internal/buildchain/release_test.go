@@ -36,6 +36,14 @@ func TestNextPatchVersion(t *testing.T) {
 		{name: "publication lookup fails closed", history: []string{"commit", "v0.1.0"}, lookupExit: "1", code: 1, lookup: true},
 		{name: "rerun reuses its tag after a newer release", history: []string{"commit", "v0.1.0", "commit", "v0.1.1", "commit", "v0.1.2", "checkout:v0.1.1"}, published: "v0.1.2", want: "v0.1.1", lookup: true},
 		{name: "rerun skips its published tag after a newer release", history: []string{"commit", "v0.1.0", "commit", "v0.1.1", "commit", "v0.1.2", "checkout:v0.1.1"}, published: "v0.1.1\nv0.1.2", code: 2, lookup: true},
+		{name: "untagged stale rerun refuses descendant predecessor", history: []string{"commit", "v0.1.0", "commit", "commit", "v0.1.1", "checkout:HEAD~1"}, code: 1},
+		{name: "stale successor verification refuses descendant predecessor", history: []string{"commit", "v0.1.0", "commit", "commit", "v0.1.1", "checkout:HEAD~1"}, args: []string{"--prev", "v0.1.2"}, code: 1},
+		{name: "untagged stale rerun refuses annotated descendant predecessor", history: []string{"commit", "v0.1.0", "commit", "commit", "annotated:v0.1.1", "checkout:HEAD~1"}, code: 1},
+		{name: "stale successor verification refuses annotated descendant predecessor", history: []string{"commit", "v0.1.0", "commit", "commit", "annotated:v0.1.1", "checkout:HEAD~1"}, args: []string{"--prev", "v0.1.2"}, code: 1},
+		{name: "fresh successor refuses unrelated predecessor", history: []string{"commit", "v0.1.0", "commit", "v0.1.1", "checkout:v0.1.0", "commit:side"}, code: 1},
+		{name: "successor verification refuses unrelated predecessor", history: []string{"commit", "v0.1.0", "commit", "v0.1.1", "checkout:v0.1.0", "commit:side"}, args: []string{"--prev", "v0.1.2"}, code: 1},
+		{name: "predecessor at HEAD verifies", history: []string{"commit", "v0.1.0"}, args: []string{"--prev", "v0.1.1"}, want: "v0.1.1"},
+		{name: "existing tagged rerun verifies after newer release", history: []string{"commit", "v0.1.0", "commit", "v0.1.1", "commit", "v0.1.2", "checkout:v0.1.1"}, args: []string{"--prev", "v0.1.1"}, want: "v0.1.1"},
 		{name: "commit past latest release increments patch", history: []string{"commit", "v0.1.0", "commit"}, want: "v0.1.1"},
 		{name: "double digit versions sort numerically", history: []string{"commit", "v0.1.9", "v0.1.10", "commit"}, want: "v0.1.11"},
 		{name: "non semantic tags are ignored", history: []string{"commit", "v0.1.0", "v2", "v0.2.0-rc1", "commit"}, want: "v0.1.1"},
@@ -101,8 +109,8 @@ func releaseRepository(t *testing.T, history []string) string {
 	releaseGit(t, root, "init", "-q", "--initial-branch=master")
 	for _, action := range history {
 		switch {
-		case action == "commit":
-			releaseGit(t, root, "commit", "-q", "--allow-empty", "-m", "change")
+		case action == "commit" || strings.HasPrefix(action, "commit:"):
+			releaseGit(t, root, "commit", "-q", "--allow-empty", "-m", action)
 		case strings.HasPrefix(action, "annotated:"):
 			tag := strings.TrimPrefix(action, "annotated:")
 			releaseGit(t, root, "tag", "-a", tag, "-m", tag)
