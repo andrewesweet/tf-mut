@@ -57,7 +57,7 @@ func TestNextPatchVersion(t *testing.T) {
 			//nolint:gosec // Runs the command built above with arguments from the static case table.
 			command := exec.CommandContext(context.Background(), binary, append([]string{"next-patch-version"}, test.args...)...)
 			command.Dir = root
-			command.Env = append(os.Environ(), "PATH="+mockBin+":"+os.Getenv("PATH"),
+			command.Env = append(fixtureGitEnvironment(), "PATH="+mockBin+":"+os.Getenv("PATH"),
 				"GH_TEST_CALL="+calls, "GH_TEST_PUBLISHED="+test.published, "GH_TEST_EXIT="+test.lookupExit)
 			output, err := command.Output()
 			code := 0
@@ -121,12 +121,24 @@ func releaseGit(t *testing.T, root string, args ...string) string {
 	//nolint:gosec // Git commands and arguments come from the static release fixture cases.
 	command := exec.CommandContext(context.Background(), "git", options...)
 	command.Dir = root
-	command.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null")
+	command.Env = fixtureGitEnvironment()
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %q: %v\n%s", args, err, output)
 	}
 	return strings.TrimSpace(string(output))
+}
+
+// fixtureGitEnvironment keeps tool settings while preventing a caller's Git
+// locations or configuration from redirecting commands outside the fixture.
+func fixtureGitEnvironment() []string {
+	environment := []string{"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null"}
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "GIT_") {
+			environment = append(environment, entry)
+		}
+	}
+	return environment
 }
 
 func releaseGHBoundary(t *testing.T) (root, calls string) {
@@ -166,7 +178,7 @@ func TestReleaseTagCreationReusesExistingTag(t *testing.T) {
 			command := exec.CommandContext(context.Background(), "bash", "-euo", "pipefail")
 			command.Dir = root
 			command.Stdin = strings.NewReader(steps[len(steps)-1].Run)
-			command.Env = append(os.Environ(), "PATH="+mockBin+":"+os.Getenv("PATH"), "GH_TEST_CALL="+calls,
+			command.Env = append(fixtureGitEnvironment(), "PATH="+mockBin+":"+os.Getenv("PATH"), "GH_TEST_CALL="+calls,
 				"GITHUB_REPOSITORY=example/test", "VERSION=v0.1.1", "GITHUB_SHA="+head)
 			if output, err := command.CombinedOutput(); err != nil {
 				t.Fatalf("create or reuse tag: %v\n%s", err, output)
@@ -200,7 +212,7 @@ func TestReleaseWrapperPreservesPublishedSkip(t *testing.T) {
 	//nolint:gosec // Runs the repository-owned release wrapper at its fixed relative path.
 	command := exec.CommandContext(context.Background(), filepath.Join(repositoryRoot(t), "scripts/next-patch-version"))
 	command.Dir = root
-	command.Env = append(os.Environ(), "PATH="+mockBin+":"+os.Getenv("PATH"),
+	command.Env = append(fixtureGitEnvironment(), "PATH="+mockBin+":"+os.Getenv("PATH"),
 		"GH_TEST_CALL="+calls, "GH_TEST_PUBLISHED=v0.1.1")
 	output, err := command.Output()
 	var exit *exec.ExitError

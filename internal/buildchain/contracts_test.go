@@ -202,11 +202,12 @@ func assertCIWorkflowContract(t *testing.T) {
 			t.Errorf("CI has no %s trigger", event)
 		}
 	}
-	_, base := gitRevisions(t, repositoryRoot(t))
+	directory := releaseRepository(t, []string{releaseCommit, releaseCommit})
+	_, base := gitRevisions(t, directory)
 	for job, recipe := range map[string]string{
 		"quality": "ci", securityName: securityName, "race": "test-race", mutationDiffJobID: mutationDiffName,
 	} {
-		commands := workflowCommands(t, repositoryRoot(t), workflow.Jobs[job], map[string]string{
+		commands := workflowCommands(t, directory, workflow.Jobs[job], map[string]string{
 			eventBaseEnv: base, eventNameEnv: pushEventName,
 		})
 		want := []string{miseExecCommand, "--", justCommand, recipe}
@@ -313,7 +314,7 @@ func workflowCommands(t *testing.T, directory string, job workflowJob, overrides
 		command := exec.CommandContext(context.Background(), "bash", "-euo", "pipefail")
 		command.Dir = directory
 		command.Stdin = strings.NewReader("mise() { printf '%s\\0' \"$@\"; printf '\\n'; }\n" + step.Run)
-		command.Env = os.Environ()
+		command.Env = fixtureGitEnvironment()
 		for _, environment := range []map[string]string{job.Env, step.Env, overrides} {
 			for key, value := range environment {
 				command.Env = append(command.Env, key+"="+value)
@@ -338,6 +339,7 @@ func gitRevisions(t *testing.T, directory string) (head, parent string) {
 
 	command := exec.CommandContext(context.Background(), "git", "rev-parse", "HEAD", "HEAD^")
 	command.Dir = directory
+	command.Env = fixtureGitEnvironment()
 	output, err := command.Output()
 	if err != nil {
 		t.Fatalf("resolve HEAD and its parent: %v", err)
@@ -350,11 +352,42 @@ func gitRevisions(t *testing.T, directory string) (head, parent string) {
 	return revisions[0], revisions[1]
 }
 
+// The mutation harness exports Git locations for its staged source tree. Fixture
+// commands must use their own working directory without touching that repository.
+func TestGitFixturesIgnoreCallerRepository(t *testing.T) {
+	caller := releaseRepository(t, []string{releaseCommit, "v9.9.9", releaseCommit})
+	before, _ := gitRevisions(t, caller)
+	t.Setenv("GIT_DIR", filepath.Join(caller, ".git"))
+	t.Setenv("GIT_WORK_TREE", caller)
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(caller, ".git", "index"))
+	t.Setenv("GIT_COMMON_DIR", filepath.Join(caller, ".git"))
+
+	fixture := releaseRepository(t, []string{releaseCommit, releaseInitialTag, "commit:fixture"})
+	if root := releaseGit(t, fixture, "rev-parse", "--show-toplevel"); root != fixture {
+		t.Fatalf("fixture Git root = %q, want %q", root, fixture)
+	}
+	head, parent := gitRevisions(t, fixture)
+	want := strings.Fields(releaseGit(t, fixture, "log", "-2", "--format=%H"))
+	if !slices.Equal([]string{head, parent}, want) {
+		t.Fatalf("fixture revisions = %s %s, want %q", head, parent, want)
+	}
+	commands := workflowCommands(t, fixture, workflowJob{
+		Steps: []workflowStep{{Run: "git rev-parse --show-toplevel"}},
+	}, nil)
+	if len(commands) != 1 || !slices.Equal(commands[0], []string{fixture}) {
+		t.Fatalf("workflow Git commands = %q, want fixture root %q", commands, fixture)
+	}
+	if after, _ := gitRevisions(t, caller); after != before {
+		t.Fatalf("fixture commands moved caller HEAD from %s to %s", before, after)
+	}
+}
+
 func TestMutationDiffResolvesEventBaseIndependentlyOfEventName(t *testing.T) {
 	t.Parallel()
 
 	job := readWorkflow(t, ciWorkflowPath).Jobs[mutationDiffJobID]
-	head, parent := gitRevisions(t, repositoryRoot(t))
+	directory := releaseRepository(t, []string{releaseCommit, releaseCommit})
+	head, parent := gitRevisions(t, directory)
 	for _, event := range []string{pushEventName, "pull_request", "workflow_call"} {
 		for _, test := range []struct {
 			name string
@@ -371,7 +404,7 @@ func TestMutationDiffResolvesEventBaseIndependentlyOfEventName(t *testing.T) {
 			t.Run(event+"/"+test.name, func(t *testing.T) {
 				t.Parallel()
 
-				commands := workflowCommands(t, repositoryRoot(t), job, map[string]string{
+				commands := workflowCommands(t, directory, job, map[string]string{
 					eventBaseEnv: test.base, eventNameEnv: event,
 				})
 				want := []string{miseExecCommand, "--", justCommand, mutationDiffName, test.want}
