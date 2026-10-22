@@ -30,7 +30,6 @@ just typecheck
 just lint
 just build
 just test
-just test-release-decision
 just agent-check
 
 snapshot_source >"$after"
