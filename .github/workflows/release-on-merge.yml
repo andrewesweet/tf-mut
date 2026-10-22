@@ -1,17 +1,7 @@
-# The merge-driven release trigger (F1, retro-11-flow): pushes to master
-# request the next patch release through the tag-driven release pipeline,
-# so merged changes reach a published release without a manual tag. The
-# pipeline itself (release.yml) stays the only publisher and its gate,
-# packaging, checksum and rebuild jobs are unchanged in substance. This
-# workflow only decides the version, creates the tag, and calls the
-# pipeline: a tag created with the default token would not start a workflow,
-# so instead of pushing the tag and hoping, it calls release.yml directly
-# with the version as an input. The Go build-chain helper behind
-# scripts/next-patch-version decides the version. The concurrency group
-# keeps one running and one pending run. A later merge supersedes a pending
-# run; its changes ship in the next merge's release. Each retained run
-# recomputes from current tags. An existing tag at HEAD is reused until its
-# release is published.
+# A tag created with the default token does not trigger another workflow,
+# so this trigger calls release.yml directly after creating or reusing it.
+# Version, concurrency and retry policy: docs/research/05-go-build-chain.md,
+# "CI topology". release.yml remains the only publisher.
 name: release-on-merge
 on:
   push:

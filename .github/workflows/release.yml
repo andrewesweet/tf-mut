@@ -6,13 +6,7 @@
 # must be byte-identical with the published archives. A failed job anywhere
 # before publish leaves no release.
 #
-# The merge-driven trigger (release-on-merge.yml, F1) calls this same
-# pipeline through workflow_call with the version as an input: a tag created
-# with the default token would not start a workflow, so the automation runs
-# the pipeline directly instead of pushing a tag and hoping. On that path the
-# version input names the release and the caller has already created the
-# tag; on the tag-push path the ref names it. Exactly one of the two is set
-# on every path that runs this pipeline.
+# Trigger and version policy: docs/research/05-go-build-chain.md, "CI topology".
 name: release
 on:
   push:
@@ -36,10 +30,7 @@ env:
   MISE_LOCKED: "1"
   MISE_CONFIG_DIR: ${{ github.workspace }}/.artifacts/mise-config
   MISE_CACHE_DIR: ${{ github.workspace }}/.artifacts/cache/mise
-  # A tag push names the version in the ref; a workflow_call names it in the
-  # input (the caller's ref is master, not the release). Under workflow_call
-  # the caller's concurrency group governs, so this workflow-level group only
-  # orders tag-push runs.
+  # A tag push supplies the ref; workflow_call supplies the version input.
   TAG: ${{ inputs.version || github.ref_name }}
 jobs:
   gate:
@@ -72,17 +63,12 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z $VERSION_INPUT ]]; then
-            # The manual path, unchanged: the pushed tag must name the
-            # version the repository declares.
+            # A manual tag push uses the tracked version declaration.
             declared=$(tr -d '[:space:]' <VERSION)
             test "$declared" = "$TAG"
           else
-            # The automated path: the tag is the single source of the
-            # version, so the pipeline re-derives it independently — the
-            # input must be the immediate successor of the release that
-            # precedes it — and refuses anything else. The checkout is the
-            # commit the caller tagged, so the tags the rule reads include
-            # the caller's.
+            # Re-derive the caller's version at the tagged checkout;
+            # policy and retry rules live in the CI topology reference.
             expected=$(scripts/next-patch-version --prev "$TAG")
             test "$expected" = "$TAG"
           fi

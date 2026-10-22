@@ -11,8 +11,15 @@ import (
 	"strings"
 )
 
+const (
+	releasePreviousArgumentCount = 2
+	releaseVersionBase           = 10
+)
+
 var (
-	ErrReleasePublished      = errors.New("HEAD already has a published release")
+	// ErrReleasePublished indicates that HEAD's selected tag already has a published release.
+	ErrReleasePublished = errors.New("HEAD already has a published release")
+	// ErrReleaseUsage indicates invalid arguments to the patch-version command.
 	ErrReleaseUsage          = errors.New("usage: next-patch-version [--prev version]")
 	errNoReleaseTag          = errors.New("no vMAJOR.MINOR.PATCH tag to succeed")
 	errNoPreviousRelease     = errors.New("no release tag precedes version")
@@ -25,11 +32,12 @@ type releaseVersion struct {
 	parts [3]big.Int
 }
 
+// NextPatchVersion selects or verifies a patch version for the repository checkout.
 func NextPatchVersion(ctx context.Context, root string, args []string) (string, error) {
-	if len(args) != 0 && (len(args) != 2 || args[0] != "--prev") {
+	if len(args) != 0 && (len(args) != releasePreviousArgumentCount || args[0] != "--prev") {
 		return "", ErrReleaseUsage
 	}
-	if len(args) == 2 && !releaseVersionPattern.MatchString(args[1]) {
+	if len(args) == releasePreviousArgumentCount && !releaseVersionPattern.MatchString(args[1]) {
 		return "", fmt.Errorf("%w: %s", errInvalidReleaseVersion, args[1])
 	}
 	tags, err := releaseCommand(ctx, root, "git", "tag", "--list", "v*")
@@ -37,7 +45,7 @@ func NextPatchVersion(ctx context.Context, root string, args []string) (string, 
 		return "", err
 	}
 	versions := parseReleaseVersions(tags)
-	if len(args) == 2 {
+	if len(args) == releasePreviousArgumentCount {
 		target := parseReleaseVersions(args[1])[0]
 		for _, version := range versions {
 			if compareReleaseVersions(version, target) < 0 {
@@ -76,7 +84,7 @@ func parseReleaseVersions(tags string) []releaseVersion {
 		}
 		version := releaseVersion{tag: tag}
 		for index, part := range strings.Split(tag[1:], ".") {
-			version.parts[index].SetString(part, 10)
+			version.parts[index].SetString(part, releaseVersionBase)
 		}
 		versions = append(versions, version)
 	}
@@ -96,7 +104,9 @@ func compareReleaseVersions(a, b releaseVersion) int {
 }
 
 func (version releaseVersion) successor(ctx context.Context, root string) (string, error) {
-	if _, err := releaseCommand(ctx, root, "git", "merge-base", "--is-ancestor", version.tag+"^{commit}", "HEAD"); err != nil {
+	if _, err := releaseCommand(
+		ctx, root, "git", "merge-base", "--is-ancestor", version.tag+"^{commit}", "HEAD",
+	); err != nil {
 		return "", err
 	}
 	patch := new(big.Int).Add(&version.parts[2], big.NewInt(1))
@@ -104,6 +114,7 @@ func (version releaseVersion) successor(ctx context.Context, root string) (strin
 }
 
 func releaseCommand(ctx context.Context, root, name string, args ...string) (string, error) {
+	//nolint:gosec // Callers select git or gh with fixed subcommands; release tags pass the numeric version pattern.
 	command := exec.CommandContext(ctx, name, args...)
 	command.Dir = root
 	output, err := command.Output()
