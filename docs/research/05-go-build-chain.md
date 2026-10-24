@@ -579,7 +579,12 @@ release workflow, only that job receives `contents: write`; the merge workflow's
 receives that permission to create the tag.
 After publication, separate jobs download the published assets to verify their checksums
 and compare the archives byte for byte against a fresh rebuild. Packaging and rebuilding
-install the locked tools without restoring toolchain caches.
+install the locked tools without restoring toolchain caches. Packaging fetches full history
+and tags; the rebuild explicitly checks out the release tag for both automatic releases and
+manual tag pushes. Go embeds a main-module version derived from the available VCS tags, so
+rebuilding the caller's branch without the release tag can embed a pseudo-version instead of
+the published version. `TestReleaseRebuildChecksOutThePublishedTag` guards this checkout
+contract.
 
 The separate CodeQL workflow runs Go and Actions analysis on pull requests, the default branch,
 and a weekly schedule, always with `security-and-quality`.

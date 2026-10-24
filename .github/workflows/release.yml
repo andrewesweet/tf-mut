@@ -129,6 +129,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Keep Go's embedded module version aligned with the published build.
+          # Checkout contract: docs/research/05-go-build-chain.md, "CI topology".
+          ref: ${{ env.TAG }}
           persist-credentials: false
       # No cache: a release pipeline does not trust a cached toolchain.
       - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1

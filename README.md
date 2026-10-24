@@ -6,9 +6,9 @@ tf-mut is for a Terraform module author with a `terraform test` suite, or an age
 one. A run scores the suite by what it does not check: every surviving mutant carries the
 diagnosis of what would catch it.
 
-You need Linux x86-64 (including WSL2), Terraform 1.15.8, Go 1.26.9 and mise 2026.10.7. Those
-versions are pinned in `mise.toml`, and the CI workflow installs the same set, so the bootstrap
-below reproduces the CI environment on your machine.
+You need Linux x86-64 (including WSL2) and the tool versions pinned in
+[`mise.toml`](mise.toml). The CI workflow installs the same set, so the bootstrap below
+reproduces the CI environment on your machine.
 
 > `tf-mut run` and `tf-mut preview` drive Tiers 0–3
 > against real Terraform, and every surviving mutant carries exactly one diagnosis: whether the
@@ -45,8 +45,7 @@ same quality checks as CI:
    MISE_CONFIG_DIR="$PWD/.artifacts/mise-config" mise install --yes
    ```
 
-   Expected result: mise reports all locked tools installed, including Terraform 1.15.8 and
-   Go 1.26.9.
+   Expected result: mise reports all locked tools installed.
 
 3. Install the source tools and the offline provider mirror:
 
