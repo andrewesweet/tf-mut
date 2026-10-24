@@ -257,6 +257,7 @@ func (r RunRequest) settings() settings {
 	s = populationConfig(s, r.Population)
 	s = gateConfig(s, r.Gate)
 	s.NoCache = r.NoCache
+	s.mode = gradeMode
 
 	return s
 }

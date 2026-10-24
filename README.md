@@ -229,9 +229,9 @@ an interactive inner loop (`--since`, smoke tier) on real modules; full sweeps a
 work. A killed mutant's invocation additionally ends at its first failing run — a failing run
 decides the verdict on its own, so later run blocks cannot change it. This saves CPU and
 wall-clock time at the cost of incomplete per-run records when later runs remain; the report
-discloses that per mutant with `runs_truncated` (schema 2.19.0). A sole or final failing run
-leaves complete records and the flag stays false. Fail-fast is disabled for `curate`, which
-needs every failed assertion, and whenever `--allow-real-infrastructure` is set, so Terraform
+discloses that per mutant with `runs_truncated`, defined in the report schema linked in the
+[document map](#documents). Fail-fast is disabled for `curate`, which needs every failed
+assertion, and whenever `--allow-real-infrastructure` is set, so Terraform
 can finish resource cleanup. An independent adversarial review drove these corrections —
 see [`docs/reviews/2026-08-15-adversarial-review.md`](docs/reviews/2026-08-15-adversarial-review.md).
 
