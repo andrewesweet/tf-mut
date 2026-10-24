@@ -147,6 +147,9 @@ func stripPerMutantWallClock(document map[string]any) {
 			// and the schema_version stamp, so the invariance proofs strip
 			// the flag the way they strip the telemetry.
 			delete(mutant, "deadline_reached")
+			// The 2.19.0 fail-fast flag is additive the same way — the
+			// before-tree does not emit it — so the comparison strips it too.
+			delete(mutant, "runs_truncated")
 
 			if diagnostics, ok := mutant["diagnostics"].([]any); ok {
 				for _, diagnosticEntry := range diagnostics {

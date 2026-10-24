@@ -23,6 +23,7 @@ docs/schema/report-2.15.0.json
 docs/schema/report-2.16.0.json
 docs/schema/report-2.17.0.json
 docs/schema/report-2.18.0.json
+docs/schema/report-2.19.0.json
 docs/schema/sarif-2.1.0.json
 internal/engine/testdata/backend-cloud-hcl-json-override/override.tf.json
 internal/engine/testdata/backend-cloud-json-array/cloud.tf.json

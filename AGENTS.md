@@ -203,7 +203,7 @@ this repository contract.
 | `internal/config` | `.tf-mut.hcl` and the inline suppression directives |
 | `internal/sandbox` | Closure-rooted materialisation, provider and remote-module sharing, fresh-inode writes |
 | `internal/store` | Filesystem implementations of the engine's persistence ports; see the [package contract](internal/store/doc.go) |
-| `internal/tfexec` | The Terraform CLI: `version`, `init`, `validate`, `providers schema`, `fmt`, and the `test -json` stream |
+| `internal/tfexec` | The Terraform CLI: `version`, `init`, `validate`, `providers schema`, `fmt`, and the `test -json` stream, whose decoder arms on a mutant's first failing run, keeps reading to the end of that run's assertion diagnostics, and fires the derived cancellation that ends the invocation there (fail-fast; the record's prefix is disclosed by the report's `runs_truncated`) |
 | `internal/report` | The report value, its state, diagnosis and metric definitions, and the seven reporter renderings (terminal, JSON, SARIF, mutation-testing-elements, HTML, JUnit, markdown) |
 | `internal/tracing` | The run's structure as OpenTelemetry spans — one per run, per mutant and per phase — over OTLP/HTTP, exporting only when an endpoint is configured |
 | `internal/buildinfo` | Build metadata injected by the linker, normalised to a stable display value (`dev` when none was supplied) |

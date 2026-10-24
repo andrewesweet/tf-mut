@@ -329,11 +329,15 @@ func evaluateOne(
 	defer func() { _ = os.RemoveAll(built.Root) }()
 
 	testPhase := telemetry.phase(phaseTest)
+	// FailFast is limited to verdict-only population execution. Curation needs
+	// every failed assertion; real-infrastructure invocations must finish
+	// Terraform cleanup. Other test invocations keep their complete-result protocol.
 	result, err := plan.runner.Test(ctx, built.ModuleDir, tfexec.TestOptions{
 		TestDirectory: plan.configuration.TestDirRelative(),
 		Filters:       plan.settings.TestSelection,
 		Verbose:       true,
 		Timeout:       budget,
+		FailFast:      plan.settings.mode != curateMode && !plan.settings.AllowRealInfrastructure,
 	})
 	testPhase(telemetry.child("test", result.Usage, result.Started)...)
 	if err != nil {
@@ -356,6 +360,10 @@ func evaluateOne(
 	// earned keeps its precedence — the deadline is recorded beside it so the
 	// report shows both.
 	verdict.DeadlineReached = result.TimedOut
+	// Skip records count toward completeness even though they do not count
+	// as executed runs. Stopping after the final record leaves a complete suite.
+	expectedRuns := expectedRunCount(plan)
+	verdict.RunsTruncated = result.StoppedOnFail && len(result.Runs) < expectedRuns
 
 	// D18: a stream that stopped early is not a survival. A non-zero exit
 	// with no failing or erroring run reuses the baseline's own exit-status
@@ -407,6 +415,20 @@ func evaluateOne(
 	}
 
 	return judge.observeSurvivor(ctx, built, verdict, measured, outcome, telemetry, result)
+}
+
+func expectedRunCount(plan executionPlan) int {
+	expectedRuns := plan.prepared.baselineRuns
+	if len(plan.settings.TestSelection) > 0 {
+		expectedRuns = 0
+		for _, run := range plan.configuration.Tests.Runs {
+			if slices.Contains(plan.settings.TestSelection, run.Rel) {
+				expectedRuns++
+			}
+		}
+	}
+
+	return expectedRuns
 }
 
 func materialiseMutant(plan executionPlan, index int, telemetry *mutantCollector) (sandbox.Sandbox, error) {

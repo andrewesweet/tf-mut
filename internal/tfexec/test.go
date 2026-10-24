@@ -64,6 +64,13 @@ type TestResult struct {
 	// Files holds one timing entry per test file that completed, in
 	// completion order, and is empty when no file completed.
 	Files []FileTiming
+	// StoppedOnFail records the deliberate early stop a FailFast invocation
+	// took: the first failing run ended the child, so Runs holds the prefix
+	// up to the stop and the evidence of the run that decided the verdict —
+	// its own assertion diagnostics included — while the run blocks the
+	// stopped invocation would have executed are simply never observed. It
+	// is false for every stream read to its end.
+	StoppedOnFail bool
 	// Started remains true when execution began but output decoding failed.
 	// Setup or process-start failures leave it false.
 	Started  bool
@@ -121,6 +128,13 @@ type TestOptions struct {
 	Verbose bool
 	// Timeout bounds the invocation; zero means no bound.
 	Timeout time.Duration
+	// FailFast ends the child when the first run block reports fail. A
+	// failing run decides the Killed verdict on its own, so the blocks after
+	// it cost time without changing the verdict; the runs they would have
+	// contributed to the record are simply never observed. An error run ends
+	// nothing: the error precedence needs validate, and the runs an error
+	// skips are part of the evidence.
+	FailFast bool
 }
 
 // Test runs the test suite of the module in dir.
@@ -151,12 +165,37 @@ func (r Runner) Test(ctx context.Context, dir string, options TestOptions) (Test
 		defer cancel()
 	}
 
+	// FailFast derives the child's own cancellation and fires it from inside
+	// the decoder — not at the first failing run, but at the first later
+	// stream message, because a failing run's assertion diagnostics follow
+	// its completion message and the kill must wait for them. The cancel is
+	// the same group signal a deadline uses — nothing new is killed, and the
+	// reaping and group cleanup that already run after every invocation
+	// still run.
+	var failFastCancel context.CancelFunc
+
+	if options.FailFast {
+		runCtx, failFastCancel = context.WithCancel(runCtx)
+		defer failFastCancel()
+	}
+
+	var onArm func(RunOutcome) bool
+	var onFire func()
+
+	if failFastCancel != nil {
+		onArm = func(run RunOutcome) bool {
+			return run.Status == StatusFail
+		}
+
+		onFire = failFastCancel
+	}
+
 	decoded := TestResult{} // replaced by the decoder.
 
 	result, err := r.StreamOutput(runCtx, dir, func(stdout io.Reader) error {
 		var decodeErr error
 
-		decoded, decodeErr = decodeTestStream(stdout)
+		decoded, decodeErr = decodeTestStreamStopping(stdout, onArm, onFire)
 
 		return decodeErr
 	}, args...)
@@ -170,7 +209,13 @@ func (r Runner) Test(ctx context.Context, dir string, options TestOptions) (Test
 	// A timeout kills Terraform mid-message, so the truncation it leaves behind
 	// is the timeout, not a malformed stream. Every other decoding failure is an
 	// operational failure and must never reach the classifier.
-	if err != nil && !result.TimedOut {
+	//
+	// The fail-fast stop is the third way a stream ends early, and it is the
+	// caller's own decision: the operational error the derived context's
+	// cancellation leaves behind is cleared when the stop — and only the stop —
+	// ended the child, which the parent context being alive proves. The runs
+	// decoded before the stop stand.
+	if err != nil && !result.TimedOut && (!decoded.StoppedOnFail || ctx.Err() != nil) {
 		return decoded, err
 	}
 

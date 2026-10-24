@@ -20,7 +20,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
-func TestCancellationAfterAFailedRunWritesNoBaseline(t *testing.T) {
+func TestCancellationDuringFirstApplyWritesNoBaseline(t *testing.T) {
 	t.Parallel()
 
 	request, marker := interruptedRunRequest(t)
@@ -55,7 +55,7 @@ func TestCancellationAfterAFailedRunWritesNoBaseline(t *testing.T) {
 	cancel()
 
 	if !<-observed {
-		t.Fatalf("the mutant never reached the run after its failed assertion: %v", err)
+		t.Fatalf("the mutant never reached its first apply provisioner: %v", err)
 	}
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("run error = %v, want cancellation", err)
@@ -67,10 +67,11 @@ func TestCancellationAfterAFailedRunWritesNoBaseline(t *testing.T) {
 	}
 }
 
-func TestADeadlineAfterAFailedRunKeepsItsKilledVerdict(t *testing.T) {
+func TestTheFailFastDecisionBeatsTheBudget(t *testing.T) {
 	t.Parallel()
 
-	request, _ := interruptedRunRequest(t)
+	request := baseConfig(t, copyFixture(t, "failfast"))
+	request.IncludeOperators = []string{string(mutation.StrCase)}
 	request.TimeoutFactor = 0.0001
 	request.TimeoutFloor = 500 * time.Millisecond
 
@@ -78,13 +79,9 @@ func TestADeadlineAfterAFailedRunKeepsItsKilledVerdict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if len(result.Mutants) != 1 {
-		t.Fatalf("mutant count = %d, want 1", len(result.Mutants))
-	}
-
-	mutant := result.Mutants[0]
-	if mutant.State != report.Killed || !mutant.DeadlineReached {
-		t.Fatalf("mutant state = %s, deadline reached = %t", mutant.State, mutant.DeadlineReached)
+	mutant := mutantAt(t, result, string(mutation.StrCase), failfastWatchedSite)
+	if mutant.State != report.Killed || !mutant.RunsTruncated {
+		t.Fatalf("mutant state = %s, runs truncated = %t, want Killed at the stop", mutant.State, mutant.RunsTruncated)
 	}
 }
 
@@ -254,17 +251,13 @@ output "app" {
 	if err := os.Mkdir(tests, 0o750); err != nil {
 		t.Fatalf("creating test directory: %v", err)
 	}
-	testsupport.WriteFile(t, filepath.Join(tests, "unit.tftest.hcl"), `run "planned" {
-  command = plan
+	testsupport.WriteFile(t, filepath.Join(tests, "unit.tftest.hcl"), `run "applied" {
+  command = apply
 
   assert {
     condition     = output.app == false
     error_message = "the input must stay false"
   }
-}
-
-run "applied" {
-  command = apply
 }
 `)
 

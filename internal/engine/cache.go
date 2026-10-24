@@ -55,7 +55,10 @@ import (
 // The tf-mut-cache-10 bump requires stored changes to carry baseline mask
 // provenance. Replaying older observations would lose the volatile refusal
 // when suggestions are regenerated from cached evidence.
-const cacheFormatVersion = "tf-mut-cache-10"
+// Fail-fast entries preserve the truncation flag alongside their run records.
+// The current format rejects observations whose truncation flag counted
+// executed runs rather than all terminal records, including skips.
+const cacheFormatVersion = "tf-mut-cache-13"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
@@ -412,13 +415,14 @@ func writeClosure(
 // resolvedConfiguration serialises the settings that can change a verdict.
 // Jobs is deliberately absent: verdicts are proven independent of
 // parallelism, and a cache keyed on it would miss for no reason.
+// Curation is keyed separately because it requires complete assertion evidence.
 func resolvedConfiguration(settings settings) string {
-	return fmt.Sprintf("%s|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v",
+	return fmt.Sprintf("%s|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%t",
 		settings.TestDirectory, settings.TimeoutFactor, settings.TimeoutFloor,
 		settings.AllowIncompleteScore, settings.Tier,
 		settings.IncludeOperators, settings.ExcludeOperators,
 		settings.ExcludePaths, settings.ExcludeResources, settings.TestSelection,
-		settings.Packs)
+		settings.Packs, settings.mode == curateMode)
 }
 
 // relevantEnvironment is the whole effective environment — the process's
@@ -751,6 +755,7 @@ func rehydrated(mutant *report.Mutant, classified *oracle.Classified, entry stor
 	mutant.ExecutedRuns = observed.ExecutedRuns
 	mutant.Validated = observed.Validated
 	mutant.DeadlineReached = observed.DeadlineReached
+	mutant.RunsTruncated = observed.RunsTruncated
 
 	*mutant = project(*mutant, outcome)
 	*classified = oracle.Classified{Operator: classified.Operator, Outcome: outcome}
@@ -773,6 +778,7 @@ type observedRun struct {
 	ExecutedRuns    int                 `json:"executed_runs"`
 	Validated       bool                `json:"validated"`
 	DeadlineReached bool                `json:"deadline_reached"`
+	RunsTruncated   bool                `json:"runs_truncated"`
 }
 
 // persist stores the fresh executed verdicts, then evicts deterministically.
@@ -809,6 +815,7 @@ func (c *verdictCache) persist(mutants []report.Mutant, classified []oracle.Clas
 			ExecutedRuns:    mutant.ExecutedRuns,
 			Validated:       mutant.Validated,
 			DeadlineReached: mutant.DeadlineReached,
+			RunsTruncated:   mutant.RunsTruncated,
 		})
 		if err != nil {
 			continue

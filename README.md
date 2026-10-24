@@ -226,8 +226,14 @@ cloud cost. Throughput depends dominantly on provider schema size — measured a
 `hashicorp/aws`, whose 14.5 MB schema is re-serialised into every verbose test message. The
 design's [execution schedule](docs/design/product-design.md#execute) and test selection target
 an interactive inner loop (`--since`, smoke tier) on real modules; full sweeps are scheduled
-work. An independent adversarial review drove these corrections — see
-[`docs/reviews/2026-08-15-adversarial-review.md`](docs/reviews/2026-08-15-adversarial-review.md).
+work. A killed mutant's invocation additionally ends at its first failing run — a failing run
+decides the verdict on its own, so later run blocks cannot change it. This saves CPU and
+wall-clock time at the cost of incomplete per-run records when later runs remain; the report
+discloses that per mutant with `runs_truncated`, defined in the report schema linked in the
+[document map](#documents). Fail-fast is disabled for `curate`, which needs every failed
+assertion, and whenever `--allow-real-infrastructure` is set, so Terraform
+can finish resource cleanup. An independent adversarial review drove these corrections —
+see [`docs/reviews/2026-08-15-adversarial-review.md`](docs/reviews/2026-08-15-adversarial-review.md).
 
 ## Documents
 
@@ -242,7 +248,7 @@ contexts and glossary, start with [`CONTEXT.md`](CONTEXT.md).
 | [`docs/reference/`](docs/reference/) | Generated command-line reference — [`cli.md`](docs/reference/cli.md) renders the same help table as `tf-mut --help` |
 | [`docs/research/`](docs/research/) | Numbered research notes, measurements, and milestone exit gates |
 | [`docs/reviews/`](docs/reviews/) | Adversarial and implementation reviews with their dispositions, which outrank design prose on conflict |
-| [`docs/schema/`](docs/schema/) | Versioned report schemas and the vendored external schemas that outputs are validated against — the `json` reporter emits [`report-2.18.0.json`](docs/schema/report-2.18.0.json) |
+| [`docs/schema/`](docs/schema/) | Versioned report schemas and the vendored external schemas that outputs are validated against — the `json` reporter emits [`report-2.19.0.json`](docs/schema/report-2.19.0.json) |
 
 ## Findings that shaped the design
 

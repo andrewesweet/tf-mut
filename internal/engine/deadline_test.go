@@ -114,6 +114,7 @@ type deadlineMutant struct {
 	ID              string `json:"id"`
 	State           string `json:"state"`
 	DeadlineReached *bool  `json:"deadline_reached"`
+	RunsTruncated   *bool  `json:"runs_truncated"`
 }
 
 func TestAMutantWhoseTestReachedItsDeadlineIsNamedInTheReport(t *testing.T) {
@@ -145,11 +146,10 @@ func TestAMutantWhoseTestReachedItsDeadlineIsNamedInTheReport(t *testing.T) {
 		t.Fatalf("expected at least one killed and one timeout verdict, got %v", result.Metrics.Counts)
 	}
 
-	// Typed: the field is on every mutant the run executed, whatever its
-	// verdict — the whole point of the flag.
 	for _, mutant := range result.Mutants {
-		if !mutant.DeadlineReached {
-			t.Fatalf("mutant %s (state %s) reached no deadline in the typed report", mutant.ID, mutant.State)
+		if !mutant.DeadlineReached || mutant.RunsTruncated {
+			t.Fatalf("mutant %s (state %s): deadline = %t, fail-fast truncation = %t",
+				mutant.ID, mutant.State, mutant.DeadlineReached, mutant.RunsTruncated)
 		}
 	}
 
@@ -164,8 +164,9 @@ func TestAMutantWhoseTestReachedItsDeadlineIsNamedInTheReport(t *testing.T) {
 	}
 
 	for _, mutant := range document.Mutants {
-		if mutant.DeadlineReached == nil || !*mutant.DeadlineReached {
-			t.Fatalf("mutant %s (state %s) does not name its deadline in the document", mutant.ID, mutant.State)
+		named := mutant.DeadlineReached != nil && *mutant.DeadlineReached
+		if !named || mutant.RunsTruncated == nil || *mutant.RunsTruncated {
+			t.Fatalf("mutant %s (state %s) must name its deadline without fail-fast truncation", mutant.ID, mutant.State)
 		}
 	}
 }

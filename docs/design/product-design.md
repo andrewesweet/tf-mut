@@ -297,7 +297,23 @@ Per mutant, in parallel across up to `--jobs` workers (see [parallelism defaults
    majority — never pay for it.
 4. **Phase one:** `terraform -chdir=<sandbox> test -json -verbose -filter=<selected files>` —
    the mutant's single invocation, verbose since 2.17.0. Killed mutants stop here (after lazy
-   validation if they errored). After at least one run executes, phase one checks completeness unless the
+   validation if they errored), and since the fail-fast stop a killed mutant's invocation ends
+   at its first failing run: a failing run decides `killed` on its own in the verdict
+   precedence, so the run blocks after it cost time without changing the verdict. The stop
+   fires only once the failing run's own assertion diagnostics are flushed — the evidence the
+   oracle judges is never cut short — and the mutant's record then covers a prefix of the
+   selected suite when later runs remain. The report schema linked in the
+   [README document map](../../README.md#documents) owns the `runs_truncated` contract;
+   the [README](../../README.md#the-approach) explains the performance trade-off.
+   Fail-fast is disabled whenever `--allow-real-infrastructure` is set, so Terraform can finish
+   resource cleanup. `curate` also disables fail-fast: kill-set attribution needs every failed
+   assertion across all runs.
+   The [cache key policy](../../internal/engine/cache.go) keeps its evidence separate from
+   verdict-only executions. An `error` run ends nothing: the error precedence needs validate,
+   and the runs an error skips are part of the evidence. Baseline, volatility re-run and
+   verification invocations do not enable fail-fast. Mutation rounds of
+   `characterise --until-dry` use the population execution path above.
+   After at least one run executes, phase one checks completeness unless the
    invocation times out or reports a failing or erroring run. A non-zero exit is an execution
    error. So is an executed-run count below the baseline's, unless an explicit test-file
    filter is selected. These checks run before the survivor's fingerprint evidence is read.
@@ -324,8 +340,9 @@ The trip applies to `run`, `suggest`, `curate` and mutation rounds of
 `characterise --until-dry`. It returns the operational exit code (`2`) and marks the
 score incomplete, even when every pending mutant was dispatched. A warning names the
 trip and the failure that began the streak. On a refused invocation, the warning travels
-with the error instead of a report. The [report schema](../schema/report-2.18.0.json)
-owns the execution provenance and population-count contract for undispatched mutants.
+with the error instead of a report. The report schema linked in the
+[README document map](../../README.md#documents) owns the execution provenance and
+population-count contract for undispatched mutants.
 
 **The source tree is never written to.** This is a deliberate divergence from Oasis's
 in-place-plus-`git checkout` model: it removes the git dependency, removes any possibility of
@@ -387,8 +404,8 @@ governs it.
 A test deadline remains visible even when an earlier failure determines the mutant's verdict.
 Terminal reports for every command include a trailing `Deadline reached` list when any
 mutant's test reached its budget; the Markdown summary also names these mutants. The JSON
-flag and its compatibility contract are defined in the
-[published report schema](../schema/report-2.18.0.json).
+flag and its compatibility contract are defined in the report schema linked in the
+[README document map](../../README.md#documents).
 
 Three R2 corrections are embedded there. **`MockMasked` is a diagnosis, not a state** (R2-8):
 as a state it overlapped `Survived` by definition. **`Timeout` sits in the denominator and
@@ -485,8 +502,9 @@ partitions. The **scored set** is `K + KE + S + NC + SU + T`; `Invalid`, `Unobse
 | **Reachability** | (K + KE + S + T) ÷ scored set | Coverage |
 
 `T` sits in every denominator it can reach (R2-11): machine load can then only *lower* a
-score, never raise it. The [published report schema](../schema/report-2.18.0.json) owns the
-conditions that mark a score **incomplete**. `--min-score` gates fail on incomplete scores unless
+score, never raise it. The report schema linked in the
+[README document map](../../README.md#documents) owns the conditions that mark a score
+**incomplete**. `--min-score` gates fail on incomplete scores unless
 `--allow-incomplete-score` is passed. The `K` versus `KE` share is always displayed alongside
 the mutation score: a score composed mostly of `KE` means Terraform is doing the detecting,
 not the tests.
@@ -578,8 +596,8 @@ preserving formatting and comments. `--all-verified` selects all verified sugges
 The generator selects at most one candidate per survivor. It examines the complete masked
 delta across all runs, before report display truncation. Candidate selection tries value
 changes in run declaration order before output type, sensitivity and unknown metadata.
-Metadata never becomes an assertion. For metadata-only outcomes, see the
-[suggestion status contract](../schema/report-2.18.0.json#/$defs/suggestion_status).
+Metadata never becomes an assertion. For metadata-only outcomes, see `suggestion_status`
+in the report schema linked in the [README document map](../../README.md#documents).
 Resource and data-source paths use the provider's attribute and nested-block
 schemas. Supported paths include list and tuple elements, and attributes inside single,
 group, list and map-nested blocks. Typed attribute paths can combine member names and indices,
@@ -610,8 +628,9 @@ Set elements, untyped collection indices, ambiguous paths and unsupported contin
 own after_unknown record covers — a deleted provider-computed attribute leaves it unknown
 at plan — is also `skipped-unrenderable`, with the reason naming the value: an equality
 over it would error with "Unknown condition value" when the suite replayed it, and the
-same delta under `command = apply` still renders. For volatile baseline refusals, see the
-[suggestion status contract](../schema/report-2.18.0.json#/$defs/suggestion_status).
+same delta under `command = apply` still renders. For volatile baseline refusals, see
+`suggestion_status` in the report schema linked in the
+[README document map](../../README.md#documents).
 
 Alongside scalar equalities, candidates can assert emptiness with
 `try(length(value), null) == 0` or answer a mutant's null value with a non-null check.
@@ -646,8 +665,8 @@ claiming that the mutant survived. Execution failures, including deadlines and d
 errors, are recorded against the affected member and do not discard completed evidence
 or skip later members. An incomplete member cannot prove a kill.
 
-The [published report schema](../schema/report-2.18.0.json) owns the suggestion field
-meanings and the consumer migration contract.
+The report schema linked in the [README document map](../../README.md#documents) owns
+the suggestion field meanings and the consumer migration contract.
 
 For a target file with `n` candidates, attribution has a defensive cap of `2n + 1`
 full-suite runs. Exhausting it refutes every candidate still awaiting attribution.
@@ -853,8 +872,8 @@ without an explanation. Otherwise, it compares the first generation with a usabl
 verdict for at least one pending mutant. If that generation's environment is unchanged,
 or no such generation exists, it emits no explanation. When the environment differs, one
 terminal line names the added, removed and changed variables, never their values, even when
-other key components also differ. The JSON `cache_miss` fields and name-list bound follow the
-[published report schema](../schema/report-2.18.0.json#/$defs/cache_miss).
+other key components also differ. The JSON `cache_miss` fields and name-list bound follow
+the report schema linked in the [README document map](../../README.md#documents).
 
 **One identifier names one mutant (report schema 2.6.0).** The mutant identifier is a content
 hash over the operator, the closure-relative path, the site address, the replaced content and
