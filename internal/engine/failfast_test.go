@@ -46,9 +46,11 @@ type truncationMutant struct {
 // The stream's status vocabulary as this file reads it, so a mis-spelled
 // expectation is a compile error and the literals stay single-sourced.
 const (
-	runFail = "fail"
-	runSkip = "skip"
-	runOS   = "linux"
+	runFail        = "fail"
+	runError       = "error"
+	runSkip        = "skip"
+	runOS          = "linux"
+	completeRecord = "complete"
 )
 
 func runFailFastFixture(t *testing.T, module string, operator mutation.Operator) report.Report {
@@ -149,7 +151,7 @@ func TestAnErrorRunIsNeverStoppedEarly(t *testing.T) {
 		t.Fatalf("runs = %v, want the error and the skip that followed it", errored.Runs)
 	}
 
-	if errored.Runs[0].Status != "error" || errored.Runs[1].Status != runSkip {
+	if errored.Runs[0].Status != runError || errored.Runs[1].Status != runSkip {
 		t.Fatalf("run statuses = %s, %s; want error then skip", errored.Runs[0].Status, errored.Runs[1].Status)
 	}
 }
@@ -175,6 +177,38 @@ func TestRealInfrastructureOptInKeepsEveryRunAfterAFailure(t *testing.T) {
 	}
 }
 
+func completeFailFastRequest(t *testing.T, runs int, filtered, first bool) engine.RunRequest {
+	t.Helper()
+
+	module := copyFixture(t, "failfast")
+	var suite strings.Builder
+	for index := range runs {
+		condition := "output.watched != null"
+		if index == runs-1 || first && index == 0 {
+			condition = `output.watched == "kept"`
+		}
+		fmt.Fprintf(&suite, `run "check_%d" {
+  command = plan
+  assert {
+    condition = %s
+    error_message = "watched value must satisfy the condition"
+  }
+}
+`, index, condition)
+	}
+	testsupport.WriteFile(t, filepath.Join(module, unitTestFile), suite.String())
+	request := baseConfig(t, module)
+	request.IncludeOperators = []string{string(mutation.StrCase)}
+	if filtered {
+		testsupport.WriteFile(t, filepath.Join(module, "tests/other.tftest.hcl"), `run "other" {
+  command = plan
+}
+`)
+		request.TestSelection = []string{unitTestFile}
+	}
+	return request
+}
+
 func TestCompleteFailFastRecordsStayCompleteThroughTheCache(t *testing.T) {
 	t.Parallel()
 
@@ -193,32 +227,7 @@ func TestCompleteFailFastRecordsStayCompleteThroughTheCache(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			module := copyFixture(t, "failfast")
-			var suite strings.Builder
-			for index := range test.runs {
-				condition := "output.watched != null"
-				if index == test.runs-1 || test.first && index == 0 {
-					condition = `output.watched == "kept"`
-				}
-				fmt.Fprintf(&suite, `run "check_%d" {
-  command = plan
-  assert {
-    condition = %s
-    error_message = "watched value must satisfy the condition"
-  }
-}
-`, index, condition)
-			}
-			testsupport.WriteFile(t, filepath.Join(module, "tests/unit.tftest.hcl"), suite.String())
-			request := baseConfig(t, module)
-			request.IncludeOperators = []string{string(mutation.StrCase)}
-			if test.filtered {
-				testsupport.WriteFile(t, filepath.Join(module, "tests/other.tftest.hcl"), `run "other" {
-  command = plan
-}
-`)
-				request.TestSelection = []string{"tests/unit.tftest.hcl"}
-			}
+			request := completeFailFastRequest(t, test.runs, test.filtered, test.first)
 
 			wantRuns := test.runs
 			if test.first {
@@ -230,7 +239,8 @@ func TestCompleteFailFastRecordsStayCompleteThroughTheCache(t *testing.T) {
 					t.Fatalf("run: %v", err)
 				}
 				killed := mutantAt(t, result, string(mutation.StrCase), failfastWatchedSite)
-				if killed.State != report.Killed || killed.RunsTruncated != test.first || killed.ExecutedRuns != wantRuns || len(killed.Runs) != wantRuns {
+				if killed.State != report.Killed || killed.RunsTruncated != test.first ||
+					killed.ExecutedRuns != wantRuns || len(killed.Runs) != wantRuns {
 					t.Fatalf("complete failing record = %+v", killed)
 				}
 				if killed.Provenance == nil || killed.Provenance.Execution != execution {
@@ -241,24 +251,11 @@ func TestCompleteFailFastRecordsStayCompleteThroughTheCache(t *testing.T) {
 	}
 }
 
-func TestMixedStatusRecordsKeepTheirTruncationThroughTheCache(t *testing.T) {
-	t.Parallel()
+func mixedStatusFailFastRequest(t *testing.T, filtered, truncated bool) engine.RunRequest {
+	t.Helper()
 
-	for _, test := range []struct {
-		name      string
-		filtered  bool
-		truncated bool
-	}{
-		{"complete", false, false},
-		{"filtered complete", true, false},
-		{"prefix", false, true},
-		{"filtered prefix", true, true},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
-			module := copyFixture(t, "failfast")
-			testsupport.WriteFile(t, filepath.Join(module, "tests/error.tftest.hcl"), `run "error" {
+	module := copyFixture(t, "failfast")
+	testsupport.WriteFile(t, filepath.Join(module, "tests/error.tftest.hcl"), `run "error" {
   command = plan
   assert {
     condition     = ({ kept = true })[output.watched]
@@ -270,7 +267,7 @@ run "skipped" {
   command = plan
 }
 `)
-			testsupport.WriteFile(t, filepath.Join(module, "tests/unit.tftest.hcl"), `run "failure" {
+	testsupport.WriteFile(t, filepath.Join(module, unitTestFile), `run "failure" {
   command = plan
   assert {
     condition     = output.watched == "kept"
@@ -278,24 +275,54 @@ run "skipped" {
   }
 }
 `)
-			request := baseConfig(t, module)
-			request.IncludeOperators = []string{string(mutation.StrCase)}
-			if test.filtered {
-				testsupport.WriteFile(t, filepath.Join(module, "tests/omitted.tftest.hcl"), `run "omitted" {
+	request := baseConfig(t, module)
+	request.IncludeOperators = []string{string(mutation.StrCase)}
+	if filtered {
+		testsupport.WriteFile(t, filepath.Join(module, "tests/omitted.tftest.hcl"), `run "omitted" {
   command = plan
 }
 `)
-				request.TestSelection = []string{"tests/error.tftest.hcl", "tests/unit.tftest.hcl"}
-			}
-			if test.truncated {
-				testsupport.WriteFile(t, filepath.Join(module, "tests/z-after.tftest.hcl"), `run "after" {
+		request.TestSelection = []string{"tests/error.tftest.hcl", unitTestFile}
+	}
+	if truncated {
+		testsupport.WriteFile(t, filepath.Join(module, "tests/z-after.tftest.hcl"), `run "after" {
   command = plan
 }
 `)
-				if test.filtered {
-					request.TestSelection = append(request.TestSelection, "tests/z-after.tftest.hcl")
-				}
-			}
+		if filtered {
+			request.TestSelection = append(request.TestSelection, "tests/z-after.tftest.hcl")
+		}
+	}
+	return request
+}
+
+func assertMixedRunStatuses(t *testing.T, runs []report.RunOutcome) {
+	t.Helper()
+
+	for index, status := range []string{runError, runSkip, runFail} {
+		if runs[index].Status != status {
+			t.Fatalf("run %d status = %s, want %s", index, runs[index].Status, status)
+		}
+	}
+}
+
+func TestMixedStatusRecordsKeepTheirTruncationThroughTheCache(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		filtered  bool
+		truncated bool
+	}{
+		{completeRecord, false, false},
+		{"filtered complete", true, false},
+		{"prefix", false, true},
+		{"filtered prefix", true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			request := mixedStatusFailFastRequest(t, test.filtered, test.truncated)
 
 			for _, execution := range []string{report.ExecutionFresh, report.ExecutionCached} {
 				result, err := engine.Run(t.Context(), request)
@@ -303,14 +330,11 @@ run "skipped" {
 					t.Fatalf("run: %v", err)
 				}
 				killed := mutantAt(t, result, string(mutation.StrCase), failfastWatchedSite)
-				if killed.State != report.Killed || killed.RunsTruncated != test.truncated || killed.ExecutedRuns != 2 || len(killed.Runs) != 3 {
+				if killed.State != report.Killed || killed.RunsTruncated != test.truncated ||
+					killed.ExecutedRuns != 2 || len(killed.Runs) != 3 {
 					t.Fatalf("mixed-status record = %+v", killed)
 				}
-				for index, status := range []string{"error", runSkip, runFail} {
-					if killed.Runs[index].Status != status {
-						t.Fatalf("run %d status = %s, want %s", index, killed.Runs[index].Status, status)
-					}
-				}
+				assertMixedRunStatuses(t, killed.Runs)
 				if killed.Provenance == nil || killed.Provenance.Execution != execution {
 					t.Fatalf("provenance = %+v, want %s", killed.Provenance, execution)
 				}
@@ -333,9 +357,9 @@ func TestCurateKeepsLaterRunKillsAcrossVerdictCacheUse(t *testing.T) {
 
 	curate := engine.CurateRequest{Common: request.Common}
 	for _, execution := range []string{report.ExecutionFresh, report.ExecutionCached} {
-		result, err := engine.Run(t.Context(), curate)
-		if err != nil {
-			t.Fatalf("curate: %v", err)
+		result, curateErr := engine.Run(t.Context(), curate)
+		if curateErr != nil {
+			t.Fatalf("curate: %v", curateErr)
 		}
 		killed := mutantAt(t, result, string(mutation.StrCase), failfastWatchedSite)
 		if killed.State != report.Killed || killed.RunsTruncated || killed.ExecutedRuns != 3 || len(killed.Diagnostics) != 3 {
