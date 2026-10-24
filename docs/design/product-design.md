@@ -128,6 +128,13 @@ a missing target produces a directory-read error. For deadline failures, see
    the resource-coverage source), and time the whole invocation for timeout calibration (the
    baseline stores the invocation's `Duration`; the per-mutant timeout budget scales it).
 
+The two baseline runs overlap only when `--jobs` is greater than one and neither
+`--allow-real-infrastructure` nor `--allow-unsandboxed-effects` is enabled. With one job
+or either safety opt-in, the fingerprint run starts after the baseline run finishes green.
+This keeps effectful suites sequential and lets Terraform finish infrastructure teardown.
+The oracle uses the fingerprint run's result only after the baseline is green. If the
+baseline fails, the engine cancels the overlapping run and waits for it to exit.
+
 The second baseline run guards the fingerprint oracle against volatility, but the review
 (M5) established that the run-diff alone is insufficient in three ways: it is empty in plan
 mode (computed attributes stay unknown and never materialise), it wrongly captures impure
