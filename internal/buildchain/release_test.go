@@ -22,6 +22,7 @@ const (
 	releasePreviousFlag           = "--prev"
 	releaseAnnotatedFirstPatch    = "annotated:v0.1.1"
 	releaseDoubleDigitSuccessor   = "v0.1.11"
+	releaseTagRefExpression       = "${{ env.TAG }}"
 )
 
 type releaseVersionCase struct {
@@ -202,6 +203,40 @@ func TestReleaseTagCreationReusesExistingTag(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The rebuild's byte-identical check holds only when both builds stamp the
+// same module version: go build derives the main module version from the VCS
+// tag on the checked-out commit. The packaging job therefore needs the
+// release tags (full history) and the rebuild job must check out the release
+// tag itself — the automated path's default ref is the caller's branch, which
+// carries no tag, and the v0.1.1 rebuild embedded a pseudo-version where the
+// publication embedded v0.1.1.
+func TestReleaseRebuildChecksOutThePublishedTag(t *testing.T) {
+	t.Parallel()
+
+	workflow := readWorkflow(t, ".github/workflows/release.yml")
+	if got := releaseWorkflowCheckout(t, workflow.Jobs["package"]).With["fetch-depth"]; got != "0" {
+		t.Errorf("package checkout fetch-depth = %q, want 0 so the release tags are available for version stamping", got)
+	}
+	if got := releaseWorkflowCheckout(t, workflow.Jobs["verify-rebuild"]).With["ref"]; got != releaseTagRefExpression {
+		t.Errorf("verify-rebuild checkout ref = %q, want the release tag %s", got, releaseTagRefExpression)
+	}
+}
+
+func releaseWorkflowCheckout(t *testing.T, job workflowJob) workflowStep {
+	t.Helper()
+
+	var checkouts []workflowStep
+	for _, step := range job.Steps {
+		if action, _, _ := strings.Cut(step.Uses, "@"); action == "actions/checkout" {
+			checkouts = append(checkouts, step)
+		}
+	}
+	if len(checkouts) != 1 {
+		t.Fatalf("job has %d checkout steps, want exactly one", len(checkouts))
+	}
+	return checkouts[0]
 }
 
 func TestReleaseWrapperPreservesPublishedSkip(t *testing.T) {
