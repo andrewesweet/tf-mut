@@ -227,9 +227,12 @@ cloud cost. Throughput depends dominantly on provider schema size — measured a
 design's [execution schedule](docs/design/product-design.md#execute) and test selection target
 an interactive inner loop (`--since`, smoke tier) on real modules; full sweeps are scheduled
 work. A killed mutant's invocation additionally ends at its first failing run — a failing run
-decides the verdict on its own, so later run blocks cannot change it — which cuts a killed
-mutant's per-run records to a prefix of the suite; the report discloses that per mutant with
-`runs_truncated` (schema 2.19.0). An independent adversarial review drove these corrections —
+decides the verdict on its own, so later run blocks cannot change it. This saves CPU and
+wall-clock time at the cost of incomplete per-run records when later runs remain; the report
+discloses that per mutant with `runs_truncated` (schema 2.19.0). A sole or final failing run
+leaves complete records and the flag stays false. Fail-fast is disabled for `curate`, which
+needs every failed assertion, and whenever `--allow-real-infrastructure` is set, so Terraform
+can finish resource cleanup. An independent adversarial review drove these corrections —
 see [`docs/reviews/2026-08-15-adversarial-review.md`](docs/reviews/2026-08-15-adversarial-review.md).
 
 ## Documents

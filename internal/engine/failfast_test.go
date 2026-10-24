@@ -2,6 +2,8 @@ package engine_test
 
 import (
 	"encoding/json"
+	"fmt"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -10,6 +12,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 // Fail-fast ends a mutant's terraform test child at its first failing run.
@@ -151,7 +154,139 @@ func TestAnErrorRunIsNeverStoppedEarly(t *testing.T) {
 	}
 }
 
-func TestAFailFastStopLeavesNoProviderProcessBehind(t *testing.T) {
+func TestRealInfrastructureOptInKeepsEveryRunAfterAFailure(t *testing.T) {
+	t.Parallel()
+
+	request := baseConfig(t, copyFixture(t, "failfast"))
+	request.IncludeOperators = []string{string(mutation.StrCase)}
+	request.AllowRealInfrastructure = true
+	result, err := engine.Run(t.Context(), request)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	killed := mutantAt(t, result, string(mutation.StrCase), failfastWatchedSite)
+	if killed.State != report.Killed || killed.RunsTruncated || killed.ExecutedRuns != 3 || len(killed.Runs) != 3 {
+		t.Fatalf("real-infrastructure opt-in lost complete kill evidence: %+v", killed)
+	}
+	for _, run := range killed.Runs {
+		if run.Status != runFail {
+			t.Fatalf("run %s = %s, want fail", run.Run, run.Status)
+		}
+	}
+}
+
+func TestCompleteFailFastRecordsStayCompleteThroughTheCache(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name     string
+		runs     int
+		filtered bool
+		first    bool
+	}{
+		{"sole failure", 1, false, false},
+		{"final failure", 3, false, false},
+		{"filtered sole failure", 1, true, false},
+		{"filtered final failure", 3, true, false},
+		{"filtered early failure", 3, true, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			module := copyFixture(t, "failfast")
+			var suite strings.Builder
+			for index := range test.runs {
+				condition := "output.watched != null"
+				if index == test.runs-1 || test.first && index == 0 {
+					condition = `output.watched == "kept"`
+				}
+				fmt.Fprintf(&suite, `run "check_%d" {
+  command = plan
+  assert {
+    condition = %s
+    error_message = "watched value must satisfy the condition"
+  }
+}
+`, index, condition)
+			}
+			testsupport.WriteFile(t, filepath.Join(module, "tests/unit.tftest.hcl"), suite.String())
+			request := baseConfig(t, module)
+			request.IncludeOperators = []string{string(mutation.StrCase)}
+			if test.filtered {
+				testsupport.WriteFile(t, filepath.Join(module, "tests/other.tftest.hcl"), `run "other" {
+  command = plan
+}
+`)
+				request.TestSelection = []string{"tests/unit.tftest.hcl"}
+			}
+
+			wantRuns := test.runs
+			if test.first {
+				wantRuns = 1
+			}
+			for _, execution := range []string{report.ExecutionFresh, report.ExecutionCached} {
+				result, err := engine.Run(t.Context(), request)
+				if err != nil {
+					t.Fatalf("run: %v", err)
+				}
+				killed := mutantAt(t, result, string(mutation.StrCase), failfastWatchedSite)
+				if killed.State != report.Killed || killed.RunsTruncated != test.first || killed.ExecutedRuns != wantRuns || len(killed.Runs) != wantRuns {
+					t.Fatalf("complete failing record = %+v", killed)
+				}
+				if killed.Provenance == nil || killed.Provenance.Execution != execution {
+					t.Fatalf("provenance = %+v, want %s", killed.Provenance, execution)
+				}
+			}
+		})
+	}
+}
+
+func TestCurateKeepsLaterRunKillsAcrossVerdictCacheUse(t *testing.T) {
+	t.Parallel()
+
+	request := baseConfig(t, copyFixture(t, "failfast"))
+	result, err := engine.Run(t.Context(), request)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !mutantAt(t, result, string(mutation.StrCase), failfastWatchedSite).RunsTruncated {
+		t.Fatal("the ordinary run did not populate a truncated cached kill")
+	}
+
+	curate := engine.CurateRequest{Common: request.Common}
+	for _, execution := range []string{report.ExecutionFresh, report.ExecutionCached} {
+		result, err := engine.Run(t.Context(), curate)
+		if err != nil {
+			t.Fatalf("curate: %v", err)
+		}
+		killed := mutantAt(t, result, string(mutation.StrCase), failfastWatchedSite)
+		if killed.State != report.Killed || killed.RunsTruncated || killed.ExecutedRuns != 3 || len(killed.Diagnostics) != 3 {
+			t.Fatalf("curation lost later assertion failures: %+v", killed)
+		}
+		if killed.Provenance == nil || killed.Provenance.Execution != execution {
+			t.Fatalf("curate provenance = %+v, want %s", killed.Provenance, execution)
+		}
+		if len(result.Characterisation.Findings) == 0 {
+			t.Fatal("identical assertions produced no redundancy findings")
+		}
+		for _, finding := range result.Characterisation.Findings {
+			if finding.Kind == report.EmptyKillSet || !finding.PopulationAuthoritative {
+				t.Fatalf("curate published false evidence: %+v", finding)
+			}
+		}
+	}
+
+	replayed, err := engine.Run(t.Context(), request)
+	if err != nil {
+		t.Fatalf("replay run: %v", err)
+	}
+	killed := mutantAt(t, replayed, string(mutation.StrCase), failfastWatchedSite)
+	if !killed.RunsTruncated || killed.ExecutedRuns != 1 || killed.Provenance.Execution != report.ExecutionCached {
+		t.Fatalf("verdict cache lost the original truncated record: %+v", killed)
+	}
+}
+
+func TestRealInfrastructureFailureLeavesNoProviderProcessBehind(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {
 		t.Skip("the real-Terraform run takes seconds; -short defers it to `just test`")
@@ -167,9 +302,6 @@ func TestAFailFastStopLeavesNoProviderProcessBehind(t *testing.T) {
 	module := copyFixture(t, "unmocked-timeout")
 
 	config := baseConfig(t, module)
-	// The env mutant fails its first run, so fail-fast ends its invocation
-	// while the null provider — a real process here, unmocked by design — is
-	// long since started. The same opt-in every real-provider test uses.
 	config.IncludeOperators = []string{string(mutation.StrCase)}
 	config.AllowRealInfrastructure = true
 
@@ -185,17 +317,17 @@ func TestAFailFastStopLeavesNoProviderProcessBehind(t *testing.T) {
 		}
 
 		killed++
-		if !mutant.RunsTruncated {
-			t.Fatalf("killed mutant %s stopped no earlier than its last run", mutant.ID)
+		if mutant.RunsTruncated {
+			t.Fatalf("real-infrastructure mutant %s stopped early", mutant.ID)
 		}
 
 		if mutant.DeadlineReached {
-			t.Fatalf("killed mutant %s was ended by the budget, not its first fail", mutant.ID)
+			t.Fatalf("killed mutant %s reached its budget before cleanup completed", mutant.ID)
 		}
 	}
 
 	if killed == 0 {
-		t.Fatalf("expected at least one fail-fast kill, got %v", result.Metrics.Counts)
+		t.Fatalf("expected at least one kill, got %v", result.Metrics.Counts)
 	}
 
 	cacheDir := pluginCacheDir(t, config.Env)
@@ -208,7 +340,7 @@ func TestAFailFastStopLeavesNoProviderProcessBehind(t *testing.T) {
 		}
 
 		if time.Now().After(deadline) {
-			t.Fatalf("provider processes outlived the fail-fast stop that orphaned them: %v", leaked)
+			t.Fatalf("provider processes outlived Terraform cleanup: %v", leaked)
 		}
 
 		// Real elapsed time: the kernel reaps the providers asynchronously;

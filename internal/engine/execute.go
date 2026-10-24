@@ -340,7 +340,7 @@ func evaluateOne(
 		Filters:       plan.settings.TestSelection,
 		Verbose:       true,
 		Timeout:       budget,
-		FailFast:      true,
+		FailFast:      plan.settings.mode != curateMode && !plan.settings.AllowRealInfrastructure,
 	})
 	testPhase(telemetry.child("test", result.Usage, result.Started)...)
 	if err != nil {
@@ -367,7 +367,16 @@ func evaluateOne(
 	// deadline is: a Killed mutant's runs stop at its first failure, and the
 	// flag tells the reader the records are a prefix of the suite, not all of
 	// it. The verdict itself is unchanged.
-	verdict.RunsTruncated = result.StoppedOnFail
+	expectedRuns := plan.prepared.baselineRuns
+	if len(plan.settings.TestSelection) > 0 {
+		expectedRuns = 0
+		for _, run := range plan.configuration.Tests.Runs {
+			if slices.Contains(plan.settings.TestSelection, run.Rel) {
+				expectedRuns++
+			}
+		}
+	}
+	verdict.RunsTruncated = result.StoppedOnFail && result.ExecutedRuns() < expectedRuns
 
 	// D18: a stream that stopped early is not a survival. A non-zero exit
 	// with no failing or erroring run reuses the baseline's own exit-status

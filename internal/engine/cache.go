@@ -59,7 +59,7 @@ import (
 // runs it describes: a replayed Killed mutant's records are a prefix of the
 // suite, and a replay that lost the flag would publish the prefix as if it
 // were complete.
-const cacheFormatVersion = "tf-mut-cache-11"
+const cacheFormatVersion = "tf-mut-cache-12"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
@@ -417,12 +417,12 @@ func writeClosure(
 // Jobs is deliberately absent: verdicts are proven independent of
 // parallelism, and a cache keyed on it would miss for no reason.
 func resolvedConfiguration(settings settings) string {
-	return fmt.Sprintf("%s|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v",
+	return fmt.Sprintf("%s|%v|%v|%v|%s|%v|%v|%v|%v|%v|%v|%t",
 		settings.TestDirectory, settings.TimeoutFactor, settings.TimeoutFloor,
 		settings.AllowIncompleteScore, settings.Tier,
 		settings.IncludeOperators, settings.ExcludeOperators,
 		settings.ExcludePaths, settings.ExcludeResources, settings.TestSelection,
-		settings.Packs)
+		settings.Packs, settings.mode == curateMode)
 }
 
 // relevantEnvironment is the whole effective environment — the process's

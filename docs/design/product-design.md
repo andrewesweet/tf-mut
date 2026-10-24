@@ -302,7 +302,13 @@ Per mutant, in parallel across up to `--jobs` workers (see [parallelism defaults
    precedence, so the run blocks after it cost time without changing the verdict. The stop
    fires only once the failing run's own assertion diagnostics are flushed — the evidence the
    oracle judges is never cut short — and the mutant's record then covers a prefix of the
-   suite, disclosed by the per-mutant `runs_truncated` flag (schema 2.19.0). An `error` run
+   selected suite when later runs remain, disclosed by the per-mutant `runs_truncated` flag
+   (schema 2.19.0). A sole or final failing run keeps the flag false. This trades incomplete
+   per-run records for less CPU and wall-clock time. Fail-fast is disabled whenever
+   `--allow-real-infrastructure` is set, so Terraform can finish resource cleanup. `curate`
+   also disables fail-fast: kill-set attribution needs every failed assertion across all runs.
+   Its cache keys are separate from verdict-only executions, so truncated cached evidence
+   cannot become authoritative curation evidence. An `error` run
    ends nothing: the error precedence needs validate, and the runs an error skips are part of
    the evidence. Baseline, verification and characterisation invocations never stop early.
    After at least one run executes, phase one checks completeness unless the
