@@ -358,6 +358,28 @@ func assertSameDecode(tb testing.TB, input []byte, origin string) {
 	newResult, newErr := decodeTestStream(bytes.NewReader(input))
 	oldResult, oldErr := refDecodeTestStream(bytes.NewReader(input))
 
+	assertSameDecodeOutcome(tb, newResult, newErr, oldResult, oldErr, origin)
+}
+
+// assertSameDecodeChunked runs both decoders over a reader that hands the
+// input out chunk bytes at a time, so the filter's buffering is exercised at
+// chosen boundaries against the same oracle.
+func assertSameDecodeChunked(tb testing.TB, input []byte, chunk int, origin string) {
+	tb.Helper()
+
+	newResult, newErr := decodeTestStream(&chunkReader{remaining: bytes.Clone(input), size: chunk})
+	oldResult, oldErr := refDecodeTestStream(&chunkReader{remaining: bytes.Clone(input), size: chunk})
+
+	assertSameDecodeOutcome(tb, newResult, newErr, oldResult, oldErr, origin)
+}
+
+// assertSameDecodeOutcome compares the two decoders' outcomes: both fail, both
+// with the malformed class, or both succeed with identical events.
+func assertSameDecodeOutcome(
+	tb testing.TB, newResult TestResult, newErr error, oldResult TestResult, oldErr error, origin string,
+) {
+	tb.Helper()
+
 	if (newErr == nil) != (oldErr == nil) {
 		tb.Fatalf("%s: new error = %v, old error = %v", origin, newErr, oldErr)
 	}
@@ -374,6 +396,37 @@ func assertSameDecode(tb testing.TB, input []byte, origin string) {
 		tb.Fatalf("%s: decoded events differ:\nnew: %#v\nold: %#v", origin, newResult, oldResult)
 	}
 }
+
+// chunkReader hands a stream out in reads of at most size bytes, so tests can
+// place a stream's bytes on chosen chunk boundaries however the filter
+// buffers them.
+type chunkReader struct {
+	remaining []byte
+	size      int
+}
+
+func (r *chunkReader) Read(p []byte) (int, error) {
+	if len(r.remaining) == 0 {
+		return 0, io.EOF
+	}
+
+	n := min(r.size, len(p), len(r.remaining))
+	copy(p, r.remaining[:n])
+	r.remaining = r.remaining[n:]
+
+	return n, nil
+}
+
+// hardStringSchema is a provider_schemas value whose strings carry everything
+// a swallowed string can meet: every simple escape, a unicode escape, raw
+// multi-byte UTF-8, and JSON's structural characters as plain content.
+const hardStringSchema = `{"aws":{"provider":{"block":{"description":` +
+	`"r\u00e9gion Ωж \" \\ \/ \b \f \n \r \t } ] , : tail"}},` +
+	`"resource_schemas":{"aws_instance":{"block":{"attributes":{` +
+	`"name":{"type":"string","optional":true,"description":"na\"me \\ end"},` +
+	`"count":{"type":"number","description":"zéro — 0"},` +
+	`"tags":{"type":"map(string)","description":"ämäraig — Ωж"}},` +
+	`"block_type":{"nesting":"list","description":"one é two"}}}}}}`
 
 // A payload message with the given provider_schemas value and two real
 // neighbouring members, so that every test exercises the decoder's position
@@ -437,6 +490,112 @@ func TestOldAndNewAgreeAtTruncationsInsideAnInflatedSchema(t *testing.T) {
 	for _, cut := range cuts {
 		assertSameDecode(t, stream[:cut], fmt.Sprintf("inflated stream truncated to %d bytes", cut))
 	}
+}
+
+// The filter reads in windows, so a swallowed string's escapes, unicode
+// escapes, multi-byte UTF-8 and refused control bytes each land on a chunk
+// boundary for some read pattern. Sweeping every chunk size drives each of
+// those bytes through both halves of the boundary.
+func TestOldAndNewAgreeAtEveryChunkBoundaryInsideASwallowedString(t *testing.T) {
+	t.Parallel()
+
+	hard := payloadMessage(hardStringSchema)
+
+	sweepEveryChunk(t, hard, "hard string stream")
+	// A raw control byte inside a swallowed string is malformed input, and the
+	// refusal must not depend on where the reads split it.
+	sweepEveryChunk(t, payloadMessage("{\"aws\":{\"description\":\"line\nbreak\"}}"), "control byte stream")
+
+	// A truncated unicode escape inside a swallowed string must fail the same
+	// way at every split.
+	sweepEveryChunk(t, payloadMessage(`{"aws":"cut \u00"}`), "truncated escape stream")
+}
+
+// sweepEveryChunk runs both decoders over stream at every chunk size from one
+// byte up to the whole stream, so every byte lands on both sides of a chosen
+// boundary.
+func sweepEveryChunk(tb testing.TB, stream []byte, origin string) {
+	tb.Helper()
+
+	for chunk := 1; chunk <= len(stream); chunk++ {
+		assertSameDecodeChunked(tb, stream, chunk, fmt.Sprintf("%s at chunk size %d", origin, chunk))
+	}
+}
+
+// The large streams the skip targets must also be insensitive to chunking;
+// these sizes straddle the filter's own window.
+func TestOldAndNewAgreeAtChunkBoundariesOnTheLargeStreams(t *testing.T) {
+	t.Parallel()
+
+	var schemas bytes.Buffer
+
+	schemas.WriteString(`{"aws":{`)
+
+	for range 16 {
+		schemas.WriteString(`"Microsoft.Compute/virtualMachines":{"block":{`)
+
+		for i := range 64 {
+			fmt.Fprintf(&schemas, `"attribute_%d":{"type":"string","description":`+
+				`"braces } brackets ] quotes \" backslash \\ \u00e9 and a long body"},`, i)
+		}
+
+		schemas.WriteString(`"tail":{"type":"number","optional":true}}},`)
+	}
+
+	schemas.WriteString(`"final":{"block":{}}}}`)
+
+	for name, stream := range map[string][]byte{
+		"recorded":               recorded(t),
+		"large synthetic schema": payloadMessage(schemas.String()),
+		"inflated recorded":      inflatedBy(t, recorded(t), 256*1024),
+	} {
+		for _, chunk := range []int{1, 2, 3, 7, 64, 1023, 1024, 1025, 4096, 16383, 65535, 65536, 65537, 1 << 20} {
+			assertSameDecodeChunked(t, stream, chunk, fmt.Sprintf("%s at chunk size %d", name, chunk))
+		}
+	}
+}
+
+// The rewrite itself must not depend on the read pattern: the filter's output
+// bytes are the same for every chunk size, and a malformed stream fails at the
+// same position, so even its partial output is identical. The reference bytes
+// come from the filter at a chunk size larger than the stream's read windows.
+func TestTheFilterEmitsTheSameBytesAtEveryChunkBoundary(t *testing.T) {
+	t.Parallel()
+
+	for name, stream := range map[string][]byte{
+		"recorded":               recorded(t),
+		"hard strings":           payloadMessage(hardStringSchema),
+		"control byte":           payloadMessage("{\"aws\":{\"description\":\"line\nbreak\"}}"),
+		"truncated escape":       payloadMessage(`{"aws":"cut \u00"}`),
+		"truncated mid string":   payloadMessage(`{"aws":{"description":"interrupted`),
+		"string then structural": payloadMessage(`{"a":"} ] , :\"","b":["\\",{\"c\":1}]}`),
+	} {
+		reference, referenceErr := filteredBytes(t, stream, 1<<20)
+
+		for _, chunk := range []int{1, 2, 3, 5, 13, 64, 999, 4096, 65535, 65536, 65537} {
+			got, gotErr := filteredBytes(t, stream, chunk)
+
+			if !bytes.Equal(got, reference) {
+				t.Fatalf("%s: filter output at chunk size %d differs from the unchunked output", name, chunk)
+			}
+
+			if (gotErr == nil) != (referenceErr == nil) {
+				t.Fatalf("%s: filter error at chunk size %d = %v, unchunked = %v", name, chunk, gotErr, referenceErr)
+			}
+
+			if gotErr != nil && errors.Is(gotErr, errSkipMalformedValue) != errors.Is(referenceErr, errSkipMalformedValue) {
+				t.Fatalf("%s: filter error class at chunk size %d = %v, unchunked = %v", name, chunk, gotErr, referenceErr)
+			}
+		}
+	}
+}
+
+// filteredBytes runs the schema filter over stream read chunk bytes at a time
+// and returns everything it emitted before failing.
+func filteredBytes(tb testing.TB, stream []byte, chunk int) ([]byte, error) {
+	tb.Helper()
+
+	return io.ReadAll(newSchemaFilter(&chunkReader{remaining: bytes.Clone(stream), size: chunk}))
 }
 
 func TestOldAndNewDecodeEdgeCaseSchemasIdentically(t *testing.T) {
@@ -576,8 +735,8 @@ func TestTheSkipLeavesPayloadValuesIntact(t *testing.T) {
 
 // inflatedBy rebuilds the recorded stream with each provider_schemas value
 // grown to at least the given size, independent of the memory gate's inflate.
-func inflatedBy(t *testing.T, stream []byte, size int) []byte {
-	t.Helper()
+func inflatedBy(tb testing.TB, stream []byte, size int) []byte {
+	tb.Helper()
 
 	entry := `"` + strings.Repeat("f", 256) + `"`
 	entries := make([]string, 0, size/(len(entry)+1))
@@ -764,6 +923,39 @@ func BenchmarkTheSchemaSkip(b *testing.B) {
 	}
 }
 
+// The representative verbose stream: the real recorded output with each
+// provider_schemas value grown to the size a large provider's schema
+// produces — the shape whose swallowing dominates a mutation run's filter
+// cost. Both decoders run over it, so the speed-up is measurable in-repo.
+func BenchmarkTheSchemaSkipOnTheInflatedRecordedStream(b *testing.B) {
+	stream := inflatedBy(b, recorded(b), 2*1024*1024)
+
+	for name, decode := range map[string]func(io.Reader) (TestResult, error){
+		"token loop":  refDecodeTestStream,
+		"byte filter": decodeTestStream,
+	} {
+		b.Run(name, func(b *testing.B) {
+			result, err := decode(bytes.NewReader(stream))
+			if err != nil {
+				b.Fatal(err)
+			}
+
+			if len(result.Payloads) != 2 {
+				b.Fatalf("decoded payloads = %d, want one per run block", len(result.Payloads))
+			}
+
+			b.SetBytes(int64(len(stream)))
+			b.ReportAllocs()
+
+			for b.Loop() {
+				if _, err := decode(bytes.NewReader(stream)); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 // FuzzTheByteSkipAgreesWithTheTokenLoop drives both decoders with arbitrary
 // bytes: the filter may never produce a stream the token loop would have
 // decoded differently. Run with -fuzz for the search; under go test the seed
@@ -775,6 +967,10 @@ func FuzzTheByteSkipAgreesWithTheTokenLoop(f *testing.F) {
 		`"resource_schemas":{"aws_instance":{"block":{"x":[1,2,{"y":[true,false,null,1.5e-3]}]}}}}`))
 	f.Add(payloadMessage(`{"a":{"b":{"c":{"d":{"e":[[[["x"]]]]}}}}}`))
 	f.Add(payloadMessage(`{"aws":"strings with } ] \" \\ and unicode \u00e9"}`))
+	f.Add(payloadMessage(`{"aws":{"description":"raw UTF-8 é Ωж plain content"},` +
+		`"resource_schemas":{"aws_instance":{"description":"na\"me \\ end"}}}`))
+	f.Add(payloadMessage("{\"aws\":{\"description\":\"raw \n control byte\"}}"))
+	f.Add(payloadMessage(`{"aws":{"description":"an \u0041 and a \u4e2d"}}`))
 	f.Add(payloadMessage(`{"aws" 1}`))
 	f.Add(payloadMessage(`{"aws":12xy}`))
 	f.Add(payloadMessage(`12345`))

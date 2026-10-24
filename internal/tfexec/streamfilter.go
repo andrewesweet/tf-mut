@@ -129,6 +129,19 @@ func (f *schemaFilter) Read(p []byte) (int, error) {
 		}
 
 		for f.bufPos < f.bufEnd {
+			if f.skip.active {
+				// While a string is open inside the swallowed value, the bytes
+				// that cannot change the swallow's state are its content, and
+				// they are most of a large schema. Skip them in bulk; the byte
+				// that ends the run is fed through consume exactly as the
+				// byte-at-a-time loop would have fed it.
+				f.bufPos += f.skip.contentRun(f.buf[f.bufPos:f.bufEnd])
+
+				if f.bufPos == f.bufEnd {
+					break
+				}
+			}
+
 			f.consume(f.buf[f.bufPos])
 			f.bufPos++
 
@@ -646,6 +659,30 @@ func (s *swallower) stepArrayNext(b byte) swallowResult {
 	return swallowConsumed
 }
 
+// contentRun returns the length of the prefix of b that the swallow can
+// consume without changing state: the content bytes of an open string. A byte
+// below firstControlByte is refused inside a string, a quote closes the
+// string, and a backslash opens an escape, so the run stops before the first
+// of those and the caller feeds it through step like any other byte. In every
+// other state the run is empty. Consuming the prefix one byte at a time would
+// leave every field of the swallow unchanged — stepString consumes content
+// bytes and nothing else — so skipping it is the same computation in fewer
+// steps.
+func (s *swallower) contentRun(b []byte) int {
+	if s.state != swString {
+		return 0
+	}
+
+	for i, c := range b {
+		if c < firstControlByte || c == '"' || c == '\\' {
+			return i
+		}
+	}
+
+	return len(b)
+}
+
+// stepString feeds one byte of a string to the machine.
 func (s *swallower) stepString(b byte) swallowResult {
 	switch {
 	case b < firstControlByte:
