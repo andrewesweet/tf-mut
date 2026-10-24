@@ -167,15 +167,32 @@ const progressStarting = "starting"
 // remaining stream is walked token by token without holding whole messages:
 // see RunPayload.
 func decodeTestStream(reader io.Reader) (TestResult, error) {
+	return decodeTestStreamStopping(reader, nil, nil)
+}
+
+// decodeTestStreamStopping reads the stream, offering each run outcome to
+// shouldArm. When shouldArm first accepts a run — the caller's own decision,
+// the failing-run arm — the decoder keeps reading: the arming run's assertion
+// diagnostics follow its completion message in the stream, and a stop that
+// dropped them would silence the very evidence the oracle judges. The first
+// later message that carries neither a run outcome, nor a diagnostic, nor a
+// payload proves that burst is over (a completed apply run's teardown, a plan
+// run's successor's start); the decoder records StoppedOnFail, calls onFire —
+// the caller ends the child there — and returns, so the record holds the
+// runs before the stop and the evidence of the run that decided it, and
+// nothing the stopped invocation would have added. A stop is deliberate,
+// never a truncation error: no error is reported for the unread tail.
+func decodeTestStreamStopping(reader io.Reader, shouldArm func(RunOutcome) bool, onFire func()) (TestResult, error) {
 	result := TestResult{
-		Runs:        []RunOutcome{},
-		Diagnostics: []Diagnostic{},
-		Payloads:    []RunPayload{},
-		Files:       []FileTiming{},
-		Started:     false,
-		ExitCode:    exitCodeUnavailable,
-		TimedOut:    false,
-		Duration:    0,
+		Runs:          []RunOutcome{},
+		Diagnostics:   []Diagnostic{},
+		Payloads:      []RunPayload{},
+		Files:         []FileTiming{},
+		StoppedOnFail: false,
+		Started:       false,
+		ExitCode:      exitCodeUnavailable,
+		TimedOut:      false,
+		Duration:      0,
 	}
 
 	// The pairing of start events to completions is decoder-local: a run
@@ -183,16 +200,42 @@ func decodeTestStream(reader io.Reader) (TestResult, error) {
 	// neither outlives the stream.
 	clock := newStreamClock()
 
+	// armed marks a run outcome shouldArm accepted whose assertion
+	// diagnostics the stream may still owe. Their burst ends at the first
+	// later message that appended neither a diagnostic nor a payload.
+	armed := false
+
 	decoder := json.NewDecoder(newSchemaFilter(reader))
 	decoder.UseNumber()
 
 	for {
+		priorRuns := len(result.Runs)
+		priorDiagnostics := len(result.Diagnostics)
+		priorPayloads := len(result.Payloads)
+
 		if err := decodeMessage(decoder, &result, clock); err != nil {
 			if errors.Is(err, io.EOF) {
 				return result, nil
 			}
 
 			return result, fmt.Errorf("%w: %w", ErrMalformedStream, err)
+		}
+
+		if shouldArm != nil && !armed && len(result.Runs) > priorRuns && shouldArm(result.Runs[len(result.Runs)-1]) {
+			armed = true
+
+			continue
+		}
+
+		if armed && !result.StoppedOnFail &&
+			len(result.Diagnostics) == priorDiagnostics && len(result.Payloads) == priorPayloads {
+			result.StoppedOnFail = true
+
+			if onFire != nil {
+				onFire()
+			}
+
+			return result, nil
 		}
 	}
 }

@@ -55,7 +55,11 @@ import (
 // The tf-mut-cache-10 bump requires stored changes to carry baseline mask
 // provenance. Replaying older observations would lose the volatile refusal
 // when suggestions are regenerated from cached evidence.
-const cacheFormatVersion = "tf-mut-cache-10"
+// The tf-mut-cache-11 bump stores the fail-fast truncation flag beside the
+// runs it describes: a replayed Killed mutant's records are a prefix of the
+// suite, and a replay that lost the flag would publish the prefix as if it
+// were complete.
+const cacheFormatVersion = "tf-mut-cache-11"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
@@ -751,6 +755,7 @@ func rehydrated(mutant *report.Mutant, classified *oracle.Classified, entry stor
 	mutant.ExecutedRuns = observed.ExecutedRuns
 	mutant.Validated = observed.Validated
 	mutant.DeadlineReached = observed.DeadlineReached
+	mutant.RunsTruncated = observed.RunsTruncated
 
 	*mutant = project(*mutant, outcome)
 	*classified = oracle.Classified{Operator: classified.Operator, Outcome: outcome}
@@ -773,6 +778,7 @@ type observedRun struct {
 	ExecutedRuns    int                 `json:"executed_runs"`
 	Validated       bool                `json:"validated"`
 	DeadlineReached bool                `json:"deadline_reached"`
+	RunsTruncated   bool                `json:"runs_truncated"`
 }
 
 // persist stores the fresh executed verdicts, then evicts deterministically.
@@ -809,6 +815,7 @@ func (c *verdictCache) persist(mutants []report.Mutant, classified []oracle.Clas
 			ExecutedRuns:    mutant.ExecutedRuns,
 			Validated:       mutant.Validated,
 			DeadlineReached: mutant.DeadlineReached,
+			RunsTruncated:   mutant.RunsTruncated,
 		})
 		if err != nil {
 			continue

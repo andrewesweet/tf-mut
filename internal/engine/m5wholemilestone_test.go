@@ -117,6 +117,9 @@ func TestTheStandardReportOfTheMatrixFixtureIsInvariantAcrossTheWholeMilestone(t
 			// does not emit it — so the comparison strips it too.
 			delete(mutant, "telemetry")
 			delete(mutant, "deadline_reached")
+			// The 2.19.0 fail-fast flag is additive the same way — the
+			// before-tree does not emit it — so the comparison strips it too.
+			delete(mutant, "runs_truncated")
 
 			if mutant["tier"] == "pack" {
 				t.Fatalf("%s mutant %d is pack-tier with no pack selected", name, index)
@@ -141,8 +144,8 @@ func stripRunWallClock(t *testing.T, before, after map[string]any) {
 		t.Fatalf("the M5 base tree publishes schema %q, want 2.3.0", before["schema_version"])
 	}
 
-	if after["schema_version"] != "2.18.0" {
-		t.Fatalf("this tree publishes schema %q, want 2.18.0", after["schema_version"])
+	if after["schema_version"] != "2.19.0" {
+		t.Fatalf("this tree publishes schema %q, want 2.19.0", after["schema_version"])
 	}
 
 	delete(before, "schema_version")

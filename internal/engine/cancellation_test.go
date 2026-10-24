@@ -67,7 +67,16 @@ func TestCancellationAfterAFailedRunWritesNoBaseline(t *testing.T) {
 	}
 }
 
-func TestADeadlineAfterAFailedRunKeepsItsKilledVerdict(t *testing.T) {
+// TestTheFailFastDecisionBeatsTheBudget pins the stop's interaction with
+// the timeout on a budget tighter than the failing run itself: the verdict
+// still comes from the failed run — Killed, its record cut short — and the
+// deadline state never overrides it. The deadline mark may accompany the
+// stop when the budget expired during the failing run; both marks then say
+// something true, and which signal killed the child is not observable. The
+// deadline still bounds the mutants a fail never decides: the long-running
+// unmocked suite's expired deadline is the provider-cleanup reproduction's
+// own business.
+func TestTheFailFastDecisionBeatsTheBudget(t *testing.T) {
 	t.Parallel()
 
 	request, _ := interruptedRunRequest(t)
@@ -83,8 +92,8 @@ func TestADeadlineAfterAFailedRunKeepsItsKilledVerdict(t *testing.T) {
 	}
 
 	mutant := result.Mutants[0]
-	if mutant.State != report.Killed || !mutant.DeadlineReached {
-		t.Fatalf("mutant state = %s, deadline reached = %t", mutant.State, mutant.DeadlineReached)
+	if mutant.State != report.Killed || !mutant.RunsTruncated {
+		t.Fatalf("mutant state = %s, runs truncated = %t, want Killed at the stop", mutant.State, mutant.RunsTruncated)
 	}
 }
 

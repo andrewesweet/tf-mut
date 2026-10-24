@@ -297,7 +297,15 @@ Per mutant, in parallel across up to `--jobs` workers (see [parallelism defaults
    majority — never pay for it.
 4. **Phase one:** `terraform -chdir=<sandbox> test -json -verbose -filter=<selected files>` —
    the mutant's single invocation, verbose since 2.17.0. Killed mutants stop here (after lazy
-   validation if they errored). After at least one run executes, phase one checks completeness unless the
+   validation if they errored), and since the fail-fast stop a killed mutant's invocation ends
+   at its first failing run: a failing run decides `killed` on its own in the verdict
+   precedence, so the run blocks after it cost time without changing the verdict. The stop
+   fires only once the failing run's own assertion diagnostics are flushed — the evidence the
+   oracle judges is never cut short — and the mutant's record then covers a prefix of the
+   suite, disclosed by the per-mutant `runs_truncated` flag (schema 2.19.0). An `error` run
+   ends nothing: the error precedence needs validate, and the runs an error skips are part of
+   the evidence. Baseline, verification and characterisation invocations never stop early.
+   After at least one run executes, phase one checks completeness unless the
    invocation times out or reports a failing or erroring run. A non-zero exit is an execution
    error. So is an executed-run count below the baseline's, unless an explicit test-file
    filter is selected. These checks run before the survivor's fingerprint evidence is read.

@@ -329,11 +329,18 @@ func evaluateOne(
 	defer func() { _ = os.RemoveAll(built.Root) }()
 
 	testPhase := telemetry.phase(phaseTest)
+	// FailFast ends this one invocation at its first failing run: Killed is
+	// decided from failed runs before anything else in the precedence, so the
+	// blocks after the failure cost time without changing the verdict. Every
+	// unmutated invocation — the baseline, the volatility re-run, the oracle
+	// and characterisation passes, verification — needs complete results and
+	// does not stop early.
 	result, err := plan.runner.Test(ctx, built.ModuleDir, tfexec.TestOptions{
 		TestDirectory: plan.configuration.TestDirRelative(),
 		Filters:       plan.settings.TestSelection,
 		Verbose:       true,
 		Timeout:       budget,
+		FailFast:      true,
 	})
 	testPhase(telemetry.child("test", result.Usage, result.Started)...)
 	if err != nil {
@@ -356,6 +363,11 @@ func evaluateOne(
 	// earned keeps its precedence — the deadline is recorded beside it so the
 	// report shows both.
 	verdict.DeadlineReached = result.TimedOut
+	// The fail-fast stop is recorded beside the verdict the same way the
+	// deadline is: a Killed mutant's runs stop at its first failure, and the
+	// flag tells the reader the records are a prefix of the suite, not all of
+	// it. The verdict itself is unchanged.
+	verdict.RunsTruncated = result.StoppedOnFail
 
 	// D18: a stream that stopped early is not a survival. A non-zero exit
 	// with no failing or erroring run reuses the baseline's own exit-status

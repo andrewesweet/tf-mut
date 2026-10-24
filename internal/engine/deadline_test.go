@@ -114,6 +114,7 @@ type deadlineMutant struct {
 	ID              string `json:"id"`
 	State           string `json:"state"`
 	DeadlineReached *bool  `json:"deadline_reached"`
+	RunsTruncated   *bool  `json:"runs_truncated"`
 }
 
 func TestAMutantWhoseTestReachedItsDeadlineIsNamedInTheReport(t *testing.T) {
@@ -133,6 +134,10 @@ func TestAMutantWhoseTestReachedItsDeadlineIsNamedInTheReport(t *testing.T) {
 	// onwards, so its deadline lands behind failed runs and the verdict is
 	// Killed; the region mutant's runs all pass, so its verdict is Timeout.
 	// One invocation produces both precedence shapes at the same deadline.
+	// Since the fail-fast stop, the env mutant's invocation additionally ends
+	// at its first failing run — Killed with a cut-short record and no
+	// deadline mark — so the two honest ways an invocation can be cut short
+	// are both on show, and every cut-short mutant must name which one.
 	config.IncludeOperators = []string{string(mutation.StrCase)}
 	config.AllowRealInfrastructure = true
 
@@ -145,11 +150,18 @@ func TestAMutantWhoseTestReachedItsDeadlineIsNamedInTheReport(t *testing.T) {
 		t.Fatalf("expected at least one killed and one timeout verdict, got %v", result.Metrics.Counts)
 	}
 
-	// Typed: the field is on every mutant the run executed, whatever its
-	// verdict — the whole point of the flag.
+	if result.Count(report.Killed) > 0 && !slices.ContainsFunc(result.Mutants, func(m report.Mutant) bool {
+		return m.State == report.Killed && m.RunsTruncated
+	}) {
+		t.Fatal("expected the killed mutant's record to be cut short by the fail-fast stop")
+	}
+
+	// Typed: every mutant the run executed names how its invocation ended —
+	// the deadline for the runs the budget ended, the fail-fast stop for the
+	// ones a failed run ended first.
 	for _, mutant := range result.Mutants {
-		if !mutant.DeadlineReached {
-			t.Fatalf("mutant %s (state %s) reached no deadline in the typed report", mutant.ID, mutant.State)
+		if !mutant.DeadlineReached && !mutant.RunsTruncated {
+			t.Fatalf("mutant %s (state %s) reached no deadline and took no fail-fast stop", mutant.ID, mutant.State)
 		}
 	}
 
@@ -164,8 +176,10 @@ func TestAMutantWhoseTestReachedItsDeadlineIsNamedInTheReport(t *testing.T) {
 	}
 
 	for _, mutant := range document.Mutants {
-		if mutant.DeadlineReached == nil || !*mutant.DeadlineReached {
-			t.Fatalf("mutant %s (state %s) does not name its deadline in the document", mutant.ID, mutant.State)
+		named := mutant.DeadlineReached != nil && *mutant.DeadlineReached
+		stopped := mutant.RunsTruncated != nil && *mutant.RunsTruncated
+		if !named && !stopped {
+			t.Fatalf("mutant %s (state %s) names neither its deadline nor its stop", mutant.ID, mutant.State)
 		}
 	}
 }

@@ -7,8 +7,8 @@
 package report
 
 // SchemaVersion is the version of the machine-readable report schema.
-// See docs/schema/report-2.18.0.json for the versioned consumer contract.
-const SchemaVersion = "2.18.0"
+// See docs/schema/report-2.19.0.json for the versioned consumer contract.
+const SchemaVersion = "2.19.0"
 
 // Command names what produced a report.
 type Command string
@@ -264,6 +264,13 @@ type Mutant struct {
 	// first earned: the verdict precedence is unchanged, so the deadline is
 	// visible behind a Killed or KilledByError verdict too (2.9.0).
 	DeadlineReached bool `json:"deadline_reached"`
+	// RunsTruncated records whether this mutant's per-run records are a
+	// prefix of the suite rather than all of it (2.19.0): the invocation
+	// stopped at the first failing run, so the run blocks after that failure
+	// were never observed. Verdicts are unchanged — a failing run decides
+	// Killed on its own — and the flag is false on every mutant whose records
+	// cover every run block.
+	RunsTruncated bool `json:"runs_truncated"`
 	// Suppression records the directive or exclusion that made the mutant
 	// Ignored.
 	Suppression *Suppression `json:"suppression,omitempty"`
