@@ -376,7 +376,7 @@ func evaluateOne(
 			}
 		}
 	}
-	verdict.RunsTruncated = result.StoppedOnFail && result.ExecutedRuns() < expectedRuns
+	verdict.RunsTruncated = result.StoppedOnFail && len(result.Runs) < expectedRuns
 
 	// D18: a stream that stopped early is not a survival. A non-zero exit
 	// with no failing or erroring run reuses the baseline's own exit-status

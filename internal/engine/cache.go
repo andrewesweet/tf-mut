@@ -59,7 +59,7 @@ import (
 // runs it describes: a replayed Killed mutant's records are a prefix of the
 // suite, and a replay that lost the flag would publish the prefix as if it
 // were complete.
-const cacheFormatVersion = "tf-mut-cache-12"
+const cacheFormatVersion = "tf-mut-cache-13"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
