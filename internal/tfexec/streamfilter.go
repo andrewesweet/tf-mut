@@ -16,7 +16,7 @@ import (
 // bytes between the decoder's position and its buffer end can be neither
 // reclaimed nor replayed. Instead schemaFilter sits between the reader and the
 // decoder and rewrites the stream in flight: a `"provider_schemas"` member at
-// payload level has its value consumed byte-by-byte and replaced with `{}`
+// payload level has its value consumed incrementally and replaced with `{}`
 // before the decoder ever sees it. Decoder lookahead is harmless because the
 // rewrite is applied exactly once, where the bytes flow — whatever the decoder
 // has buffered is already the rewritten stream.
@@ -396,7 +396,7 @@ func (f *schemaFilter) keyStringTransition(b byte) {
 	}
 }
 
-// swallower consumes one JSON value byte-by-byte without holding it, tracking
+// swallower consumes one JSON value incrementally without holding it, tracking
 // enough of the grammar to know where the value ends and to reject input the
 // token loop would have rejected.
 type swallower struct {
