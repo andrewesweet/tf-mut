@@ -205,13 +205,8 @@ func TestReleaseTagCreationReusesExistingTag(t *testing.T) {
 	}
 }
 
-// The rebuild's byte-identical check holds only when both builds stamp the
-// same module version: go build derives the main module version from the VCS
-// tag on the checked-out commit. The packaging job therefore needs the
-// release tags (full history) and the rebuild job must check out the release
-// tag itself — the automated path's default ref is the caller's branch, which
-// carries no tag, and the v0.1.1 rebuild embedded a pseudo-version where the
-// publication embedded v0.1.1.
+// TestReleaseRebuildChecksOutThePublishedTag guards the checkout contract in
+// docs/research/05-go-build-chain.md, "CI topology".
 func TestReleaseRebuildChecksOutThePublishedTag(t *testing.T) {
 	t.Parallel()
 

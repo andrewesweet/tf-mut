@@ -129,12 +129,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The rebuild must see the tagged source state: go build stamps the
-          # main module version from the tag on the checkout (go version -m's
-          # mod line), so a checkout without the tag — the automated path's
-          # default ref is the caller's branch — embeds a pseudo-version and
-          # the archives diverge. The manual tag-push path's default ref is
-          # already the tag, so the check there is unchanged.
+          # Keep Go's embedded module version aligned with the published build.
+          # Checkout contract: docs/research/05-go-build-chain.md, "CI topology".
           ref: ${{ env.TAG }}
           persist-credentials: false
       # No cache: a release pipeline does not trust a cached toolchain.
