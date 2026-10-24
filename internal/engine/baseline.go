@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
@@ -67,7 +68,8 @@ func prepare(
 		return prepared, nil
 	}
 
-	if err := runBaseline(ctx, runner, configuration, &prepared, collector, settings.preflightCap()); err != nil {
+	if err := runBaseline(ctx, runner, configuration, &prepared, collector,
+		settings.preflightCap(), settings.Jobs > 1); err != nil {
 		return warmWorkspace{}, err
 	}
 
@@ -195,6 +197,14 @@ func stampProviderTree(prepared *warmWorkspace) error {
 // runs of the same configuration is the only evidence that separates a value
 // the module computes from one the clock or a mock invented, and a single run
 // would offer the oracle a fingerprint it could not trust.
+//
+// The second run — the volatility leg — depends on the first only through "the
+// baseline is green". When the job budget has a second slot, the leg starts
+// beside the baseline run and its outcome is judged once the baseline proves
+// green; the leg runs the same suite in the same workspace, so the mask it
+// derives is the mask the sequential schedule derives. A budget of one keeps
+// the sequential schedule: the overlap never runs more concurrent Terraform
+// children than the caller allowed.
 func runBaseline(
 	ctx context.Context,
 	runner tfexec.Runner,
@@ -202,7 +212,17 @@ func runBaseline(
 	prepared *warmWorkspace,
 	collector *runCollector,
 	limit time.Duration,
+	overlap bool,
 ) error {
+	var volatility *fingerprintRun
+	if overlap {
+		volatility = beginFingerprintRun(ctx, runner, configuration, prepared, collector, limit)
+		// Every return from here on either has harvested the leg's outcome or
+		// must stop it and wait for the reaping: a red baseline and a cancelled
+		// run leave no Terraform process behind.
+		defer volatility.abandon()
+	}
+
 	testPhase := collector.phase(phaseBaselineTest)
 	result, err := runner.Test(ctx, prepared.moduleDir, tfexec.TestOptions{
 		TestDirectory: configuration.TestDirRelative(),
@@ -239,7 +259,85 @@ func runBaseline(
 			ErrBaselineNoRuns, configuration.TestDirRelative())
 	}
 
-	return calibrateOracle(ctx, runner, configuration, prepared, result, collector, limit)
+	return calibrateOracle(ctx, runner, configuration, prepared, result, collector, limit, volatility)
+}
+
+// fingerprintOutcome is the volatility leg's decoded result with the
+// operational error, if any, that the invocation itself produced.
+type fingerprintOutcome struct {
+	result tfexec.TestResult
+	err    error
+}
+
+// fingerprintRun is the volatility leg started beside the baseline run.
+//
+// Its context is derived from the run's, so a cancelled run stops the leg the
+// same way it stops everything else; abandon stops it for the caller when the
+// baseline turned red first. The outcome channel is buffered, so the leg's
+// goroutine always finishes — a leg nobody harvests reaps itself and ends.
+type fingerprintRun struct {
+	cancel context.CancelFunc
+	// outcome carries the one result the leg produces.
+	outcome chan fingerprintOutcome
+	// mutex guards the single harvest; collect and abandon may race.
+	mutex   sync.Mutex
+	harvest fingerprintOutcome
+	taken   bool
+}
+
+// beginFingerprintRun starts the volatility leg on its own goroutine and
+// returns immediately. The phase the leg records spans its own invocation, so
+// the published telemetry shows the two legs' honest, overlapping wall time.
+func beginFingerprintRun(
+	parent context.Context,
+	runner tfexec.Runner,
+	configuration discovery.Configuration,
+	prepared *warmWorkspace,
+	collector *runCollector,
+	limit time.Duration,
+) *fingerprintRun {
+	ctx, cancel := context.WithCancel(parent)
+	run := &fingerprintRun{cancel: cancel, outcome: make(chan fingerprintOutcome, 1)}
+
+	go func() {
+		phase := collector.phase(phaseBaselineFingerprint)
+		result, err := runner.Test(ctx, prepared.moduleDir, tfexec.TestOptions{
+			TestDirectory: configuration.TestDirRelative(),
+			Filters:       nil,
+			Verbose:       true,
+			Timeout:       limit,
+		})
+		phase(collector.child("test", result.Usage, result.Started)...)
+		run.outcome <- fingerprintOutcome{result: result, err: err}
+	}()
+
+	return run
+}
+
+// collect waits for the volatility leg and returns its outcome, once. A leg
+// that is still running when a green baseline asks for its outcome is waited
+// for, never stopped.
+func (f *fingerprintRun) collect() fingerprintOutcome {
+	f.mutex.Lock()
+	defer f.mutex.Unlock()
+
+	if !f.taken {
+		f.harvest = <-f.outcome
+		f.taken = true
+		// The leg has finished; release the derived context either way.
+		f.cancel()
+	}
+
+	return f.harvest
+}
+
+// abandon stops the volatility leg and waits for the reaping. It is the
+// caller's way of saying the outcome will not be judged: a red baseline, a
+// deadline, a cancelled run. On a leg already harvested it does nothing.
+func (f *fingerprintRun) abandon() fingerprintOutcome {
+	f.cancel()
+
+	return f.collect()
 }
 
 // calibrateOracle projects the baseline payloads and derives the volatile mask.
@@ -251,27 +349,43 @@ func calibrateOracle(
 	first tfexec.TestResult,
 	collector *runCollector,
 	limit time.Duration,
+	volatility *fingerprintRun,
 ) error {
 	firstPayloads, err := fingerprint.Canonicalise(first.Payloads)
 	if err != nil {
 		return err
 	}
 
-	fingerprintPhase := collector.phase(phaseBaselineFingerprint)
-	second, err := runner.Test(ctx, prepared.moduleDir, tfexec.TestOptions{
-		TestDirectory: configuration.TestDirRelative(),
-		Filters:       nil,
-		Verbose:       true,
-		Timeout:       limit,
-	})
-	fingerprintPhase(collector.child("test", second.Usage, second.Started)...)
+	var second tfexec.TestResult
+
+	if volatility != nil {
+		// The leg started beside the baseline run; its phase already recorded
+		// itself when the invocation ended.
+		outcome := volatility.collect()
+		second = outcome.result
+
+		if outcome.err != nil && !second.TimedOut {
+			return outcome.err
+		}
+	} else {
+		fingerprintPhase := collector.phase(phaseBaselineFingerprint)
+		var secondErr error
+		second, secondErr = runner.Test(ctx, prepared.moduleDir, tfexec.TestOptions{
+			TestDirectory: configuration.TestDirRelative(),
+			Filters:       nil,
+			Verbose:       true,
+			Timeout:       limit,
+		})
+		fingerprintPhase(collector.child("test", second.Usage, second.Started)...)
+
+		if secondErr != nil && !second.TimedOut {
+			return secondErr
+		}
+	}
+
 	if second.TimedOut {
 		return fmt.Errorf("%w: the baseline fingerprint run did not finish within %s",
 			tfexec.ErrNotExecuted, limit)
-	}
-
-	if err != nil {
-		return err
 	}
 
 	secondPayloads, err := fingerprint.Canonicalise(second.Payloads)
