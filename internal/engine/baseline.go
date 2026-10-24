@@ -199,13 +199,8 @@ func stampProviderTree(prepared *warmWorkspace) error {
 // the module computes from one the clock or a mock invented, and a single run
 // would offer the oracle a fingerprint it could not trust.
 //
-// The second run — the volatility leg — depends on the first only through "the
-// baseline is green". When the job budget has a second slot, the leg starts
-// beside the baseline run and its outcome is judged once the baseline proves
-// green; the leg runs the same suite in the same workspace, so the mask it
-// derives is the mask the sequential schedule derives. A budget of one keeps
-// the sequential schedule: the overlap never runs more concurrent Terraform
-// children than the caller allowed.
+// The baseline scheduling and safety eligibility rules are documented in
+// docs/design/product-design.md#baseline.
 func runBaseline(
 	ctx context.Context,
 	runner tfexec.Runner,
