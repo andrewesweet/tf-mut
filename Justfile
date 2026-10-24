@@ -168,6 +168,10 @@ gate-m5:
 # Run fixed-seed Go/property/corpus tests and offline real-Terraform fixtures.
 test: _test-go _test-terraform
 
+# Exercise the automated patch-release decision (F1) over throwaway repositories.
+test-release-decision:
+    mise exec -- tests/release/next-patch-version.sh
+
 # Run the inner Go development loop; see docs/research/05-go-build-chain.md.
 test-fast:
     mkdir -p "{{ artifact_dir }}/test"

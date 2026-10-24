@@ -17,8 +17,10 @@ scripts/lint-fix
 scripts/lint-shell
 scripts/mod-check
 scripts/mutate-diff
+scripts/next-patch-version
 scripts/run-gremlins
 scripts/update-provider
 scripts/update-source-tools
 tests/agent/protect-hooks.sh
 tests/build-chain/terraform-offline.sh
+tests/release/next-patch-version.sh

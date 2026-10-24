@@ -1,0 +1,76 @@
+# A tag created with the default token does not trigger another workflow,
+# so this trigger calls release.yml directly after creating or reusing it.
+# Version, concurrency and retry policy: docs/research/05-go-build-chain.md,
+# "CI topology". release.yml remains the only publisher.
+name: release-on-merge
+on:
+  push:
+    branches: [master]
+permissions:
+  contents: read
+concurrency:
+  group: release-on-merge
+  cancel-in-progress: false
+env:
+  GOTOOLCHAIN: local
+  MISE_LOCKED: "1"
+  MISE_CONFIG_DIR: ${{ github.workspace }}/.artifacts/mise-config
+  MISE_CACHE_DIR: ${{ github.workspace }}/.artifacts/cache/mise
+jobs:
+  tag:
+    name: Tag the next patch release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # The release tag — this workflow's only write.
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The decision reads every release tag and the commit each names.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          version: 2026.10.7
+          install: true
+          cache: false
+      - name: Decide the next patch version
+        id: next
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if version=$(scripts/next-patch-version); then
+            printf 'version=%s\n' "$version" >>"$GITHUB_OUTPUT"
+          else
+            code=$?
+            if [[ $code -eq 2 ]]; then
+              echo "The tag at HEAD already has a published release; nothing to release."
+              exit 0
+            fi
+            exit "$code"
+          fi
+      - name: Create the release tag
+        if: steps.next.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! git show-ref --verify --quiet "refs/tags/$VERSION"; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f "ref=refs/tags/$VERSION" -f "sha=$GITHUB_SHA"
+          fi
+  release:
+    name: Run the release pipeline
+    needs: tag
+    if: needs.tag.outputs.version != ''
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.tag.outputs.version }}
+    permissions:
+      # The pipeline narrows this itself: its workflow-level declaration
+      # keeps every job but the publication at read, and only the publish
+      # job writes the release.
+      contents: write # Letting the called pipeline publish the release.

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+(
+  cd "$repo_root"
+  mkdir -p .artifacts/bin
+  mise exec -- go build -mod=readonly -o .artifacts/bin/buildchain ./internal/buildchain/cmd
+)
+exec "$repo_root/.artifacts/bin/buildchain" next-patch-version "$@"

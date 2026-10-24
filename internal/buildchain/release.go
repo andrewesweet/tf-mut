@@ -1,0 +1,125 @@
+package buildchain
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"math/big"
+	"os/exec"
+	"regexp"
+	"slices"
+	"strings"
+)
+
+const (
+	releasePreviousArgumentCount = 2
+	releaseVersionBase           = 10
+)
+
+var (
+	// ErrReleasePublished indicates that HEAD's selected tag already has a published release.
+	ErrReleasePublished = errors.New("HEAD already has a published release")
+	// ErrReleaseUsage indicates invalid arguments to the patch-version command.
+	ErrReleaseUsage          = errors.New("usage: next-patch-version [--prev version]")
+	errNoReleaseTag          = errors.New("no vMAJOR.MINOR.PATCH tag to succeed")
+	errNoPreviousRelease     = errors.New("no release tag precedes version")
+	errInvalidReleaseVersion = errors.New("not a vMAJOR.MINOR.PATCH version")
+	releaseVersionPattern    = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
+)
+
+type releaseVersion struct {
+	tag   string
+	parts [3]big.Int
+}
+
+// NextPatchVersion selects or verifies a patch version for the repository checkout.
+func NextPatchVersion(ctx context.Context, root string, args []string) (string, error) {
+	if len(args) != 0 && (len(args) != releasePreviousArgumentCount || args[0] != "--prev") {
+		return "", ErrReleaseUsage
+	}
+	if len(args) == releasePreviousArgumentCount && !releaseVersionPattern.MatchString(args[1]) {
+		return "", fmt.Errorf("%w: %s", errInvalidReleaseVersion, args[1])
+	}
+	tags, err := releaseCommand(ctx, root, "git", "tag", "--list", "v*")
+	if err != nil {
+		return "", err
+	}
+	versions := parseReleaseVersions(tags)
+	if len(args) == releasePreviousArgumentCount {
+		target := parseReleaseVersions(args[1])[0]
+		for _, version := range versions {
+			if compareReleaseVersions(version, target) < 0 {
+				return version.successor(ctx, root)
+			}
+		}
+		return "", fmt.Errorf("%w: %s", errNoPreviousRelease, args[1])
+	}
+	if len(versions) == 0 {
+		return "", errNoReleaseTag
+	}
+	headTags, err := releaseCommand(ctx, root, "git", "tag", "--points-at", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	if existing := parseReleaseVersions(headTags); len(existing) > 0 {
+		tag := existing[0].tag
+		published, lookupErr := releaseCommand(ctx, root, "gh", "api", "--paginate",
+			"repos/{owner}/{repo}/releases", "--jq", ".[] | select(.draft == false) | .tag_name")
+		if lookupErr != nil {
+			return "", lookupErr
+		}
+		if slices.Contains(strings.Fields(published), tag) {
+			return "", fmt.Errorf("%w: %s", ErrReleasePublished, tag)
+		}
+		return tag, nil
+	}
+	return versions[0].successor(ctx, root)
+}
+
+func parseReleaseVersions(tags string) []releaseVersion {
+	var versions []releaseVersion
+	for tag := range strings.FieldsSeq(tags) {
+		if !releaseVersionPattern.MatchString(tag) {
+			continue
+		}
+		version := releaseVersion{tag: tag}
+		for index, part := range strings.Split(tag[1:], ".") {
+			version.parts[index].SetString(part, releaseVersionBase)
+		}
+		versions = append(versions, version)
+	}
+	slices.SortFunc(versions, func(a, b releaseVersion) int {
+		return compareReleaseVersions(b, a)
+	})
+	return versions
+}
+
+func compareReleaseVersions(a, b releaseVersion) int {
+	for index := range a.parts {
+		if order := a.parts[index].Cmp(&b.parts[index]); order != 0 {
+			return order
+		}
+	}
+	return 0
+}
+
+func (version releaseVersion) successor(ctx context.Context, root string) (string, error) {
+	if _, err := releaseCommand(
+		ctx, root, "git", "merge-base", "--is-ancestor", version.tag+"^{commit}", "HEAD",
+	); err != nil {
+		return "", err
+	}
+	patch := new(big.Int).Add(&version.parts[2], big.NewInt(1))
+	return fmt.Sprintf("v%s.%s.%s", &version.parts[0], &version.parts[1], patch), nil
+}
+
+func releaseCommand(ctx context.Context, root, name string, args ...string) (string, error) {
+	//nolint:gosec // Callers select git or gh with fixed subcommands; release tags pass the numeric version pattern.
+	command := exec.CommandContext(ctx, name, args...)
+	command.Dir = root
+	output, err := command.Output()
+	if err != nil {
+		return "", fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}

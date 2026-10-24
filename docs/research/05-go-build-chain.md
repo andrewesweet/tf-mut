@@ -539,16 +539,44 @@ Recommended jobs:
 | Explicit/network | `just test-integration`, `just test-performance` on trusted push/manual events only |
 | Weekly update | `just tools-update`, `just providers-update`, `just deps-update`, then open a pull request |
 | Release (`v*` tag push) | The pull-request recipes, then `just package-test-release VERSION OUT_DIR` |
+| Release (merge to master) | `release-on-merge` calls the same release workflow; see the version and retry rules below |
 
 The [release workflow](../../.github/workflows/release.yml) calls `ci.yml` before packaging.
-The pushed tag must match the root [`VERSION`](../../VERSION) declaration. When changing that
-declaration, update the YAML example in [`ACTION.md`](../../ACTION.md) in the same change.
+Pushes to master request an automatic patch release through
+[release-on-merge](../../.github/workflows/release-on-merge.yml). Its Go build-chain helper,
+invoked by `scripts/next-patch-version`, increments the patch component of the greatest numeric
+`vMAJOR.MINOR.PATCH` tag. The workflow creates that tag through the API and calls the release
+workflow through `workflow_call`, because a tag created with the default token would not start
+a workflow on its own.
+
+The packaging version check has two branches. On a manual tag push, the tag must match the root
+[`VERSION`](../../VERSION) declaration. On an automated call, the same Go helper re-derives the
+immediate patch successor of the greatest numeric release tag below the supplied version; a
+version that skips one is refused. Both fresh version selection and automated verification
+require the predecessor tag's commit to be an ancestor of the checkout. This refuses an old,
+untagged rerun after a descendant has been tagged for release. Automated releases do not require
+or update the `VERSION` declaration.
+
+The merge workflow keeps `cancel-in-progress: false`. Its concurrency group retains one running
+and one pending run. A later merge supersedes a pending run, whose changes ship in the next
+merge's release. The pinned actionlint rejects `queue: max`, so the workflow uses this fallback.
+Each retained run computes its version from current tags. If HEAD already has a numeric release
+tag, selection reuses the greatest such tag without requiring a fresh successor. The workflow
+calls the release pipeline if that tag has no published release, skips if its release is already
+published, and fails if publication lookup fails. Neither path moves or deletes a tag.
+
+`just test-release-decision` executes the Go policy tests against temporary Git repositories,
+including both tagged rerun cases and the stale untagged rerun refusal. These tests also run in
+the ordinary Go suite. When changing the `VERSION` declaration, update the YAML example in
+[`ACTION.md`](../../ACTION.md) in the same change.
 `TestTheActionDocumentNamesTheDeclaredReleaseVersion` checks the active Action ref and version
 input against the declaration without querying Git tags.
 
 `package-test-release` stamps the supplied version into both binaries and normalises archive
-metadata. The publication job creates a GitHub release with the assets specified in
-[Distribution](../../ACTION.md#distribution). Only that job receives `contents: write`.
+metadata. The publication job creates a GitHub release with generated notes from merged pull
+requests and the assets specified in [Distribution](../../ACTION.md#distribution). Within the
+release workflow, only that job receives `contents: write`; the merge workflow's tag job also
+receives that permission to create the tag.
 After publication, separate jobs download the published assets to verify their checksums
 and compare the archives byte for byte against a fresh rebuild. Packaging and rebuilding
 install the locked tools without restoring toolchain caches.

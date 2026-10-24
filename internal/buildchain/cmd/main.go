@@ -17,10 +17,11 @@ const (
 	commandArgumentCount = 1
 	commandArgumentIndex = 0
 	failureExitCode      = 1
+	releaseSkipExitCode  = 2
 )
 
 var (
-	errCommandUsage   = errors.New("usage: buildchain verify-providers|sync-go-toolchains")
+	errCommandUsage   = errors.New("usage: buildchain verify-providers|sync-go-toolchains|next-patch-version")
 	errUnknownCommand = errors.New("unknown build-chain command")
 )
 
@@ -28,17 +29,33 @@ func main() {
 	err := run(context.Background(), os.Args[1:])
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
-		os.Exit(failureExitCode)
+		code := failureExitCode
+		if errors.Is(err, buildchain.ErrReleasePublished) || errors.Is(err, buildchain.ErrReleaseUsage) {
+			code = releaseSkipExitCode
+		}
+		os.Exit(code)
 	}
 }
 
 func run(ctx context.Context, args []string) error {
-	if len(args) != commandArgumentCount {
+	if len(args) == 0 {
 		return errCommandUsage
 	}
 	root, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("resolve repository root: %w", err)
+	}
+
+	if args[commandArgumentIndex] == "next-patch-version" {
+		version, versionErr := buildchain.NextPatchVersion(ctx, root, args[1:])
+		if versionErr != nil {
+			return versionErr
+		}
+		_, err = fmt.Fprintln(os.Stdout, version)
+		return err
+	}
+	if len(args) != commandArgumentCount {
+		return errCommandUsage
 	}
 
 	switch args[commandArgumentIndex] {
