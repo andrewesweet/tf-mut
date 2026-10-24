@@ -69,7 +69,8 @@ func prepare(
 	}
 
 	if err := runBaseline(ctx, runner, configuration, &prepared, collector,
-		settings.preflightCap(), settings.Jobs > 1); err != nil {
+		settings.preflightCap(), settings.Jobs > 1 &&
+			!settings.AllowRealInfrastructure && !settings.AllowUnsandboxedEffects); err != nil {
 		return warmWorkspace{}, err
 	}
 

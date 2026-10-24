@@ -48,16 +48,12 @@ func TestTheBaselineVolatilityLegRunsBesideTheBaselineWhenAJobSlotIsFree(t *test
 	volatility := phaseByName(t, overlapped.Telemetry, phaseBaselineFingerprintName)
 
 	baselineStart, baselineEnd := phaseWindow(t, baseline)
-	volatilityStart, _ := phaseWindow(t, volatility)
+	volatilityStart, volatilityEnd := phaseWindow(t, volatility)
 
-	if !volatilityStart.Before(baselineEnd) {
-		t.Fatalf("the volatility leg started %s, after the baseline leg ended %s; the legs did not overlap",
-			volatilityStart.UTC().Format(time.RFC3339Nano), baselineEnd.UTC().Format(time.RFC3339Nano))
-	}
-
-	if !baselineStart.Before(volatilityStart) {
-		t.Fatalf("the baseline leg started %s, after the volatility leg started %s",
-			baselineStart.UTC().Format(time.RFC3339Nano), volatilityStart.UTC().Format(time.RFC3339Nano))
+	if !volatilityStart.Before(baselineEnd) || !baselineStart.Before(volatilityEnd) {
+		t.Fatalf("baseline [%s, %s) and volatility [%s, %s) did not overlap",
+			baselineStart.UTC().Format(time.RFC3339Nano), baselineEnd.UTC().Format(time.RFC3339Nano),
+			volatilityStart.UTC().Format(time.RFC3339Nano), volatilityEnd.UTC().Format(time.RFC3339Nano))
 	}
 }
 
@@ -78,6 +74,44 @@ func TestASingleJobKeepsTheBaselineLegsSequential(t *testing.T) {
 	if volatilityStart.Before(baselineEnd) {
 		t.Fatalf("with one job the volatility leg started %s, before the baseline leg ended %s",
 			volatilityStart.UTC().Format(time.RFC3339Nano), baselineEnd.UTC().Format(time.RFC3339Nano))
+	}
+}
+
+func TestSafetyOptInsKeepTheBaselineLegsSequential(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name                    string
+		allowRealInfrastructure bool
+		allowUnsandboxedEffects bool
+	}{
+		{name: "real-infrastructure", allowRealInfrastructure: true},
+		{name: "unsandboxed-effects", allowUnsandboxedEffects: true},
+		{name: "both", allowRealInfrastructure: true, allowUnsandboxedEffects: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			config := baseConfig(t, copyFixture(t, "volatile"))
+			config.Jobs = 2
+			config.AllowRealInfrastructure = test.allowRealInfrastructure
+			config.AllowUnsandboxedEffects = test.allowUnsandboxedEffects
+
+			result, err := engine.Run(t.Context(), config)
+			if err != nil {
+				t.Fatalf("run with safety opt-ins: %v", err)
+			}
+
+			baseline := phaseByName(t, result.Telemetry, phaseBaselineTestName)
+			volatility := phaseByName(t, result.Telemetry, phaseBaselineFingerprintName)
+			_, baselineEnd := phaseWindow(t, baseline)
+			volatilityStart, _ := phaseWindow(t, volatility)
+
+			if !volatilityStart.After(baselineEnd) {
+				t.Fatalf("with safety opt-ins the volatility leg started %s, before the baseline leg ended %s",
+					volatilityStart.UTC().Format(time.RFC3339Nano), baselineEnd.UTC().Format(time.RFC3339Nano))
+			}
+		})
 	}
 }
 
