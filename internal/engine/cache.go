@@ -64,7 +64,13 @@ import (
 // version says so. A stored verdict was computed under the previous process
 // environment, so it replays as a miss and is re-executed, not trusted across
 // the change.
-const cacheFormatVersion = "tf-mut-cache-14"
+// The tf-mut-cache-15 bump follows the strip set growing past the git
+// location variables: session bookkeeping variables (shell, terminal, unit
+// and trace identifiers, plus tf-mut's own TF_MUT_* namespace) no longer
+// reach the child, so they no longer enter the key. A stored verdict was
+// computed under the wider child environment, so it replays as a miss and
+// is re-executed, not trusted across the change.
+const cacheFormatVersion = "tf-mut-cache-15"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 

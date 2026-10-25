@@ -32,16 +32,21 @@ var ErrNotExecuted = errors.New("terraform could not be executed")
 // non-zero exit carries no product meaning.
 var ErrCommandFailed = errors.New("terraform command failed")
 
-// gitLocationVariables pin git at one repository. Terraform shells out to git
-// to install remote modules, in directories of its own choosing, so inheriting
+// nonForwardedVariables never reach a Terraform child. The git location
+// variables pin git at one repository: Terraform shells out to git to
+// install remote modules, in directories of its own choosing, so inheriting
 // these turns a module download into "fatal: working tree ... already exists".
 // Anyone running the tool from a git hook exports them without knowing it.
-//
-// Only the location variables are removed: GIT_SSH_COMMAND, credential helpers
-// and the rest are how a private module source authenticates.
+// The session bookkeeping variables identify a shell, terminal, unit or trace
+// rather than configuring anything Terraform runs, so withholding them
+// cannot change a verdict — the M3 spec review C4 addendum (25 October 2026)
+// carries one line of evidence per name. Only the location variables are
+// removed from git's surface: GIT_SSH_COMMAND, credential helpers and the
+// rest are how a private module source authenticates.
 //
 //nolint:gochecknoglobals // an immutable lookup table.
-var gitLocationVariables = map[string]bool{
+var nonForwardedVariables = map[string]bool{
+	// Git location variables (pre-existing).
 	"GIT_DIR":                          true,
 	"GIT_WORK_TREE":                    true,
 	"GIT_INDEX_FILE":                   true,
@@ -50,7 +55,37 @@ var gitLocationVariables = map[string]bool{
 	"GIT_COMMON_DIR":                   true,
 	"GIT_NAMESPACE":                    true,
 	"GIT_PREFIX":                       true,
+	// Trace-context propagation.
+	"TRACEPARENT": true,
+	"TRACESTATE":  true,
+	// Shell bookkeeping.
+	"SHLVL":  true,
+	"OLDPWD": true,
+	"_":      true,
+	// Multiplexer and terminal identity.
+	"TMUX":                 true,
+	"TMUX_PANE":            true,
+	"TERM_PROGRAM":         true,
+	"TERM_PROGRAM_VERSION": true,
+	// systemd per-invocation identifiers.
+	"INVOCATION_ID":         true,
+	"SYSTEMD_EXEC_PID":      true,
+	"MEMORY_PRESSURE_WATCH": true,
+	"MEMORY_PRESSURE_WRITE": true,
+	"JOURNAL_STREAM":        true,
+	// SSH session identifiers.
+	"SSH_CLIENT":     true,
+	"SSH_CONNECTION": true,
+	"SSH_TTY":        true,
+	"XDG_SESSION_ID": true,
 }
+
+// nonForwardedPrefix is tf-mut's own namespace: the debug flag the CLI reads
+// for logging, and the markers tests address the child through — except
+// those travel as run additions, which stripping never touches. Nothing
+// Terraform, its providers or git reads lives under this prefix, so the
+// whole namespace stays out of the inherited environment and out of the key.
+const nonForwardedPrefix = "TF_MUT_"
 
 // Runner executes Terraform CLI commands.
 type Runner struct {
@@ -409,20 +444,31 @@ func ReapGroup(command *exec.Cmd) {
 }
 
 // inheritedEnvironment is the process environment minus the variables that
-// would redirect Terraform's git subprocesses at the caller's repository.
+// would redirect Terraform's git subprocesses at the caller's repository and
+// minus the session bookkeeping variables no verdict can depend on. The
+// run's own additions are appended later, unstripped: they are explicit
+// per-run input, and they enter the key beside the child.
 func inheritedEnvironment() []string {
-	environment := make([]string, 0, len(os.Environ()))
+	return stripNonForwarded(os.Environ())
+}
 
-	for _, entry := range os.Environ() {
+// stripNonForwarded withholds the non-forwarded variables — the table plus
+// tf-mut's own namespace — from an inherited environment. It is the one
+// stripping step: inheritedEnvironment applies it to the process environment,
+// and the cache key replays it over recorded environments.
+func stripNonForwarded(environment []string) []string {
+	stripped := make([]string, 0, len(environment))
+
+	for _, entry := range environment {
 		name, _, _ := strings.Cut(entry, "=")
-		if gitLocationVariables[name] {
+		if nonForwardedVariables[name] || strings.HasPrefix(name, nonForwardedPrefix) {
 			continue
 		}
 
-		environment = append(environment, entry)
+		stripped = append(stripped, entry)
 	}
 
-	return environment
+	return stripped
 }
 
 // The Terraform child defaults trade memory for CPU time. README.md's
@@ -451,7 +497,7 @@ const (
 	tfLogSDKVariable      = "TF_LOG_SDK"
 )
 
-//nolint:gochecknoglobals // an immutable table, like gitLocationVariables.
+//nolint:gochecknoglobals // an immutable table, like nonForwardedVariables.
 var performanceDefaults = []struct {
 	name  string
 	value string

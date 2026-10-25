@@ -850,7 +850,10 @@ verdicts from a project-local cache (`.tf-mut-cache/`, `0700`, atomic writes,
 corruption-as-miss, advisory locking, deterministic size-capped eviction) under a coarse key:
 the entire materialised source closure, all tests, the resolved configuration, the lock and
 module inventory with remote payloads, the child environment — the exact environment handed
-to Terraform, with non-forwarded variables stripped and performance defaults included —,
+to Terraform, with non-forwarded variables stripped and performance defaults included —
+(session bookkeeping variables — shell, terminal, unit and trace identifiers, plus
+tf-mut's own `TF_MUT_*` namespace — never reach the child, so they never enter the key;
+anything Terraform can read still misses),
 the Terraform identity, the cache version
 ([invalidation policy](../../internal/engine/cache.go)) and the masked baseline
 fingerprint — any doubt is a miss, and cache reads and writes are disabled under
