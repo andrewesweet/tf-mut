@@ -25,7 +25,7 @@ import (
 // provenance registry marks generated-and-unmodified. And each file carries
 // the digest of the input closure that made it green: sources, tests, JSON,
 // the lock, the automatically loaded variable files, the mock data, the
-// module inventory and the relevant environment. The commit step re-checks
+// module inventory and the keyed environment. The commit step re-checks
 // that digest and the target's absence immediately before each rename, so a
 // closure that changed while the scaffold was being verified yields zero
 // writes rather than a file that was green for a module that no longer exists.

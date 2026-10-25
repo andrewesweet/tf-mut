@@ -409,7 +409,7 @@ func hashHex(content []byte) string {
 	return hex.EncodeToString(digest[:])
 }
 
-// envComponent is the key-component kind the whole effective environment
+// envComponent is the key-component kind the keyed environment
 // hashes under. The manifest names it so a miss explanation can diff the
 // environment per variable.
 const envComponent = "env"

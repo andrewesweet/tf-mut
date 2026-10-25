@@ -17,16 +17,17 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/report"
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 	"github.com/andrewesweet/tf-mut/internal/testsupport"
+	"github.com/andrewesweet/tf-mut/internal/tfexec"
 )
 
 // M3b.2 (#48): the incremental cache — coarse before clever, safe as a disk
 // format. The key hashes the entire materialised source closure, all tests,
-// the resolved configuration, the lock and module inventory, the relevant
+// the resolved configuration, the lock and module inventory, the keyed
 // environment, the Terraform identity, the cache format version and the
 // masked baseline fingerprint; any doubt is a miss.
 
 // cachedRun executes one run with the given configuration. Tests that expect
-// a cache hit must reuse one configuration: the key includes the relevant
+// a cache hit must reuse one configuration: the key includes the keyed
 // environment, and the harness gives each configuration its own
 // TF_PLUGIN_CACHE_DIR.
 func cachedRun(t *testing.T, config engine.RunRequest) report.Report {
@@ -85,6 +86,10 @@ func TestASecondUnchangedRunIsAllCacheHits(t *testing.T) {
 	assertVerdictInvariance(t, first, second)
 }
 
+// TestCacheManifestStoresOnlyTheEnvironmentComponent pins the keyed
+// environment contract: the manifest carries exactly the child environment
+// the run handed Terraform — additions included, non-forwarded variables
+// stripped — and nothing else, with values as digests only.
 func TestCacheManifestStoresOnlyTheEnvironmentComponent(t *testing.T) {
 	t.Parallel()
 
@@ -95,7 +100,7 @@ func TestCacheManifestStoresOnlyTheEnvironmentComponent(t *testing.T) {
 	config.Env = append(config.Env, probeName+"="+probeValue)
 	cachedRun(t, config)
 
-	environment := append(os.Environ(), config.Env...)
+	environment := tfexec.ChildEnvironment(config.Env)
 	slices.Sort(environment)
 	environment = slices.Compact(environment)
 	digest := sha256.New()

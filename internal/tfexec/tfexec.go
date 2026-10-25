@@ -462,7 +462,7 @@ var performanceDefaults = []struct {
 }
 
 // childEnvironment assembles the environment a Terraform child runs under:
-// the inherited environment — already stripped of the git location
+// the inherited environment — already stripped of the non-forwarded
 // variables — then the performance defaults for managed variables the
 // caller has not set, then the run's own additions last, which win over
 // both. The inherited slice is not retained: the caller may pass one it
@@ -486,6 +486,16 @@ func childEnvironment(inherited, additions []string) []string {
 	}
 
 	return append(environment, additions...)
+}
+
+// ChildEnvironment returns the exact environment the runner hands a
+// Terraform child for the run's additions: the inherited environment with
+// the non-forwarded variables stripped, the performance defaults for
+// managed variables the caller has not set, and the run's own additions
+// last. The verdict cache keys this value, so the key and the child are one
+// computation and can no longer disagree.
+func ChildEnvironment(additions []string) []string {
+	return childEnvironment(inheritedEnvironment(), additions)
 }
 
 func combinedTail(result Result) string {

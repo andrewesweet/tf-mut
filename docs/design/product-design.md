@@ -849,8 +849,9 @@ undispatched mutant prevents population authority: see the
 verdicts from a project-local cache (`.tf-mut-cache/`, `0700`, atomic writes,
 corruption-as-miss, advisory locking, deterministic size-capped eviction) under a coarse key:
 the entire materialised source closure, all tests, the resolved configuration, the lock and
-module inventory with remote payloads, the whole process environment plus run-specific
-additions, the Terraform identity, the cache version
+module inventory with remote payloads, the child environment — the exact environment handed
+to Terraform, with non-forwarded variables stripped and performance defaults included —,
+the Terraform identity, the cache version
 ([invalidation policy](../../internal/engine/cache.go)) and the masked baseline
 fingerprint — any doubt is a miss, and cache reads and writes are disabled under
 `--allow-real-infrastructure` and `--allow-unsandboxed-effects`, whose external state cannot
@@ -868,7 +869,7 @@ across repositories, or restoring it through a broad CI cache key, is a document
 `--no-cache` is the mitigation. Finer graph-derived invalidation waits for a measurement
 proving the coarse key insufficient.
 
-Cached verdicts are reused only when the environment is the same. Each generation also
+Cached verdicts are reused only when the child environment is the same. Each generation also
 stores a manifest containing the environment digest and per-variable digests, never the
 environment values. A missing, invalid, nonregular or older-format manifest cannot explain
 a miss; it does not invalidate usable verdict entries.
