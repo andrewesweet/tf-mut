@@ -168,16 +168,21 @@ func TestChildEnvironmentAppendsTheRunAdditionsLast(t *testing.T) {
 func TestChildEnvironmentResolvesDuplicateNamesLastWins(t *testing.T) {
 	t.Parallel()
 
+	const (
+		probeFirst = "PROBE=first"
+		probeLast  = "PROBE=last"
+	)
+
 	for _, test := range []struct {
 		name      string
 		inherited []string
 		additions []string
 		want      string
 	}{
-		{"inherited", []string{"PROBE=first", "PROBE=last"}, nil, "PROBE=last"},
-		{"addition", []string{"PROBE=inherited"}, []string{"PROBE=first", "PROBE=last"}, "PROBE=last"},
+		{"inherited", []string{probeFirst, probeLast}, nil, probeLast},
+		{"addition", []string{"PROBE=inherited"}, []string{probeFirst, probeLast}, probeLast},
 		{"empty", []string{"PROBE=inherited"}, []string{"PROBE="}, "PROBE="},
-		{"equals", nil, []string{"PROBE=first", "PROBE=value=last"}, "PROBE=value=last"},
+		{"equals", nil, []string{probeFirst, "PROBE=value=last"}, "PROBE=value=last"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
