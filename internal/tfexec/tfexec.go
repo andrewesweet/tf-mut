@@ -44,7 +44,9 @@ var ErrCommandFailed = errors.New("terraform command failed")
 // removed from git's surface: GIT_SSH_COMMAND, credential helpers and the
 // rest are how a private module source authenticates.
 //
-//nolint:gochecknoglobals // an immutable lookup table.
+// here, the contract test re-states them as data.
+//
+//nolint:gochecknoglobals,goconst // an immutable lookup table; one literal per reviewed name
 var nonForwardedVariables = map[string]bool{
 	// Git location variables (pre-existing).
 	"GIT_DIR":                          true,
@@ -534,13 +536,13 @@ func childEnvironment(inherited, additions []string) []string {
 	return append(environment, additions...)
 }
 
-// ChildEnvironment returns the exact environment the runner hands a
+// KeyedEnvironment returns the exact environment the runner hands a
 // Terraform child for the run's additions: the inherited environment with
 // the non-forwarded variables stripped, the performance defaults for
 // managed variables the caller has not set, and the run's own additions
 // last. The verdict cache keys this value, so the key and the child are one
 // computation and can no longer disagree.
-func ChildEnvironment(additions []string) []string {
+func KeyedEnvironment(additions []string) []string {
 	return childEnvironment(inheritedEnvironment(), additions)
 }
 

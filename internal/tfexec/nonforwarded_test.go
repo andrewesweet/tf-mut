@@ -13,66 +13,76 @@ import (
 // the same computation — never hashes them. A stripped variable cannot cause
 // false reuse, because nothing that produces a verdict can read it.
 
-// strippedNames is every exact name the seam withholds from the child. The
-// M3 C4 addendum (25 October 2026) carries one line of evidence per name;
-// this list must match nonForwardedVariables exactly, and the test below
-// holds that.
-var strippedNames = []string{
-	// Git location variables (pre-existing).
-	"GIT_DIR",
-	"GIT_WORK_TREE",
-	"GIT_INDEX_FILE",
-	"GIT_OBJECT_DIRECTORY",
-	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
-	"GIT_COMMON_DIR",
-	"GIT_NAMESPACE",
-	"GIT_PREFIX",
-	// Trace-context propagation.
-	"TRACEPARENT",
-	"TRACESTATE",
-	// Shell bookkeeping.
-	"SHLVL",
-	"OLDPWD",
-	"_",
-	// Multiplexer and terminal identity.
-	"TMUX",
-	"TMUX_PANE",
-	"TERM_PROGRAM",
-	"TERM_PROGRAM_VERSION",
-	// systemd per-invocation identifiers.
-	"INVOCATION_ID",
-	"SYSTEMD_EXEC_PID",
-	"MEMORY_PRESSURE_WATCH",
-	"MEMORY_PRESSURE_WRITE",
-	"JOURNAL_STREAM",
-	// SSH session identifiers.
-	"SSH_CLIENT",
-	"SSH_CONNECTION",
-	"SSH_TTY",
-	"XDG_SESSION_ID",
+// reviewedStripSet is every exact name the seam withholds from the child.
+// The M3 C4 addendum (25 October 2026) carries one line of evidence per name;
+// the drift test below holds that this list and the seam's table agree.
+//
+// reads against the addendum without indirection.
+//
+//nolint:goconst // the want-list re-states the reviewed names literally so the drift test
+func reviewedStripSet() []string {
+	return []string{
+		// Git location variables (pre-existing).
+		"GIT_DIR",
+		"GIT_WORK_TREE",
+		"GIT_INDEX_FILE",
+		"GIT_OBJECT_DIRECTORY",
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+		"GIT_COMMON_DIR",
+		"GIT_NAMESPACE",
+		"GIT_PREFIX",
+		// Trace-context propagation.
+		"TRACEPARENT",
+		"TRACESTATE",
+		// Shell bookkeeping.
+		"SHLVL",
+		"OLDPWD",
+		"_",
+		// Multiplexer and terminal identity.
+		"TMUX",
+		"TMUX_PANE",
+		"TERM_PROGRAM",
+		"TERM_PROGRAM_VERSION",
+		// systemd per-invocation identifiers.
+		"INVOCATION_ID",
+		"SYSTEMD_EXEC_PID",
+		"MEMORY_PRESSURE_WATCH",
+		"MEMORY_PRESSURE_WRITE",
+		"JOURNAL_STREAM",
+		// SSH session identifiers.
+		"SSH_CLIENT",
+		"SSH_CONNECTION",
+		"SSH_TTY",
+		"XDG_SESSION_ID",
+	}
 }
 
 func TestTheStripSetMatchesTheReviewedList(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range strippedNames {
-		if !nonForwardedVariables[name] {
-			t.Fatalf("reviewed %s is forwarded; the table drifted from the addendum", name)
-		}
-	}
+	reviewed := reviewedStripSet()
+	slices.Sort(reviewed)
 
-	if len(nonForwardedVariables) != len(strippedNames) {
-		t.Fatalf("the seam strips %d names against %d reviewed",
-			len(nonForwardedVariables), len(strippedNames))
+	forwarded := make([]string, 0, len(nonForwardedVariables))
+	for name := range nonForwardedVariables {
+		forwarded = append(forwarded, name)
+	}
+	slices.Sort(forwarded)
+
+	if !slices.Equal(reviewed, forwarded) {
+		t.Fatalf("the seam strips %q against the reviewed %q", forwarded, reviewed)
 	}
 }
 
+// TestNonForwardedVariablesNeverReachTheChild drives the seam with a stub
+// child and asserts the reviewed names — and tf-mut's own namespace — never
+// reach it.
 func TestNonForwardedVariablesNeverReachTheChild(t *testing.T) {
-	for _, name := range strippedNames {
+	for _, name := range reviewedStripSet() {
 		unsetVariable(t, name)
 	}
 
-	for _, name := range strippedNames {
+	for _, name := range reviewedStripSet() {
 		t.Setenv(name, "session-value")
 	}
 
@@ -95,7 +105,7 @@ func TestNonForwardedVariablesNeverReachTheChild(t *testing.T) {
 
 	environment := childEnvironmentOf(t, environmentDumpingRunner(t))
 
-	for _, name := range strippedNames {
+	for _, name := range reviewedStripSet() {
 		if bashOwned[name] {
 			continue
 		}
@@ -113,6 +123,10 @@ func TestNonForwardedVariablesNeverReachTheChild(t *testing.T) {
 // TestForwardedVariablesStillReachTheChild pins the other half of the seam:
 // everything Terraform, its providers or git can read stays forwarded, so
 // keying the child still misses where it must.
+//
+// process environment, so t.Setenv forbids t.Parallel.
+//
+//nolint:goconst,paralleltest // forwarded values re-stated as data; the test mutates the
 func TestForwardedVariablesStillReachTheChild(t *testing.T) {
 	keep := map[string]string{
 		"PATH":                        "/usr/bin:/bin",
@@ -143,7 +157,8 @@ func TestForwardedVariablesStillReachTheChild(t *testing.T) {
 	// PWD survives stripping — only the three shell-owned names are asserted
 	// at the pure level, and PWD is the forwarded one of them — but a bash
 	// stub reports its own working directory however it was invoked.
-	if stripped := stripNonForwarded([]string{"PWD=/home/dev/tf-mut"}); !slices.Equal(stripped, []string{"PWD=/home/dev/tf-mut"}) {
+	want := []string{"PWD=/home/dev/tf-mut"}
+	if stripped := stripNonForwarded(want); !slices.Equal(stripped, want) {
 		t.Fatalf("stripping withholds PWD: %q", stripped)
 	}
 }
@@ -153,6 +168,8 @@ func TestForwardedVariablesStillReachTheChild(t *testing.T) {
 // provisioner tests address the child through TF_MUT_MARKER — and they enter
 // the key beside the child, so the two still agree.
 func TestRunAdditionsAreNeverStripped(t *testing.T) {
+	t.Parallel()
+
 	runner := environmentDumpingRunner(t)
 	runner.Env = []string{
 		"TF_MUT_MARKER=/tmp/marker",
@@ -180,6 +197,10 @@ type replayTransition struct {
 
 // replayBase is a representative session environment carrying every stripped
 // name and the forwarded names the MISS rows turn on.
+//
+// the credential pattern, and the values are session fixtures.
+//
+//nolint:gosec // PWD and OLDPWD trip the credential pattern; the values are session fixtures.
 func replayBase() map[string]string {
 	return map[string]string{
 		"PATH":                        "/usr/bin:/bin",
@@ -216,6 +237,13 @@ func replayBase() map[string]string {
 }
 
 func replayTransitions() []replayTransition {
+	return append(replayFixtureTransitions(), replaySuiteTransitions()...)
+}
+
+// replayFixtureTransitions replays the six fixture transitions (d-series).
+//
+//nolint:goconst // each transition re-states the recorded names it turns.
+func replayFixtureTransitions() []replayTransition {
 	return []replayTransition{
 		{
 			name: "agent to agent (d1-d2): TRACEPARENT only",
@@ -290,6 +318,12 @@ func replayTransitions() []replayTransition {
 			},
 			wantHit: false,
 		},
+	}
+}
+
+// replaySuiteTransitions replays the three suite transitions (U-series).
+func replaySuiteTransitions() []replayTransition {
+	return []replayTransition{
 		{
 			name: "agent to agent with debug (U1-U2): TF_MUT_DEBUG plus TRACEPARENT",
 			mutate: func(env map[string]string) {

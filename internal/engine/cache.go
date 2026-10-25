@@ -445,7 +445,7 @@ func resolvedConfiguration(settings settings) string {
 // so the non-forwarded variables tfexec strips stay out of the key by
 // construction, and the key and the child are one computation.
 func keyedEnvironment(settings settings) []string {
-	entries := tfexec.ChildEnvironment(settings.Env)
+	entries := tfexec.KeyedEnvironment(settings.Env)
 
 	slices.Sort(entries)
 

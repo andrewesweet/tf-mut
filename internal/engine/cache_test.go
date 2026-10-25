@@ -100,7 +100,7 @@ func TestCacheManifestStoresOnlyTheEnvironmentComponent(t *testing.T) {
 	config.Env = append(config.Env, probeName+"="+probeValue)
 	cachedRun(t, config)
 
-	environment := tfexec.ChildEnvironment(config.Env)
+	environment := tfexec.KeyedEnvironment(config.Env)
 	slices.Sort(environment)
 	environment = slices.Compact(environment)
 	digest := sha256.New()

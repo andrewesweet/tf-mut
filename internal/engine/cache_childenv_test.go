@@ -53,6 +53,8 @@ func TestAGitLocationVariableDoesNotChangeTheKey(t *testing.T) {
 // keyed environment — and the miss-explanation manifest derived from it —
 // carries all three names.
 func TestTheKeyedEnvironmentCarriesThePerformanceDefaults(t *testing.T) {
+	t.Parallel()
+
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
 	cachedRun(t, config)
@@ -145,6 +147,8 @@ func manifestKeys(manifest envManifest) []string {
 // restoring it when the test ends. The end-to-end tests read the real
 // process environment, so a variable the Go toolchain or the developer's
 // shell exported would otherwise make a removal unobservable.
+//
+//nolint:usetesting // t.Setenv would undo this restoration.
 func unsetProcessEnv(t *testing.T, name string) {
 	t.Helper()
 
@@ -170,6 +174,8 @@ func unsetProcessEnv(t *testing.T, name string) {
 // receives, with a value a verdict would react to if any process in the
 // Terraform tree could still see it: tracePropagation McCabe identifiers,
 // shell depths, multiplexer sockets, unit invocations, SSH endpoints.
+//
+//nolint:gosec // OLDPWD trips the credential pattern; the values are session fixtures.
 func strippedSweep() map[string]string {
 	return map[string]string{
 		"TRACEPARENT":           "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0b902b7-01",
@@ -198,6 +204,8 @@ func strippedSweep() map[string]string {
 // verdict could survive seeing, and the second run still replays every
 // verdict byte-identical. A hit whose verdict differed would be a false reuse
 // (M4 M5); this test counts them at zero.
+//
+//nolint:paralleltest // mutates the test process's environment; t.Setenv forbids t.Parallel.
 func TestEveryStrippedVariableTogetherCannotChangeTheVerdict(t *testing.T) {
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -320,7 +328,6 @@ func TestATfVarSetInOneSessionAndAbsentInTheNextStillMisses(t *testing.T) {
 		t.Fatalf("the miss names removed %q, which omits %q",
 			second.CacheMiss.Removed, probeName)
 	}
-
 }
 
 // TestAMixedTransitionMissesButNamesOnlyForwardedNames: a transition that
