@@ -128,8 +128,9 @@ factor), `TestTheMockMaskedRefutationHolds` (the withdrawal's evidence), publish
   fixture's content digest.
 - **Corrections from the adversarial re-review** (round two, recorded on the same issues):
   unmodelled module wiring — remote calls, unresolvable module references, whole-object
-  module reads — is unbounded or wired, never silently dropped; the cache keys the whole
-  effective environment, no allowlist; the second-binary identity fixture verifies its
+  module reads — is unbounded or wired, never silently dropped; the cache environment
+  policy is superseded by [ADR-0006](../adr/0006-child-environment-cache-key.md);
+  the second-binary identity fixture verifies its
   download against the pinned HashiCorp checksum before anything executes; the variables-file
   fixtures joined the Terraform format manifest and format discovery covers `.tfvars`; the
   JUnit validator implements the used dialect in full — well-formedness, sequence order,

@@ -100,8 +100,9 @@ The rationale for these boundaries is recorded in
 [ADR-0001](docs/adr/0001-package-group-contexts-and-lint-enforced-dependencies.md),
 [ADR-0002](docs/adr/0002-closed-constructors-and-report-projection.md),
 [ADR-0003](docs/adr/0003-synchronous-immutable-result-facts.md) (superseded),
-[ADR-0004](docs/adr/0004-expression-boundary-and-atomic-replacement.md), and
-[ADR-0005](docs/adr/0005-in-process-domain-event-dispatch.md).
+[ADR-0004](docs/adr/0004-expression-boundary-and-atomic-replacement.md),
+[ADR-0005](docs/adr/0005-in-process-domain-event-dispatch.md), and
+[ADR-0006](docs/adr/0006-child-environment-cache-key.md).
 
 ## Glossary
 
@@ -217,6 +218,14 @@ declared by `internal/report`; they are not invitations to add aliases.
 - **Materialisation:** creation of a sandbox with fresh inodes for Terraform.
 - **Result translation:** conversion of Terraform process output and diagnostics at
   the boundary.
+- **Child environment:** the exact environment tf-mut hands a Terraform process. See
+  [ADR-0006](docs/adr/0006-child-environment-cache-key.md#decision) for its assembly contract.
+- **Non-forwarded variable:** an inherited variable tf-mut withholds from Terraform.
+  Explicit run additions remain forwarded and keyed, even for these names.
+- **Session bookkeeping variable:** a non-forwarded variable whose value identifies a
+  shell, terminal, unit or trace rather than configuring anything Terraform runs.
+- **Keyed environment:** the child environment as it enters the verdict-cache key and the
+  input-closure digest. It is identical to the child environment by construction.
 
 ### Publication
 

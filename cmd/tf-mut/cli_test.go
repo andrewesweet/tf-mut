@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -77,16 +78,18 @@ func TestAnAuthorityRefusalPrintsTheTripAndFirstFailure(t *testing.T) {
 
 	directory := t.TempDir()
 	path := filepath.Join(directory, "terraform")
-	script := `#!/usr/bin/env bash
+	// The stub addresses the real binary by embedded path, not by environment:
+	// the child never inherits tf-mut's own TF_MUT_* namespace, so a variable
+	// the stub read from its environment would arrive empty.
+	script := fmt.Sprintf(`#!/usr/bin/env bash
 if [ "$2" = "test" ] || [ "$2" = "validate" ]; then
   case "$1" in
     */m[0-9][0-9][0-9][0-9]-*) exit 137 ;;
   esac
 fi
-exec "$TF_MUT_REAL_TERRAFORM" "$@"
-`
+exec %q "$@"
+`, realTerraform)
 	testsupport.WriteExecutable(t, path, script)
-	t.Setenv("TF_MUT_REAL_TERRAFORM", realTerraform)
 	t.Setenv("PATH", directory+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	for _, scenario := range []struct {

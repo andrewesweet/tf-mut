@@ -37,3 +37,72 @@ instead of the working tree (C5), the block instead of the finding (C8). The rep
 same every time: state what is being proven, about which artefact, and fail closed where the
 mapping is missing. That sentence is now the checklist question for any future shortcut:
 *which program is this evaluated against, and what happens where the mapping fails?*
+
+## Addendum — 25 October 2026, child-environment cache key
+
+Measurement (the child-environment design review at
+`/home/andre/tools/firstmate/data/tfmut-cache-key-design/report.md`,
+recorded here because it amends a disposition, not because the report is a project document)
+showed the C4 environment clause missing on every agent tool call and every systemd unit:
+three cross-session runs missed on 315 of 315 mutants each, and the only names that changed
+between agent calls were `TRACEPARENT`, `OLDPWD` and `TF_MUT_DEBUG`. The clause below is
+**amended**; the rest of C4 stands unchanged.
+
+Superseded, exactly: the environment clause of the C4 disposition above — "hash of the
+entire materialised source closure, all tests, resolved configuration, lock and module
+inventory, relevant environment, Terraform identity, oracle/cache format version, and the
+masked baseline fingerprint" — and its round-two restatement that "the cache keys the whole
+effective environment, no allowlist"
+(`docs/research/10-m3-exit-gate.md:131-132`). Kept: "any doubt is a miss".
+
+The amended rule: the key hashes the **child environment** — the exact environment tf-mut
+hands a Terraform process — computed once at the `tfexec` seam
+(`internal/tfexec/tfexec.go:470`, assigned at `internal/tfexec/stream.go:41`), together with
+tf-mut's own verdict-relevant in-process reads. Those reads are `TF_VAR_*`
+(`internal/discovery/multiplicity.go:492`, `internal/discovery/suitesupplied.go:113`) and
+`TF_CLI_ARGS_test` (`internal/discovery/suitesupplied.go:129`): both are forwarded into the
+child, so keying the child keys them, and neither may ever enter the strip set. `--since`'s
+git environment (`internal/engine/since.go:565`) selects mutants but judges none, and the
+OTLP endpoint (`internal/tracing/tracing.go:105`) changes no verdict; both stay keyed by
+over-inclusion, which costs only misses. `TF_MUT_DEBUG` is read only by the CLI for logging
+(`cmd/tf-mut/main.go:709`) and must not be a miss.
+
+A variable the key leaves out is a variable no Terraform process, provider or git subprocess
+ever receives, so a hit cannot replay a verdict a change in that variable would alter. The
+risk moves from silent to operational: a provider or git needing a stripped name fails
+visibly through the baseline gate, never as a stale verdict.
+
+Reviewed strip set, one line of evidence per name (grades: **Direct** = measured or read here
+or in the cited review; **Supported** = same-family inference from a Direct read; every name
+also has zero reads in tf-mut's non-test code, verified by grep on master at amendment time):
+
+| Name(s) | Evidence |
+| --- | --- |
+| `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_COMMON_DIR`, `GIT_NAMESPACE`, `GIT_PREFIX` | Pre-existing: an inherited location variable turns a remote-module download into "fatal: working tree already exists" (`internal/tfexec/tfexec.go:35-43`). **Direct.** |
+| `TRACEPARENT` | Terraform v1.15.8 ignores an inherited one: a local OTLP receiver accepted 6 `/v1/traces` posts whose trace IDs never contain the inherited value, and the binary holds no `TRACEPARENT` literal. **Direct.** |
+| `TRACESTATE` | W3C companion of `TRACEPARENT`, meaningless without it; Terraform propagates no trace context once `TRACEPARENT` is not propagated. **Supported.** |
+| `SHLVL`, `OLDPWD`, `_` | Shell bookkeeping (nesting depth, previous directory, last-command path); no non-test `Getenv`/`LookupEnv` in Terraform v1.15.8 core. **Direct** (source read in the design review). |
+| `TMUX`, `TMUX_PANE` | Multiplexer socket identity; `TMUX` covered by the same source read, `TMUX_PANE` its per-pane companion. **Direct** / **Supported.** |
+| `TERM_PROGRAM`, `TERM_PROGRAM_VERSION` | Terminal emulator identity; `TERM_PROGRAM` covered by the same source read, the version its companion. **Direct** / **Supported.** |
+| `INVOCATION_ID`, `SYSTEMD_EXEC_PID` | systemd per-invocation identifiers; covered by the same source read. **Direct.** |
+| `MEMORY_PRESSURE_WATCH`, `MEMORY_PRESSURE_WRITE` | cgroup pressure notification sockets; `MEMORY_PRESSURE_WATCH` covered by the same source read, the write end its companion. **Direct** / **Supported.** |
+| `JOURNAL_STREAM` | Journal stream identifier, same per-invocation family as the systemd names above. **Supported.** |
+| `SSH_CLIENT`, `SSH_CONNECTION`, `SSH_TTY` | SSH session identifiers; covered by the same source read. **Direct.** |
+| `XDG_SESSION_ID` | Login session identifier; covered by the same source read. **Direct.** |
+| `TF_MUT_*` | tf-mut's own namespace: `TF_MUT_DEBUG` is CLI logging only; test markers travel via run additions, which stay forwarded. **Direct** (code read). |
+
+Deliberately forwarded and keyed: `PATH` and `SSH_AUTH_SOCK` (they locate and authenticate
+subprocesses; standing rule 5 keeps those), `TERM`, `COLORTERM` and `PWD` (no measured hit
+depends on them), and every `TF_*` name outside `TF_MUT_*` — above all `TF_VAR_*`, whose
+demonstrated false reuse (`TF_VAR_strict=false` turning 3 Killed into 3 Survived) rejects any
+exclusion by example.
+
+Rejected alongside: a key-side denylist (key and child disagree by design), a reader
+allowlist (unbounded third-party provider reads), and a user-declared ignore list (one wrong
+entry replays wrong Killed verdicts). The 32-name miss-explanation cap
+(`internal/report/report.go:353`) is untouched and noted as a follow-up.
+
+Acceptance carries the M4 spec review M5 rule: every recorded transition replayed against
+the new key with a published false-reuse count of 0, an engine-seam test proving a stripped
+variable cannot change a verdict, an engine-seam test proving `TF_VAR_*` set-then-absent
+still misses, and the miss explanation still naming forwarded names.

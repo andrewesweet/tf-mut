@@ -23,7 +23,7 @@ import (
 // M3b.2 (#48): the incremental cache — coarse before clever, per the C4
 // disposition: the key is a hash of the entire materialised source closure,
 // all tests, the resolved configuration, the lock and module inventory with
-// remote payloads included, the relevant environment, the Terraform identity,
+// remote payloads included, the keyed environment, the Terraform identity,
 // the cache format version and the masked baseline fingerprint. Any doubt is
 // a miss. Source ranges and metadata are rehydrated from the current tree,
 // never trusted from cache; only the verdict travels.
@@ -58,7 +58,19 @@ import (
 // Fail-fast entries preserve the truncation flag alongside their run records.
 // The current format rejects observations whose truncation flag counted
 // executed runs rather than all terminal records, including skips.
-const cacheFormatVersion = "tf-mut-cache-13"
+// The tf-mut-cache-14 bump follows the key moving onto the child environment:
+// the git location variables no longer over-include, and the performance
+// defaults are covered because the child carries them, not because the format
+// version says so. A stored verdict was computed under the previous process
+// environment, so it replays as a miss and is re-executed, not trusted across
+// the change.
+// The tf-mut-cache-15 bump follows the strip set growing past the git
+// location variables: session bookkeeping variables (shell, terminal, unit
+// and trace identifiers, plus tf-mut's own TF_MUT_* namespace) no longer
+// reach the child, so they no longer enter the key. A stored verdict was
+// computed under the wider child environment, so it replays as a miss and
+// is re-executed, not trusted across the change.
+const cacheFormatVersion = "tf-mut-cache-15"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
@@ -135,7 +147,7 @@ func openCache(
 	return &verdictCache{store: verdicts, key: key, manifest: manifest}
 }
 
-// envComponent is the key-component kind the whole effective environment
+// envComponent is the key-component kind the keyed environment
 // hashes under. The miss explanation diffs it per variable, even when other
 // components also differ.
 const envComponent = "env"
@@ -227,20 +239,14 @@ func sortedComponentKinds(components map[string]hash.Hash) []string {
 	return kinds
 }
 
-// envDigestMap reduces the whole effective environment to a map of variable
-// name to the hash of its sorted value set, including the process's values
-// and the run's additions. A single value keeps its original digest.
+// envDigestMap reduces the keyed environment to a map of variable
+// name to the hash of its effective value.
 func envDigestMap(settings settings) map[string]string {
-	values := map[string][]string{}
 	digests := map[string]string{}
 
-	for _, entry := range relevantEnvironment(settings) {
+	for _, entry := range keyedEnvironment(settings) {
 		name, value, _ := strings.Cut(entry, "=")
-		values[name] = append(values[name], value)
-	}
-
-	for name, entries := range values {
-		sum := sha256.Sum256([]byte(strings.Join(entries, "\x00")))
+		sum := sha256.Sum256([]byte(value))
 		digests[name] = hex.EncodeToString(sum[:])
 	}
 
@@ -404,8 +410,8 @@ func writeClosure(
 		return err
 	}
 
-	// See relevantEnvironment for the environment included in the key.
-	for _, entry := range relevantEnvironment(settings) {
+	// See keyedEnvironment for the environment included in the key.
+	for _, entry := range keyedEnvironment(settings) {
 		write(envComponent, "", entry)
 	}
 
@@ -425,16 +431,19 @@ func resolvedConfiguration(settings settings) string {
 		settings.Packs, settings.mode == curateMode)
 }
 
-// relevantEnvironment is the whole effective environment — the process's
-// plus the run's additions, sorted. Any provider can read any variable, so
-// no allowlist can be sound (re-review of #48): "any doubt is a miss" makes
-// the whole environment the key, and over-inclusion costs only misses.
-func relevantEnvironment(settings settings) []string {
-	entries := append(append([]string{}, os.Environ()...), settings.Env...)
+// keyedEnvironment is the child environment — the exact environment the
+// Terraform child runs under — sorted. Any provider can read any forwarded
+// variable, so no allowlist can be sound (re-review of #48): "any doubt is a
+// miss" keeps every forwarded variable in the key, and over-inclusion costs
+// only misses. A variable the child never receives cannot change a verdict,
+// so the non-forwarded variables tfexec strips stay out of the key by
+// construction, and the key and the child are one computation.
+func keyedEnvironment(settings settings) []string {
+	entries := tfexec.KeyedEnvironment(settings.Env)
 
 	slices.Sort(entries)
 
-	return slices.Compact(entries)
+	return entries
 }
 
 // hashAutoVarFiles hashes terraform.tfvars and every *.auto.tfvars — HCL and
