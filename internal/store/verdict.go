@@ -54,7 +54,7 @@ type CacheEntry struct {
 }
 
 // CacheManifest is one generation's key beside its environment digest and
-// the environment as a map of variable name to the hash of its value set.
+// the environment as a map of variable name to the hash of its effective value.
 // Values never reach this document — neither
 // the whole-environment lines the key hashes, nor any single value — so a
 // reader learns which names differ and nothing else.
@@ -63,7 +63,7 @@ type CacheManifest struct {
 	RunKey        string `json:"run_key"`
 	// Components carries only the environment component's hex digest.
 	Components map[string]string `json:"components"`
-	// Env maps each environment variable name to the hex digest of its value set.
+	// Env maps each environment variable name to the hex digest of its effective value.
 	Env map[string]string `json:"env"`
 }
 

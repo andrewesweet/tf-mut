@@ -156,12 +156,59 @@ func TestChildEnvironmentAppendsTheRunAdditionsLast(t *testing.T) {
 	environment := childEnvironment([]string{inheritedPath}, []string{additionGOGC})
 
 	got := entriesNamed(environment, contractGOGC)
-	if !slices.Equal(got, []string{"GOGC=400", additionGOGC}) {
-		t.Fatalf("child GOGC entries = %q, want the default then the addition in order", got)
+	if !slices.Equal(got, []string{additionGOGC}) {
+		t.Fatalf("child GOGC entries = %q, want only the addition", got)
 	}
 
 	if last := environment[len(environment)-1]; last != additionGOGC {
 		t.Fatalf("last child entry = %q, want the run's addition last", last)
+	}
+}
+
+func TestChildEnvironmentResolvesDuplicateNamesLastWins(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		inherited []string
+		additions []string
+		want      string
+	}{
+		{"inherited", []string{"PROBE=first", "PROBE=last"}, nil, "PROBE=last"},
+		{"addition", []string{"PROBE=inherited"}, []string{"PROBE=first", "PROBE=last"}, "PROBE=last"},
+		{"empty", []string{"PROBE=inherited"}, []string{"PROBE="}, "PROBE="},
+		{"equals", nil, []string{"PROBE=first", "PROBE=value=last"}, "PROBE=value=last"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			inherited := slices.Clone(test.inherited)
+			additions := slices.Clone(test.additions)
+			environment := childEnvironment(inherited, additions)
+			if got := entriesNamed(environment, "PROBE"); !slices.Equal(got, []string{test.want}) {
+				t.Fatalf("child PROBE entries = %q, want [%s]", got, test.want)
+			}
+
+			if !slices.Equal(inherited, test.inherited) || !slices.Equal(additions, test.additions) {
+				t.Fatal("child assembly modified its inputs")
+			}
+		})
+	}
+}
+
+func TestKeyedEnvironmentAndChildUseOnlyTheFinalValue(t *testing.T) {
+	for _, name := range append(slices.Clone(managedVariables), "TFMUT_CACHE_PROBE") {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "100")
+			runner := environmentDumpingRunner(t)
+			runner.Env = []string{name + "=200", name + "="}
+
+			if got := entriesNamed(KeyedEnvironment(runner.Env), name); !slices.Equal(got, []string{name + "="}) {
+				t.Fatalf("keyed %s entries = %q, want only the empty override", name, got)
+			}
+
+			assertSingleEntry(t, childEnvironmentOf(t, runner), name, "")
+		})
 	}
 }
 

@@ -850,7 +850,8 @@ verdicts from a project-local cache (`.tf-mut-cache/`, `0700`, atomic writes,
 corruption-as-miss, advisory locking, deterministic size-capped eviction) under a coarse key:
 the entire materialised source closure, all tests, the resolved configuration, the lock and
 module inventory with remote payloads, the child environment — the exact environment handed
-to Terraform, with non-forwarded variables stripped and performance defaults included —
+to Terraform, with non-forwarded variables stripped, performance defaults included and
+duplicate names resolved to their last value —
 (session bookkeeping variables — shell, terminal, unit and trace identifiers, plus
 tf-mut's own `TF_MUT_*` namespace — never reach the child, so they never enter the key;
 anything Terraform can read still misses),
@@ -859,7 +860,9 @@ the Terraform identity, the cache version
 fingerprint — any doubt is a miss, and cache reads and writes are disabled under
 `--allow-real-infrastructure` and `--allow-unsandboxed-effects`, whose external state cannot
 be keyed soundly. The [replay note](../research/25-child-environment-cache-key.md) publishes
-the method, inputs and per-transition results behind the key, with a false-reuse count of 0.
+the method, inputs and per-transition results behind the key. Cached HIT verdicts match
+independent `--no-cache` execution under each second environment on the offline fixture,
+with a false-reuse count of 0; other modules and providers are not measured by that replay.
 
 Each entry stores the oracle's own record, including its full delta, alongside the run
 observations. Replay rebuilds the outcome through `oracle.ParseRecord` and uses the same

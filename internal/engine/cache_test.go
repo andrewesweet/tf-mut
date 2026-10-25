@@ -97,12 +97,11 @@ func TestCacheManifestStoresOnlyTheEnvironmentComponent(t *testing.T) {
 	config := baseConfig(t, module)
 	const probeName = "TFMUT_CACHE_PROBE"
 	const probeValue = "probe-value-6f913a2b"
-	config.Env = append(config.Env, probeName+"="+probeValue)
+	config.Env = append(config.Env, probeName+"=shadowed", probeName+"="+probeValue)
 	cachedRun(t, config)
 
 	environment := tfexec.KeyedEnvironment(config.Env)
 	slices.Sort(environment)
-	environment = slices.Compact(environment)
 	digest := sha256.New()
 	for _, entry := range environment {
 		_, _ = fmt.Fprintf(digest, "env\x00\x00%s\x00", entry)

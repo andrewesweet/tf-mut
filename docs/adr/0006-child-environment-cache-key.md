@@ -15,7 +15,8 @@ in-process reads.
 The child environment is the exact environment a Terraform process runs under:
 the inherited environment minus the non-forwarded variables, plus the
 performance defaults for managed variables the caller has not set, plus the
-run's own additions last (`internal/tfexec/tfexec.go`). The runner hands it to
+run's own additions last, resolving duplicate names to their last value
+(`internal/tfexec/tfexec.go`). The runner hands it to
 the child, and the engine hashes it into the verdict key and the miss
 manifest — one computation, so the key and the child can no longer disagree.
 
@@ -66,4 +67,7 @@ design review, whose replay tables the implementation replays in
 `internal/engine/cache_childenv_test.go`, with the method, inputs and
 per-transition results published in
 [`docs/research/25-child-environment-cache-key.md`](../research/25-child-environment-cache-key.md):
-every recorded transition replays with a published false-reuse count of 0.
+every recorded key decision agrees with the review. Each HIT compares the
+cached verdicts with an independent `NoCache` execution under the second
+environment, with a published false-reuse count of 0 on the offline fixture.
+These comparisons do not establish invariance for other modules or providers.

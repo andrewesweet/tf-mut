@@ -533,7 +533,24 @@ func childEnvironment(inherited, additions []string) []string {
 		environment = append(environment, managed.name+"="+managed.value)
 	}
 
-	return append(environment, additions...)
+	environment = append(environment, additions...)
+	resolved := make([]string, 0, len(environment))
+	clear(set)
+
+	for index := len(environment) - 1; index >= 0; index-- {
+		entry := environment[index]
+		name, _, _ := strings.Cut(entry, "=")
+		if set[name] {
+			continue
+		}
+
+		set[name] = true
+		resolved = append(resolved, entry)
+	}
+
+	slices.Reverse(resolved)
+
+	return resolved
 }
 
 // KeyedEnvironment returns the exact environment the runner hands a

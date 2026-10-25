@@ -10,6 +10,7 @@ import (
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
+	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
 // Commit 1 of the child-environment key: the key hashes exactly the
@@ -45,6 +46,7 @@ func TestAGitLocationVariableDoesNotChangeTheKey(t *testing.T) {
 	}
 
 	assertVerdictInvariance(t, first, second)
+	assertReplayMatchesFreshRun(t, config, second)
 }
 
 // TestTheKeyedEnvironmentCarriesThePerformanceDefaults pins the complete
@@ -88,6 +90,8 @@ func TestAStrippedVariableStaysOutOfTheMissExplanation(t *testing.T) {
 	if second.Population.Cached == 0 {
 		t.Fatal("a stripped-only transition missed; the case is vacuous")
 	}
+
+	assertReplayMatchesFreshRun(t, config, second)
 
 	if second.CacheMiss != nil {
 		t.Fatalf("a hit carries a miss explanation: %+v", second.CacheMiss)
@@ -200,10 +204,9 @@ func strippedSweep() map[string]string {
 }
 
 // TestEveryStrippedVariableTogetherCannotChangeTheVerdict is the false-reuse
-// proof: every session bookkeeping variable changed at once, to values no
-// verdict could survive seeing, and the second run still replays every
-// verdict byte-identical. A hit whose verdict differed would be a false reuse
-// (M4 M5); this test counts them at zero.
+// proof: every session bookkeeping variable changes at once, and cached
+// verdicts must match an independent NoCache run under the changed environment
+// (M4 M5).
 //
 //nolint:paralleltest // mutates the test process's environment; t.Setenv forbids t.Parallel.
 func TestEveryStrippedVariableTogetherCannotChangeTheVerdict(t *testing.T) {
@@ -234,6 +237,7 @@ func TestEveryStrippedVariableTogetherCannotChangeTheVerdict(t *testing.T) {
 	}
 
 	assertVerdictInvariance(t, first, second)
+	assertReplayMatchesFreshRun(t, config, second)
 }
 
 // TestSystemdToSystemdIdentifiersCannotChangeTheVerdict replays the recorded
@@ -259,6 +263,7 @@ func TestSystemdToSystemdIdentifiersCannotChangeTheVerdict(t *testing.T) {
 	}
 
 	assertVerdictInvariance(t, first, second)
+	assertReplayMatchesFreshRun(t, config, second)
 }
 
 // TestDebugLoggingDoesNotCostTheCache replays U1 to U2: enabling tf-mut's
@@ -284,6 +289,7 @@ func TestDebugLoggingDoesNotCostTheCache(t *testing.T) {
 	}
 
 	assertVerdictInvariance(t, first, second)
+	assertReplayMatchesFreshRun(t, config, second)
 }
 
 // TestATfVarSetInOneSessionAndAbsentInTheNextStillMisses: TF_VAR_* is the
@@ -370,5 +376,89 @@ func TestAMixedTransitionMissesButNamesOnlyForwardedNames(t *testing.T) {
 	if !slices.Contains(second.CacheMiss.Added, probeName) {
 		t.Fatalf("the miss names added %q, which omits %q",
 			second.CacheMiss.Added, probeName)
+	}
+}
+
+func assertReplayMatchesFreshRun(t *testing.T, config engine.RunRequest, replay report.Report) {
+	t.Helper()
+
+	config.NoCache = true
+	fresh := cachedRun(t, config)
+	if fresh.Population.Cached != 0 || fresh.Population.Fresh == 0 {
+		t.Fatalf("the independent run did not execute mutants: %+v", fresh.Population)
+	}
+
+	if len(fresh.Mutants) != len(replay.Mutants) {
+		t.Fatalf("fresh population has %d mutants, replay has %d", len(fresh.Mutants), len(replay.Mutants))
+	}
+
+	for _, mutant := range replay.Mutants {
+		if !slices.ContainsFunc(fresh.Mutants, func(candidate report.Mutant) bool { return candidate.ID == mutant.ID }) {
+			t.Fatalf("replayed mutant %s has no independent fresh verdict", mutant.ID)
+		}
+	}
+
+	assertVerdictInvariance(t, fresh, replay)
+}
+
+func TestAgentBookkeepingTransitionsMatchFreshVerdicts(t *testing.T) {
+	for _, changeOldpwd := range []bool{false, true} {
+		name := "trace-only"
+		if changeOldpwd {
+			name = "trace-and-oldpwd"
+		}
+
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("TRACEPARENT", "00-11111111111111111111111111111111-1111111111111111-01")
+			t.Setenv("OLDPWD", "/session/before")
+			config := baseConfig(t, copyFixture(t, "all-killed"))
+			cachedRun(t, config)
+
+			t.Setenv("TRACEPARENT", "00-22222222222222222222222222222222-2222222222222222-01")
+			if changeOldpwd {
+				t.Setenv("OLDPWD", "/session/after")
+			}
+
+			replay := cachedRun(t, config)
+			if replay.Population.Cached == 0 || replay.Population.Fresh != 0 {
+				t.Fatalf("changing agent bookkeeping missed: %+v", replay.Population)
+			}
+
+			assertReplayMatchesFreshRun(t, config, replay)
+		})
+	}
+}
+
+func TestCacheKeysTheLastEnvironmentValue(t *testing.T) {
+	for _, scenario := range []string{"default-and-inherited", "reordered-additions"} {
+		t.Run(scenario, func(t *testing.T) {
+			const name = "TF_LOG_SDK"
+			unsetProcessEnv(t, name)
+			config := baseConfig(t, copyFixture(t, "all-killed"))
+			index := len(config.Env)
+			if scenario == "reordered-additions" {
+				config.Env = append(config.Env, name+"=off")
+			}
+			config.Env = append(config.Env, name+"=trace")
+			cachedRun(t, config)
+
+			if scenario == "default-and-inherited" {
+				t.Setenv(name, "trace")
+			} else {
+				config.Env[index] = name + "=trace"
+				index++
+			}
+			config.Env[index] = name + "=off"
+
+			changed := cachedRun(t, config)
+			if changed.Population.Cached != 0 || changed.Population.Fresh == 0 {
+				t.Fatalf("different final values reused cached verdicts: %+v", changed.Population)
+			}
+			if changed.CacheMiss == nil || !slices.Contains(changed.CacheMiss.Changed, name) {
+				t.Fatalf("the miss does not name the changed final value: %+v", changed.CacheMiss)
+			}
+
+			assertReplayMatchesFreshRun(t, config, changed)
+		})
 	}
 }

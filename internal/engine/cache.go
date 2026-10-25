@@ -240,19 +240,13 @@ func sortedComponentKinds(components map[string]hash.Hash) []string {
 }
 
 // envDigestMap reduces the keyed environment to a map of variable
-// name to the hash of its sorted value set, including the process's values
-// and the run's additions. A single value keeps its original digest.
+// name to the hash of its effective value.
 func envDigestMap(settings settings) map[string]string {
-	values := map[string][]string{}
 	digests := map[string]string{}
 
 	for _, entry := range keyedEnvironment(settings) {
 		name, value, _ := strings.Cut(entry, "=")
-		values[name] = append(values[name], value)
-	}
-
-	for name, entries := range values {
-		sum := sha256.Sum256([]byte(strings.Join(entries, "\x00")))
+		sum := sha256.Sum256([]byte(value))
 		digests[name] = hex.EncodeToString(sum[:])
 	}
 
@@ -449,7 +443,7 @@ func keyedEnvironment(settings settings) []string {
 
 	slices.Sort(entries)
 
-	return slices.Compact(entries)
+	return entries
 }
 
 // hashAutoVarFiles hashes terraform.tfvars and every *.auto.tfvars — HCL and

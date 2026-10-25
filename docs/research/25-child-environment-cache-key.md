@@ -28,10 +28,13 @@ The replay runs at two levels, against the real derivation in both:
   the review's D3 column: HIT exactly where only stripped names differ.
 - **Verdict level.** Every transition the key grants a HIT on is re-driven at
   the engine seam over the real fixture with the recorded name-diffs applied
-  to the live process environment, and the replayed verdicts are asserted
-  byte-identical to the fresh ones (`assertVerdictInvariance`). A false reuse
-  is a HIT whose verdict differs from the fresh verdict (M4 M5); each such
-  assertion counts them, and the published count is the sum.
+  to the live process environment. After the cached replay, a separate
+  `NoCache` run executes the mutants under that same changed environment.
+  `assertReplayMatchesFreshRun` checks that execution is fresh and compares
+  each mutant's state, diagnosis and evidence with the replay. A false reuse
+  is a HIT whose verdict differs from this independent execution (M4 M5).
+  Comparing a replay only with the run that populated its cache cannot
+  establish that count.
 
 ## 2. Per-transition results
 
@@ -48,13 +51,15 @@ The replay runs at two levels, against the real derivation in both:
 | agent to systemd login (U4→U5) | added `OTEL_EXPORTER_OTLP_ENDPOINT`; wholesale removal | MISS | n/a (miss) |
 
 9 of 9 key decisions agree with the D3 column, and every HIT carries a
-verdict-identity proof: **false-reuse count 0** — Direct. The U1→U2 row pins
+comparison with independent fresh execution under the second environment:
+**false-reuse count 0** on the tested fixture — Direct. The U1→U2 row pins
 the review's own correction: the prototype's strip set lacked the `TF_MUT_*`
 entry and left `TF_MUT_DEBUG` as a miss; the shipped set grants the HIT.
 
 Beyond the table, one sweep test changes all eighteen session bookkeeping
-names at once, to values no verdict could survive seeing, and still replays
-every verdict identical — the whole strip set's false-reuse proof in one run.
+names at once and compares the replay with a separate `NoCache` execution
+under the changed environment. This checks the whole strip set on the
+fixture; it does not establish provider-independent verdict invariance.
 A mixed transition (stripped change plus one forwarded addition) still misses
 and names only the forwarded name. `TF_VAR_names` set in one session and
 absent in the next still misses and is named as removed, pinning that the
@@ -83,9 +88,10 @@ provider-verification code, and any release or CI configuration change.
   which the review recorded exactly, so the substitution changes no decision —
   Inferred.
 - The suite-level rows replay their name-diffs over the fixture, not over
-  utl-regions: the verdict-identity proof is about the key rule, which is
-  suite-independent, and the suite needs network the build gate forbids —
-  Supported.
+  utl-regions. These fresh-execution comparisons establish verdict identity
+  on this fixture only. The key decisions depend on the recorded name-diffs;
+  other modules and providers are not measured here, and utl-regions needs
+  network the build gate forbids — Supported.
 - One machine, one agent harness, as in the review. The SSH-session case
   stays undecided: if a later SSH miss names only SSH bookkeeping, the strip
   set grows by amendment; if it names `SSH_AUTH_SOCK`, the miss stands —
