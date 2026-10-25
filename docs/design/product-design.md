@@ -858,7 +858,8 @@ the Terraform identity, the cache version
 ([invalidation policy](../../internal/engine/cache.go)) and the masked baseline
 fingerprint — any doubt is a miss, and cache reads and writes are disabled under
 `--allow-real-infrastructure` and `--allow-unsandboxed-effects`, whose external state cannot
-be keyed soundly.
+be keyed soundly. The [replay note](../research/25-child-environment-cache-key.md) publishes
+the method, inputs and per-transition results behind the key, with a false-reuse count of 0.
 
 Each entry stores the oracle's own record, including its full delta, alongside the run
 observations. Replay rebuilds the outcome through `oracle.ParseRecord` and uses the same
