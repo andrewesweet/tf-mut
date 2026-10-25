@@ -32,9 +32,10 @@ var ErrNotExecuted = errors.New("terraform could not be executed")
 // non-zero exit carries no product meaning.
 var ErrCommandFailed = errors.New("terraform command failed")
 
-// nonForwardedVariables never reach a Terraform child. The git location
-// variables pin git at one repository: Terraform shells out to git to
-// install remote modules, in directories of its own choosing, so inheriting
+// nonForwardedVariables are stripped from the inherited environment; explicit
+// run additions remain forwarded. The git location variables pin git at one
+// repository: Terraform shells out to git to install remote modules in
+// directories of its own choosing, so inheriting
 // these turns a module download into "fatal: working tree ... already exists".
 // Anyone running the tool from a git hook exports them without knowing it.
 // The session bookkeeping variables identify a shell, terminal, unit or trace
@@ -43,8 +44,6 @@ var ErrCommandFailed = errors.New("terraform command failed")
 // carries one line of evidence per name. Only the location variables are
 // removed from git's surface: GIT_SSH_COMMAND, credential helpers and the
 // rest are how a private module source authenticates.
-//
-// here, the contract test re-states them as data.
 //
 //nolint:gochecknoglobals,goconst // an immutable lookup table; one literal per reviewed name
 var nonForwardedVariables = map[string]bool{
@@ -457,7 +456,7 @@ func inheritedEnvironment() []string {
 // stripNonForwarded withholds the non-forwarded variables — the table plus
 // tf-mut's own namespace — from an inherited environment. It is the one
 // stripping step: inheritedEnvironment applies it to the process environment,
-// and the cache key replays it over recorded environments.
+// and the replay contract tests apply it to recorded environments.
 func stripNonForwarded(environment []string) []string {
 	stripped := make([]string, 0, len(environment))
 
@@ -537,8 +536,7 @@ func childEnvironment(inherited, additions []string) []string {
 	resolved := make([]string, 0, len(environment))
 	clear(set)
 
-	for index := len(environment) - 1; index >= 0; index-- {
-		entry := environment[index]
+	for _, entry := range slices.Backward(environment) {
 		name, _, _ := strings.Cut(entry, "=")
 		if set[name] {
 			continue
@@ -557,8 +555,8 @@ func childEnvironment(inherited, additions []string) []string {
 // Terraform child for the run's additions: the inherited environment with
 // the non-forwarded variables stripped, the performance defaults for
 // managed variables the caller has not set, and the run's own additions
-// last. The verdict cache keys this value, so the key and the child are one
-// computation and can no longer disagree.
+// last, resolving duplicate names to their last value. The verdict cache keys
+// this value, so the key and the child share one assembly function.
 func KeyedEnvironment(additions []string) []string {
 	return childEnvironment(inheritedEnvironment(), additions)
 }

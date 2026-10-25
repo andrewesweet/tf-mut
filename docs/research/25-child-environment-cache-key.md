@@ -93,6 +93,7 @@ provider-verification code, and any release or CI configuration change.
   other modules and providers are not measured here, and utl-regions needs
   network the build gate forbids — Supported.
 - One machine, one agent harness, as in the review. The SSH-session case
-  stays undecided: if a later SSH miss names only SSH bookkeeping, the strip
-  set grows by amendment; if it names `SSH_AUTH_SOCK`, the miss stands —
-  that socket authenticates subprocesses, and standing rule 5 keeps those.
+  remains unmeasured. The [C4 addendum](../reviews/2026-08-16-m3-spec-review.md#addendum--25-october-2026-child-environment-cache-key)
+  records which SSH bookkeeping names are already stripped. A miss naming
+  `SSH_AUTH_SOCK` stands: that socket authenticates subprocesses, and standing
+  rule 5 keeps those.

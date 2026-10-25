@@ -218,11 +218,10 @@ declared by `internal/report`; they are not invitations to add aliases.
 - **Materialisation:** creation of a sandbox with fresh inodes for Terraform.
 - **Result translation:** conversion of Terraform process output and diagnostics at
   the boundary.
-- **Child environment:** the exact environment tf-mut hands a Terraform process: the
-  inherited environment minus the non-forwarded variables, plus the performance defaults,
-  plus the run's additions. Computed once at the `tfexec` seam.
-- **Non-forwarded variable:** a variable tf-mut never hands to Terraform: a git location
-  variable, or session bookkeeping.
+- **Child environment:** the exact environment tf-mut hands a Terraform process. See
+  [ADR-0006](docs/adr/0006-child-environment-cache-key.md#decision) for its assembly contract.
+- **Non-forwarded variable:** an inherited variable tf-mut withholds from Terraform.
+  Explicit run additions remain forwarded and keyed, even for these names.
 - **Session bookkeeping variable:** a non-forwarded variable whose value identifies a
   shell, terminal, unit or trace rather than configuring anything Terraform runs.
 - **Keyed environment:** the child environment as it enters the verdict-cache key and the

@@ -1,7 +1,9 @@
 # ADR-0006: The verdict cache keys the child environment, not the process environment
 
-Status: accepted  
-Date: 2026-10-26  
+Status: accepted
+
+Date: 2026-10-26
+
 Supersedes: the environment clause of [M3 spec review C4](../reviews/2026-08-16-m3-spec-review.md)
 (the [addendum](../reviews/2026-08-16-m3-spec-review.md#addendum--25-october-2026-child-environment-cache-key)
 records the amendment; "any doubt is a miss" stands)
@@ -20,17 +22,10 @@ run's own additions last, resolving duplicate names to their last value
 the child, and the engine hashes it into the verdict key and the miss
 manifest — one computation, so the key and the child can no longer disagree.
 
-The non-forwarded variables are the git location variables plus session
-bookkeeping: trace-context propagation (`TRACEPARENT`, `TRACESTATE`), shell
-bookkeeping (`SHLVL`, `OLDPWD`, `_`), multiplexer and terminal identity
-(`TMUX`, `TMUX_PANE`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`), systemd
-per-invocation identifiers (`INVOCATION_ID`, `SYSTEMD_EXEC_PID`,
-`MEMORY_PRESSURE_WATCH`, `MEMORY_PRESSURE_WRITE`, `JOURNAL_STREAM`), SSH
-session identifiers (`SSH_CLIENT`, `SSH_CONNECTION`, `SSH_TTY`,
-`XDG_SESSION_ID`), and tf-mut's own `TF_MUT_*` namespace. Stripping applies to
+The [C4 addendum](../reviews/2026-08-16-m3-spec-review.md#addendum--25-october-2026-child-environment-cache-key)
+owns the reviewed strip set and the evidence per name. Stripping applies to
 the inherited environment only: a run's additions are explicit per-run input
-and enter the key beside the child. The C4 addendum carries one line of
-evidence per name.
+and enter the key beside the child.
 
 The verdict-relevant in-process reads are `TF_VAR_*` and `TF_CLI_ARGS_test`
 (`internal/discovery` consults both beside the run's additions). Both are
@@ -65,9 +60,5 @@ This records the captain's 2026-10-25 decision on the child-environment
 design review, whose replay tables the implementation replays in
 `internal/tfexec/nonforwarded_test.go` and at the engine seam in
 `internal/engine/cache_childenv_test.go`, with the method, inputs and
-per-transition results published in
-[`docs/research/25-child-environment-cache-key.md`](../research/25-child-environment-cache-key.md):
-every recorded key decision agrees with the review. Each HIT compares the
-cached verdicts with an independent `NoCache` execution under the second
-environment, with a published false-reuse count of 0 on the offline fixture.
-These comparisons do not establish invariance for other modules or providers.
+per-transition results and limits published in the
+[child-environment key replay](../research/25-child-environment-cache-key.md).
