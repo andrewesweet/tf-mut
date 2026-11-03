@@ -14,6 +14,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/characterise"
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/store"
 	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
@@ -1393,4 +1394,125 @@ func pinCount(block *report.Characterisation) int {
 	}
 
 	return count
+}
+
+// TestConcurrentWritesKeepEveryRegistryEntry is the provenance registry's
+// two-writer case: the registry is loaded once, at commit start, and saved
+// after the generated files are renamed, so a second invocation that commits
+// inside that window saves the copy it loaded before the first invocation's
+// entries existed, and the first invocation's entries are lost while its files
+// stay on disk. What the user then meets is `--force` refusing to replace the
+// tool's own output — "not in the provenance registry, so --force will not
+// replace it" — and the only recovery is manual deletion.
+//
+// The second invocation commits in the exact window the load and the save
+// leave open, so the interleaving is forced rather than hoped for.
+//
+//nolint:paralleltest // owns package-global characterisation hooks for its lifetime.
+func TestConcurrentWritesKeepEveryRegistryEntry(t *testing.T) {
+	module := copyFixture(t, untestedBranchesFixture)
+
+	first := characteriseRequest(t, module)
+	first.Write = true
+	first.TestDirectory = "tests-a"
+
+	second := characteriseRequest(t, module)
+	second.Write = true
+	second.TestDirectory = "tests-b"
+
+	var secondErr error
+
+	engine.SetSecondWriterWindow(t, module, "tests-a", func() {
+		_, secondErr = engine.Run(t.Context(), second)
+	})
+
+	_, firstErr := engine.Run(t.Context(), first)
+
+	if firstErr != nil || secondErr != nil {
+		t.Fatalf("a concurrent write failed: first=%v second=%v", firstErr, secondErr)
+	}
+
+	generated := generatedSuites(t, module)
+	if len(generated) == 0 {
+		t.Fatal("neither invocation wrote a suite")
+	}
+
+	entries := registryEntries(t, module)
+
+	lost := []string{}
+
+	for _, file := range generated {
+		if !slices.Contains(entries, file) {
+			lost = append(lost, file)
+		}
+	}
+
+	if len(lost) > 0 {
+		t.Fatalf("generated files on disk with no provenance entry: %v (the registry holds %v)",
+			lost, entries)
+	}
+
+	// The harm the lost entries do, asserted on the surface a user meets it:
+	// both suites are the tool's own output, so both are replaceable.
+	for _, directory := range []string{"tests-a", "tests-b"} {
+		force := characteriseRequest(t, module)
+		force.Write = true
+		force.Force = true
+		force.TestDirectory = directory
+
+		if _, err := engine.Run(t.Context(), force); err != nil {
+			t.Fatalf("--force over the suite this tool wrote in %s: %v", directory, err)
+		}
+	}
+}
+
+// generatedSuites lists the suite files this tool generated under the module's
+// test directories, module-relative and slash-separated.
+func generatedSuites(t *testing.T, module string) []string {
+	t.Helper()
+
+	matches, err := filepath.Glob(filepath.Join(module, "tests-*", "*.tftest.hcl"))
+	if err != nil {
+		t.Fatalf("listing the generated suites: %v", err)
+	}
+
+	files := make([]string, 0, len(matches))
+
+	for _, match := range matches {
+		rel, relErr := filepath.Rel(module, match)
+		if relErr != nil {
+			t.Fatalf("making %s module-relative: %v", match, relErr)
+		}
+
+		files = append(files, filepath.ToSlash(rel))
+	}
+
+	slices.Sort(files)
+
+	return files
+}
+
+// registryEntries lists the paths the provenance registry claims,
+// module-relative and slash-separated.
+func registryEntries(t *testing.T, module string) []string {
+	t.Helper()
+
+	content, err := os.ReadFile(filepath.Join(module, engine.RegistryName))
+	if err != nil {
+		t.Fatalf("reading the provenance registry: %v", err)
+	}
+
+	registry := store.Registry{}
+	if err := json.Unmarshal(content, &registry); err != nil {
+		t.Fatalf("decoding the provenance registry: %v", err)
+	}
+
+	entries := make([]string, 0, len(registry.Files))
+	for path := range registry.Files {
+		entries = append(entries, path)
+	}
+
+	slices.Sort(entries)
+
+	return entries
 }

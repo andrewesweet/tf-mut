@@ -253,6 +253,33 @@ func SetCharacteriseWriteSeeds(
 	})
 }
 
+// SetSecondWriterWindow runs during inside the invocation over moduleDir and
+// testDir, at the top of writeFiles' loop once exactly one generated file has
+// been renamed into place: after the commit loaded the provenance registry and
+// before storeRegistry saves it. It is how the two-writer registry test lands a
+// second invocation's whole commit inside that window. The hooks are package
+// globals, so its callers are sequential for the hook's complete lifetime.
+func SetSecondWriterWindow(t *testing.T, moduleDir, testDir string, during func()) {
+	t.Helper()
+
+	fired := false
+
+	seedClosureAfter = func(configuration discovery.Configuration, written int) error {
+		if fired || written != 1 || configuration.ModuleDir != moduleDir ||
+			configuration.TestDirRelative() != testDir {
+			return nil
+		}
+
+		fired = true
+		during()
+
+		return nil
+	}
+	t.Cleanup(func() {
+		seedClosureAfter = func(discovery.Configuration, int) error { return nil }
+	})
+}
+
 // SetGitTimeout shortens the fixed cap on git invocations for one test: the
 // deadline test drives a sleeping git through the real seam, and no caller
 // parameter changes the cap. Its callers are sequential for the hook's
