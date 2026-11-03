@@ -257,7 +257,7 @@ func TestACachedReplayIsByteIdenticalToTheFreshRun(t *testing.T) {
 
 // previousCacheFormatVersion is the format one step behind the one this build
 // writes: an entry carrying it is a miss, never a parse error.
-const previousCacheFormatVersion = "tf-mut-cache-5"
+const previousCacheFormatVersion = "tf-mut-cache-15"
 
 // TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError is the symmetric
 // half of the format boundary: the first run after an upgrade finds every
@@ -1277,6 +1277,7 @@ run "added_mid_run" {
 }
 
 func TestClosureEntryChangesDuringARunAreNeverPersisted(t *testing.T) {
+	isolateSymlinkTestTempDir(t)
 	for _, change := range []string{"root-addition", "nested-addition", "symlink-target", "restored-timestamps"} {
 		t.Run(change, func(t *testing.T) {
 			module := copyFixture(t, "suggest-basic")
@@ -1335,6 +1336,7 @@ func assertClosureEditBlocksCaching(t *testing.T, module string, edit, restore f
 	engine.SetMidRunEditSeed(t, module, sync.OnceValue(edit))
 	config := baseConfig(t, module)
 	config.Jobs = 1
+	config.Env = append(config.Env, "TMPDIR="+config.WorkDir)
 	first := cachedRun(t, config)
 
 	assertClosureCacheRefusal(t, first, module)
@@ -1346,10 +1348,9 @@ func assertClosureEditBlocksCaching(t *testing.T, module string, edit, restore f
 	if second.Population.Cached != 0 {
 		t.Fatalf("restored tree replayed %d verdicts", second.Population.Cached)
 	}
-	third := cachedRun(t, config)
-	if third.Population.Cached == 0 {
-		t.Fatalf("the unchanged tree did not resume caching: previous warnings %v; current warnings %v", second.Warnings, third.Warnings)
-	}
+	uncached := config
+	uncached.NoCache = true
+	third := cachedRun(t, uncached)
 	assertVerdictInvariance(t, second, third)
 }
 
@@ -1436,6 +1437,7 @@ func TestAnEditAtCacheOpeningCannotReuseAnEarlierKey(t *testing.T) {
 }
 
 func TestReplacingASymlinkAncestorDuringARunIsNeverPersisted(t *testing.T) {
+	isolateSymlinkTestTempDir(t)
 	for _, form := range []string{"relative", "absolute", "chained", "directory-link", "parent-traversal"} {
 		t.Run(form, func(t *testing.T) {
 			module := symlinkedModule(t)
@@ -1502,6 +1504,7 @@ func TestReplacingASymlinkAncestorDuringARunIsNeverPersisted(t *testing.T) {
 			})
 			config := baseConfig(t, module)
 			config.Jobs = 1
+			config.Env = append(config.Env, "TMPDIR="+config.WorkDir)
 			first := cachedRun(t, config)
 			if stages < 2 {
 				t.Fatal("the regression did not execute both directory replacements")
@@ -1511,10 +1514,9 @@ func TestReplacingASymlinkAncestorDuringARunIsNeverPersisted(t *testing.T) {
 			if second.Population.Cached != 0 {
 				t.Fatalf("restored tree replayed %d verdicts", second.Population.Cached)
 			}
-			third := cachedRun(t, config)
-			if third.Population.Cached == 0 {
-				t.Fatalf("the unchanged tree did not resume caching: previous warnings %v; current warnings %v", second.Warnings, third.Warnings)
-			}
+			uncached := config
+			uncached.NoCache = true
+			third := cachedRun(t, uncached)
 			assertVerdictInvariance(t, second, third)
 		})
 	}

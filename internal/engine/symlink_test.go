@@ -3,6 +3,7 @@ package engine_test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,22 +20,7 @@ import (
 func symlinkedModule(t *testing.T) string {
 	t.Helper()
 
-	artifacts, err := filepath.Abs(filepath.Join("..", "..", ".artifacts"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(artifacts, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	repository, err := os.MkdirTemp(artifacts, "symlink-fixture-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.RemoveAll(repository); err != nil {
-			t.Error(err)
-		}
-	})
+	repository := t.TempDir()
 	module := filepath.Join(repository, "mod")
 	if err := os.MkdirAll(filepath.Join(module, "tests"), 0o750); err != nil {
 		t.Fatalf("creating module: %v", err)
@@ -110,4 +96,80 @@ func TestASymlinkedSourceResolvesInTheSandbox(t *testing.T) {
 		t.Fatalf("output.tag = %s, want %s; the symlinked variable must be scored",
 			got, report.Killed)
 	}
+}
+
+func TestDefaultWorkspacePrecedesCacheCaptureForASymlinkedModule(t *testing.T) {
+	isolateSymlinkTestTempDir(t)
+	module := symlinkedModule(t)
+	repository := filepath.Dir(module)
+	t.Setenv("TMPDIR", repository)
+	config := baseConfig(t, module)
+	config.WorkDir = ""
+	config.Env = append(config.Env, "TMPDIR="+t.TempDir())
+
+	before, err := os.ReadDir(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependencies := engine.DefaultDependencies()
+	openStore := dependencies.NewVerdictStore
+	workspaceSeen := false
+	dependencies.NewVerdictStore = func(dir string) (engine.VerdictStore, error) {
+		entries, err := os.ReadDir(repository)
+		if err != nil {
+			return nil, err
+		}
+		workspaceSeen = len(entries) == len(before)+1
+		return openStore(dir)
+	}
+	first, err := engine.New(dependencies).Run(t.Context(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !workspaceSeen {
+		t.Fatal("the default workspace did not exist before cache capture")
+	}
+	if first.Population.Fresh == 0 || first.Population.Cached != 0 {
+		t.Fatalf("the empty cache did not execute the population: %+v", first.Population)
+	}
+	second := cachedRun(t, config)
+	closureChanged := func(warning string) bool {
+		return strings.Contains(warning, "the input closure changed while the run was in flight")
+	}
+	if !slices.ContainsFunc(first.Warnings, closureChanged) && !slices.ContainsFunc(second.Warnings, closureChanged) &&
+		(second.Population.Cached == 0 || second.Population.Fresh != 0) {
+		t.Fatalf("the unchanged temporary module did not replay its cache: %+v; warnings %v; previous warnings %v",
+			second.Population, second.Warnings, first.Warnings)
+	}
+	assertVerdictInvariance(t, first, second)
+
+	after, err := os.ReadDir(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("the runs left temporary workspace entries: before %v, after %v", before, after)
+	}
+}
+
+func isolateSymlinkTestTempDir(t *testing.T) {
+	t.Helper()
+
+	artifacts, err := filepath.Abs(filepath.Join("..", "..", ".artifacts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(artifacts, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	directory, err := os.MkdirTemp(artifacts, "symlink-test-tmp-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(directory); err != nil {
+			t.Error(err)
+		}
+	})
+	t.Setenv("TMPDIR", directory)
 }

@@ -359,6 +359,15 @@ func (e Engine) dispatch(
 		return report.Report{}, err
 	}
 
+	if s.mode == gradeMode || s.mode == suggestMode || s.mode == curateMode || s.mode == previewMode {
+		workRoot, err := prepareWorkRoot(s)
+		if err != nil {
+			return report.Report{}, err
+		}
+		defer func() { _ = os.RemoveAll(workRoot) }()
+		s.WorkDir = workRoot
+	}
+
 	switch typed := request.(type) {
 	case TodosRequest, *TodosRequest:
 		return e.answerTodos(ctx, s, moduleDir)
@@ -634,14 +643,12 @@ func mutate(
 		return report.Report{}, oracle.Population{}, err
 	}
 
-	workRoot, err := prepareWorkRoot(configuration, settings)
-	if err != nil {
-		return report.Report{}, oracle.Population{}, err
+	if len(configuration.Tests.Runs) == 0 {
+		return report.Report{}, oracle.Population{}, fmt.Errorf("%w: %s declares no run blocks",
+			ErrBaselineNoRuns, configuration.Tests.Dir)
 	}
 
-	defer func() { _ = os.RemoveAll(workRoot) }()
-
-	prepared, generated, err := build(ctx, runner, configuration, settings, workRoot, collector)
+	prepared, generated, err := build(ctx, runner, configuration, settings, settings.WorkDir, collector)
 	if err != nil {
 		return report.Report{}, oracle.Population{}, err
 	}
@@ -671,7 +678,7 @@ func mutate(
 		described:           found.selected.mutants,
 		populationDescribed: found.described,
 		classified:          found.selected.classified,
-		workRoot:            workRoot,
+		workRoot:            settings.WorkDir,
 		closure:             configuration.BuildClosure(),
 		graph:               found.graph,
 		collector:           collector,
@@ -765,14 +772,7 @@ func executePopulation(
 	return finishReport(ctx, plan, moduleDir, result, evaluated)
 }
 
-// prepareWorkRoot refuses a suite with no run blocks and creates the run's
-// temporary directory.
-func prepareWorkRoot(configuration discovery.Configuration, settings settings) (string, error) {
-	if len(configuration.Tests.Runs) == 0 {
-		return "", fmt.Errorf("%w: %s declares no run blocks",
-			ErrBaselineNoRuns, configuration.Tests.Dir)
-	}
-
+func prepareWorkRoot(settings settings) (string, error) {
 	workRoot, err := os.MkdirTemp(settings.WorkDir, "tf-mut-")
 	if err != nil {
 		return "", fmt.Errorf("creating work directory: %w", err)

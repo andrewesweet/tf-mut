@@ -70,7 +70,7 @@ import (
 // reach the child, so they no longer enter the key. A stored verdict was
 // computed under the wider child environment, so it replays as a miss and
 // is re-executed, not trusted across the change.
-const cacheFormatVersion = "tf-mut-cache-15"
+const cacheFormatVersion = "tf-mut-cache-16"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
