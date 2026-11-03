@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"testing"
@@ -50,6 +51,25 @@ func SetJSONReadingDisabled(t *testing.T, moduleDir string) {
 	}
 	t.Cleanup(func() {
 		disableJSONReading = func(settings) bool { return false }
+	})
+}
+
+// HoldReapedForTesting makes one module's mutant invocations hold once their
+// Terraform child is reaped, until the invocation's own deadline expires. It
+// is how a deadline is landed inside the window between a natural exit and the
+// classification that decides the timeout. Its callers are sequential for the
+// hook's complete lifetime.
+func HoldReapedForTesting(t *testing.T, moduleDir string) {
+	t.Helper()
+	holdAfterReap = func(settings settings) func(context.Context) {
+		if settings.ModuleDir != moduleDir {
+			return nil
+		}
+
+		return func(ctx context.Context) { <-ctx.Done() }
+	}
+	t.Cleanup(func() {
+		holdAfterReap = func(settings) func(context.Context) { return nil }
 	})
 }
 

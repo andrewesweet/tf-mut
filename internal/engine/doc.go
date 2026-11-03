@@ -126,8 +126,8 @@
 // # Seam controls
 //
 // Most test seams are package-level variables with production defaults:
-// disableStaticShortcuts, disableJSONReading and
-// seedGenerationDefect in engine.go; progressInterval in progress.go;
+// disableStaticShortcuts, disableJSONReading, seedGenerationDefect and
+// holdAfterReap in engine.go; progressInterval in progress.go;
 // seedSuggestionDefect in suggest.go; gitTimeout in since.go;
 // applyCommitProbe in apply.go; seedMissingMock, seedNoEscalation and
 // seedSharedFileOrder in characterise.go; seedClosureChange,

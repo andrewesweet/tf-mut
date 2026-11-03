@@ -135,6 +135,13 @@ type TestOptions struct {
 	// nothing: the error precedence needs validate, and the runs an error
 	// skips are part of the evidence.
 	FailFast bool
+	// HoldAfterReap, when non-nil, runs once the child is reaped and before
+	// its outcome is classified. It is a timing seam and nothing else: a test
+	// holds there until the invocation's deadline expires, which is the only
+	// way to make the deadline land between a natural exit and the
+	// classification that decides the timeout. Production callers leave it
+	// nil; nothing but an inert test hook sets it.
+	HoldAfterReap func(context.Context)
 }
 
 // Test runs the test suite of the module in dir.
@@ -192,13 +199,13 @@ func (r Runner) Test(ctx context.Context, dir string, options TestOptions) (Test
 
 	decoded := TestResult{} // replaced by the decoder.
 
-	result, err := r.StreamOutput(runCtx, dir, func(stdout io.Reader) error {
+	result, err := r.streamOutputWithHold(runCtx, dir, func(stdout io.Reader) error {
 		var decodeErr error
 
 		decoded, decodeErr = decodeTestStreamStopping(stdout, onArm, onFire)
 
 		return decodeErr
-	}, args...)
+	}, options.HoldAfterReap, args...)
 
 	decoded.ExitCode = result.ExitCode
 	decoded.Started = result.Started

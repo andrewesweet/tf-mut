@@ -246,6 +246,67 @@ func TestAReportWithNoDeadlineNamesNone(t *testing.T) {
 	}
 }
 
+// TestANaturalExitRacingTheDeadlineIsNotATimeout holds the D2 finding: the
+// timeout was decided by reading the invocation's context after the child had
+// been reaped, so a Terraform process that exited on its own within
+// microseconds of its budget was reported timed out. The result then carried a
+// timeout beside the exit status the child had produced, and the oracle ranks
+// Timeout above Survived, so a mutant whose runs had all passed — and which a
+// diagnosis was waiting for — was judged Timeout instead.
+//
+// The window is microseconds wide, so no budget can be made to land in it on
+// purpose. The test holds one module's mutant invocations at exactly that
+// point instead — an inert hook beside the classification, never a stand-in for
+// Terraform, which is the real binary running the real suite — until the
+// invocation's own deadline expires. Every mutant of this module then reaches
+// the classification with an expired deadline and a child that exited on its
+// own, which is the race the classifier has to survive.
+//
+//nolint:paralleltest // owns the package-global reap-hold hook for its lifetime.
+func TestANaturalExitRacingTheDeadlineIsNotATimeout(t *testing.T) {
+	module := copyFixture(t, "skeleton")
+
+	config := baseConfig(t, module)
+	// A budget the suite meets with room to spare, so without the hold the
+	// deadline could only land after Terraform had exited.
+	config.TimeoutFactor = 0.0001
+	config.TimeoutFloor = 2 * time.Second
+	// One surviving string mutant is the whole assertion: a mutation the
+	// unmutated suite passes is judged Survived, and that is the verdict the
+	// timeout displaces.
+	config.IncludeOperators = []string{string(mutation.StrCase)}
+
+	engine.HoldReapedForTesting(t, module)
+
+	result, err := engine.Run(t.Context(), config)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if timedOut := result.Count(report.Timeout); timedOut > 0 {
+		t.Fatalf("%d mutant(s) were reported timed out although their Terraform process exited on its own: %v",
+			timedOut, result.Metrics.Counts)
+	}
+
+	if result.Count(report.Survived) == 0 {
+		t.Fatalf("the surviving mutant lost its verdict: %v", result.Metrics.Counts)
+	}
+
+	// The deadline is an evaluation fact the report carries beside the verdict,
+	// so a spurious one shows there and in the score's completeness as well as
+	// in the states.
+	for _, mutant := range result.Mutants {
+		if mutant.DeadlineReached {
+			t.Fatalf("mutant %s (state %s) records a deadline its Terraform process never reached",
+				mutant.ID, mutant.State)
+		}
+	}
+
+	if result.Metrics.Incomplete {
+		t.Fatalf("a natural exit marked the run's score incomplete: %+v", result.Metrics)
+	}
+}
+
 // TestTheDeadlineReplaysFromTheCache holds the cache half of the visibility
 // contract: a stored verdict carries its deadline flag, the replay projects it
 // onto the mutant, and an entry from before the flag — which cannot carry one

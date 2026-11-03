@@ -34,6 +34,20 @@ func (r Runner) StreamOutput(
 	consume func(io.Reader) error,
 	args ...string,
 ) (Result, error) {
+	return r.streamOutputWithHold(ctx, dir, consume, nil, args...)
+}
+
+// streamOutputWithHold is StreamOutput with the timing seam
+// TestOptions.HoldAfterReap supplies: the hold runs once the child is reaped
+// and before its outcome is classified, which puts the deadline a test
+// controls inside that window.
+func (r Runner) streamOutputWithHold(
+	ctx context.Context,
+	dir string,
+	consume func(io.Reader) error,
+	holdAfterReap func(context.Context),
+	args ...string,
+) (Result, error) {
 	full := append([]string{"-chdir=" + dir}, args...)
 	// The shared constructor stops the whole process group at the deadline, so
 	// the provider plugins Terraform started cannot outlive the run.
@@ -60,7 +74,7 @@ func (r Runner) StreamOutput(
 	consumeErr := consume(bufio.NewReaderSize(pipe, streamBufferSize))
 	_, _ = io.Copy(io.Discard, pipe)
 
-	result := completed(ctx, command, started, &stderr)
+	result := completed(ctx, command, started, &stderr, holdAfterReap)
 
 	if result.Err != nil {
 		return result.Result, result.Err
@@ -80,20 +94,61 @@ type outcome struct {
 // itself, not its bytes: Wait must run before the buffer is read, because only
 // Wait guarantees the copy out of the stderr pipe has finished — a snapshot
 // taken first loses a failing child's diagnostics under load.
-func completed(ctx context.Context, command *exec.Cmd, started time.Time, stderr *bytes.Buffer) outcome {
+//
+// The hold, when non-nil, runs between the reap and the classification: the
+// engine's deadline regression test blocks there until the invocation's own
+// deadline expires, so the race between a natural exit and a deadline that
+// must not be mistaken for it is deterministic. Nothing but a test supplies
+// one.
+func completed(
+	ctx context.Context,
+	command *exec.Cmd,
+	started time.Time,
+	stderr *bytes.Buffer,
+	holdAfterReap func(context.Context),
+) outcome {
 	waitErr := command.Wait()
 	// Terraform may leave provider plugins in its process group after a normal
 	// exit. Clean up the group after Wait even when cancellation never ran.
 	ReapGroup(command)
+
+	if holdAfterReap != nil {
+		holdAfterReap(ctx)
+	}
+
+	state := command.ProcessState
 
 	result := Result{
 		Started:  true,
 		Stdout:   nil,
 		Stderr:   stderr.Bytes(),
 		ExitCode: exitCodeUnavailable,
-		TimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded),
+		// The deadline decides the invocation only when it ended the child: it
+		// is reported when it expired and the kernel recorded no exit of the
+		// child's own. Reading the context after the reap cannot tell the two
+		// apart — the deadline can expire between a natural exit and that read,
+		// or os/exec's watcher can signal a child that already exited but has
+		// not been reaped — so the process's wait status is the record that
+		// says which happened. Without a wait status there is nothing to prove
+		// an exit, and an expired deadline stays the closed-direction answer.
+		TimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded) && !exitedOnItsOwn(state),
 		Duration: time.Since(started),
-		Usage:    childUsage(command.ProcessState),
+		Usage:    childUsage(state),
+	}
+
+	// A child that exited on its own carries its own exit status, whatever Wait
+	// returned: the watcher's error is a fact about the context racing the exit,
+	// not about the exit. I/O that did not finish arriving is the one wait error
+	// that still disqualifies the record, because the invocation's output — and
+	// so the verdict read from it — may be truncated.
+	if exitedOnItsOwn(state) {
+		result.ExitCode = state.ExitCode()
+
+		if errors.Is(waitErr, exec.ErrWaitDelay) {
+			return outcome{Result: result, Err: fmt.Errorf("%w: %w", ErrNotExecuted, waitErr)}
+		}
+
+		return outcome{Result: result, Err: nil}
 	}
 
 	if err := ctx.Err(); err != nil && !result.TimedOut {

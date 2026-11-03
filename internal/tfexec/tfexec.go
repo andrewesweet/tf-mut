@@ -132,6 +132,28 @@ func childUsage(state *os.ProcessState) Usage {
 	return usage
 }
 
+// exitedOnItsOwn reports whether the kernel recorded a normal exit for the
+// child. A child a signal ended reports the signal instead, which is what tells
+// an exit that raced the deadline apart from the kill the deadline itself sent.
+func exitedOnItsOwn(state *os.ProcessState) bool {
+	status, ok := waitStatus(state)
+
+	return ok && status.Exited()
+}
+
+// waitStatus reads the kernel's wait status out of a reaped process's state.
+// ProcessState is set from the real wait status in every case, including a Wait
+// that reported the context's error because the deadline raced the exit.
+func waitStatus(state *os.ProcessState) (syscall.WaitStatus, bool) {
+	if state == nil {
+		return 0, false
+	}
+
+	status, ok := state.Sys().(syscall.WaitStatus)
+
+	return status, ok
+}
+
 // Result holds the raw outcome of one Terraform invocation.
 type Result struct {
 	Started  bool
