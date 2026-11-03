@@ -199,7 +199,7 @@ func (r Runner) Test(ctx context.Context, dir string, options TestOptions) (Test
 
 	decoded := TestResult{} // replaced by the decoder.
 
-	result, err := r.streamOutput(runCtx, dir, func(stdout io.Reader) error {
+	result, err := r.streamOutputWithHold(runCtx, dir, func(stdout io.Reader) error {
 		var decodeErr error
 
 		decoded, decodeErr = decodeTestStreamStopping(stdout, onArm, onFire)

@@ -34,13 +34,14 @@ func (r Runner) StreamOutput(
 	consume func(io.Reader) error,
 	args ...string,
 ) (Result, error) {
-	return r.streamOutput(ctx, dir, consume, nil, args...)
+	return r.streamOutputWithHold(ctx, dir, consume, nil, args...)
 }
 
-// streamOutput is StreamOutput with the timing seam TestOptions.HoldAfterReap
-// supplies: the hold runs once the child is reaped and before its outcome is
-// classified, which puts the deadline a test controls inside that window.
-func (r Runner) streamOutput(
+// streamOutputWithHold is StreamOutput with the timing seam
+// TestOptions.HoldAfterReap supplies: the hold runs once the child is reaped
+// and before its outcome is classified, which puts the deadline a test
+// controls inside that window.
+func (r Runner) streamOutputWithHold(
 	ctx context.Context,
 	dir string,
 	consume func(io.Reader) error,
@@ -115,14 +116,39 @@ func completed(
 		holdAfterReap(ctx)
 	}
 
+	state := command.ProcessState
+
 	result := Result{
 		Started:  true,
 		Stdout:   nil,
 		Stderr:   stderr.Bytes(),
 		ExitCode: exitCodeUnavailable,
-		TimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded),
+		// The deadline decides the invocation only when it ended the child: it
+		// is reported when it expired and the kernel recorded no exit of the
+		// child's own. Reading the context after the reap cannot tell the two
+		// apart — the deadline can expire between a natural exit and that read,
+		// or os/exec's watcher can signal a child that already exited but has
+		// not been reaped — so the process's wait status is the record that
+		// says which happened. Without a wait status there is nothing to prove
+		// an exit, and an expired deadline stays the closed-direction answer.
+		TimedOut: errors.Is(ctx.Err(), context.DeadlineExceeded) && !exitedOnItsOwn(state),
 		Duration: time.Since(started),
-		Usage:    childUsage(command.ProcessState),
+		Usage:    childUsage(state),
+	}
+
+	// A child that exited on its own carries its own exit status, whatever Wait
+	// returned: the watcher's error is a fact about the context racing the exit,
+	// not about the exit. I/O that did not finish arriving is the one wait error
+	// that still disqualifies the record, because the invocation's output — and
+	// so the verdict read from it — may be truncated.
+	if exitedOnItsOwn(state) {
+		result.ExitCode = state.ExitCode()
+
+		if errors.Is(waitErr, exec.ErrWaitDelay) {
+			return outcome{Result: result, Err: fmt.Errorf("%w: %w", ErrNotExecuted, waitErr)}
+		}
+
+		return outcome{Result: result, Err: nil}
 	}
 
 	if err := ctx.Err(); err != nil && !result.TimedOut {

@@ -261,6 +261,8 @@ func TestAReportWithNoDeadlineNamesNone(t *testing.T) {
 // invocation's own deadline expires. Every mutant of this module then reaches
 // the classification with an expired deadline and a child that exited on its
 // own, which is the race the classifier has to survive.
+//
+//nolint:paralleltest // owns the package-global reap-hold hook for its lifetime.
 func TestANaturalExitRacingTheDeadlineIsNotATimeout(t *testing.T) {
 	module := copyFixture(t, "skeleton")
 
