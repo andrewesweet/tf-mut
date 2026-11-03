@@ -133,7 +133,7 @@ func oneRound(
 	}
 
 	result, population, err := mutate(ctx, stage.runner, stagedConfiguration, graded,
-		stage.terraform, staged.ModuleDir, stage.collector)
+		stage.terraform, staged.ModuleDir, stage.collector, nil)
 	if err != nil {
 		return pins, 0, err
 	}

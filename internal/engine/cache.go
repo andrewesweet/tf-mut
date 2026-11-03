@@ -141,8 +141,10 @@ func openCache(
 }
 
 func beginCache(configuration discovery.Configuration, settings settings) *verdictCache {
-	if settings.mode == previewMode || settings.NoCache ||
-		settings.AllowRealInfrastructure || settings.AllowUnsandboxedEffects {
+	if settings.mode != gradeMode && settings.mode != suggestMode && settings.mode != curateMode {
+		return nil
+	}
+	if settings.NoCache || settings.AllowRealInfrastructure || settings.AllowUnsandboxedEffects {
 		return nil
 	}
 

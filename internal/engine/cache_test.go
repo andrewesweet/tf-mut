@@ -1337,23 +1337,7 @@ func assertClosureEditBlocksCaching(t *testing.T, module string, edit, restore f
 	config.Jobs = 1
 	first := cachedRun(t, config)
 
-	if first.Population.Fresh == 0 {
-		t.Fatal("the edit regression executed no mutants")
-	}
-	if !slices.ContainsFunc(first.Warnings, func(warning string) bool {
-		return strings.Contains(warning, "the input closure changed while the run was in flight")
-	}) {
-		t.Fatalf("closure edit produced no cache refusal: %v", first.Warnings)
-	}
-	entries, err := os.ReadDir(cacheDir(module))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), ".json") {
-			t.Fatalf("the changed closure persisted %s", entry.Name())
-		}
-	}
+	assertClosureCacheRefusal(t, first, module)
 	if err := restore(); err != nil {
 		t.Fatal(err)
 	}
@@ -1364,7 +1348,7 @@ func assertClosureEditBlocksCaching(t *testing.T, module string, edit, restore f
 	}
 	third := cachedRun(t, config)
 	if third.Population.Cached == 0 {
-		t.Fatal("the unchanged tree did not resume caching")
+		t.Fatalf("the unchanged tree did not resume caching: previous warnings %v; current warnings %v", second.Warnings, third.Warnings)
 	}
 	assertVerdictInvariance(t, second, third)
 }
@@ -1419,15 +1403,14 @@ func TestAnEditAtCacheOpeningCannotReuseAnEarlierKey(t *testing.T) {
 	t.Parallel()
 
 	module := copyFixture(t, "suggest-basic")
-	path := filepath.Join(module, "tests", "unit.tftest.hcl")
-	original, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	path := filepath.Join(module, "extra_override.tf")
 	dependencies := engine.DefaultDependencies()
 	openStore := dependencies.NewVerdictStore
 	edit := sync.OnceValue(func() error {
-		return os.WriteFile(path, append(slices.Clone(original), '\n'), 0o600)
+		return os.WriteFile(path, []byte(`output "ignored" {
+  value = "nobody-checks-me"
+}
+`), 0o600)
 	})
 	dependencies.NewVerdictStore = func(dir string) (engine.VerdictStore, error) {
 		verdicts, err := openStore(dir)
@@ -1443,11 +1426,117 @@ func TestAnEditAtCacheOpeningCannotReuseAnEarlierKey(t *testing.T) {
 	if _, err := engine.New(dependencies).Run(t.Context(), config); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, original, 0o600); err != nil {
+	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
 	}
 	second := cachedRun(t, config)
 	if second.Population.Cached != 0 {
 		t.Fatalf("restored tree replayed %d verdicts", second.Population.Cached)
+	}
+}
+
+func TestReplacingASymlinkAncestorDuringARunIsNeverPersisted(t *testing.T) {
+	for _, form := range []string{"relative", "absolute", "chained", "directory-link", "parent-traversal"} {
+		t.Run(form, func(t *testing.T) {
+			module := symlinkedModule(t)
+			repository := filepath.Dir(module)
+			shared := filepath.Join(repository, "shared")
+			target := "../shared/versions.tf"
+			switch form {
+			case "absolute":
+				target = filepath.Join(shared, "versions.tf")
+			case "chained":
+				link := filepath.Join(repository, "intermediate.tf")
+				if err := os.Symlink("shared/versions.tf", link); err != nil {
+					t.Fatal(err)
+				}
+				target = "../intermediate.tf"
+			case "directory-link":
+				if err := os.Symlink("shared", filepath.Join(repository, "alias")); err != nil {
+					t.Fatal(err)
+				}
+				target = "../alias/versions.tf"
+			case "parent-traversal":
+				if err := os.Mkdir(filepath.Join(module, "child"), 0o750); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("mod/child", filepath.Join(repository, "alias")); err != nil {
+					t.Fatal(err)
+				}
+				target = "../alias/../../shared/versions.tf"
+			}
+			link := filepath.Join(module, "versions.tf")
+			if err := os.Remove(link); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatal(err)
+			}
+
+			alternate := filepath.Join(repository, "alternate")
+			backup := filepath.Join(repository, "original")
+			if err := os.Mkdir(alternate, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			testsupport.WriteFile(t, filepath.Join(alternate, "versions.tf"), `variable "shared_tag" {
+  type    = string
+  default = "shared-v2"
+}
+`)
+			stages := 0
+			engine.SetMidRunEditSeed(t, module, func() error {
+				stages++
+				switch stages {
+				case 1:
+					if err := os.Rename(shared, backup); err != nil {
+						return err
+					}
+					return os.Rename(alternate, shared)
+				case 2:
+					if err := os.Rename(shared, alternate); err != nil {
+						return err
+					}
+					return os.Rename(backup, shared)
+				}
+				return nil
+			})
+			config := baseConfig(t, module)
+			config.Jobs = 1
+			first := cachedRun(t, config)
+			if stages < 2 {
+				t.Fatal("the regression did not execute both directory replacements")
+			}
+			assertClosureCacheRefusal(t, first, module)
+			second := cachedRun(t, config)
+			if second.Population.Cached != 0 {
+				t.Fatalf("restored tree replayed %d verdicts", second.Population.Cached)
+			}
+			third := cachedRun(t, config)
+			if third.Population.Cached == 0 {
+				t.Fatalf("the unchanged tree did not resume caching: previous warnings %v; current warnings %v", second.Warnings, third.Warnings)
+			}
+			assertVerdictInvariance(t, second, third)
+		})
+	}
+}
+
+func assertClosureCacheRefusal(t *testing.T, result report.Report, module string) {
+	t.Helper()
+	if result.Population.Fresh == 0 {
+		t.Fatal("the edit regression executed no mutants")
+	}
+	if !slices.ContainsFunc(result.Warnings, func(warning string) bool {
+		return strings.Contains(warning, "the input closure changed while the run was in flight")
+	}) {
+		t.Fatalf("closure edit produced no cache refusal: %v", result.Warnings)
+	}
+	entries, err := os.ReadDir(cacheDir(module))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".json") {
+			t.Fatalf("the changed closure persisted %s", entry.Name())
+		}
 	}
 }

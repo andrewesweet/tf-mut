@@ -57,13 +57,10 @@ func prepare(
 	settings settings, workRoot string,
 	collector *runCollector,
 ) (warmWorkspace, error) {
-	cache := beginCache(configuration, settings)
 	prepared, err := warmUp(ctx, runner, configuration, workRoot, collector, settings)
 	if err != nil {
 		return warmWorkspace{}, err
 	}
-
-	prepared.cache = cache
 
 	// Preview needs the schemas that gate the deletion operators, but no
 	// baseline. The workspace still exists because init cannot be allowed to

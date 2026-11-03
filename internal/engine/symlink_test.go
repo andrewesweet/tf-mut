@@ -19,7 +19,22 @@ import (
 func symlinkedModule(t *testing.T) string {
 	t.Helper()
 
-	repository := t.TempDir()
+	artifacts, err := filepath.Abs(filepath.Join("..", "..", ".artifacts"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(artifacts, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	repository, err := os.MkdirTemp(artifacts, "symlink-fixture-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(repository); err != nil {
+			t.Error(err)
+		}
+	})
 	module := filepath.Join(repository, "mod")
 	if err := os.MkdirAll(filepath.Join(module, "tests"), 0o750); err != nil {
 		t.Fatalf("creating module: %v", err)

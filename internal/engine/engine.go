@@ -424,7 +424,7 @@ func (e Engine) curate(
 		return report.Report{}, err
 	}
 
-	return curateSuite(ctx, found.runner, found.configuration, s, found.version, moduleDir, collector)
+	return curateSuite(ctx, found.runner, found.configuration, s, found.version, moduleDir, collector, found.cache)
 }
 
 // characteriseFirstSuite scaffolds, harvests and pins a first suite, through
@@ -459,7 +459,7 @@ func (e Engine) grade(
 		return report.Report{}, err
 	}
 
-	result, _, err := mutate(ctx, found.runner, found.configuration, s, found.version, moduleDir, collector)
+	result, _, err := mutate(ctx, found.runner, found.configuration, s, found.version, moduleDir, collector, found.cache)
 
 	return result, err
 }
@@ -468,6 +468,7 @@ func (e Engine) grade(
 // Terraform-driving command: the runner the pipeline executes through, the
 // gate's version, and the discovered configuration.
 type probed struct {
+	cache         *verdictCache
 	runner        tfexec.Runner
 	version       tfexec.Version
 	configuration discovery.Configuration
@@ -491,12 +492,21 @@ func (e Engine) probe(
 
 	discoveryPhase := collector.phase(phaseDiscovery)
 	configuration, err := e.discoverConfiguration(ctx, moduleDir, s)
+	if err != nil {
+		discoveryPhase()
+		return probed{}, err
+	}
+
+	cache := beginCache(configuration, s)
+	if cache != nil {
+		configuration, err = e.discoverConfiguration(ctx, moduleDir, s)
+	}
 	discoveryPhase()
 	if err != nil {
 		return probed{}, err
 	}
 
-	return probed{runner: runner, version: version, configuration: configuration}, nil
+	return probed{runner: runner, version: version, configuration: configuration, cache: cache}, nil
 }
 
 func (e Engine) discoverConfiguration(
@@ -617,6 +627,7 @@ func mutate(
 	settings settings, version tfexec.Version,
 	moduleDir string,
 	collector *runCollector,
+	cache *verdictCache,
 ) (report.Report, oracle.Population, error) {
 	settings, warnings, err := applyGates(configuration, settings, collector)
 	if err != nil {
@@ -634,6 +645,8 @@ func mutate(
 	if err != nil {
 		return report.Report{}, oracle.Population{}, err
 	}
+
+	prepared.cache = cache
 
 	found, err := describeSelection(ctx, configuration, settings, version.Terraform,
 		collector, prepared, generated, warnings)

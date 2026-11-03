@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,7 +34,6 @@ type closureStamp struct {
 	size   int64
 	mtime  time.Time
 	ctime  time.Time
-	target *closureStamp
 }
 
 func (s closureStamp) differs(current closureStamp) bool {
@@ -91,21 +91,14 @@ func stampClosureTree(root string) (map[string]closureStamp, error) {
 			return fmt.Errorf("%w: %s", errUnstampableEntry, path)
 		}
 
-		if info.Mode()&os.ModeSymlink != 0 {
-			targetInfo, err := os.Stat(path)
-			if err != nil {
-				return err
-			}
-
-			target, recorded := stampOf(targetInfo)
-			if !recorded {
-				return fmt.Errorf("%w: %s", errUnstampableEntry, path)
-			}
-
-			stamp.target = &target
+		key := filepath.ToSlash(relative)
+		if _, recorded := stamps[key]; !recorded {
+			stamps[key] = stamp
 		}
 
-		stamps[filepath.ToSlash(relative)] = stamp
+		if info.Mode()&os.ModeSymlink != 0 {
+			return stampDereference(root, path, stamps)
+		}
 
 		return nil
 	}
@@ -115,6 +108,54 @@ func stampClosureTree(root string) (map[string]closureStamp, error) {
 	}
 
 	return stamps, nil
+}
+
+func stampDereference(root, path string, stamps map[string]closureStamp) error {
+	current := string(filepath.Separator)
+	pending := strings.Split(path, string(filepath.Separator))
+	links := 0
+
+	for {
+		info, err := os.Lstat(current)
+		if err != nil {
+			return err
+		}
+		stamp, recorded := stampOf(info)
+		if !recorded {
+			return fmt.Errorf("%w: %s", errUnstampableEntry, current)
+		}
+		relative, err := filepath.Rel(root, current)
+		if err != nil {
+			return err
+		}
+		key := filepath.ToSlash(relative)
+		if _, recorded := stamps[key]; !recorded {
+			stamps[key] = stamp
+		}
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			links++
+			if links > 255 {
+				return syscall.ELOOP
+			}
+			target, err := os.Readlink(current)
+			if err != nil {
+				return err
+			}
+			pending = append(strings.Split(target, string(filepath.Separator)), pending...)
+			current = filepath.Dir(current)
+			if filepath.IsAbs(target) {
+				current = string(filepath.Separator)
+			}
+		}
+
+		if len(pending) == 0 {
+			return nil
+		}
+		component := pending[0]
+		pending = pending[1:]
+		current = filepath.Join(current, component)
+	}
 }
 
 // closureMoved re-checks every recorded stamp and reports the first relative
@@ -143,17 +184,6 @@ func closureMoved(root string, stamps map[string]closureStamp) (string, bool) {
 			return relative, true
 		}
 
-		if target := stamps[relative].target; target != nil {
-			info, err := os.Stat(path)
-			if err != nil {
-				return relative, true
-			}
-
-			stamp, recorded := stampOf(info)
-			if !recorded || target.differs(stamp) {
-				return relative, true
-			}
-		}
 	}
 
 	return "", false
