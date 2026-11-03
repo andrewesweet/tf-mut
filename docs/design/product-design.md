@@ -392,7 +392,7 @@ fail one run and error another; changing file order must not change the verdict)
 | 1 | `Invalid` | Lazy `validate` fails after an `error` result or zero executed runs | **Excluded** |
 | 2 | `Killed` | ≥ 1 executed run reports `fail` — an **assertion** caught it | Numerator |
 | 3 | `KilledByError` | No `fail`, ≥ 1 run reports `error`, lazy `validate` passes — **Terraform** caught it | Numerator, always reported separately |
-| 4 | `Timeout` | No kill; the mutant's test invocation exceeded `max(factor × baseline, 30 s)` | **Denominator** — and any timeout marks the whole score *incomplete* |
+| 4 | `Timeout` | No kill; the test deadline stops execution (budget: `max(factor × baseline, 30 s)`) | **Denominator** — and any timeout marks the whole score *incomplete* |
 | 5 | `Survived` | All runs pass; masked fingerprint differs from baseline — or is `indeterminate` (unknown values or undecomposable volatility in scope, R2-2/R2-9) | Denominator. Diagnoses include `weak-assertion` and `indeterminate-unknown-values`; `mock-masked` was withdrawn in M3 (#50) |
 | 6 | `StructurallyUnassertable` | Fingerprint identical **and** the construct has no plan/state projection (`lifecycle`, `depends_on`, unexercised `validation`) | Denominator, with fix guidance |
 | 7 | `Unobservable` | Fingerprint identical, the construct projects, **and no unknown value lies in the mutation's forward cone** (M3a delivered the path-scoped upgrade of the M2-spec-review C2 rule: unknowns are judged by whether the mutation can reach them, under the fail-closed address adapters, and the whole-payload test remains the floor wherever a mapping fails). A mutant whose cone reaches nothing observable at all — no resource, data source, output, check or contract construct — is classified statically, guarded by the structural-state precedence. For the additional static default classification and its guards, see [suite-supplied defaults](mutation-operators.md#tier-3--module-contract-standard) (F10, #253) | **Excluded** |
@@ -407,6 +407,11 @@ oracle would otherwise have to claim identity. And a path that is stable in the 
 volatile only under the mutant is *undecidable*, not maskable — masking it on both sides would
 erase the difference the mutation made, so the C4 rule's "residual undecidability" clause
 governs it.
+
+A recorded normal Terraform exit, including a nonzero exit, is never a timeout, even if the
+deadline expires before tf-mut classifies it. For a started child, classification uses its
+process wait status together with the expired deadline; if the wait status is unavailable,
+an expired deadline remains a timeout.
 
 A test deadline remains visible even when an earlier failure determines the mutant's verdict.
 Terminal reports for every command include a trailing `Deadline reached` list when any
