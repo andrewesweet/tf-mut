@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
@@ -1203,8 +1204,6 @@ func assertReportCarriesNoValue(t *testing.T, value report.Report, secret string
 // never earned. The stamps recorded at key time refuse that persist, and the
 // run that saw the edit says so in its warnings.
 func TestAnEditLandingMidRunIsNeverPersisted(t *testing.T) {
-	t.Parallel()
-
 	module := copyFixture(t, "suggest-basic")
 	testFile := filepath.Join(module, "tests", "unit.tftest.hcl")
 	original, err := os.ReadFile(testFile) //nolint:gosec // test-owned path.
@@ -1240,6 +1239,7 @@ run "added_mid_run" {
 	})
 
 	config := baseConfig(t, module)
+	config.Jobs = 1
 	first := cachedRun(t, config)
 
 	if first.Population.Cached != 0 {
@@ -1274,4 +1274,180 @@ run "added_mid_run" {
 	third := cachedRun(t, uncached)
 
 	assertVerdictInvariance(t, third, second)
+}
+
+func TestClosureEntryChangesDuringARunAreNeverPersisted(t *testing.T) {
+	for _, change := range []string{"root-addition", "nested-addition", "symlink-target", "restored-timestamps"} {
+		t.Run(change, func(t *testing.T) {
+			module := copyFixture(t, "suggest-basic")
+			var edit, restore func() error
+
+			switch change {
+			case "root-addition", "nested-addition":
+				directory := module
+				if change == "nested-addition" {
+					directory = filepath.Join(module, "tests")
+				}
+				path := filepath.Join(directory, "extra.auto.tfvars")
+				edit = func() error { return os.WriteFile(path, nil, 0o600) }
+				restore = func() error { return os.Remove(path) }
+			case "symlink-target":
+				module = symlinkedModule(t)
+				path := filepath.Join(filepath.Dir(module), "shared", "versions.tf")
+				original, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				edit = func() error {
+					return os.WriteFile(path, append(slices.Clone(original), '\n'), 0o600)
+				}
+				restore = func() error { return os.WriteFile(path, original, 0o600) }
+			case "restored-timestamps":
+				path := filepath.Join(module, "tests", "unit.tftest.hcl")
+				original, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				info, err := os.Stat(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				edit = func() error {
+					if err := os.WriteFile(path, append(slices.Clone(original), '\n'), 0o600); err != nil {
+						return err
+					}
+					if err := os.WriteFile(path, original, 0o600); err != nil {
+						return err
+					}
+					return os.Chtimes(path, info.ModTime(), info.ModTime())
+				}
+				restore = func() error { return nil }
+			}
+
+			assertClosureEditBlocksCaching(t, module, edit, restore)
+		})
+	}
+}
+
+func assertClosureEditBlocksCaching(t *testing.T, module string, edit, restore func() error) {
+	t.Helper()
+
+	engine.SetMidRunEditSeed(t, module, sync.OnceValue(edit))
+	config := baseConfig(t, module)
+	config.Jobs = 1
+	first := cachedRun(t, config)
+
+	if first.Population.Fresh == 0 {
+		t.Fatal("the edit regression executed no mutants")
+	}
+	if !slices.ContainsFunc(first.Warnings, func(warning string) bool {
+		return strings.Contains(warning, "the input closure changed while the run was in flight")
+	}) {
+		t.Fatalf("closure edit produced no cache refusal: %v", first.Warnings)
+	}
+	entries, err := os.ReadDir(cacheDir(module))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".json") {
+			t.Fatalf("the changed closure persisted %s", entry.Name())
+		}
+	}
+	if err := restore(); err != nil {
+		t.Fatal(err)
+	}
+
+	second := cachedRun(t, config)
+	if second.Population.Cached != 0 {
+		t.Fatalf("restored tree replayed %d verdicts", second.Population.Cached)
+	}
+	third := cachedRun(t, config)
+	if third.Population.Cached == 0 {
+		t.Fatal("the unchanged tree did not resume caching")
+	}
+	assertVerdictInvariance(t, second, third)
+}
+
+type cacheKeyEditWriter func() error
+
+func (edit cacheKeyEditWriter) Write(content []byte) (int, error) {
+	if strings.Contains(string(content), "tf-mut: cache key component") {
+		if err := edit(); err != nil {
+			return 0, err
+		}
+	}
+	return len(content), nil
+}
+
+func TestAnEditDuringCacheKeyCreationIsNeverPersisted(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "suggest-basic")
+	path := filepath.Join(module, "tests", "unit.tftest.hcl")
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit := sync.OnceValue(func() error {
+		return os.WriteFile(path, append(slices.Clone(original), '\n'), 0o600)
+	})
+	config := baseConfig(t, module)
+	config.Debug = true
+	config.Progress = cacheKeyEditWriter(edit)
+	first := cachedRun(t, config)
+	if err := edit(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(first.Warnings, func(warning string) bool {
+		return strings.Contains(warning, "the input closure changed while the run was in flight")
+	}) {
+		t.Fatalf("key-time edit produced no cache refusal: %v", first.Warnings)
+	}
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config.Debug = false
+	config.Progress = nil
+	second := cachedRun(t, config)
+	if second.Population.Cached != 0 {
+		t.Fatalf("restored tree replayed %d verdicts", second.Population.Cached)
+	}
+}
+
+func TestAnEditAtCacheOpeningCannotReuseAnEarlierKey(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "suggest-basic")
+	path := filepath.Join(module, "tests", "unit.tftest.hcl")
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependencies := engine.DefaultDependencies()
+	openStore := dependencies.NewVerdictStore
+	edit := sync.OnceValue(func() error {
+		return os.WriteFile(path, append(slices.Clone(original), '\n'), 0o600)
+	})
+	dependencies.NewVerdictStore = func(dir string) (engine.VerdictStore, error) {
+		verdicts, err := openStore(dir)
+		if err != nil {
+			return nil, err
+		}
+		if err := edit(); err != nil {
+			return nil, err
+		}
+		return verdicts, nil
+	}
+	config := baseConfig(t, module)
+	if _, err := engine.New(dependencies).Run(t.Context(), config); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	second := cachedRun(t, config)
+	if second.Population.Cached != 0 {
+		t.Fatalf("restored tree replayed %d verdicts", second.Population.Cached)
+	}
 }

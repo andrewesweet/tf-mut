@@ -107,19 +107,8 @@ type VerdictStore interface {
 // wiring selected. Everything here judges stored entries; everything on
 // disk happens behind the store.
 type verdictCache struct {
-	store VerdictStore
-	key   string
-	// stamps are the key-time change stamps of every entry of the closure
-	// root the mutant sandboxes take. Re-checked immediately before persist,
-	// they hold the promise "a key describes the inputs of its verdicts"
-	// across the window the sandboxes open: an edit landing after key time
-	// would otherwise file the changed tree's verdicts under the unchanged
-	// tree's key, and a later run on the restored tree — the same bytes, the
-	// same key — would replay them. A content re-check cannot hold this:
-	// the edit-undo that restores identical bytes is exactly the ABA the
-	// stamps exist to catch. For the files the sandboxes hardlink, the
-	// tool's own materialisation moves ctime — os.Link moves the link count
-	// — so the re-check exempts it there; see hardlinkable.
+	store  VerdictStore
+	key    string
 	stamps map[string]closureStamp
 	// manifest is this run's key beside its environment digest and
 	// per-variable environment map. The store writes it next to
@@ -136,12 +125,24 @@ func openCache(
 	settings settings, prepared warmWorkspace,
 	terraform tfexec.Version,
 ) *verdictCache {
-	if settings.NoCache || settings.AllowRealInfrastructure || settings.AllowUnsandboxedEffects {
+	cache := prepared.cache
+	if cache == nil {
 		return nil
 	}
 
 	key, manifest, err := cacheKey(configuration, settings, prepared, terraform)
 	if err != nil {
+		return nil
+	}
+
+	cache.key, cache.manifest = key, manifest
+
+	return cache
+}
+
+func beginCache(configuration discovery.Configuration, settings settings) *verdictCache {
+	if settings.mode == previewMode || settings.NoCache ||
+		settings.AllowRealInfrastructure || settings.AllowUnsandboxedEffects {
 		return nil
 	}
 
@@ -156,19 +157,12 @@ func openCache(
 		return nil
 	}
 
-	// The stamps are the persist-end guard the key cannot be: they record, at
-	// key time, the tree the sandboxes are about to read. They are taken
-	// after the store is opened so the cache directory's own creation — an
-	// entry in the module dir, inside a subtree the walk skips — is not
-	// mistaken for a tree change. A failure here leaves the cache unused —
-	// no reads, no writes — like every other condition this function cannot
-	// prove.
 	stamps, err := stampClosureTree(configuration.ClosureRoot)
 	if err != nil {
 		return nil
 	}
 
-	return &verdictCache{store: verdicts, key: key, manifest: manifest, stamps: stamps}
+	return &verdictCache{store: verdicts, stamps: stamps}
 }
 
 // envComponent is the key-component kind the keyed environment

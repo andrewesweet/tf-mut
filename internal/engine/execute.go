@@ -480,7 +480,7 @@ func materialiseMutant(plan executionPlan, index int, telemetry *mutantCollector
 			HashFreeLock: true,
 			Guard:        plan.prepared.providerGuard,
 		},
-		Hardlink: true,
+		Hardlink: plan.prepared.cache == nil,
 	})
 	sandboxPhase()
 

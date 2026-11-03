@@ -16,7 +16,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"syscall"
 	"time"
 
@@ -34,59 +33,12 @@ type closureStamp struct {
 	size   int64
 	mtime  time.Time
 	ctime  time.Time
+	target *closureStamp
 }
 
-// hardlinkSuffixes mirrors the sandbox's own list of the file kinds a mutant
-// sandbox shares by hardlink — the files Terraform reads and never writes.
-// It lives beside the stamp arithmetic because the hardlink is what moves
-// the stamp: see differs.
-//
-//nolint:gochecknoglobals // an immutable lookup table.
-var hardlinkSuffixes = map[string]bool{
-	".tf":          true,
-	".tf.json":     true,
-	".tftest.hcl":  true,
-	".tftest.json": true,
-	".tfmock.hcl":  true,
-	".tfmock.json": true,
-	".tfvars":      true,
-	".tfvars.json": true,
-}
-
-// hardlinkable reports whether the mutant sandboxes share this file by
-// hardlink, and so whether its ctime is exempt from the re-check: os.Link
-// moves the source file's link count, and the link count is part of what
-// ctime covers, so the tool's own sandbox materialisation moves that stamp
-// without touching the tree. Everything the exemption drops still holds:
-// an undone edit writes bytes, and writing moves mtime — the undo every
-// ordinary tool performs (a save, a checkout, a stash pop, a plain
-// byte-for-byte restore) is caught. Only a timestamp-preserving, in-place,
-// same-inode restore of link-shared bytes could pass, which no editor,
-// formatter, checkout, stash or copy performs.
-func hardlinkable(name string) bool {
-	for suffix := range hardlinkSuffixes {
-		if strings.HasSuffix(name, suffix) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// differs reports whether the current stamp no longer describes the file
-// the key was taken against. ctime is exempt for the files the sandboxes
-// share by hardlink, for as long as the tool itself moves it; see
-// hardlinkable.
-func (s closureStamp) differs(current closureStamp, linkShared bool) bool {
-	if s.device != current.device || s.inode != current.inode || s.size != current.size {
-		return true
-	}
-
-	if !s.mtime.Equal(current.mtime) {
-		return true
-	}
-
-	return !linkShared && !s.ctime.Equal(current.ctime)
+func (s closureStamp) differs(current closureStamp) bool {
+	return s.device != current.device || s.inode != current.inode ||
+		s.size != current.size || !s.mtime.Equal(current.mtime) || !s.ctime.Equal(current.ctime)
 }
 
 // skippedClosureNames is the stamp walk's skip set: the names the mutant
@@ -107,10 +59,7 @@ var skippedClosureNames = map[string]bool{
 // stampClosureTree records a stamp for every entry of the closure root the
 // mutant sandboxes take: every non-directory entry the walk yields, and the
 // directories themselves, whose stamps move when a sibling is added,
-// renamed or removed without any recorded file's moving. Symlinks are
-// stamped by their own identity — the entry the walk sees; the sandbox
-// copies a symlink through to its target, whose bytes the key hashes when
-// discovery reads them.
+// renamed or removed without any recorded file's moving.
 func stampClosureTree(root string) (map[string]closureStamp, error) {
 	stamps := map[string]closureStamp{}
 
@@ -124,11 +73,7 @@ func stampClosureTree(root string) (map[string]closureStamp, error) {
 			return fmt.Errorf("resolving %s: %w", path, err)
 		}
 
-		if relative == "." {
-			return nil
-		}
-
-		if skippedClosureNames[entry.Name()] {
+		if relative != "." && skippedClosureNames[entry.Name()] {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
@@ -144,6 +89,20 @@ func stampClosureTree(root string) (map[string]closureStamp, error) {
 		stamp, recorded := stampOf(info)
 		if !recorded {
 			return fmt.Errorf("%w: %s", errUnstampableEntry, path)
+		}
+
+		if info.Mode()&os.ModeSymlink != 0 {
+			targetInfo, err := os.Stat(path)
+			if err != nil {
+				return err
+			}
+
+			target, recorded := stampOf(targetInfo)
+			if !recorded {
+				return fmt.Errorf("%w: %s", errUnstampableEntry, path)
+			}
+
+			stamp.target = &target
 		}
 
 		stamps[filepath.ToSlash(relative)] = stamp
@@ -180,8 +139,20 @@ func closureMoved(root string, stamps map[string]closureStamp) (string, bool) {
 		}
 
 		stamp, recorded := stampOf(info)
-		if !recorded || stamps[relative].differs(stamp, hardlinkable(filepath.Base(relative))) {
+		if !recorded || stamps[relative].differs(stamp) {
 			return relative, true
+		}
+
+		if target := stamps[relative].target; target != nil {
+			info, err := os.Stat(path)
+			if err != nil {
+				return relative, true
+			}
+
+			stamp, recorded := stampOf(info)
+			if !recorded || target.differs(stamp) {
+				return relative, true
+			}
 		}
 	}
 
@@ -212,3 +183,12 @@ func stampOf(info os.FileInfo) (closureStamp, bool) {
 // a run whose stamps cannot be taken stores nothing, which is the direction
 // every cache failure takes.
 var errUnstampableEntry = errors.New("the filesystem does not report the identity of a closure entry")
+
+func closureChangedWarning(at string) string {
+	return fmt.Sprintf(
+		"verdicts were not cached: the input closure changed while the run was in flight "+
+			"(first change at %s), so the cache key does not describe the tree these "+
+			"verdicts were earned on; the next run on this tree executes the population fresh",
+		at,
+	)
+}

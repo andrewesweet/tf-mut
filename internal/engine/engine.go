@@ -861,6 +861,13 @@ func executeWithCache(
 ) (evaluatedPopulation, error) {
 	loadPhase := plan.collector.phase(phaseCacheLoad)
 	cache := openCache(plan.configuration, plan.settings, plan.prepared, terraform)
+	if plan.prepared.cache != nil {
+		if at, moved := closureMoved(plan.configuration.ClosureRoot, plan.prepared.cache.stamps); moved {
+			result.Warnings = append(result.Warnings, closureChangedWarning(at))
+			cache = nil
+		}
+	}
+
 	if cache != nil {
 		result.Population.Cached = cache.load(plan.described, plan.classified)
 		result.Population.Fresh = result.Population.Selected - result.Population.Cached
@@ -896,12 +903,7 @@ func executeWithCache(
 		// key-time tree, and these verdicts were earned by another. The
 		// in-flight report itself is not repaired; the notice marks it.
 		if at, moved := closureMoved(plan.configuration.ClosureRoot, cache.stamps); moved {
-			result.Warnings = append(result.Warnings, fmt.Sprintf(
-				"verdicts were not cached: the input closure changed while the run was in flight "+
-					"(first change at %s), so the cache key does not describe the tree these "+
-					"verdicts were earned on; the next run on this tree executes the population fresh",
-				at,
-			))
+			result.Warnings = append(result.Warnings, closureChangedWarning(at))
 		} else {
 			cache.persist(evaluated.rows, evaluated.classified)
 		}
