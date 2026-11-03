@@ -228,6 +228,15 @@ var disableJSONReading = func(settings) bool { return false }
 //nolint:gochecknoglobals // test seam, inert outside the suite.
 var seedGenerationDefect = func(settings) mutation.Defect { return mutation.DefectNone }
 
+// holdAfterReap is the inert test hook beside the classification it delays:
+// the deadline regression test holds one module's mutant invocations once
+// their Terraform child is reaped, so the deadline the test controls lands
+// inside the window between a natural exit and the classification that reads
+// the context. Nothing but that test supplies a hold.
+//
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var holdAfterReap = func(settings) func(context.Context) { return nil }
+
 // Operational failures. Every one of them aborts the run: none of them can be
 // reported as a mutant verdict without misleading the reader.
 var (

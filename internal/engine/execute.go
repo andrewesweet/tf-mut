@@ -338,6 +338,7 @@ func evaluateOne(
 		Verbose:       true,
 		Timeout:       budget,
 		FailFast:      plan.settings.mode != curateMode && !plan.settings.AllowRealInfrastructure,
+		HoldAfterReap: holdAfterReap(plan.settings),
 	})
 	testPhase(telemetry.child("test", result.Usage, result.Started)...)
 	if err != nil {

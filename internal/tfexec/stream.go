@@ -34,6 +34,19 @@ func (r Runner) StreamOutput(
 	consume func(io.Reader) error,
 	args ...string,
 ) (Result, error) {
+	return r.streamOutput(ctx, dir, consume, nil, args...)
+}
+
+// streamOutput is StreamOutput with the timing seam TestOptions.HoldAfterReap
+// supplies: the hold runs once the child is reaped and before its outcome is
+// classified, which puts the deadline a test controls inside that window.
+func (r Runner) streamOutput(
+	ctx context.Context,
+	dir string,
+	consume func(io.Reader) error,
+	holdAfterReap func(context.Context),
+	args ...string,
+) (Result, error) {
 	full := append([]string{"-chdir=" + dir}, args...)
 	// The shared constructor stops the whole process group at the deadline, so
 	// the provider plugins Terraform started cannot outlive the run.
@@ -60,7 +73,7 @@ func (r Runner) StreamOutput(
 	consumeErr := consume(bufio.NewReaderSize(pipe, streamBufferSize))
 	_, _ = io.Copy(io.Discard, pipe)
 
-	result := completed(ctx, command, started, &stderr)
+	result := completed(ctx, command, started, &stderr, holdAfterReap)
 
 	if result.Err != nil {
 		return result.Result, result.Err
@@ -80,11 +93,27 @@ type outcome struct {
 // itself, not its bytes: Wait must run before the buffer is read, because only
 // Wait guarantees the copy out of the stderr pipe has finished — a snapshot
 // taken first loses a failing child's diagnostics under load.
-func completed(ctx context.Context, command *exec.Cmd, started time.Time, stderr *bytes.Buffer) outcome {
+//
+// The hold, when non-nil, runs between the reap and the classification: the
+// engine's deadline regression test blocks there until the invocation's own
+// deadline expires, so the race between a natural exit and a deadline that
+// must not be mistaken for it is deterministic. Nothing but a test supplies
+// one.
+func completed(
+	ctx context.Context,
+	command *exec.Cmd,
+	started time.Time,
+	stderr *bytes.Buffer,
+	holdAfterReap func(context.Context),
+) outcome {
 	waitErr := command.Wait()
 	// Terraform may leave provider plugins in its process group after a normal
 	// exit. Clean up the group after Wait even when cancellation never ran.
 	ReapGroup(command)
+
+	if holdAfterReap != nil {
+		holdAfterReap(ctx)
+	}
 
 	result := Result{
 		Started:  true,
