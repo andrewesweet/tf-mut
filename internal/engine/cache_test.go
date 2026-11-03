@@ -1194,3 +1194,84 @@ func assertReportCarriesNoValue(t *testing.T, value report.Report, secret string
 		t.Fatal("an environment value reaches the report bytes")
 	}
 }
+
+// TestAnEditLandingMidRunIsNeverPersisted reproduces the run lifecycle's
+// window: the key is taken before the population executes, and the sandboxes
+// read the live closure root, so an edit landing between key time and persist
+// is filed under the key-time key. A later run on the restored tree — the
+// same bytes, the same key — would then replay verdicts the restored tree
+// never earned. The stamps recorded at key time refuse that persist, and the
+// run that saw the edit says so in its warnings.
+func TestAnEditLandingMidRunIsNeverPersisted(t *testing.T) {
+	t.Parallel()
+
+	module := copyFixture(t, "suggest-basic")
+	testFile := filepath.Join(module, "tests", "unit.tftest.hcl")
+	original, err := os.ReadFile(testFile) //nolint:gosec // test-owned path.
+	if err != nil {
+		t.Fatalf("reading the fixture's test file: %v", err)
+	}
+
+	// The staged edit is the reproduction's run block: an assertion over the
+	// output no selected run asserts, so a mutant of the corresponding source
+	// dies under the edited suite and survives under the original one.
+	addition := []byte(`
+run "added_mid_run" {
+  command = apply
+
+  assert {
+    condition     = output.ignored == "nobody-checks-me"
+    error_message = "added while the run was in flight"
+  }
+}
+`)
+
+	armed := true
+	engine.SetMidRunEditSeed(t, module, func() error {
+		if !armed {
+			return nil
+		}
+
+		armed = false
+
+		// A plain in-place write, the reproduction's own shape: same path,
+		// same inode, different bytes. That is the whole point.
+		return os.WriteFile(testFile, append(slices.Clone(original), addition...), 0o600) //nolint:gosec // test-owned path.
+	})
+
+	config := baseConfig(t, module)
+	first := cachedRun(t, config)
+
+	if first.Population.Cached != 0 {
+		t.Fatalf("the first run reported %d cached verdicts from an empty cache",
+			first.Population.Cached)
+	}
+
+	if !slices.ContainsFunc(first.Warnings, func(warning string) bool {
+		return strings.Contains(warning, "the input closure changed while the run was in flight")
+	}) {
+		t.Fatalf("the run that saw a mid-flight closure edit carried no uncached-verdicts warning: %v",
+			first.Warnings)
+	}
+
+	if err := os.WriteFile(testFile, original, 0o600); err != nil { //nolint:gosec // test-owned path.
+		t.Fatalf("restoring the test file: %v", err)
+	}
+
+	// Nothing was persisted under the key-time key, so the restored tree —
+	// whose bytes hash to exactly that key — finds nothing to replay.
+	second := cachedRun(t, config)
+
+	if second.Population.Cached != 0 {
+		t.Fatalf("the run on the restored tree replayed %d verdicts an edited tree earned",
+			second.Population.Cached)
+	}
+
+	// And the verdict it reports is the honest one: a cache-off run over the
+	// same restored tree agrees, mutant for mutant.
+	uncached := config
+	uncached.NoCache = true
+	third := cachedRun(t, uncached)
+
+	assertVerdictInvariance(t, third, second)
+}

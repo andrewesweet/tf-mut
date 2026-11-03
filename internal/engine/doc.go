@@ -132,6 +132,7 @@
 // applyCommitProbe in apply.go; seedMissingMock, seedNoEscalation and
 // seedSharedFileOrder in characterise.go; seedClosureChange,
 // seedClosureFile, seedClosureAfter, seedRenameWindowChange and
-// seedRegistryFailure in characterisewrite.go; seedUntilDryRounds in
-// untildry.go; pinDefectHooks rides the CharacteriseRequest in request.go.
+// seedRegistryFailure in characterisewrite.go; seedMidRunEdit in execute.go;
+// seedUntilDryRounds in untildry.go; pinDefectHooks rides the
+// CharacteriseRequest in request.go.
 package engine

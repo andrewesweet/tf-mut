@@ -306,6 +306,31 @@ func evaluate(
 	return evaluateOne(ctx, plan, index, budget, verdict, telemetry)
 }
 
+// seedMidRunEdit is the inert test hook beside the run lifecycle it
+// reproves: a regression test stages a closure edit between key time and
+// persist — the window the run-lifecycle defect lives in — by arming it for
+// one module. The engine calls it after each mutant's sandbox is
+// materialised and stages nothing itself; a staging hook stages at most once.
+//
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedMidRunEdit = func(discovery.Configuration) error { return nil }
+
+// stageMidRunEdit is the run lifecycle's test seam: a regression test arms
+// it for one module, and production stages nothing. A staging failure is an
+// execution error — the mutant proved nothing, so no verdict is claimed for
+// it.
+func stageMidRunEdit(plan executionPlan, verdict report.Mutant) *report.ExecutionError {
+	if err := seedMidRunEdit(plan.configuration); err != nil {
+		return &report.ExecutionError{
+			MutantID: verdict.ID,
+			Site:     verdict.Site,
+			Message:  "the mid-run closure edit could not be staged: " + err.Error(),
+		}
+	}
+
+	return nil
+}
+
 // evaluateOne runs the mutant's evaluation itself: stage, mutate, execute,
 // judge. The single invocation runs verbose, so a survivor's fingerprint
 // comparison reads the stream it produced.
@@ -327,6 +352,13 @@ func evaluateOne(
 	}
 
 	defer func() { _ = os.RemoveAll(built.Root) }()
+
+	// The run lifecycle's test seam fires here: the sandbox is built from
+	// the live closure root, so an edit staged now is an edit the sandboxes
+	// read while the run's key still describes the tree it was taken from.
+	if staging := stageMidRunEdit(plan, verdict); staging != nil {
+		return verdict, plan.classified[index].Outcome, staging
+	}
 
 	testPhase := telemetry.phase(phaseTest)
 	// FailFast is limited to verdict-only population execution. Curation needs

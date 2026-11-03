@@ -299,6 +299,24 @@ func SetCommitStartClosureChange(t *testing.T, moduleDir, path string) {
 	})
 }
 
+// SetMidRunEditSeed arms the run-lifecycle staging hook for one module: the
+// engine calls the edit after each mutant's sandbox is materialised, inside
+// the key-time-to-persist window, and the edit itself stages at most once.
+// Its callers are sequential for the hook's complete lifetime.
+func SetMidRunEditSeed(t *testing.T, moduleDir string, edit func() error) {
+	t.Helper()
+	seedMidRunEdit = func(configuration discovery.Configuration) error {
+		if configuration.ModuleDir != moduleDir {
+			return nil
+		}
+
+		return edit()
+	}
+	t.Cleanup(func() {
+		seedMidRunEdit = func(discovery.Configuration) error { return nil }
+	})
+}
+
 // SetGitTimeout shortens the fixed cap on git invocations for one test: the
 // deadline test drives a sleeping git through the real seam, and no caller
 // parameter changes the cap. Its callers are sequential for the hook's
