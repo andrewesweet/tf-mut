@@ -890,7 +890,21 @@ func executeWithCache(
 
 	storePhase := plan.collector.phase(phaseCacheStore)
 	if cache != nil {
-		cache.persist(evaluated.rows, evaluated.classified)
+		// The stamps are re-checked here — immediately before persist — so
+		// the window they guard is the one the write happens in. A run whose
+		// tree moved after key time stores nothing: its key describes the
+		// key-time tree, and these verdicts were earned by another. The
+		// in-flight report itself is not repaired; the notice marks it.
+		if at, moved := closureMoved(plan.configuration.ClosureRoot, cache.stamps); moved {
+			result.Warnings = append(result.Warnings, fmt.Sprintf(
+				"verdicts were not cached: the input closure changed while the run was in flight "+
+					"(first change at %s), so the cache key does not describe the tree these "+
+					"verdicts were earned on; the next run on this tree executes the population fresh",
+				at,
+			))
+		} else {
+			cache.persist(evaluated.rows, evaluated.classified)
+		}
 	}
 
 	storePhase()

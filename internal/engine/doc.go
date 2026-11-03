@@ -104,7 +104,10 @@
 // hashes, which verdicts and findings are admitted, which files the
 // registry records — and declares the ports next to those policies:
 // cache.go the VerdictStore, acceptance.go the BaselineStore,
-// characterisewrite.go the RegistryStore. The on-disk formats live in
+// characterisewrite.go the RegistryStore. closurestamp.go records the
+// change stamps the persist end is guarded by: what the sandboxes took
+// from the closure root at key time is re-checked immediately before any
+// verdict is stored. The on-disk formats live in
 // internal/store: the verdict cache under cacheFormatVersion, the
 // acceptance list under store.BaselineFormatVersion, the generated-suite
 // registry under store.RegistryFormatVersion. Dependencies selects the

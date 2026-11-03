@@ -109,6 +109,18 @@ type VerdictStore interface {
 type verdictCache struct {
 	store VerdictStore
 	key   string
+	// stamps are the key-time change stamps of every entry of the closure
+	// root the mutant sandboxes take. Re-checked immediately before persist,
+	// they hold the promise "a key describes the inputs of its verdicts"
+	// across the window the sandboxes open: an edit landing after key time
+	// would otherwise file the changed tree's verdicts under the unchanged
+	// tree's key, and a later run on the restored tree — the same bytes, the
+	// same key — would replay them. A content re-check cannot hold this:
+	// the edit-undo that restores identical bytes is exactly the ABA the
+	// stamps exist to catch. For the files the sandboxes hardlink, the
+	// tool's own materialisation moves ctime — os.Link moves the link count
+	// — so the re-check exempts it there; see hardlinkable.
+	stamps map[string]closureStamp
 	// manifest is this run's key beside its environment digest and
 	// per-variable environment map. The store writes it next to
 	// the entries; a later run whose key misses diffs it to explain an
@@ -144,7 +156,19 @@ func openCache(
 		return nil
 	}
 
-	return &verdictCache{store: verdicts, key: key, manifest: manifest}
+	// The stamps are the persist-end guard the key cannot be: they record, at
+	// key time, the tree the sandboxes are about to read. They are taken
+	// after the store is opened so the cache directory's own creation — an
+	// entry in the module dir, inside a subtree the walk skips — is not
+	// mistaken for a tree change. A failure here leaves the cache unused —
+	// no reads, no writes — like every other condition this function cannot
+	// prove.
+	stamps, err := stampClosureTree(configuration.ClosureRoot)
+	if err != nil {
+		return nil
+	}
+
+	return &verdictCache{store: verdicts, key: key, manifest: manifest, stamps: stamps}
 }
 
 // envComponent is the key-component kind the keyed environment
