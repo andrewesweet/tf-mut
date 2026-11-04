@@ -47,6 +47,10 @@ type RegistryStore interface {
 	// rename-window protocol as the generated files, running recheck
 	// immediately before the rename.
 	Save(path string, registry store.Registry, recheck func() error) error
+	// Lock takes the registry's exclusive advisory lock, which the caller
+	// holds across a load, a merge and a save so two invocations committing
+	// into one module cannot each merge over a copy the other replaced.
+	Lock(path string) (func(), error)
 }
 
 // insideTheWindow is the commit callback's second invocation: the one
@@ -133,7 +137,7 @@ func commitScaffold(
 		// top of a failed commit changes nothing about the first failure, so
 		// its error is deliberately not allowed to displace it.
 		if len(written) > 0 {
-			_ = storeRegistry(settings, configuration.ModuleDir, block, files, inputDigest, existing)
+			_ = storeRegistry(settings, configuration.ModuleDir, block, files, inputDigest)
 		}
 
 		return err
@@ -141,7 +145,7 @@ func commitScaffold(
 
 	block.Staged = false
 
-	if err := storeRegistry(settings, configuration.ModuleDir, block, files, inputDigest, existing); err != nil {
+	if err := storeRegistry(settings, configuration.ModuleDir, block, files, inputDigest); err != nil {
 		// Every generated file has already been renamed by this point, so a
 		// registry that will not store is a partial state and not a refusal:
 		// the caller's tree has changed and the record of what changed it has
@@ -379,7 +383,6 @@ func storeRegistry(
 	block *report.Characterisation,
 	files []writtenFile,
 	inputDigest string,
-	existing store.Registry,
 ) error {
 	if err := seedRegistryFailure(moduleDir); err != nil {
 		return err
@@ -392,6 +395,19 @@ func storeRegistry(
 	for _, file := range files {
 		written[file.entry.Path] = file.digest
 	}
+
+	// Collision checks use the commit-start registry, but merging that snapshot
+	// could discard entries another invocation has since saved. Reload under
+	// the RegistryStore.Lock protocol before merging; a reload without the lock
+	// still leaves a window for another save before this invocation's rename.
+	unlock, err := settings.registryLock(moduleDir)
+	if err != nil {
+		return err
+	}
+
+	defer unlock()
+
+	existing := settings.registryLoad(moduleDir)
 
 	for _, file := range block.Files {
 		if !file.Written {

@@ -119,6 +119,12 @@ func (s settings) registrySave(
 	return s.stores.registry().Save(path, registry, recheck)
 }
 
+// registryLock takes the provenance registry's exclusive advisory lock, which
+// the caller holds across the load, the merge and the save.
+func (s settings) registryLock(moduleDir string) (func(), error) {
+	return s.stores.registry().Lock(filepath.Join(moduleDir, RegistryName))
+}
+
 // baselineLoad reads the acceptance list at path.
 func (s settings) baselineLoad(path string) ([]store.AcceptanceEntry, error) {
 	return s.stores.baseline().Load(path)
