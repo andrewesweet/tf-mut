@@ -364,8 +364,8 @@ func rewindFailFastObservation(t *testing.T, module string, mutant report.Mutant
 	}
 	for _, path := range paths {
 		var entry store.CacheEntry
-		if err := json.Unmarshal([]byte(readFile(t, path)), &entry); err != nil {
-			t.Fatal(err)
+		if decodeErr := json.Unmarshal([]byte(readFile(t, path)), &entry); decodeErr != nil {
+			t.Fatal(decodeErr)
 		}
 		if entry.MutantID != mutant.ID {
 			continue

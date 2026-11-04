@@ -144,8 +144,8 @@ func streamLines(tb testing.TB) []string {
 
 // renameRun returns a recorded run-block event line naming another run block,
 // so a synthetic sequence can interleave several run blocks of one file.
-func renameRun(line, from, to string) string {
-	return strings.ReplaceAll(line, `"`+from+`"`, `"`+to+`"`)
+func renameRun(line, to string) string {
+	return strings.ReplaceAll(line, `"applied"`, `"`+to+`"`)
 }
 
 // failFastDiagnostic is one recorded assertion diagnostic with its detail
@@ -170,18 +170,16 @@ func failFastDiagnostic(detail string) string {
 func parallelBurstStream(tb testing.TB, interrupt ...string) []byte {
 	tb.Helper()
 
-	const armed = "applied"
-
 	lines := streamLines(tb)
 	completed := strings.Replace(lines[4], `"status":"pass"`, `"status":"fail"`, 1)
 
 	built := make([]string, 0, 5+len(interrupt)+5)
 	built = append(built,
 		lines[2],
-		renameRun(lines[3], armed, "sibling"),
+		renameRun(lines[3], "sibling"),
 		lines[3],
 		completed,
-		renameRun(completed, armed, "sibling"),
+		renameRun(completed, "sibling"),
 	)
 	built = append(built, interrupt...)
 	built = append(built,
@@ -221,7 +219,7 @@ func TestAParallelFilesInterleavedEventsDoNotEndTheArmingRunsBurst(t *testing.T)
 	// the arming run's diagnostics: a start message proves nothing while the
 	// file is still running blocks.
 	lines := streamLines(t)
-	result, fires := decodeArmingFail(t, parallelBurstStream(t, renameRun(lines[3], "applied", "third")))
+	result, fires := decodeArmingFail(t, parallelBurstStream(t, renameRun(lines[3], "third")))
 
 	if !result.StoppedOnFail {
 		t.Fatal("a parallel file that completed must record the stop")
@@ -258,9 +256,9 @@ func TestADelayedSiblingStartDoesNotEndTheArmingRunsBurst(t *testing.T) {
 			built := []string{
 				lines[2], lines[3],
 				strings.Replace(lines[4], `"status":"pass"`, `"status":"fail"`, 1),
-				renameRun(lines[3], "applied", "sibling"),
-				renameRun(lines[4], "applied", "sibling"),
-				renameRun(lines[5], "applied", "sibling"),
+				renameRun(lines[3], "sibling"),
+				renameRun(lines[4], "sibling"),
+				renameRun(lines[5], "sibling"),
 				lines[9], lines[14],
 				failFastDiagnostic("first assertion"),
 				lines[6], lines[7],
