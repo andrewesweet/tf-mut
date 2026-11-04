@@ -120,6 +120,33 @@ func TestASigintAfterAnApplyRenameStillReportsTheCommittedWrite(t *testing.T) {
 	}
 }
 
+func TestAnEarlyApplyHelperFailureDoesNotHangCleanup(t *testing.T) {
+	t.Parallel()
+
+	const childEnv = "TF_MUT_APPLY_CANCEL_EARLY_EXIT_CHILD"
+	if os.Getenv(childEnv) == "1" {
+		scratch := t.TempDir()
+		interruptAfterTheCommit(t, applyCancelStaging{
+			module: filepath.Join(scratch, "absent"),
+			target: filepath.Join(scratch, applyCancelTarget),
+		})
+		t.Fatal("the missing module unexpectedly reached a commit")
+	}
+
+	//nolint:gosec // re-executing this test binary is the standard helper-process pattern.
+	child := exec.CommandContext(t.Context(), os.Args[0],
+		"-test.run=^"+t.Name()+"$", "-test.timeout=20s")
+	child.Env = append(os.Environ(), childEnv+"=1")
+	output, childErr := child.CombinedOutput()
+	exitErr := &exec.ExitError{}
+	if !errors.As(childErr, &exitErr) || exitErr.ExitCode() != 1 {
+		t.Fatalf("early helper failure did not exit as a failed test: %v\n%s", childErr, output)
+	}
+	if !bytes.Contains(output, []byte("the run exited before the apply renamed the test file")) {
+		t.Fatalf("the child failed without exercising early-exit cleanup:\n%s", output)
+	}
+}
+
 // TestACancelledInvocationStillPublishesTheWritesItCommitted is the
 // deterministic half: the run itself completes against the real fixture, and
 // the cancellation is the one the command line can always observe for itself —
@@ -297,29 +324,14 @@ func interruptAfterTheCommit(t *testing.T, staged applyCancelStaging) applyCance
 		t.Fatalf("starting helper: %v", err)
 	}
 
-	reaped := false
-
-	t.Cleanup(func() {
-		if reaped {
-			return
-		}
-
-		_ = command.Process.Signal(syscall.SIGINT)
-
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			_ = command.Process.Kill()
-			<-done
-		}
-	})
+	registerSigintHelperCleanup(t, command, done)
 
 	go func() {
 		done <- command.Wait()
+		close(done)
 	}()
 
 	code := pollForTheCommit(t, command, staged, done)
-	reaped = true
 
 	// The helper's exit code travels in a file: Go's testing package treats an
 	// os.Exit(0) inside a test as an early exit and panics, so a clean run ends

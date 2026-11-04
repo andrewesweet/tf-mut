@@ -256,7 +256,7 @@ func WriteMarkdown(writer io.Writer, value Report) error {
 	}
 
 	if interrupted := value.interruptionNotice(); interrupted != "" {
-		fmt.Fprintf(&page, "> **Interrupted:** %s\n\n", interrupted)
+		fmt.Fprintf(&page, "> **Interrupted:** %s\n\n", markdownText(interrupted))
 	}
 
 	writeDeadlineNote(&page, value)
