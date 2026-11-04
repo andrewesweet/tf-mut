@@ -24,13 +24,12 @@ const (
 	invalidCacheDigest      = "not-a-digest"
 )
 
+//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
 func TestNonregularCacheManifestsAreNotRead(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	for _, kind := range []string{"symlink", "fifo", "directory"} {
 		t.Run(kind, func(t *testing.T) {
-			t.Parallel()
-
 			module := copyFixture(t, "all-killed")
 			config := baseConfig(t, module)
 			cachedRun(t, config)
@@ -66,6 +65,7 @@ func TestNonregularCacheManifestsAreNotRead(t *testing.T) {
 }
 
 func TestEnvironmentOverridesKeepEveryValueInTheNameDigest(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	t.Setenv("AWS_REGION", "us-west-2")
 
 	module := copyFixture(t, "all-killed")
@@ -94,7 +94,7 @@ func TestEnvironmentOverridesKeepEveryValueInTheNameDigest(t *testing.T) {
 }
 
 func TestStaticPopulationsCarryNoCacheMissExplanation(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "suggest-count-zero")
 	testsupport.WriteFile(t, filepath.Join(module, mainFile), `resource "terraform_data" "zeroed" {
@@ -117,7 +117,7 @@ func TestStaticPopulationsCarryNoCacheMissExplanation(t *testing.T) {
 }
 
 func TestDisjointSamplesCarryNoCacheMissExplanation(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	appendFile(t, filepath.Join(module, mainFile), "\noutput \"echo\" { value = \"steady\" }\n")
@@ -163,13 +163,12 @@ func TestDisjointSamplesCarryNoCacheMissExplanation(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
 func TestCacheMissExplanationsRequireUsableVerdictEntries(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	for _, defect := range []string{"missing", "truncated", "illegal-record", "static-record", "wrong-key"} {
 		t.Run(defect, func(t *testing.T) {
-			t.Parallel()
-
 			module := copyFixture(t, "all-killed")
 			config := baseConfig(t, module)
 			cachedRun(t, config)
@@ -191,13 +190,12 @@ func TestCacheMissExplanationsRequireUsableVerdictEntries(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
 func TestTheNewestMatchingEnvironmentStopsCacheMissAttribution(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	for _, change := range []string{"source", "missing-current-entries"} {
 		t.Run(change, func(t *testing.T) {
-			t.Parallel()
-
 			module := copyFixture(t, "all-killed")
 			config := baseConfig(t, module)
 			index := len(config.Env)
@@ -230,8 +228,9 @@ func TestTheNewestMatchingEnvironmentStopsCacheMissAttribution(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
 func TestMalformedCacheManifestsCarryNoExplanation(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	for _, defect := range []string{
 		"renamed-env", "null-env", "empty-env", emptyCacheNameDefect,
@@ -240,8 +239,6 @@ func TestMalformedCacheManifestsCarryNoExplanation(t *testing.T) {
 		"invalid-env-digest", "extra-component", "wrong-format",
 	} {
 		t.Run(defect, func(t *testing.T) {
-			t.Parallel()
-
 			module := copyFixture(t, "all-killed")
 			config := baseConfig(t, module)
 			cachedRun(t, config)
@@ -300,7 +297,7 @@ func TestMalformedCacheManifestsCarryNoExplanation(t *testing.T) {
 }
 
 func TestOlderNameDigestManifestsDoNotInvalidateVerdicts(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)

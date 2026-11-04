@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
+
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
@@ -17,7 +19,7 @@ import (
 // The reported key is tied back to the report independently: a logged key
 // must carry the prefix the replayed mutants cite as their cache basis.
 func TestCacheKeyComponentsAreLoggedAtDebug(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)

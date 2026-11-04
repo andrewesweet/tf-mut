@@ -279,7 +279,7 @@ func TestPreviewCarriesRunTelemetryWithoutMutantTelemetry(t *testing.T) {
 // verdict cache was not executed by this run, so it must not present this
 // run's telemetry — and the run-level block still records what this run did.
 func TestCachedVerdictsCarryNoMutantTelemetry(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, discriminateFixture)
 	// One configuration for both runs: the cache key includes the environment,

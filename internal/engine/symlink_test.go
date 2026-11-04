@@ -99,7 +99,7 @@ func TestASymlinkedSourceResolvesInTheSandbox(t *testing.T) {
 }
 
 func TestDefaultWorkspacePrecedesCacheCaptureForASymlinkedModule(t *testing.T) {
-	isolateSymlinkTestTempDir(t)
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	module := symlinkedModule(t)
 	repository := filepath.Dir(module)
 	t.Setenv("TMPDIR", repository)
@@ -136,7 +136,7 @@ func TestDefaultWorkspacePrecedesCacheCaptureForASymlinkedModule(t *testing.T) {
 	closureChanged := func(warning string) bool {
 		return strings.Contains(warning, "the input closure changed while the run was in flight")
 	}
-	if !slices.ContainsFunc(first.Warnings, closureChanged) && !slices.ContainsFunc(second.Warnings, closureChanged) &&
+	if slices.ContainsFunc(first.Warnings, closureChanged) || slices.ContainsFunc(second.Warnings, closureChanged) ||
 		(second.Population.Cached == 0 || second.Population.Fresh != 0) {
 		t.Fatalf("the unchanged temporary module did not replay its cache: %+v; warnings %v; previous warnings %v",
 			second.Population, second.Warnings, first.Warnings)
@@ -150,18 +150,4 @@ func TestDefaultWorkspacePrecedesCacheCaptureForASymlinkedModule(t *testing.T) {
 	if len(after) != len(before) {
 		t.Fatalf("the runs left temporary workspace entries: before %v, after %v", before, after)
 	}
-}
-
-func isolateSymlinkTestTempDir(t *testing.T) {
-	t.Helper()
-
-	artifacts, err := filepath.Abs(filepath.Join("..", "..", ".artifacts"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if mkdirErr := os.MkdirAll(artifacts, 0o750); mkdirErr != nil {
-		t.Fatal(mkdirErr)
-	}
-	t.Setenv("TMPDIR", artifacts)
-	t.Setenv("TMPDIR", t.TempDir())
 }

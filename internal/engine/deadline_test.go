@@ -317,7 +317,7 @@ func TestANaturalExitRacingTheDeadlineIsNotATimeout(t *testing.T) {
 // budget would be a fixture lie), so the entry is crafted on disk the way
 // TestPreSandboxFixInvalidVerdictsAreNotReplayed crafts its legacy entries.
 func TestTheDeadlineReplaysFromTheCache(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)

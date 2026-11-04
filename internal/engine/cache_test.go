@@ -38,6 +38,9 @@ func cachedRun(t *testing.T, config engine.RunRequest) report.Report {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
+	if len(result.Warnings) > 0 {
+		t.Logf("run warnings: %v", result.Warnings)
+	}
 
 	return result
 }
@@ -61,7 +64,7 @@ const (
 // determinism criterion: unchanged inputs, identical population, every
 // executed verdict replayed and marked, and verdict invariance holds.
 func TestASecondUnchangedRunIsAllCacheHits(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -75,7 +78,8 @@ func TestASecondUnchangedRunIsAllCacheHits(t *testing.T) {
 	second := cachedRun(t, config)
 
 	if second.Population.Cached == 0 || second.Population.Fresh != 0 {
-		t.Fatalf("the second unchanged run was not all cache hits: %+v", second.Population)
+		t.Fatalf("the second unchanged run was not all cache hits: %+v; warnings %v; previous warnings %v",
+			second.Population, second.Warnings, first.Warnings)
 	}
 
 	for _, mutant := range second.Mutants {
@@ -100,7 +104,7 @@ func TestASecondUnchangedRunIsAllCacheHits(t *testing.T) {
 // the run handed Terraform — additions included, non-forwarded variables
 // stripped — and nothing else, with values as digests only.
 func TestCacheManifestStoresOnlyTheEnvironmentComponent(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -171,8 +175,10 @@ func TestCacheManifestStoresOnlyTheEnvironmentComponent(t *testing.T) {
 // stored claim's evidence, and the suppressed rows a policy removes — the
 // diagnostics and the suppression being exactly what the deleted lifting
 // helpers used to rebuild from published DTOs.
+//
+//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
 func TestACachedReplayIsByteIdenticalToTheFreshRun(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	matrix := []struct {
 		name    string
@@ -241,8 +247,6 @@ func TestACachedReplayIsByteIdenticalToTheFreshRun(t *testing.T) {
 
 	for _, entry := range matrix {
 		t.Run(entry.name, func(t *testing.T) {
-			t.Parallel()
-
 			module := copyFixture(t, entry.fixture)
 			config := entry.request(t, module)
 
@@ -272,7 +276,7 @@ const previousCacheFormatVersion = "tf-mut-cache-16"
 // entry one format behind, recomputes each verdict once, and the run still
 // publishes a well-formed report.
 func TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "skeleton")
 	config := baseConfig(t, module)
@@ -335,7 +339,7 @@ func TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError(t *testing.T) {
 }
 
 func TestPreDeadlineSurvivorVerdictsAreNotReplayed(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "skeleton")
 	request := baseConfig(t, module)
@@ -380,7 +384,7 @@ func TestPreDeadlineSurvivorVerdictsAreNotReplayed(t *testing.T) {
 }
 
 func TestPreSandboxFixInvalidVerdictsAreNotReplayed(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -446,8 +450,10 @@ func TestPreSandboxFixInvalidVerdictsAreNotReplayed(t *testing.T) {
 // TestCacheInvalidationPerKeyDimension: one fixture per key dimension. Each
 // mutation of an input must turn the whole population fresh — the coarse key
 // has no finer answer, and that is the point.
+//
+//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
 func TestCacheInvalidationPerKeyDimension(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	dimensions := map[string]func(t *testing.T, module string, config *engine.RunRequest){
 		"source-closure": func(t *testing.T, module string, _ *engine.RunRequest) {
@@ -476,8 +482,6 @@ func TestCacheInvalidationPerKeyDimension(t *testing.T) {
 
 	for name, mutate := range dimensions {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
 			fixture := discriminateFixture
 			if name == "test-files" {
 				// discriminate's test file is named differently; use a fixture
@@ -521,7 +525,7 @@ func TestCacheInvalidationPerKeyDimension(t *testing.T) {
 // the key through the masked baseline fingerprint even when no source file
 // changes — the dimension the C4 review named explicitly.
 func TestMaskedBaselineFingerprintIsAKeyDimension(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	// The volatile fixture's baseline fingerprint embeds the mask derived
 	// from two baseline runs; the fixture is deterministic in its stable
@@ -545,7 +549,7 @@ func TestMaskedBaselineFingerprintIsAKeyDimension(t *testing.T) {
 // TestCacheIsRefusedUnderTheUnsafeOptIns: external state cannot be keyed
 // soundly, so both opt-ins disable reads and writes.
 func TestCacheIsRefusedUnderTheUnsafeOptIns(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 
@@ -576,7 +580,7 @@ func TestCacheIsRefusedUnderTheUnsafeOptIns(t *testing.T) {
 // TestNoCacheDisablesReadsAndWrites is the documented mitigation for the
 // plan-values-on-disk risk.
 func TestNoCacheDisablesReadsAndWrites(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 
@@ -595,7 +599,7 @@ func TestNoCacheDisablesReadsAndWrites(t *testing.T) {
 // TestCorruptionIsAMiss: a truncated or unreadable entry never reaches a
 // verdict; the mutant simply executes again.
 func TestCorruptionIsAMiss(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -635,7 +639,7 @@ func TestCorruptionIsAMiss(t *testing.T) {
 // TestCacheEntriesAreOwnerOnly pins the 0700/0600 contract: evidence may
 // embed plan values and source text, so nothing here is group-readable.
 func TestCacheEntriesAreOwnerOnly(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	cachedRun(t, baseConfig(t, module))
@@ -674,7 +678,7 @@ func TestCacheEntriesAreOwnerOnly(t *testing.T) {
 // TestASymlinkedCacheDirectoryIsRefused: no symlink traversal — the cache
 // neither reads through nor writes through a symlinked location.
 func TestASymlinkedCacheDirectoryIsRefused(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	elsewhere := t.TempDir()
@@ -697,7 +701,7 @@ func TestASymlinkedCacheDirectoryIsRefused(t *testing.T) {
 // TestEvictionIsDeterministicAndSizeCapped: over-cap entries are removed in a
 // deterministic order, stale keys first.
 func TestEvictionIsDeterministicAndSizeCapped(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -741,7 +745,7 @@ func paddedIndex(index int) string {
 // two engines writing the same cache; both complete, the store stays
 // readable, and a third run replays it.
 func TestConcurrentInvocationsShareTheCacheSafely(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -775,7 +779,7 @@ func TestConcurrentInvocationsShareTheCacheSafely(t *testing.T) {
 // TestTheLockFileIsAKeyDimension: a lock content change invalidates the whole
 // population, even when no source file moved.
 func TestTheLockFileIsAKeyDimension(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 
@@ -800,9 +804,8 @@ func TestTheLockFileIsAKeyDimension(t *testing.T) {
 //
 // It does not run in parallel: the fixture drives git the way the remote
 // tests do, serially.
-//
-//nolint:paralleltest // shares the git fixture pattern with remote_test.go.
 func TestRemoteModulePayloadsAreAKeyDimension(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is required to build the remote-module fixture")
 	}
@@ -841,7 +844,7 @@ func TestRemoteModulePayloadsAreAKeyDimension(t *testing.T) {
 // verdicts without appearing in the source closure, so the key must hash
 // them (review of #48).
 func TestAutoVarFilesAreAKeyDimension(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -858,7 +861,7 @@ func TestAutoVarFilesAreAKeyDimension(t *testing.T) {
 // TestProviderEnvironmentIsAKeyDimension: AWS_-shaped configuration can reach
 // a verdict, so it is keyed alongside the TF_ surface.
 func TestProviderEnvironmentIsAKeyDimension(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -877,7 +880,7 @@ func TestProviderEnvironmentIsAKeyDimension(t *testing.T) {
 // directory's whole life, not only its creation — evidence may embed plan
 // values and source text.
 func TestAnExistingLooseCacheDirectoryIsCorrected(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 
@@ -908,7 +911,7 @@ func TestAnExistingLooseCacheDirectoryIsCorrected(t *testing.T) {
 // mocked run sees, and nothing else hashes them — they are in no inventory
 // and no test-file list.
 func TestMockDataFilesAreAKeyDimension(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -929,7 +932,7 @@ func TestMockDataFilesAreAKeyDimension(t *testing.T) {
 // only by the environment names the variable that differed — never its
 // value.
 func TestACacheMissCausedOnlyByTheEnvironmentNamesTheVariable(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -961,7 +964,7 @@ func TestACacheMissCausedOnlyByTheEnvironmentNamesTheVariable(t *testing.T) {
 // adding nothing, only the value differs — the miss still names the variable
 // and still withholds both values.
 func TestAChangedEnvironmentVariableIsReportedAsChanged(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -998,7 +1001,7 @@ func TestAChangedEnvironmentVariableIsReportedAsChanged(t *testing.T) {
 }
 
 func TestAnEnvironmentChangeThatChangesTheBaselineNamesTheVariable(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "operators")
 	config := baseConfig(t, module)
@@ -1041,7 +1044,7 @@ func TestAnEnvironmentChangeThatChangesTheBaselineNamesTheVariable(t *testing.T)
 // TestARemovedEnvironmentVariableIsReportedAsRemoved: the variable the first
 // run saw is gone from the second — the miss names it without its value.
 func TestARemovedEnvironmentVariableIsReportedAsRemoved(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -1080,7 +1083,7 @@ func TestARemovedEnvironmentVariableIsReportedAsRemoved(t *testing.T) {
 // TestACacheHitCarriesNoMissExplanation: the explanation is present exactly
 // when the run missed and the environment changed — a hit carries none.
 func TestACacheHitCarriesNoMissExplanation(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -1104,7 +1107,7 @@ func TestACacheHitCarriesNoMissExplanation(t *testing.T) {
 // entries but no per-generation digests — misses without an explanation
 // rather than guessing one.
 func TestAMissWithNoStoredGenerationCarriesNoExplanation(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -1149,7 +1152,7 @@ func TestAMissWithNoStoredGenerationCarriesNoExplanation(t *testing.T) {
 // replacement still yields a bounded, sorted explanation — never the
 // environment listing the field exists to avoid — with truncation flagged.
 func TestAMissExplanationIsBoundedAndSorted(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -1211,9 +1214,8 @@ func assertReportCarriesNoValue(t *testing.T, value report.Report, secret string
 // same bytes, the same key — would then replay verdicts the restored tree
 // never earned. The stamps recorded at key time refuse that persist, and the
 // run that saw the edit says so in its warnings.
-//
-//nolint:paralleltest // owns the package-global mid-run edit hook for its lifetime.
 func TestAnEditLandingMidRunIsNeverPersisted(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	module := copyFixture(t, "suggest-basic")
 	testFile := filepath.Join(module, "tests", "unit.tftest.hcl")
 	original, err := os.ReadFile(testFile) //nolint:gosec // test-owned path.
@@ -1288,7 +1290,7 @@ run "added_mid_run" {
 
 //nolint:paralleltest // owns the package-global mid-run edit hook and isolates TMPDIR.
 func TestClosureEntryChangesDuringARunAreNeverPersisted(t *testing.T) {
-	isolateSymlinkTestTempDir(t)
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	for _, change := range []string{"root-addition", nestedAdditionCase, "symlink-target", "restored-timestamps"} {
 		t.Run(change, func(t *testing.T) {
 			module, edit, restore := closureEntryChange(t, change)
@@ -1386,7 +1388,7 @@ func (edit cacheKeyEditWriter) Write(content []byte) (int, error) {
 }
 
 func TestAnEditDuringCacheKeyCreationIsNeverPersisted(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "suggest-basic")
 	path := filepath.Join(module, "tests", "unit.tftest.hcl")
@@ -1421,7 +1423,7 @@ func TestAnEditDuringCacheKeyCreationIsNeverPersisted(t *testing.T) {
 }
 
 func TestAnEditAtCacheOpeningCannotReuseAnEarlierKey(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "suggest-basic")
 	path := filepath.Join(module, "extra_override.tf")
@@ -1458,7 +1460,7 @@ func TestAnEditAtCacheOpeningCannotReuseAnEarlierKey(t *testing.T) {
 
 //nolint:paralleltest // owns the package-global mid-run edit hook and isolates TMPDIR.
 func TestReplacingASymlinkAncestorDuringARunIsNeverPersisted(t *testing.T) {
-	isolateSymlinkTestTempDir(t)
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	for _, form := range []string{
 		relativePathCase, absolutePathCase, chainedPathCase, "directory-link", "parent-traversal",
 	} {
@@ -1562,7 +1564,7 @@ func assertClosureCacheRefusal(t *testing.T, result report.Report, module string
 
 //nolint:paralleltest // owns the package-global mid-run edit hook and isolates TMPDIR.
 func TestReplacingAClosureRootAncestorDuringARunIsNeverPersisted(t *testing.T) {
-	isolateSymlinkTestTempDir(t)
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	for _, form := range []string{plainCase, relativePathCase, absolutePathCase, chainedPathCase} {
 		t.Run(form, func(t *testing.T) {
 			repository := t.TempDir()

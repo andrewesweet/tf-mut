@@ -4,12 +4,16 @@ package testsupport
 
 import (
 	"os"
+	"path/filepath"
 	"syscall"
 	"testing"
 )
 
 // fixtureMode gives newly created fixture files owner read and write access only.
 const fixtureMode = 0o600
+
+// fixtureDirectoryMode permits traversal of test-owned fixture directories.
+const fixtureDirectoryMode = 0o750
 
 // executableMode gives test scripts owner read, write and execute access only.
 const executableMode = 0o700
@@ -38,4 +42,27 @@ func WriteExecutable(tb testing.TB, path, content string) {
 	if err := os.WriteFile(path, []byte(content), executableMode); err != nil {
 		tb.Fatalf("writing %s: %v", path, err)
 	}
+}
+
+// CacheTempDir places cache fixtures beneath stable ancestors. Callers
+// set TMPDIR with t.Setenv, which also keeps these tests serial: concurrent
+// fixture creation and Terraform's ambient temporary files would otherwise
+// move shared ancestor stamps and correctly disable the cache under test.
+func CacheTempDir(t *testing.T) string {
+	t.Helper()
+
+	directory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifacts := filepath.Join(directory, "..", "..", ".artifacts", "cache-tests")
+	// Both suites can run in separate processes at once. Create both roots
+	// before either captures stamps, so neither mutates the other's ancestors.
+	for _, suite := range []string{"engine", "tf-mut"} {
+		if err := os.MkdirAll(filepath.Join(artifacts, suite), fixtureDirectoryMode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("TMPDIR", filepath.Join(artifacts, filepath.Base(directory)))
+	return t.TempDir()
 }

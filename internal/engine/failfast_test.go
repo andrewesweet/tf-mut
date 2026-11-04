@@ -209,8 +209,9 @@ func completeFailFastRequest(t *testing.T, runs int, filtered, first bool) engin
 	return request
 }
 
+//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
 func TestCompleteFailFastRecordsStayCompleteThroughTheCache(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	for _, test := range []struct {
 		name     string
@@ -225,8 +226,6 @@ func TestCompleteFailFastRecordsStayCompleteThroughTheCache(t *testing.T) {
 		{"filtered early failure", 3, true, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
 			request := completeFailFastRequest(t, test.runs, test.filtered, test.first)
 
 			wantRuns := test.runs
@@ -306,8 +305,9 @@ func assertMixedRunStatuses(t *testing.T, runs []report.RunOutcome) {
 	}
 }
 
+//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
 func TestMixedStatusRecordsKeepTheirTruncationThroughTheCache(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	for _, test := range []struct {
 		name      string
@@ -320,8 +320,6 @@ func TestMixedStatusRecordsKeepTheirTruncationThroughTheCache(t *testing.T) {
 		{"filtered prefix", true, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-
 			request := mixedStatusFailFastRequest(t, test.filtered, test.truncated)
 
 			for _, execution := range []string{report.ExecutionFresh, report.ExecutionCached} {
@@ -344,7 +342,7 @@ func TestMixedStatusRecordsKeepTheirTruncationThroughTheCache(t *testing.T) {
 }
 
 func TestCurateKeepsLaterRunKillsAcrossVerdictCacheUse(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	request := baseConfig(t, copyFixture(t, "failfast"))
 	result, err := engine.Run(t.Context(), request)

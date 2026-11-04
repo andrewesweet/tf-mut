@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
+
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
@@ -25,6 +27,7 @@ import (
 // from the inherited environment, so setting it between two otherwise
 // identical runs must replay every verdict.
 func TestAGitLocationVariableDoesNotChangeTheKey(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
 
@@ -55,7 +58,7 @@ func TestAGitLocationVariableDoesNotChangeTheKey(t *testing.T) {
 // keyed environment — and the miss-explanation manifest derived from it —
 // carries all three names.
 func TestTheKeyedEnvironmentCarriesThePerformanceDefaults(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -76,6 +79,7 @@ func TestTheKeyedEnvironmentCarriesThePerformanceDefaults(t *testing.T) {
 // digests, so a transition that changes only stripped names explains
 // nothing — there is no miss to explain.
 func TestAStrippedVariableStaysOutOfTheMissExplanation(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
 	cachedRun(t, config)
@@ -207,9 +211,8 @@ func strippedSweep() map[string]string {
 // proof: every session bookkeeping variable changes at once, and cached
 // verdicts must match an independent NoCache run under the changed environment
 // (M4 M5).
-//
-//nolint:paralleltest // mutates the test process's environment; t.Setenv forbids t.Parallel.
 func TestEveryStrippedVariableTogetherCannotChangeTheVerdict(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
 
@@ -244,6 +247,7 @@ func TestEveryStrippedVariableTogetherCannotChangeTheVerdict(t *testing.T) {
 // d4-1 to d4-2 transition at the engine seam: only per-invocation systemd
 // identifiers differ, so the run replays and the verdicts are identical.
 func TestSystemdToSystemdIdentifiersCannotChangeTheVerdict(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
 
@@ -271,6 +275,7 @@ func TestSystemdToSystemdIdentifiersCannotChangeTheVerdict(t *testing.T) {
 // TF_MUT_DEBUG entered the key through the process environment. The CLI reads
 // it (`cmd/tf-mut/main.go`), Terraform never receives it, so it is stripped.
 func TestDebugLoggingDoesNotCostTheCache(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
 
@@ -297,6 +302,7 @@ func TestDebugLoggingDoesNotCostTheCache(t *testing.T) {
 // environment directly — so it is never stripped, and a session that stops
 // exporting it misses and names it as removed.
 func TestATfVarSetInOneSessionAndAbsentInTheNextStillMisses(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	module := copyFixture(t, "operators")
 	config := baseConfig(t, module)
 	config.IncludeOperators = []string{string(mutation.StrCase)}
@@ -342,6 +348,7 @@ func TestATfVarSetInOneSessionAndAbsentInTheNextStillMisses(t *testing.T) {
 // stripped name reaches neither the key nor the manifest, so there is
 // nothing to name it from.
 func TestAMixedTransitionMissesButNamesOnlyForwardedNames(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
 	cachedRun(t, config)
@@ -402,6 +409,7 @@ func assertReplayMatchesFreshRun(t *testing.T, config engine.RunRequest, replay 
 }
 
 func TestAgentBookkeepingTransitionsMatchFreshVerdicts(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	for _, changeOldpwd := range []bool{false, true} {
 		name := "trace-only"
 		if changeOldpwd {
@@ -430,6 +438,7 @@ func TestAgentBookkeepingTransitionsMatchFreshVerdicts(t *testing.T) {
 }
 
 func TestCacheKeysTheLastEnvironmentValue(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	for _, scenario := range []string{"default-and-inherited", "reordered-additions"} {
 		t.Run(scenario, func(t *testing.T) {
 			const name = "TF_LOG_SDK"

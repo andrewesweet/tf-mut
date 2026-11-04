@@ -268,7 +268,7 @@ func TestSurvivorSelectionScopesTheSuggestions(t *testing.T) {
 // TestVerificationIsNeverCached: the second run replays mutant verdicts from
 // the cache and still verifies every suggestion afresh, with its own evidence.
 func TestVerificationIsNeverCached(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	config := suggestRequest(t, copyFixture(t, suggestBasicFixture))
 

@@ -463,7 +463,7 @@ func TestExitCodesAreDeterministicAcrossTheTable(t *testing.T) {
 // unmatched entries as unobserved, labels its gates partial, and refuses a
 // baseline write with --no-cache as the remedy.
 func TestTheCachedRowOfTheGateTable(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	weakenTests(t, module)
