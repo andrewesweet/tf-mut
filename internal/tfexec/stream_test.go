@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/metrics"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -71,6 +72,73 @@ func TestMalformedStreamIsAnErrorRatherThanAnEmptyResult(t *testing.T) {
 
 	if _, err := decodeTestStream(bytes.NewReader(corrupted)); !errors.Is(err, ErrMalformedStream) {
 		t.Fatalf("error = %v, want %v", err, ErrMalformedStream)
+	}
+}
+
+// TestEndOfInputInsideAMessageIsMalformed pins the framing rule: the stream may
+// end between messages, but once a message's opening token has been read the
+// rest of it is owed, and an end of input there is a truncation the caller is
+// told about. Every case appends its tail to the recorded stream, so the two
+// complete run outcomes and payloads before the interruption have to survive
+// alongside the error: the decoder reports what it read and refuses to call the
+// stream finished.
+func TestEndOfInputInsideAMessageIsMalformed(t *testing.T) {
+	t.Parallel()
+
+	for name, tail := range map[string]string{
+		"opening token":                   `{`,
+		"after a key":                     `{"@level":`,
+		"opening a test_run value":        `{"test_run":`,
+		"opening a test_plan value":       `{"test_plan":{`,
+		"opening provider_schemas object": `{"test_plan":{"provider_schemas":{`,
+		"opening provider_schemas array":  `{"test_plan":{"provider_schemas":[`,
+		"inside a key's string":           `{"unfinished`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			stream := append(slices.Clone(recorded(t)), tail...)
+
+			result, err := decodeTestStream(bytes.NewReader(stream))
+			if !errors.Is(err, ErrMalformedStream) {
+				t.Fatalf("error = %v with tail %q, want %v", err, tail, ErrMalformedStream)
+			}
+
+			if result.ExecutedRuns() != 2 || len(result.Payloads) != 2 {
+				t.Fatalf("with tail %q: executed runs = %d, payloads = %d, want the 2 runs and 2 payloads before the interruption",
+					tail, result.ExecutedRuns(), len(result.Payloads))
+			}
+		})
+	}
+}
+
+// TestEndOfInputBetweenMessagesIsCleanCompletion is the other half of the rule:
+// a stream that ends after its last complete message, with or without trailing
+// whitespace, is a stream that finished.
+func TestEndOfInputBetweenMessagesIsCleanCompletion(t *testing.T) {
+	t.Parallel()
+
+	for name, tail := range map[string]string{
+		"as recorded":         "",
+		"trailing newline":    "\n",
+		"trailing blank line": "\n\n",
+		"trailing spaces":     "   ",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			stream := append(slices.Clone(recorded(t)), tail...)
+
+			result, err := decodeTestStream(bytes.NewReader(stream))
+			if err != nil {
+				t.Fatalf("error = %v with tail %q, want a clean end of stream", err, tail)
+			}
+
+			if result.ExecutedRuns() != 2 || len(result.Payloads) != 2 {
+				t.Fatalf("with tail %q: executed runs = %d, payloads = %d, want the stream's 2 runs and 2 payloads",
+					tail, result.ExecutedRuns(), len(result.Payloads))
+			}
+		})
 	}
 }
 
