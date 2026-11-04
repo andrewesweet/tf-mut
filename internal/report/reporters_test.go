@@ -855,7 +855,6 @@ func TestMarkdownEscapesAllTextPunctuation(t *testing.T) {
 	value.Suggestions[0].TargetFile = "tests/main*env*|`unit`.tftest.hcl"
 	value.Suggestions[0].TargetRun = "test"
 	value.Suggestions[0].Expression = "output.value == \"a|`b\""
-	value.Interrupted = &report.Interrupted{Reason: literal, CommittedWrites: []string{literal}}
 
 	page := renderMarkdown(t, value)
 
@@ -866,8 +865,6 @@ func TestMarkdownEscapesAllTextPunctuation(t *testing.T) {
 		" (`` --since feature` ``",
 		"| ``tests/main*env*\\|`unit`.tftest.hcl:test`` | ``output.value == \"a\\|`b\"`` |",
 		"| skipped\\-sensitive |",
-		"> **Interrupted:** the invocation did not complete \\(" + escaped + "\\), so this is not a score",
-		"; written before the interruption: " + escaped + "\\.\n",
 	} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("the markdown summary lost literal text %q:\n%s", want, page)
@@ -2032,48 +2029,5 @@ func TestAnInterruptedReportIsNeverAScore(t *testing.T) {
 
 	if code := interruptedReport(t).ExitCode(gate); code != report.ExitOperational {
 		t.Fatalf("the interrupted receipt exits %d, want %d", code, report.ExitOperational)
-	}
-}
-
-// TestTheSummaryReportersMarkAnInterruptedRun: the reviewers' artefacts carry
-// the same receipt the terminal and JSON do — what landed, and that the numbers
-// beside it are not a score — and stay silent on a completed run.
-func TestTheSummaryReportersMarkAnInterruptedRun(t *testing.T) {
-	t.Parallel()
-
-	markdownPage := strings.Builder{}
-	if err := report.WriteMarkdown(&markdownPage, interruptedReport(t)); err != nil {
-		t.Fatalf("rendering the markdown: %v", err)
-	}
-
-	htmlPage := strings.Builder{}
-	if err := report.WriteHTML(&htmlPage, interruptedReport(t)); err != nil {
-		t.Fatalf("rendering the HTML: %v", err)
-	}
-
-	for name, rendered := range map[string]struct{ page, written string }{
-		"markdown": {markdownPage.String(), `tests/unit\.tftest\.hcl`},
-		"html":     {htmlPage.String(), sampleTestFile},
-	} {
-		for _, needle := range []string{
-			"not a score", rendered.written, sampleInterruptionReason,
-		} {
-			if !strings.Contains(rendered.page, needle) {
-				t.Fatalf("the interrupted %s rendering is missing %q:\n%s", name, needle, rendered.page)
-			}
-		}
-	}
-
-	complete := allStatesReport()
-	complete.Command = report.CommandSuggest
-	complete.Apply = nil
-
-	quiet := strings.Builder{}
-	if err := report.WriteMarkdown(&quiet, complete); err != nil {
-		t.Fatalf("rendering the markdown: %v", err)
-	}
-
-	if strings.Contains(quiet.String(), "not a score") {
-		t.Fatalf("the completed markdown summary announces an interruption:\n%s", quiet.String())
 	}
 }

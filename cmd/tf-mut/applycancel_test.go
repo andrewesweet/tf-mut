@@ -39,17 +39,21 @@ const (
 	applyCancelChildEnv = "TF_MUT_APPLY_CANCEL_CHILD"
 	// The helper's inputs and outputs, passed through the environment because
 	// the helper is this test binary re-executed.
-	applyCancelModuleEnv  = "TF_MUT_APPLY_CANCEL_MODULE"
-	applyCancelReceiptEnv = "TF_MUT_APPLY_CANCEL_RECEIPT"
-	applyCancelStdoutEnv  = "TF_MUT_APPLY_CANCEL_STDOUT"
-	applyCancelStderrEnv  = "TF_MUT_APPLY_CANCEL_STDERR"
-	applyCancelProfileEnv = "TF_MUT_APPLY_CANCEL_PROFILE"
-	applyCancelCodeEnv    = "TF_MUT_APPLY_CANCEL_CODE"
+	applyCancelModuleEnv   = "TF_MUT_APPLY_CANCEL_MODULE"
+	applyCancelReceiptEnv  = "TF_MUT_APPLY_CANCEL_RECEIPT"
+	applyCancelStdoutEnv   = "TF_MUT_APPLY_CANCEL_STDOUT"
+	applyCancelStderrEnv   = "TF_MUT_APPLY_CANCEL_STDERR"
+	applyCancelProfileEnv  = "TF_MUT_APPLY_CANCEL_PROFILE"
+	applyCancelCodeEnv     = "TF_MUT_APPLY_CANCEL_CODE"
+	applyCancelReporterEnv = "TF_MUT_APPLY_CANCEL_REPORTER"
 
 	// applyCancelFixture is the offline module whose unasserted resource yields
 	// one verifiable suggestion, and applyCancelTarget is the file it lands in.
-	applyCancelFixture = "../../internal/engine/testdata/suggest-basic"
-	applyCancelTarget  = "tests/unit.tftest.hcl"
+	applyCancelFixture       = "../../internal/engine/testdata/suggest-basic"
+	applyCancelTarget        = "tests/unit.tftest.hcl"
+	applyCancelFileFailure   = "file"
+	applyCancelStderrFailure = "stderr"
+	applyCancelStdoutFailure = "stdout"
 )
 
 // applyCancelInterruption is the interruption block a receipt carries, and
@@ -97,23 +101,44 @@ func TestASigintAfterAnApplyRenameStillReportsTheCommittedWrite(t *testing.T) {
 		t.Skip("child process runs the helper instead")
 	}
 
-	staged := applyCancelStage(t)
-	published := interruptAfterTheCommit(t, staged)
+	for _, reporter := range []string{reporterJSON, reporterSARIF} {
+		t.Run(reporter, func(t *testing.T) {
+			t.Parallel()
 
-	if landed := readIfPresent(t, staged.target); landed == staged.original {
-		t.Fatal("the apply never renamed the test file; the interruption was not staged after a commit")
+			staged := applyCancelStage(t)
+			published := interruptAfterTheCommit(t, staged, reporter)
+			if landed := readIfPresent(t, staged.target); landed == staged.original {
+				t.Fatal("the apply never renamed the test file; the interruption was not staged after a commit")
+			}
+			assertApplyCancelPublication(t, reporter, published)
+		})
 	}
+}
+
+func assertApplyCancelPublication(t *testing.T, reporter string, published applyCancelOutcome) {
+	t.Helper()
 
 	switch published.code {
 	case report.ExitClean:
 		// The signal arrived after the report was already published: the write
 		// is reported as an ordinary applied suggestion, which is what a
 		// completed invocation promises.
-		assertAppliedWrite(t, "standard output", published.stdout)
-		assertAppliedWrite(t, "the requested artefact", published.artefact)
+		if reporter == reporterJSON {
+			assertAppliedWrite(t, "standard output", published.stdout)
+			assertAppliedWrite(t, "the requested artefact", published.artefact)
+		} else if !json.Valid([]byte(published.stdout)) || !json.Valid([]byte(published.artefact)) {
+			t.Fatalf("a completed SARIF invocation published no document: %+v", published)
+		}
 	case report.ExitOperational:
-		assertInterruptedReceipt(t, "standard output", published.stdout)
-		assertInterruptedReceipt(t, "the requested artefact", published.artefact)
+		if reporter == reporterJSON {
+			assertInterruptedReceipt(t, "standard output", published.stdout)
+			assertInterruptedReceipt(t, "the requested artefact", published.artefact)
+		} else {
+			if published.stdout != "" || published.artefact != "" {
+				t.Fatalf("an interrupted SARIF invocation published an analysis document: %+v", published)
+			}
+			assertTextInterruptionReceipt(t, published.stderr)
+		}
 	default:
 		t.Fatalf("exit code = %d, want %d (already published) or %d (interrupted)\n%s",
 			published.code, report.ExitClean, report.ExitOperational, published.stderr)
@@ -129,7 +154,7 @@ func TestAnEarlyApplyHelperFailureDoesNotHangCleanup(t *testing.T) {
 		interruptAfterTheCommit(t, applyCancelStaging{
 			module: filepath.Join(scratch, "absent"),
 			target: filepath.Join(scratch, applyCancelTarget),
-		})
+		}, reporterJSON)
 		t.Fatal("the missing module unexpectedly reached a commit")
 	}
 
@@ -156,12 +181,10 @@ func TestACancelledInvocationStillPublishesTheWritesItCommitted(t *testing.T) {
 	t.Parallel()
 
 	staged := applyCancelStage(t)
-	receiptPath := filepath.Join(t.TempDir(), "receipt.json")
 
 	parsed, err := parse(suggestCommand, "dev", []string{
 		"--" + allVerifiedFlag, noCacheFlag, "--" + jobsFlag, "1",
 		reporterFlag, reporterJSON,
-		"--" + outputFlagName, reporterJSON + "=" + receiptPath,
 		staged.module,
 	}, io.Discard)
 	if err != nil {
@@ -177,20 +200,15 @@ func TestACancelledInvocationStillPublishesTheWritesItCommitted(t *testing.T) {
 		t.Fatalf("the invocation committed nothing, so there is no receipt to hold: %+v", result.Apply)
 	}
 
-	stdout := bytes.Buffer{}
-	stderr := bytes.Buffer{}
+	for _, failure := range []string{
+		"healthy", applyCancelStderrFailure, applyCancelStdoutFailure, applyCancelFileFailure,
+	} {
+		t.Run(failure, func(t *testing.T) {
+			t.Parallel()
 
-	if code := publish(&stdout, &stderr, parsed, result, context.Canceled); code != report.ExitOperational {
-		t.Fatalf("a cancelled invocation with committed writes exits %d, want %d\n%s",
-			code, report.ExitOperational, stderr.String())
+			assertIndependentReceiptOutputs(t, parsed, result, failure)
+		})
 	}
-
-	if !strings.Contains(stderr.String(), "context canceled") {
-		t.Fatalf("the cancellation is not reported:\n%s", stderr.String())
-	}
-
-	assertInterruptedReceipt(t, "standard output", stdout.String())
-	assertInterruptedReceipt(t, "the requested artefact", readIfPresent(t, receiptPath))
 
 	// The receipt is not a score: the report's own gate table cannot pass it.
 	receipt, committed := result.Interrupt(context.Canceled)
@@ -201,6 +219,54 @@ func TestACancelledInvocationStillPublishesTheWritesItCommitted(t *testing.T) {
 	if code := receipt.ExitCode(parsed.gate); code != report.ExitOperational {
 		t.Fatalf("the interrupted receipt's gate exit is %d, want %d", code, report.ExitOperational)
 	}
+}
+
+type applyCancelFailWriter struct{}
+
+func (applyCancelFailWriter) Write([]byte) (int, error) {
+	return 0, io.ErrClosedPipe
+}
+
+func assertIndependentReceiptOutputs(t *testing.T, parsed options, result report.Report, failure string) {
+	t.Helper()
+
+	scratch := t.TempDir()
+	firstPath := filepath.Join(scratch, "first.json")
+	if failure == applyCancelFileFailure {
+		firstPath = filepath.Join(scratch, "absent", "first.json")
+	}
+	receiptPath := filepath.Join(scratch, "receipt.json")
+	parsed.reporters = []config.Reporter{
+		{Name: reporterJSON, Path: firstPath},
+		{Name: reporterJSON, Path: receiptPath},
+	}
+	var stdout, stderr bytes.Buffer
+	stdoutWriter, stderrWriter := io.Writer(&stdout), io.Writer(&stderr)
+	if failure == applyCancelStdoutFailure {
+		stdoutWriter = applyCancelFailWriter{}
+	}
+	if failure == applyCancelStderrFailure {
+		stderrWriter = applyCancelFailWriter{}
+	}
+	if code := publish(stdoutWriter, stderrWriter, parsed, result, context.Canceled); code != report.ExitOperational {
+		t.Fatalf("interrupted invocation exits %d, want %d", code, report.ExitOperational)
+	}
+	if failure != applyCancelStdoutFailure {
+		assertInterruptedReceipt(t, "standard output", stdout.String())
+	}
+	if failure != applyCancelStderrFailure {
+		assertTextInterruptionReceipt(t, stderr.String())
+	}
+	if failure == applyCancelStdoutFailure && !strings.Contains(stderr.String(), io.ErrClosedPipe.Error()) {
+		t.Fatalf("stdout failure was not reported: %s", &stderr)
+	}
+	if failure == applyCancelFileFailure && !strings.Contains(stderr.String(), "creating ") {
+		t.Fatalf("file failure was not reported: %s", &stderr)
+	}
+	if failure != applyCancelFileFailure {
+		assertInterruptedReceipt(t, "the first artefact", readIfPresent(t, firstPath))
+	}
+	assertInterruptedReceipt(t, "the last artefact", readIfPresent(t, receiptPath))
 }
 
 func TestInterruptedWritesSuppressFormatsWithoutReceipts(t *testing.T) {
@@ -221,7 +287,7 @@ func TestInterruptedWritesSuppressFormatsWithoutReceipts(t *testing.T) {
 		t.Fatalf("the invocation did not commit the expected write: %+v", result.Apply)
 	}
 
-	for _, reporter := range []string{reporterSARIF, reporterMTE, reporterJUnit} {
+	for _, reporter := range []string{reporterSARIF, reporterMTE, reporterJUnit, reporterHTML, reporterMarkdown} {
 		t.Run(reporter, func(t *testing.T) {
 			t.Parallel()
 
@@ -233,6 +299,8 @@ func TestInterruptedWritesSuppressFormatsWithoutReceipts(t *testing.T) {
 				{Name: reporterSARIF, Path: filepath.Join(scratch, reporterSARIF)},
 				{Name: reporterMTE, Path: filepath.Join(scratch, reporterMTE)},
 				{Name: reporterJUnit, Path: filepath.Join(scratch, reporterJUnit)},
+				{Name: reporterHTML, Path: filepath.Join(scratch, reporterHTML)},
+				{Name: reporterMarkdown, Path: filepath.Join(scratch, reporterMarkdown)},
 			}
 			preserved := interrupted.reporters[0].Path
 			if writeErr := os.WriteFile(preserved, []byte("prior report"), 0o600); writeErr != nil {
@@ -248,7 +316,8 @@ func TestInterruptedWritesSuppressFormatsWithoutReceipts(t *testing.T) {
 				t.Fatalf("interrupted publication replaced an existing report: %q", got)
 			}
 			for _, path := range []string{
-				interrupted.reporters[1].Path, interrupted.reporters[2].Path, interrupted.sarifPath,
+				interrupted.reporters[1].Path, interrupted.reporters[2].Path,
+				interrupted.reporters[3].Path, interrupted.reporters[4].Path, interrupted.sarifPath,
 			} {
 				if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
 					t.Fatalf("interrupted publication created %s: %v", path, statErr)
@@ -291,7 +360,7 @@ func applyCancelStage(t *testing.T) applyCancelStaging {
 // interruptAfterTheCommit runs the command line in a helper process, interrupts
 // it the instant the apply's rename changes the target, and hands back its exit
 // code and the two channels a caller reads a receipt from.
-func interruptAfterTheCommit(t *testing.T, staged applyCancelStaging) applyCancelOutcome {
+func interruptAfterTheCommit(t *testing.T, staged applyCancelStaging, reporter string) applyCancelOutcome {
 	t.Helper()
 
 	scratch := t.TempDir()
@@ -310,6 +379,7 @@ func interruptAfterTheCommit(t *testing.T, staged applyCancelStaging) applyCance
 		applyCancelStdoutEnv+"="+stdoutPath,
 		applyCancelStderrEnv+"="+stderrPath,
 		applyCancelCodeEnv+"="+codePath,
+		applyCancelReporterEnv+"="+reporter,
 		// The run's own CPU profile teardown is the window the interruption has
 		// to land in: it is the cost between the commit and the report, and it
 		// is a teardown the user can ask for, not a product hook.
@@ -474,8 +544,8 @@ func TestRunTheCommandLineForAnInterruptedApplyHelper(t *testing.T) {
 	// the thing that ends this run, exactly as it ends the process main runs.
 	code := execute(suggestCommand, "dev", []string{
 		"--" + allVerifiedFlag, noCacheFlag, "--" + jobsFlag, "1",
-		reporterFlag, reporterJSON,
-		"--" + outputFlagName, reporterJSON + "=" + os.Getenv(applyCancelReceiptEnv),
+		reporterFlag, os.Getenv(applyCancelReporterEnv),
+		"--" + outputFlagName, os.Getenv(applyCancelReporterEnv) + "=" + os.Getenv(applyCancelReceiptEnv),
 		"--" + cpuProfileFlag, os.Getenv(applyCancelProfileEnv),
 		os.Getenv(applyCancelModuleEnv),
 	}, stdout, stderr)

@@ -1,7 +1,5 @@
 package report
 
-import "strings"
-
 // Interrupted records that a report was published for the effects an incomplete
 // invocation had already committed (2.20.0).
 //
@@ -65,24 +63,4 @@ func (r Report) committedWrites() []string {
 	}
 
 	return committed
-}
-
-// interruptionNotice words the interruption for the reporters that render a
-// summary sentence rather than a document: what landed, and that the numbers
-// beside it are not a score. It returns the empty string for a completed report,
-// so the same call site is silent on every ordinary run.
-func (r Report) interruptionNotice() string {
-	if r.Interrupted == nil {
-		return ""
-	}
-
-	notice := "the invocation did not complete (" + r.Interrupted.Reason +
-		"), so this is not a score"
-
-	if len(r.Interrupted.CommittedWrites) > 0 {
-		notice += "; written before the interruption: " +
-			strings.Join(r.Interrupted.CommittedWrites, ", ")
-	}
-
-	return notice + "."
 }

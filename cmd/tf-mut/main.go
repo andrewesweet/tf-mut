@@ -878,17 +878,12 @@ func publish(stdout, stderr io.Writer, parsed options, result report.Report, run
 			return fail(stderr, "tf-mut: "+renderError(runErr))
 		}
 
-		if _, err := fmt.Fprintf(stderr,
+		_, stderrErr := fmt.Fprintf(stderr,
 			"tf-mut: interrupted: %s; written before the interruption: %s; this is not a score\n",
-			receipt.Interrupted.Reason, strings.Join(receipt.Interrupted.CommittedWrites, ", ")); err != nil {
-			return report.ExitOperational
-		}
+			receipt.Interrupted.Reason, strings.Join(receipt.Interrupted.CommittedWrites, ", "))
+		renderErr := render(stdout, parsed, receipt)
 
-		if err := render(stdout, parsed, receipt); err != nil {
-			return fail(stderr, renderMessage(receipt, err))
-		}
-
-		return fail(stderr, "tf-mut: "+renderError(runErr))
+		return fail(stderr, renderMessage(receipt, errors.Join(runErr, stderrErr, renderErr)))
 	}
 
 	if err := render(stdout, parsed, result); err != nil {
@@ -918,25 +913,22 @@ func renderMessage(result report.Report, err error) string {
 // repository that has asked for a SARIF artefact on every run should not lose
 // it because someone passed `--reporter json` once.
 func render(stdout io.Writer, parsed options, result report.Report) error {
-	if err := renderTo(stdout, parsed.reporter, result); err != nil {
-		return err
-	}
+	renderErr := renderTo(stdout, parsed.reporter, result)
 
 	for _, configured := range parsed.reporters {
 		if configured.Path == "" {
 			continue
 		}
 
-		if err := renderFile(configured, result); err != nil {
-			return err
-		}
+		renderErr = errors.Join(renderErr, renderFile(configured, result))
 	}
 
 	if parsed.reporter == reporterSARIF && parsed.sarifPath != "" {
-		return renderFile(config.Reporter{Name: reporterSARIF, Path: parsed.sarifPath}, result)
+		renderErr = errors.Join(renderErr,
+			renderFile(config.Reporter{Name: reporterSARIF, Path: parsed.sarifPath}, result))
 	}
 
-	return nil
+	return renderErr
 }
 
 func renderTo(writer io.Writer, reporter string, result report.Report) error {
@@ -978,7 +970,7 @@ func renderFile(configured config.Reporter, result report.Report) error {
 }
 
 func rendersInterruption(reporter string) bool {
-	return reporter != reporterSARIF && reporter != reporterMTE && reporter != reporterJUnit
+	return reporter == reporterJSON || reporter == reporterTerminal
 }
 
 func fail(stderr io.Writer, message string) int {

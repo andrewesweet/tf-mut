@@ -255,10 +255,6 @@ func WriteMarkdown(writer io.Writer, value Report) error {
 			"of judged mutants were rejected by terraform validate.\n\n")
 	}
 
-	if interrupted := value.interruptionNotice(); interrupted != "" {
-		fmt.Fprintf(&page, "> **Interrupted:** %s\n\n", markdownText(interrupted))
-	}
-
 	writeDeadlineNote(&page, value)
 
 	writePopulation(&page, value)
