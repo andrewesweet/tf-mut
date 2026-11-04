@@ -28,6 +28,15 @@ const (
 	// observes; failfastIgnoredSite is the one nothing observes.
 	failfastWatchedSite = "terraform_data.watched.input"
 	failfastIgnoredSite = "terraform_data.ignored.input"
+
+	// failfastParallelSite is the site the parallel fixture's assertions all
+	// observe, failfastParallelRuns the run blocks that execute it
+	// concurrently, and failfastParallelAssertions the assertions each block
+	// makes.
+	failfastParallelSite       = "terraform_data.watched.input"
+	failfastParallelRuns       = 12
+	failfastParallelAssertions = 16
+	assertionFailureSummary    = "Test assertion failed"
 )
 
 // truncationDocument is the slice of the published JSON document the wire
@@ -127,6 +136,68 @@ func TestAFailFastKillEndsAtItsFirstFailAndKeepsItsVerdict(t *testing.T) {
 		if mutant.RunsTruncated == nil {
 			t.Fatalf("mutant %s (state %s) carries no runs_truncated flag", mutant.ID, mutant.State)
 		}
+	}
+}
+
+// TestParallelRunsKeepTheArmingRunsAssertionDiagnostics holds the parallel-run
+// half of the fail-fast contract: the assertion diagnostics a stop must keep
+// belong to the arming run's file, so another run's start, completion or plan
+// event interleaved before them is not the boundary. The verdict was never in
+// doubt — the first failing run decides Killed — and this test holds the
+// evidence the stop promises to retain after such an interleaving. The fixture's
+// twelve blocks exceed the ten Terraform starts at once, so later start events
+// can land mid-stream as well.
+func TestParallelRunsKeepTheArmingRunsAssertionDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	result := runFailFastFixture(t, copyFixture(t, "failfast-parallel"), mutation.StrCase)
+
+	killed := mutantAt(t, result, string(mutation.StrCase), failfastParallelSite)
+	if killed.State != report.Killed {
+		t.Fatalf("parallel mutant state = %s, want %s", killed.State, report.Killed)
+	}
+
+	// The arming run is the first block the record completed fail: runs are
+	// recorded in completion order, and its completion is what armed the stop.
+	arming := ""
+	for _, run := range killed.Runs {
+		if run.Status == runFail {
+			arming = run.Run
+
+			break
+		}
+	}
+
+	if arming == "" {
+		t.Fatalf("runs = %v, want the failing completion that armed the stop", killed.Runs)
+	}
+
+	retained := 0
+	for _, diagnostic := range killed.Diagnostics {
+		if diagnostic.TestRun == arming && diagnostic.Summary == assertionFailureSummary {
+			retained++
+		}
+	}
+
+	if retained != failfastParallelAssertions {
+		t.Fatalf("arm %q kept %d of its %d assertion diagnostics (%d in the whole record), want all of them: "+
+			"the parallel interleaving discarded the evidence that explains the kill",
+			arming, retained, failfastParallelAssertions, len(killed.Diagnostics))
+	}
+
+	// The stop is taken at the armed file's completion, which every block of
+	// that file reaches before it: the record is whole, and the report must
+	// not claim a truncation it did not take.
+	if killed.RunsTruncated {
+		t.Fatal("a file that completed every block must not be reported as truncated")
+	}
+
+	if killed.ExecutedRuns != failfastParallelRuns || len(killed.Runs) != failfastParallelRuns {
+		t.Fatalf("executed runs = %d of %d run records, want all %d", killed.ExecutedRuns, len(killed.Runs), failfastParallelRuns)
+	}
+
+	if killed.DeadlineReached {
+		t.Fatal("the stop must be the fail-fast decision, not the budget")
 	}
 }
 
