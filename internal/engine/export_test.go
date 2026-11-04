@@ -280,6 +280,25 @@ func SetSecondWriterWindow(t *testing.T, moduleDir, testDir string, during func(
 	})
 }
 
+// SetCommitStartClosureChange stages one change to path in the window between
+// a successful verification and the commit's first look at the tree: the case
+// a rename-window hook runs too late to reach. Its caller is sequential for
+// the hook's complete lifetime.
+func SetCommitStartClosureChange(t *testing.T, moduleDir, path string) {
+	t.Helper()
+
+	seedCommitStart = func(configuration discovery.Configuration) error {
+		if configuration.ModuleDir != moduleDir || path == "" {
+			return nil
+		}
+
+		return stageClosureChange(configuration, path)
+	}
+	t.Cleanup(func() {
+		seedCommitStart = func(discovery.Configuration) error { return nil }
+	})
+}
+
 // SetGitTimeout shortens the fixed cap on git invocations for one test: the
 // deadline test drives a sleeping git through the real seam, and no caller
 // parameter changes the cap. Its callers are sequential for the hook's

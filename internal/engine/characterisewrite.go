@@ -73,6 +73,8 @@ var (
 	seedRenameWindowChange = func(discovery.Configuration, int) error { return nil }
 	//nolint:gochecknoglobals // test seam, inert outside the suite.
 	seedRegistryFailure = func(string) error { return nil }
+	//nolint:gochecknoglobals // test seam, inert outside the suite.
+	seedCommitStart = func(discovery.Configuration) error { return nil }
 )
 
 // commitScaffold performs the write, or refuses it and says why.
@@ -87,6 +89,13 @@ func commitScaffold(
 	block *report.Characterisation,
 	files []writtenFile,
 ) error {
+	// The window between a successful verification and this read is the one
+	// the baseline exists to close, so the seam stages its change before
+	// anything here looks at the tree.
+	if err := seedCommitStart(configuration); err != nil {
+		return err
+	}
+
 	// The commit's own target set is excluded from the digest: the probe is
 	// there to catch a change somebody else made, and a commit that tripped
 	// over the file it just placed would refuse every write after the first.
