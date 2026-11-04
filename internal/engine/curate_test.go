@@ -367,7 +367,7 @@ func TestAnAnsweredScaffoldIsVerifiedBeforeItIsPromoted(t *testing.T) {
 				t.Fatalf("characterise --until-dry: %v", err)
 			}
 
-			identifier := scaffoldFor(t, opened.Characterisation, "var.size.validation")
+			identifier := scaffoldFor(t, opened.Characterisation)
 
 			answered := characteriseRequest(t, module)
 			answered.UntilDry = true
@@ -434,9 +434,11 @@ func assertScaffoldPromotion(t *testing.T, result report.Report, identifier stri
 	}
 }
 
-// scaffoldFor finds the scaffold recorded for one construct address.
-func scaffoldFor(t *testing.T, block *report.Characterisation, address string) string {
+// scaffoldFor finds the scaffold recorded for the size validation.
+func scaffoldFor(t *testing.T, block *report.Characterisation) string {
 	t.Helper()
+
+	const address = "var.size.validation"
 
 	for _, scaffold := range block.Scaffolds {
 		if scaffold.Address == address {
@@ -550,7 +552,7 @@ func TestAScaffoldAnswerCannotInjectConfiguration(t *testing.T) {
 		t.Fatalf("characterise --until-dry: %v", err)
 	}
 
-	identifier := scaffoldFor(t, opened.Characterisation, "var.size.validation")
+	identifier := scaffoldFor(t, opened.Characterisation)
 
 	for name, answer := range map[string]string{
 		"an injected assignment": `{ "size = 0\n    injected" = 1 }`,

@@ -986,65 +986,83 @@ func TestPromotedScaffoldsAreVerifiedWithTheFinalSuite(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			module := copyFixture(t, contractFixture)
-			removeTests(t, module)
-
-			request := characteriseRequest(t, module)
-			request.UntilDry = true
-			opened, err := engine.Run(t.Context(), request)
-			if err != nil {
-				t.Fatalf("opening scaffolds: %v", err)
-			}
-
-			identifier := scaffoldFor(t, opened.Characterisation, "var.size.validation")
-			request.Answers = []string{identifier + "={ size = 0 }"}
-			request.Write = true
-
-			if changed {
-				request = engine.WithFinalVerificationHook(request, func() {
-					source, readErr := os.ReadFile(filepath.Join(module, mainFile))
-					if readErr != nil {
-						t.Fatalf("reading validation source: %v", readErr)
-					}
-
-					updated := strings.ReplaceAll(string(source), "var.size > 0", "var.size >= 0")
-					testsupport.WriteFile(t, filepath.Join(module, mainFile), updated)
-				})
-			}
-
-			result, err := engine.Run(t.Context(), request)
-			if !changed {
-				if err != nil {
-					t.Fatalf("writing promoted scaffold: %v", err)
-				}
-
-				assertScaffoldPromotion(t, result, identifier, true)
-				if _, err := engine.Run(t.Context(), baseConfig(t, module)); err != nil {
-					t.Fatalf("running the written suite: %v", err)
-				}
-
-				return
-			}
-
-			if !errors.Is(err, engine.ErrScaffoldRed) {
-				t.Fatalf("error = %v, want final verification to reject the obsolete expected failure", err)
-			}
-
-			if _, statErr := os.Stat(filepath.Join(module, engine.RegistryName)); !os.IsNotExist(statErr) {
-				t.Fatalf("an unverified suite created a provenance registry: %v", statErr)
-			}
-
-			entries, readErr := os.ReadDir(filepath.Join(module, "tests"))
-			if readErr != nil && !os.IsNotExist(readErr) {
-				t.Fatalf("reading the test directory: %v", readErr)
-			}
-
-			for _, entry := range entries {
-				if strings.HasSuffix(entry.Name(), ".tftest.hcl") {
-					t.Fatalf("an unverified suite was written: %s", entry.Name())
-				}
-			}
+			assertPromotedScaffoldFinalVerification(t, changed)
 		})
+	}
+}
+
+func assertPromotedScaffoldFinalVerification(t *testing.T, changed bool) {
+	t.Helper()
+
+	module := copyFixture(t, contractFixture)
+	removeTests(t, module)
+
+	request := characteriseRequest(t, module)
+	request.UntilDry = true
+	opened, err := engine.Run(t.Context(), request)
+	if err != nil {
+		t.Fatalf("opening scaffolds: %v", err)
+	}
+
+	identifier := scaffoldFor(t, opened.Characterisation)
+	request.Answers = []string{identifier + "={ size = 0 }"}
+	request.Write = true
+
+	if changed {
+		request = engine.WithFinalVerificationHook(request, func() {
+			allowZeroValidationSize(t, module)
+		})
+	}
+
+	result, err := engine.Run(t.Context(), request)
+	if !changed {
+		if err != nil {
+			t.Fatalf("writing promoted scaffold: %v", err)
+		}
+
+		assertScaffoldPromotion(t, result, identifier, true)
+		if _, runErr := engine.Run(t.Context(), baseConfig(t, module)); runErr != nil {
+			t.Fatalf("running the written suite: %v", runErr)
+		}
+
+		return
+	}
+
+	if !errors.Is(err, engine.ErrScaffoldRed) {
+		t.Fatalf("error = %v, want final verification to reject the obsolete expected failure", err)
+	}
+
+	assertUnverifiedSuiteNotWritten(t, module)
+}
+
+func allowZeroValidationSize(t *testing.T, module string) {
+	t.Helper()
+
+	source, readErr := os.ReadFile(filepath.Join(module, mainFile)) // #nosec G304 -- fixture-path exception: test tree.
+	if readErr != nil {
+		t.Fatalf("reading validation source: %v", readErr)
+	}
+
+	updated := strings.ReplaceAll(string(source), "var.size > 0", "var.size >= 0")
+	testsupport.WriteFile(t, filepath.Join(module, mainFile), updated)
+}
+
+func assertUnverifiedSuiteNotWritten(t *testing.T, module string) {
+	t.Helper()
+
+	if _, statErr := os.Stat(filepath.Join(module, engine.RegistryName)); !os.IsNotExist(statErr) {
+		t.Fatalf("an unverified suite created a provenance registry: %v", statErr)
+	}
+
+	entries, readErr := os.ReadDir(filepath.Join(module, "tests"))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatalf("reading the test directory: %v", readErr)
+	}
+
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tftest.hcl") {
+			t.Fatalf("an unverified suite was written: %s", entry.Name())
+		}
 	}
 }
 
