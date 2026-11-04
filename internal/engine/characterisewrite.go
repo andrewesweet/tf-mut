@@ -396,15 +396,10 @@ func storeRegistry(
 		written[file.entry.Path] = file.digest
 	}
 
-	// The commit loaded the registry at its start — that is the copy the
-	// collision checks judged — and saves after every generated file has been
-	// renamed, long after. A second invocation committing into the same module
-	// inside that window saves the copy it loaded before this invocation's
-	// entries existed, and this invocation's entries are lost while its files
-	// stay on disk, so `--force` then treats the tool's own output as a user's.
-	// The merge therefore happens under an exclusive lock and over a registry
-	// re-read *inside* it: re-reading without the lock is not enough, because
-	// another save can still land between the read and the rename.
+	// Collision checks use the commit-start registry, but merging that snapshot
+	// could discard entries another invocation has since saved. Reload under
+	// the RegistryStore.Lock protocol before merging; a reload without the lock
+	// still leaves a window for another save before this invocation's rename.
 	unlock, err := settings.registryLock(moduleDir)
 	if err != nil {
 		return err
