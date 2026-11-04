@@ -80,6 +80,11 @@ func writeAuthoritativeHeader(page *strings.Builder, value Report) {
 
 	writeIndeterminateCauses(page, value)
 
+	if interrupted := value.interruptionNotice(); interrupted != "" {
+		fmt.Fprintf(page, "<p><strong>Interrupted:</strong> %s</p>\n",
+			html.EscapeString(interrupted))
+	}
+
 	if value.Metrics.Incomplete {
 		page.WriteString("<p><strong>Incomplete:</strong> this score is untrustworthy &mdash; " +
 			"an operational-failure trip stopped execution, a mutant timed out, " +

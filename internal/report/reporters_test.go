@@ -1,6 +1,7 @@
 package report_test
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -1902,5 +1903,174 @@ func sarifVocabularyViolations(field string, value any) []string {
 		return violations
 	default:
 		return nil
+	}
+}
+
+// The interruption receipt (2.20.0): a report published for an invocation that
+// failed after it had already committed effects. The receipt leads, names the
+// files that landed, and never reads as a score.
+
+// interruptedReport is a suggest report marked interrupted after one committed
+// write, the shape the command line publishes when a SIGINT lands after the
+// apply's rename.
+func interruptedReport(t *testing.T) report.Report {
+	t.Helper()
+
+	value := allStatesReport()
+	value.Command = report.CommandSuggest
+	value.Apply = &report.AppliedSuggestions{
+		Requested: []string{sampleSuggestionID},
+		Written:   []string{sampleTestFile},
+		Pending:   []string{}, Aborted: "", Partial: false,
+	}
+
+	receipt, committed := value.Interrupt(context.Canceled)
+	if !committed {
+		t.Fatalf("the sample interruption committed nothing to report: %+v", value.Apply)
+	}
+
+	return receipt
+}
+
+// TestTheTerminalReportLeadsWithTheReceiptOfWhatLanded: the files that landed
+// come before the analysis the interruption cut short, so the reader cannot
+// mistake one for the other.
+func TestTheTerminalReportLeadsWithTheReceiptOfWhatLanded(t *testing.T) {
+	t.Parallel()
+
+	rendered := strings.Builder{}
+	if err := report.WriteTerminal(&rendered, interruptedReport(t)); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	page := rendered.String()
+	if !strings.HasPrefix(page, "INTERRUPTED: context canceled\n") {
+		t.Fatalf("the interrupted terminal report does not lead with its interruption:\n%s", page)
+	}
+
+	for _, needle := range []string{
+		"not a score",
+		"Written before the interruption: " + sampleTestFile,
+	} {
+		if !strings.Contains(page, needle) {
+			t.Fatalf("the interrupted terminal report is missing %q:\n%s", needle, page)
+		}
+	}
+}
+
+// TestAnInvocationThatCommittedNothingHasNoReceipt: cancellation on a run that
+// wrote nothing is an ordinary operational failure, and a receipt of nothing
+// would be a document about no effect. The report comes back unmarked and the
+// caller has only the error, which is the whole explanation.
+func TestAnInvocationThatCommittedNothingHasNoReceipt(t *testing.T) {
+	t.Parallel()
+
+	uncommitted := allStatesReport()
+	uncommitted.Command = report.CommandRun
+	uncommitted.Apply = nil
+
+	receipt, committed := uncommitted.Interrupt(context.Canceled)
+	if committed {
+		t.Fatal("an invocation that wrote nothing published a receipt")
+	}
+
+	if receipt.Interrupted != nil {
+		t.Fatalf("an invocation that wrote nothing was marked interrupted: %+v", receipt.Interrupted)
+	}
+
+	rendered := strings.Builder{}
+	if err := report.WriteTerminal(&rendered, receipt); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	if strings.Contains(rendered.String(), "INTERRUPTED") {
+		t.Fatalf("the terminal report announces an interruption that committed nothing:\n%s",
+			rendered.String())
+	}
+}
+
+// TestTheFirstObserverOwnsTheInterruptionReason: whichever layer saw the
+// failure first sets the reason, and a later wrapper carrying a longer message
+// about the same failure cannot relabel the receipt.
+func TestTheFirstObserverOwnsTheInterruptionReason(t *testing.T) {
+	t.Parallel()
+
+	first := interruptedReport(t)
+
+	tripWrapped := fmt.Errorf("%w\nwarning: 2 mutants were not executed", context.Canceled)
+	second, committed := first.Interrupt(tripWrapped)
+	if !committed {
+		t.Fatal("the marked report lost its receipt")
+	}
+
+	if second.Interrupted.Reason != sampleInterruptionReason {
+		t.Fatalf("reason = %q, want the first observation", second.Interrupted.Reason)
+	}
+}
+
+// TestAnInterruptedReportIsNeverAScore: the receipt is not a pass. A suggest
+// report that would otherwise exit clean exits operationally once it carries
+// the interruption, whatever gates were requested.
+func TestAnInterruptedReportIsNeverAScore(t *testing.T) {
+	t.Parallel()
+
+	complete := report.Report{
+		Command: report.CommandSuggest,
+		Apply: &report.AppliedSuggestions{
+			Requested: []string{sampleSuggestionID},
+			Written:   []string{sampleTestFile},
+		},
+	}
+
+	gate := report.Gate{MinScore: 0, HasMinScore: false, AllowIncompleteScore: true, FailOnNew: false}
+	if code := complete.ExitCode(gate); code != report.ExitClean {
+		t.Fatalf("the completed suggest report exits %d, want %d", code, report.ExitClean)
+	}
+
+	if code := interruptedReport(t).ExitCode(gate); code != report.ExitOperational {
+		t.Fatalf("the interrupted receipt exits %d, want %d", code, report.ExitOperational)
+	}
+}
+
+// TestTheSummaryReportersMarkAnInterruptedRun: the reviewers' artefacts carry
+// the same receipt the terminal and JSON do — what landed, and that the numbers
+// beside it are not a score — and stay silent on a completed run.
+func TestTheSummaryReportersMarkAnInterruptedRun(t *testing.T) {
+	t.Parallel()
+
+	markdownPage := strings.Builder{}
+	if err := report.WriteMarkdown(&markdownPage, interruptedReport(t)); err != nil {
+		t.Fatalf("rendering the markdown: %v", err)
+	}
+
+	htmlPage := strings.Builder{}
+	if err := report.WriteHTML(&htmlPage, interruptedReport(t)); err != nil {
+		t.Fatalf("rendering the HTML: %v", err)
+	}
+
+	for name, page := range map[string]string{
+		"markdown": markdownPage.String(),
+		"html":     htmlPage.String(),
+	} {
+		for _, needle := range []string{
+			"not a score", sampleTestFile, sampleInterruptionReason,
+		} {
+			if !strings.Contains(page, needle) {
+				t.Fatalf("the interrupted %s rendering is missing %q:\n%s", name, needle, page)
+			}
+		}
+	}
+
+	complete := allStatesReport()
+	complete.Command = report.CommandSuggest
+	complete.Apply = nil
+
+	quiet := strings.Builder{}
+	if err := report.WriteMarkdown(&quiet, complete); err != nil {
+		t.Fatalf("rendering the markdown: %v", err)
+	}
+
+	if strings.Contains(quiet.String(), "not a score") {
+		t.Fatalf("the completed markdown summary announces an interruption:\n%s", quiet.String())
 	}
 }

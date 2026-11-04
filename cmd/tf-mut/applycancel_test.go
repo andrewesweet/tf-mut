@@ -1,18 +1,22 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
 
@@ -24,9 +28,10 @@ import (
 // The reproduction is the reported one: the real command line, the real
 // Terraform binary on an offline fixture, and a SIGINT sent the instant the
 // test file's bytes change underneath the run — after the atomic rename, before
-// the report is published. The control case is the same command with no signal:
-// it exits 0 and produces the receipt, which is what the interrupted case owes
-// the caller.
+// the report is published. The same defect has a second window, past the
+// engine's last decision, and the deterministic case stages that one instead:
+// the run completes, and the cancellation is the one the command line always
+// observes for itself.
 
 const (
 	// applyCancelChildEnv marks the helper half of the reproduction.
@@ -46,16 +51,134 @@ const (
 	applyCancelTarget  = "tests/unit.tftest.hcl"
 )
 
+// applyCancelInterruption is the interruption block a receipt carries, and
+// applyCancelApply the block naming the files an apply committed.
+type applyCancelInterruption struct {
+	Reason          string   `json:"reason"`
+	CommittedWrites []string `json:"committed_writes"`
+}
+
+type applyCancelApply struct {
+	Written []string `json:"written"`
+}
+
+// applyCancelReceipt is the part of the published document a write command owes
+// its caller: the interruption, and the files it committed.
+type applyCancelReceipt struct {
+	Interrupted *applyCancelInterruption `json:"interrupted"`
+	Apply       *applyCancelApply        `json:"apply"`
+}
+
+// applyCancelOutcome is what the interrupted helper published.
+type applyCancelOutcome struct {
+	code     int
+	stdout   string
+	artefact string
+	stderr   string
+}
+
+// applyCancelStaging is the copied fixture the invocation applies to: the
+// module, the file the apply rewrites, and the bytes it started from.
+type applyCancelStaging struct {
+	module   string
+	target   string
+	original string
+}
+
 // TestASigintAfterAnApplyRenameStillReportsTheCommittedWrite holds the write
 // receipt across cancellation: an invocation that committed a file before the
-// signal must report that file, and must report it as a receipt of committed
-// effects rather than as a completed score.
+// signal reports that file, and reports it as a receipt of committed effects
+// rather than as a completed score.
 func TestASigintAfterAnApplyRenameStillReportsTheCommittedWrite(t *testing.T) {
 	t.Parallel()
 
 	if os.Getenv(applyCancelChildEnv) == "1" {
 		t.Skip("child process runs the helper instead")
 	}
+
+	staged := applyCancelStage(t)
+	published := interruptAfterTheCommit(t, staged)
+
+	if landed := readIfPresent(t, staged.target); landed == staged.original {
+		t.Fatal("the apply never renamed the test file; the interruption was not staged after a commit")
+	}
+
+	switch published.code {
+	case report.ExitClean:
+		// The signal arrived after the report was already published: the write
+		// is reported as an ordinary applied suggestion, which is what a
+		// completed invocation promises.
+		assertAppliedWrite(t, "standard output", published.stdout)
+		assertAppliedWrite(t, "the requested artefact", published.artefact)
+	case report.ExitOperational:
+		assertInterruptedReceipt(t, "standard output", published.stdout)
+		assertInterruptedReceipt(t, "the requested artefact", published.artefact)
+	default:
+		t.Fatalf("exit code = %d, want %d (already published) or %d (interrupted)\n%s",
+			published.code, report.ExitClean, report.ExitOperational, published.stderr)
+	}
+}
+
+// TestACancelledInvocationStillPublishesTheWritesItCommitted is the
+// deterministic half: the run itself completes against the real fixture, and
+// the cancellation is the one the command line can always observe for itself —
+// a signal that arrives after the engine has returned its report, which used to
+// discard a report whose writes had already landed.
+func TestACancelledInvocationStillPublishesTheWritesItCommitted(t *testing.T) {
+	t.Parallel()
+
+	staged := applyCancelStage(t)
+	receiptPath := filepath.Join(t.TempDir(), "receipt.json")
+
+	parsed, err := parse(suggestCommand, "dev", []string{
+		"--all-verified", "--no-cache", "--" + jobsFlag, "1",
+		reporterFlag, reporterJSON,
+		"--" + outputFlagName, reporterJSON + "=" + receiptPath,
+		staged.module,
+	}, io.Discard)
+	if err != nil {
+		t.Fatalf("parsing the command line: %v", err)
+	}
+
+	result, err := engine.Run(t.Context(), parsed.config)
+	if err != nil {
+		t.Fatalf("running the invocation: %v", err)
+	}
+
+	if result.Apply == nil || len(result.Apply.Written) == 0 {
+		t.Fatalf("the invocation committed nothing, so there is no receipt to hold: %+v", result.Apply)
+	}
+
+	stdout := bytes.Buffer{}
+	stderr := bytes.Buffer{}
+
+	if code := publish(&stdout, &stderr, parsed, result, context.Canceled); code != report.ExitOperational {
+		t.Fatalf("a cancelled invocation with committed writes exits %d, want %d\n%s",
+			code, report.ExitOperational, stderr.String())
+	}
+
+	if !strings.Contains(stderr.String(), "context canceled") {
+		t.Fatalf("the cancellation is not reported:\n%s", stderr.String())
+	}
+
+	assertInterruptedReceipt(t, "standard output", stdout.String())
+	assertInterruptedReceipt(t, "the requested artefact", readIfPresent(t, receiptPath))
+
+	// The receipt is not a score: the report's own gate table cannot pass it.
+	receipt, committed := result.Interrupt(context.Canceled)
+	if !committed {
+		t.Fatal("the marked report lost its receipt")
+	}
+
+	if code := receipt.ExitCode(parsed.gate); code != report.ExitOperational {
+		t.Fatalf("the interrupted receipt's gate exit is %d, want %d", code, report.ExitOperational)
+	}
+}
+
+// applyCancelStage copies the offline fixture into a scratch directory, so the
+// invocation's writes land on the test's own tree.
+func applyCancelStage(t *testing.T) applyCancelStaging {
+	t.Helper()
 
 	module := filepath.Join(t.TempDir(), "suggest-basic")
 	if err := os.CopyFS(module, os.DirFS(applyCancelFixture)); err != nil {
@@ -69,6 +192,15 @@ func TestASigintAfterAnApplyRenameStillReportsTheCommittedWrite(t *testing.T) {
 		t.Fatalf("reading the target before the run: %v", err)
 	}
 
+	return applyCancelStaging{module: module, target: target, original: string(original)}
+}
+
+// interruptAfterTheCommit runs the command line in a helper process, interrupts
+// it the instant the apply's rename changes the target, and hands back its exit
+// code and the two channels a caller reads a receipt from.
+func interruptAfterTheCommit(t *testing.T, staged applyCancelStaging) applyCancelOutcome {
+	t.Helper()
+
 	scratch := t.TempDir()
 	receiptPath := filepath.Join(scratch, "receipt.json")
 	stdoutPath := filepath.Join(scratch, "stdout.json")
@@ -80,7 +212,7 @@ func TestASigintAfterAnApplyRenameStillReportsTheCommittedWrite(t *testing.T) {
 		"-test.run=TestRunTheCommandLineForAnInterruptedApplyHelper", "-test.timeout=180s")
 	command.Env = append(os.Environ(),
 		applyCancelChildEnv+"=1",
-		applyCancelModuleEnv+"="+module,
+		applyCancelModuleEnv+"="+staged.module,
 		applyCancelReceiptEnv+"="+receiptPath,
 		applyCancelStdoutEnv+"="+stdoutPath,
 		applyCancelStderrEnv+"="+stderrPath,
@@ -95,9 +227,8 @@ func TestASigintAfterAnApplyRenameStillReportsTheCommittedWrite(t *testing.T) {
 	command.WaitDelay = time.Second
 
 	done := make(chan error, 1)
-
-	if startErr := command.Start(); startErr != nil {
-		t.Fatalf("starting helper: %v", startErr)
+	if err := command.Start(); err != nil {
+		t.Fatalf("starting helper: %v", err)
 	}
 
 	reaped := false
@@ -121,7 +252,7 @@ func TestASigintAfterAnApplyRenameStillReportsTheCommittedWrite(t *testing.T) {
 		done <- command.Wait()
 	}()
 
-	code := interruptAfterTheCommit(t, command, target, string(original), done)
+	code := pollForTheCommit(t, command, staged, done)
 	reaped = true
 
 	// The helper's exit code travels in a file: Go's testing package treats an
@@ -133,68 +264,18 @@ func TestASigintAfterAnApplyRenameStillReportsTheCommittedWrite(t *testing.T) {
 		}
 	}
 
-	if current := readIfPresent(t, target); current == string(original) {
-		t.Fatal("the apply never renamed the test file; the interruption was not staged after a commit")
-	}
-
-	// The receipt has two channels: standard output, and the JSON artefact the
-	// invocation asked for. A caller reading either is owed the files that
-	// landed.
-	stdout := readIfPresent(t, stdoutPath)
-	receipt := readIfPresent(t, receiptPath)
-	published := stdout + receipt
-
-	if code == report.ExitClean {
-		// The signal arrived after the report was already published: the write
-		// is reported as an ordinary applied suggestion and there is no
-		// interruption to mark.
-		if !strings.Contains(published, applyCancelTarget) {
-			t.Fatalf("the run applied a write and reported nothing about it:\n%s", published)
-		}
-
-		return
-	}
-
-	if code != report.ExitOperational {
-		t.Fatalf("exit code = %d, want %d (operational) or %d (clean, already published)\n%s",
-			code, report.ExitOperational, report.ExitClean, readIfPresent(t, stderrPath))
-	}
-
-	if !strings.Contains(published, applyCancelTarget) {
-		t.Fatalf("the invocation committed %s and exited operationally without reporting it\n"+
-			"stdout: %q\nstderr: %q", applyCancelTarget, stdout, readIfPresent(t, stderrPath))
-	}
-
-	// A receipt is not a score: the report has to say the analysis was
-	// interrupted, so a consumer cannot read the numbers as a completed run.
-	document := map[string]any{}
-	if err := json.Unmarshal([]byte(stdout), &document); err != nil {
-		t.Fatalf("standard output is not the JSON report it was asked for: %v\n%s", err, stdout)
-	}
-
-	interrupted, ok := document["interrupted"].(map[string]any)
-	if !ok {
-		t.Fatalf("the interrupted receipt does not say the analysis was interrupted:\n%s", stdout)
-	}
-
-	if reason, _ := interrupted["reason"].(string); reason == "" {
-		t.Fatalf("the interruption carries no reason:\n%s", stdout)
-	}
-
-	written, _ := document["apply"].(map[string]any)["written"].([]any)
-	if len(written) == 0 {
-		t.Fatalf("the receipt names no committed file:\n%s", stdout)
-	}
-
-	if reportWritten, _ := written[0].(string); reportWritten != applyCancelTarget {
-		t.Fatalf("the receipt names %q, want the committed %s", reportWritten, applyCancelTarget)
+	return applyCancelOutcome{
+		code:     code,
+		stdout:   readIfPresent(t, stdoutPath),
+		artefact: readIfPresent(t, receiptPath),
+		stderr:   readIfPresent(t, stderrPath),
 	}
 }
 
-// interruptAfterTheCommit polls the apply target until the rename lands, then
-// interrupts the helper and reaps it. It returns the helper's exit code.
-func interruptAfterTheCommit(
-	t *testing.T, command *exec.Cmd, target, original string, done <-chan error,
+// pollForTheCommit watches the apply's target and interrupts the helper the
+// moment its bytes change, which is the moment after the atomic rename.
+func pollForTheCommit(
+	t *testing.T, command *exec.Cmd, staged applyCancelStaging, done <-chan error,
 ) int {
 	t.Helper()
 
@@ -222,7 +303,8 @@ func interruptAfterTheCommit(
 		}
 
 		if !signalled {
-			if content, readErr := os.ReadFile(target); readErr == nil && string(content) != original { //nolint:gosec // a test-owned copy.
+			content, readErr := os.ReadFile(staged.target)
+			if readErr == nil && string(content) != staged.original {
 				if signalErr := command.Process.Signal(syscall.SIGINT); signalErr != nil {
 					t.Fatalf("interrupting helper: %v", signalErr)
 				}
@@ -239,10 +321,69 @@ func interruptAfterTheCommit(
 	}
 }
 
+// assertInterruptedReceipt holds what an interrupted invocation owes the caller
+// on one channel: the interruption naming its reason, and the committed file.
+func assertInterruptedReceipt(t *testing.T, name, content string) {
+	t.Helper()
+
+	receipt := decodeApplyCancelReceipt(t, name, content)
+	if receipt.Interrupted == nil {
+		t.Fatalf("%s does not say the invocation was interrupted:\n%s", name, content)
+	}
+
+	if receipt.Interrupted.Reason == "" {
+		t.Fatalf("%s carries an interruption with no reason:\n%s", name, content)
+	}
+
+	for _, writes := range [][]string{receipt.Interrupted.CommittedWrites, receipt.ApplyWritten()} {
+		if !slices.Equal(writes, []string{applyCancelTarget}) {
+			t.Fatalf("%s names %v as written, want exactly %s:\n%s",
+				name, writes, applyCancelTarget, content)
+		}
+	}
+}
+
+// assertAppliedWrite holds what a completed invocation owes the caller on one
+// channel: the file it applied, and no interruption to qualify it.
+func assertAppliedWrite(t *testing.T, name, content string) {
+	t.Helper()
+
+	receipt := decodeApplyCancelReceipt(t, name, content)
+	if receipt.Interrupted != nil {
+		t.Fatalf("%s marks a completed invocation interrupted:\n%s", name, content)
+	}
+
+	if !slices.Equal(receipt.ApplyWritten(), []string{applyCancelTarget}) {
+		t.Fatalf("%s names %v as written, want exactly %s:\n%s",
+			name, receipt.ApplyWritten(), applyCancelTarget, content)
+	}
+}
+
+// ApplyWritten lists the files the receipt records, or nothing when the
+// document carries no apply block at all.
+func (r applyCancelReceipt) ApplyWritten() []string {
+	if r.Apply == nil {
+		return nil
+	}
+
+	return r.Apply.Written
+}
+
+func decodeApplyCancelReceipt(t *testing.T, name, content string) applyCancelReceipt {
+	t.Helper()
+
+	receipt := applyCancelReceipt{}
+	if err := json.Unmarshal([]byte(content), &receipt); err != nil {
+		t.Fatalf("%s is not the JSON report it was asked for: %v\n%s", name, err, content)
+	}
+
+	return receipt
+}
+
 // TestRunTheCommandLineForAnInterruptedApplyHelper is the child half of the
 // reproduction. It only does anything when the parent asks for it.
 //
-//nolint:paralleltest // the helper must own the process and its exit code.
+//nolint:paralleltest // the helper must own the run and its exit code.
 func TestRunTheCommandLineForAnInterruptedApplyHelper(t *testing.T) {
 	if os.Getenv(applyCancelChildEnv) != "1" {
 		t.Skip("helper process only")
@@ -254,7 +395,7 @@ func TestRunTheCommandLineForAnInterruptedApplyHelper(t *testing.T) {
 	// No t.Parallel, no t.Context: the signal handler inside execute must be
 	// the thing that ends this run, exactly as it ends the process main runs.
 	code := execute(suggestCommand, "dev", []string{
-		"--all-verified", "--no-cache", "--jobs", "1",
+		"--all-verified", "--no-cache", "--" + jobsFlag, "1",
 		reporterFlag, reporterJSON,
 		"--" + outputFlagName, reporterJSON + "=" + os.Getenv(applyCancelReceiptEnv),
 		"--" + cpuProfileFlag, os.Getenv(applyCancelProfileEnv),
@@ -267,8 +408,10 @@ func TestRunTheCommandLineForAnInterruptedApplyHelper(t *testing.T) {
 		}
 	}
 
-	if err := os.WriteFile(os.Getenv(applyCancelCodeEnv),
-		[]byte(strconv.Itoa(code)), 0o600); err != nil {
+	codePath := os.Getenv(applyCancelCodeEnv)
+	recorded := []byte(strconv.Itoa(code))
+
+	if err := os.WriteFile(codePath, recorded, 0o600); err != nil { //nolint:gosec // the parent's scratch path.
 		t.Fatalf("recording the exit code: %v", err)
 	}
 

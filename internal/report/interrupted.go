@@ -1,0 +1,84 @@
+package report
+
+import (
+	"slices"
+	"strings"
+)
+
+// Interrupted records that a report was published for the effects an incomplete
+// invocation had already committed (2.20.0).
+//
+// Cancellation and commitment are different facts. Every command treats an
+// interrupted invocation as an operational failure, and a failure that
+// discarded the report would leave the writes it had already made on disk
+// unexplained: the caller could not tell which requested changes landed. So the
+// report is published anyway, carrying this block, and the block's presence is
+// the whole claim — the invocation did not complete, the analysis around it is
+// not a score, and the writes named here are facts about the filesystem.
+//
+// It is deliberately not Metrics.Incomplete, which marks a completed run whose
+// score is untrustworthy: an interrupted report has no score for that flag to
+// qualify.
+type Interrupted struct {
+	// Reason is the failure that ended the invocation.
+	Reason string `json:"reason"`
+	// CommittedWrites lists the files the invocation wrote before it was
+	// interrupted, in write order.
+	CommittedWrites []string `json:"committed_writes,omitempty"`
+}
+
+// Interrupt marks the report as interrupted by cause, which must be non-nil,
+// and reports whether there was a receipt to publish. Only an invocation that
+// committed effects has one:
+// a run that changed nothing returns false with the report unchanged, because
+// its failure is already the whole explanation and a receipt of nothing is not
+// worth printing.
+//
+// The first interruption wins. The layer that observed it — the run itself, or
+// the command line publishing the run's report — sets the reason, and a later
+// wrapper cannot overwrite it with a longer message about the same failure.
+func (r Report) Interrupt(cause error) (Report, bool) {
+	if r.Interrupted != nil {
+		return r, true
+	}
+
+	committed := r.committedWrites()
+	if len(committed) == 0 {
+		return r, false
+	}
+
+	r.Interrupted = &Interrupted{Reason: cause.Error(), CommittedWrites: committed}
+
+	return r, true
+}
+
+// committedWrites lists the files the report records as written. A command that
+// gains a write receipt names it here, so this rule covers every command that
+// can leave effects behind rather than only the one it was written for.
+func (r Report) committedWrites() []string {
+	if r.Apply != nil {
+		return slices.Clone(r.Apply.Written)
+	}
+
+	return nil
+}
+
+// interruptionNotice words the interruption for the reporters that render a
+// summary sentence rather than a document: what landed, and that the numbers
+// beside it are not a score. It returns the empty string for a completed report,
+// so the same call site is silent on every ordinary run.
+func (r Report) interruptionNotice() string {
+	if r.Interrupted == nil {
+		return ""
+	}
+
+	notice := "the invocation did not complete (" + r.Interrupted.Reason +
+		"), so this is not a score"
+
+	if len(r.Interrupted.CommittedWrites) > 0 {
+		notice += "; written before the interruption: " +
+			strings.Join(r.Interrupted.CommittedWrites, ", ")
+	}
+
+	return notice + "."
+}

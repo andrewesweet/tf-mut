@@ -7,8 +7,8 @@
 package report
 
 // SchemaVersion is the version of the machine-readable report schema.
-// See docs/schema/report-2.19.0.json for the versioned consumer contract.
-const SchemaVersion = "2.19.0"
+// See docs/schema/report-2.20.0.json for the versioned consumer contract.
+const SchemaVersion = "2.20.0"
 
 // Command names what produced a report.
 type Command string
@@ -554,6 +554,9 @@ type Report struct {
 	Suggestions []Suggestion `json:"suggestions,omitempty"`
 	// Apply records what an --apply invocation wrote (2.2.0).
 	Apply *AppliedSuggestions `json:"apply,omitempty"`
+	// Interrupted marks a report published for the effects an incomplete
+	// invocation had already committed (2.20.0). Present only on that path.
+	Interrupted *Interrupted `json:"interrupted,omitempty"`
 	// Characterisation is the scaffold, pin, TODO and curate block (2.3.0).
 	// Present only for the characterise, todos and curate commands.
 	Characterisation *Characterisation `json:"characterisation,omitempty"`

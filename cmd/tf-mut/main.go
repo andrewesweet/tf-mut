@@ -853,22 +853,56 @@ func execute(command, buildVersion string, args []string, stdout, stderr io.Writ
 	if err == nil {
 		err = ctx.Err()
 	}
-	stop()
-	if err != nil {
-		return fail(stderr, "tf-mut: "+renderError(err))
+
+	// The handler outlives the run by exactly one step: a signal that arrives
+	// while the report is being published must not kill the process holding the
+	// receipt of writes it already committed. A first signal still cancels the
+	// context, and the goroutine above re-arms the default handler as soon as it
+	// does, so a second signal still ends a rendering that will not finish.
+	return publish(stdout, stderr, parsed, result, err)
+}
+
+// publish renders the run to every requested output and turns it into the
+// command's exit code.
+//
+// A run that failed after it had already committed effects still publishes: the
+// writes are facts on disk, and exiting with only the failure would leave the
+// caller unable to tell which requested changes landed. The report is marked
+// interrupted first, so a receipt of committed writes is never read as a score
+// — the command still exits operationally. A run that committed nothing renders
+// nothing, because its error is the whole explanation.
+func publish(stdout, stderr io.Writer, parsed options, result report.Report, runErr error) int {
+	if runErr != nil {
+		receipt, committed := result.Interrupt(runErr)
+		if !committed {
+			return fail(stderr, "tf-mut: "+renderError(runErr))
+		}
+
+		if err := render(stdout, parsed, receipt); err != nil {
+			return fail(stderr, renderMessage(receipt, err))
+		}
+
+		return fail(stderr, "tf-mut: "+renderError(runErr))
 	}
 
 	if err := render(stdout, parsed, result); err != nil {
-		message := "tf-mut: " + strings.TrimRight(err.Error(), "\n")
-		if result.Telemetry != nil {
-			prefix := "[" + result.Telemetry.RunID + "] "
-			message = prefix + strings.ReplaceAll(message, "\n", "\n"+prefix)
-		}
-
-		return fail(stderr, message)
+		return fail(stderr, renderMessage(result, err))
 	}
 
 	return result.ExitCode(parsed.gate)
+}
+
+// renderMessage prefixes a rendering failure with the run identifier, so a line
+// the reporter could not write is attributable to the run that tried to write
+// it.
+func renderMessage(result report.Report, err error) string {
+	message := "tf-mut: " + strings.TrimRight(err.Error(), "\n")
+	if result.Telemetry != nil {
+		prefix := "[" + result.Telemetry.RunID + "] "
+		message = prefix + strings.ReplaceAll(message, "\n", "\n"+prefix)
+	}
+
+	return message
 }
 
 // render writes every requested output.

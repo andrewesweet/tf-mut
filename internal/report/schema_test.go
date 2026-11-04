@@ -14,7 +14,7 @@ import (
 )
 
 // schemaPath is the published contract the JSON reporter promises to keep.
-const schemaPath = "../../docs/schema/report-2.19.0.json"
+const schemaPath = "../../docs/schema/report-2.20.0.json"
 
 func TestPublishedSchemaMatchesTheReportersVersion(t *testing.T) {
 	t.Parallel()
@@ -52,6 +52,70 @@ func TestReportValidatesAgainstThePublishedSchema(t *testing.T) {
 
 	if problems := validate(loadSchema(t), loadSchema(t), document, "$"); len(problems) > 0 {
 		t.Fatalf("report does not validate against %s:\n  %s", schemaPath, strings.Join(problems, "\n  "))
+	}
+}
+
+// TestAnInterruptedReportValidatesAgainstThePublishedSchema holds the 2.20.0
+// receipt: a report published for an invocation that failed after it had
+// committed effects carries the interruption and the files it wrote, and the
+// document a consumer reads stays valid against the schema it ships with.
+func TestAnInterruptedReportValidatesAgainstThePublishedSchema(t *testing.T) {
+	t.Parallel()
+
+	value := sampleReport()
+	value.Interrupted = &report.Interrupted{
+		Reason:          sampleInterruptionReason,
+		CommittedWrites: []string{sampleTestFile},
+	}
+
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("encoding report: %v", err)
+	}
+
+	document := any(nil)
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatalf("decoding report: %v", err)
+	}
+
+	if problems := validate(loadSchema(t), loadSchema(t), document, "$"); len(problems) > 0 {
+		t.Fatalf("an interrupted report does not validate against %s:\n  %s",
+			schemaPath, strings.Join(problems, "\n  "))
+	}
+}
+
+// TestSchemaRejectsAnInterruptionWithoutAReason is the rejection case for the
+// same block: an interruption exists to say why the report is a receipt rather
+// than a score, so a document that claims one and names no failure is invalid
+// rather than silently unexplained.
+func TestSchemaRejectsAnInterruptionWithoutAReason(t *testing.T) {
+	t.Parallel()
+
+	value := sampleReport()
+	value.Interrupted = &report.Interrupted{
+		Reason:          sampleInterruptionReason,
+		CommittedWrites: []string{sampleTestFile},
+	}
+
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("encoding report: %v", err)
+	}
+
+	document := any(nil)
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatalf("decoding report: %v", err)
+	}
+
+	interruption, ok := document.(map[string]any)["interrupted"].(map[string]any)
+	if !ok {
+		t.Fatal("the sample report carries no interruption to strip")
+	}
+
+	delete(interruption, "reason")
+
+	if problems := validate(loadSchema(t), loadSchema(t), document, "$"); len(problems) == 0 {
+		t.Fatal("the schema accepted an interruption that names no failure")
 	}
 }
 
@@ -326,6 +390,12 @@ const (
 	sampleMutantID = "0123456789ab"
 	sampleOutput   = "output.tier"
 
+	// sampleSuggestionID is the identifier the sample suggestion and the sample
+	// apply receipt share, and sampleInterruptionReason the failure an
+	// interrupted report names.
+	sampleSuggestionID       = "aaaabbbbcccc"
+	sampleInterruptionReason = "context canceled"
+
 	sampleNullOperator = "EXT-OUTPUT-NULL"
 	sampleBodyOperator = "EXT-BODY-BLANK"
 )
@@ -382,7 +452,7 @@ func sampleReport() report.Report {
 		Sampling:    &report.Sampling{RatePercent: 25, Seed: 42, Authoritative: false},
 		Suggestions: sampleSuggestions(),
 		Apply: &report.AppliedSuggestions{
-			Requested: []string{"aaaabbbbcccc"},
+			Requested: []string{sampleSuggestionID},
 			Written:   []string{sampleTestFile},
 			Pending:   nil,
 			Aborted:   "",
@@ -432,7 +502,7 @@ func sampleSuggestions() []report.Suggestion {
 
 	decided = append(decided, []report.Suggestion{
 		{
-			ID: "aaaabbbbcccc", MutantID: sampleMutantID,
+			ID: sampleSuggestionID, MutantID: sampleMutantID,
 			TargetFile: sampleTestFile, TargetRun: sampleRun,
 			Status: report.SuggestionVerified, Expression: sampleOutput + ` == "critical"`,
 			Patch:          samplePatch,
