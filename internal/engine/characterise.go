@@ -431,9 +431,9 @@ func closeTheGap(
 
 	// The final leg's evidence is not carried further: the judgement points
 	// and scaffolds were promoted on the legs above, and this leg re-proves
-	// the pin set the loop ended with. The files are rendered before it runs,
-	// because the baseline the commit measures against is taken over exactly
-	// the target paths the commit is placing.
+	// the complete suite, including promoted scaffolds. Rendering the committed
+	// files first also gives verification and commit the same digest exclusions
+	// through targetPaths.
 	pins = stage.finalPins(updated)
 	block.Pins = projectPins(pins)
 
@@ -871,10 +871,10 @@ func stagedScaffold(
 	return staged
 }
 
-// verifyScaffold proves the pinned suite passes before anything is written.
+// verifyScaffold proves the complete staged suite passes before anything is written.
 // On success it returns the evidence that the verification passed, which is
-// what a promotion transition demands, and records the input-closure digest
-// the sandbox was built from as the commit's baseline.
+// what a promotion transition demands. For --write it also records the
+// input-closure digest taken before sandbox materialisation as the commit's baseline.
 func verifyScaffold(
 	ctx context.Context,
 	stage characteriseStage,

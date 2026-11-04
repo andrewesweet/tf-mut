@@ -46,9 +46,8 @@ import (
 // generated suite.
 const RegistryName = ".tf-mut-generated.json"
 
-// closureBaseline is what a commit measures the live tree against: the digest
-// of the input closure the verification sandbox was built from, taken over the
-// target paths that commit is going to place.
+// closureBaseline carries the latest successful verification's InputClosureDigest
+// to commitScaffold. See InputClosureDigest for its composition and exclusions.
 type closureBaseline struct {
 	digest string
 }
