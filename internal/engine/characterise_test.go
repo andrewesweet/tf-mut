@@ -1533,6 +1533,7 @@ const (
 
 type observedRegistryLock struct {
 	store.FileRegistry
+
 	attempted chan struct{}
 	acquired  chan struct{}
 }
@@ -1560,28 +1561,7 @@ func TestARegistryWriteWaitsForAnotherProcessesLock(t *testing.T) {
 	}
 
 	module := copyFixture(t, untestedBranchesFixture)
-
-	//nolint:gosec // re-executing this test binary is the standard helper-process pattern.
-	command := exec.CommandContext(t.Context(), os.Args[0],
-		"-test.run=^TestHoldRegistryLockForAnotherProcess$", "-test.timeout=120s")
-	command.Env = append(os.Environ(),
-		registryLockChildEnv+"=1",
-		"TF_MUT_TEST_MODULE="+module,
-	)
-
-	output, err := command.StdoutPipe()
-	if err != nil {
-		t.Fatalf("watching the helper's output: %v", err)
-	}
-
-	release, err := command.StdinPipe()
-	if err != nil {
-		t.Fatalf("controlling the helper's lock: %v", err)
-	}
-
-	if err := command.Start(); err != nil {
-		t.Fatalf("starting the helper: %v", err)
-	}
+	command, output, release := startRegistryLockHelper(t, module)
 
 	defer func() {
 		_ = release.Close()
@@ -1663,6 +1643,34 @@ func TestARegistryWriteWaitsForAnotherProcessesLock(t *testing.T) {
 			t.Fatalf("%s was written but is not in the registry, which holds %v", file, entries)
 		}
 	}
+}
+
+func startRegistryLockHelper(t *testing.T, module string) (*exec.Cmd, io.ReadCloser, io.WriteCloser) {
+	t.Helper()
+
+	//nolint:gosec // re-executing this test binary is the standard helper-process pattern.
+	command := exec.CommandContext(t.Context(), os.Args[0],
+		"-test.run=^TestHoldRegistryLockForAnotherProcess$", "-test.timeout=120s")
+	command.Env = append(os.Environ(),
+		registryLockChildEnv+"=1",
+		"TF_MUT_TEST_MODULE="+module,
+	)
+
+	output, err := command.StdoutPipe()
+	if err != nil {
+		t.Fatalf("watching the helper's output: %v", err)
+	}
+
+	release, err := command.StdinPipe()
+	if err != nil {
+		t.Fatalf("controlling the helper's lock: %v", err)
+	}
+
+	if err := command.Start(); err != nil {
+		t.Fatalf("starting the helper: %v", err)
+	}
+
+	return command, output, release
 }
 
 // TestHoldRegistryLockForAnotherProcess is the child half of
