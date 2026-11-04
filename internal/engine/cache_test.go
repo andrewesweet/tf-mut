@@ -49,6 +49,14 @@ func cacheDir(module string) string {
 // discriminateFixture is the two-module fixture the dimension cases share.
 const discriminateFixture = "discriminate"
 
+const (
+	plainCase          = "plain"
+	relativePathCase   = "relative"
+	absolutePathCase   = "absolute"
+	chainedPathCase    = "chained"
+	nestedAdditionCase = "nested-addition"
+)
+
 // TestASecondUnchangedRunIsAllCacheHits is the demo case, and pins the
 // determinism criterion: unchanged inputs, identical population, every
 // executed verdict replayed and marked, and verdict invariance holds.
@@ -1203,6 +1211,8 @@ func assertReportCarriesNoValue(t *testing.T, value report.Report, secret string
 // same bytes, the same key — would then replay verdicts the restored tree
 // never earned. The stamps recorded at key time refuse that persist, and the
 // run that saw the edit says so in its warnings.
+//
+//nolint:paralleltest // owns the package-global mid-run edit hook for its lifetime.
 func TestAnEditLandingMidRunIsNeverPersisted(t *testing.T) {
 	module := copyFixture(t, "suggest-basic")
 	testFile := filepath.Join(module, "tests", "unit.tftest.hcl")
@@ -1276,58 +1286,68 @@ run "added_mid_run" {
 	assertVerdictInvariance(t, third, second)
 }
 
+//nolint:paralleltest // owns the package-global mid-run edit hook and isolates TMPDIR.
 func TestClosureEntryChangesDuringARunAreNeverPersisted(t *testing.T) {
 	isolateSymlinkTestTempDir(t)
-	for _, change := range []string{"root-addition", "nested-addition", "symlink-target", "restored-timestamps"} {
+	for _, change := range []string{"root-addition", nestedAdditionCase, "symlink-target", "restored-timestamps"} {
 		t.Run(change, func(t *testing.T) {
-			module := copyFixture(t, "suggest-basic")
-			var edit, restore func() error
-
-			switch change {
-			case "root-addition", "nested-addition":
-				directory := module
-				if change == "nested-addition" {
-					directory = filepath.Join(module, "tests")
-				}
-				path := filepath.Join(directory, "extra.auto.tfvars")
-				edit = func() error { return os.WriteFile(path, nil, 0o600) }
-				restore = func() error { return os.Remove(path) }
-			case "symlink-target":
-				module = symlinkedModule(t)
-				path := filepath.Join(filepath.Dir(module), "shared", "versions.tf")
-				original, err := os.ReadFile(path)
-				if err != nil {
-					t.Fatal(err)
-				}
-				edit = func() error {
-					return os.WriteFile(path, append(slices.Clone(original), '\n'), 0o600)
-				}
-				restore = func() error { return os.WriteFile(path, original, 0o600) }
-			case "restored-timestamps":
-				path := filepath.Join(module, "tests", "unit.tftest.hcl")
-				original, err := os.ReadFile(path)
-				if err != nil {
-					t.Fatal(err)
-				}
-				info, err := os.Stat(path)
-				if err != nil {
-					t.Fatal(err)
-				}
-				edit = func() error {
-					if err := os.WriteFile(path, append(slices.Clone(original), '\n'), 0o600); err != nil {
-						return err
-					}
-					if err := os.WriteFile(path, original, 0o600); err != nil {
-						return err
-					}
-					return os.Chtimes(path, info.ModTime(), info.ModTime())
-				}
-				restore = func() error { return nil }
-			}
+			module, edit, restore := closureEntryChange(t, change)
 
 			assertClosureEditBlocksCaching(t, module, edit, restore)
 		})
 	}
+}
+
+func closureEntryChange(t *testing.T, change string) (module string, edit, restore func() error) {
+	t.Helper()
+
+	module = copyFixture(t, "suggest-basic")
+
+	switch change {
+	case "root-addition", nestedAdditionCase:
+		directory := module
+		if change == nestedAdditionCase {
+			directory = filepath.Join(module, "tests")
+		}
+		path := filepath.Join(directory, "extra.auto.tfvars")
+		edit = func() error { return os.WriteFile(path, nil, 0o600) }
+		restore = func() error { return os.Remove(path) }
+	case "symlink-target":
+		module = symlinkedModule(t)
+		path := filepath.Join(filepath.Dir(module), "shared", "versions.tf")
+		original, err := os.ReadFile(path) //nolint:gosec // test-owned fixture path.
+		if err != nil {
+			t.Fatal(err)
+		}
+		edit = func() error {
+			return os.WriteFile(path, append(slices.Clone(original), '\n'), 0o600) //nolint:gosec // test-owned fixture path.
+		}
+		restore = func() error { return os.WriteFile(path, original, 0o600) } //nolint:gosec // test-owned fixture path.
+	case "restored-timestamps":
+		path := filepath.Join(module, "tests", "unit.tftest.hcl")
+		original, err := os.ReadFile(path) //nolint:gosec // test-owned fixture path.
+		if err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		edit = func() error {
+			//nolint:gosec // test-owned fixture path.
+			if err := os.WriteFile(path, append(slices.Clone(original), '\n'), 0o600); err != nil {
+				return err
+			}
+			if err := os.WriteFile(path, original, 0o600); err != nil { //nolint:gosec // test-owned fixture path.
+				return err
+			}
+			return os.Chtimes(path, info.ModTime(), info.ModTime())
+		}
+		restore = func() error { return nil }
+	default:
+		t.Fatalf("unknown closure edit %q", change)
+	}
+	return module, edit, restore
 }
 
 func assertClosureEditBlocksCaching(t *testing.T, module string, edit, restore func() error) {
@@ -1370,12 +1390,12 @@ func TestAnEditDuringCacheKeyCreationIsNeverPersisted(t *testing.T) {
 
 	module := copyFixture(t, "suggest-basic")
 	path := filepath.Join(module, "tests", "unit.tftest.hcl")
-	original, err := os.ReadFile(path)
+	original, err := os.ReadFile(path) //nolint:gosec // test-owned fixture path.
 	if err != nil {
 		t.Fatal(err)
 	}
 	edit := sync.OnceValue(func() error {
-		return os.WriteFile(path, append(slices.Clone(original), '\n'), 0o600)
+		return os.WriteFile(path, append(slices.Clone(original), '\n'), 0o600) //nolint:gosec // test-owned fixture path.
 	})
 	config := baseConfig(t, module)
 	config.Debug = true
@@ -1389,7 +1409,7 @@ func TestAnEditDuringCacheKeyCreationIsNeverPersisted(t *testing.T) {
 	}) {
 		t.Fatalf("key-time edit produced no cache refusal: %v", first.Warnings)
 	}
-	if err := os.WriteFile(path, original, 0o600); err != nil {
+	if err := os.WriteFile(path, original, 0o600); err != nil { //nolint:gosec // test-owned fixture path.
 		t.Fatal(err)
 	}
 	config.Debug = false
@@ -1436,47 +1456,19 @@ func TestAnEditAtCacheOpeningCannotReuseAnEarlierKey(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // owns the package-global mid-run edit hook and isolates TMPDIR.
 func TestReplacingASymlinkAncestorDuringARunIsNeverPersisted(t *testing.T) {
 	isolateSymlinkTestTempDir(t)
-	for _, form := range []string{"relative", "absolute", "chained", "directory-link", "parent-traversal"} {
+	for _, form := range []string{
+		relativePathCase, absolutePathCase, chainedPathCase, "directory-link", "parent-traversal",
+	} {
 		t.Run(form, func(t *testing.T) {
 			module := symlinkedModule(t)
 			repository := filepath.Dir(module)
 			shared := filepath.Join(repository, "shared")
-			target := "../shared/versions.tf"
-			switch form {
-			case "absolute":
-				target = filepath.Join(shared, "versions.tf")
-			case "chained":
-				link := filepath.Join(repository, "intermediate.tf")
-				if err := os.Symlink("shared/versions.tf", link); err != nil {
-					t.Fatal(err)
-				}
-				target = "../intermediate.tf"
-			case "directory-link":
-				if err := os.Symlink("shared", filepath.Join(repository, "alias")); err != nil {
-					t.Fatal(err)
-				}
-				target = "../alias/versions.tf"
-			case "parent-traversal":
-				if err := os.Mkdir(filepath.Join(module, "child"), 0o750); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.Symlink("mod/child", filepath.Join(repository, "alias")); err != nil {
-					t.Fatal(err)
-				}
-				target = "../alias/../../shared/versions.tf"
-			}
-			link := filepath.Join(module, "versions.tf")
-			if err := os.Remove(link); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.Symlink(target, link); err != nil {
-				t.Fatal(err)
-			}
+			setAncestorSymlinkForm(t, module, form)
 
 			alternate := filepath.Join(repository, "alternate")
-			backup := filepath.Join(repository, "original")
 			if err := os.Mkdir(alternate, 0o750); err != nil {
 				t.Fatal(err)
 			}
@@ -1485,28 +1477,12 @@ func TestReplacingASymlinkAncestorDuringARunIsNeverPersisted(t *testing.T) {
   default = "shared-v2"
 }
 `)
-			stages := 0
-			engine.SetMidRunEditSeed(t, module, func() error {
-				stages++
-				switch stages {
-				case 1:
-					if err := os.Rename(shared, backup); err != nil {
-						return err
-					}
-					return os.Rename(alternate, shared)
-				case 2:
-					if err := os.Rename(shared, alternate); err != nil {
-						return err
-					}
-					return os.Rename(backup, shared)
-				}
-				return nil
-			})
+			stages := seedAncestorReplacement(t, module, shared, alternate)
 			config := baseConfig(t, module)
 			config.Jobs = 1
 			config.Env = append(config.Env, "TMPDIR="+config.WorkDir)
 			first := cachedRun(t, config)
-			if stages < 2 {
+			if stages() < 2 {
 				t.Fatal("the regression did not execute both directory replacements")
 			}
 			assertClosureCacheRefusal(t, first, module)
@@ -1519,6 +1495,47 @@ func TestReplacingASymlinkAncestorDuringARunIsNeverPersisted(t *testing.T) {
 			third := cachedRun(t, uncached)
 			assertVerdictInvariance(t, second, third)
 		})
+	}
+}
+
+func setAncestorSymlinkForm(t *testing.T, module, form string) {
+	t.Helper()
+
+	repository := filepath.Dir(module)
+	shared := filepath.Join(repository, "shared")
+	target := "../shared/versions.tf"
+	switch form {
+	case relativePathCase:
+	case absolutePathCase:
+		target = filepath.Join(shared, "versions.tf")
+	case chainedPathCase:
+		link := filepath.Join(repository, "intermediate.tf")
+		if err := os.Symlink("shared/versions.tf", link); err != nil {
+			t.Fatal(err)
+		}
+		target = "../intermediate.tf"
+	case "directory-link":
+		if err := os.Symlink("shared", filepath.Join(repository, "alias")); err != nil {
+			t.Fatal(err)
+		}
+		target = "../alias/versions.tf"
+	case "parent-traversal":
+		if err := os.Mkdir(filepath.Join(module, "child"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("mod/child", filepath.Join(repository, "alias")); err != nil {
+			t.Fatal(err)
+		}
+		target = "../alias/../../shared/versions.tf"
+	default:
+		t.Fatalf("unknown symlink form %q", form)
+	}
+	link := filepath.Join(module, "versions.tf")
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -1543,14 +1560,14 @@ func assertClosureCacheRefusal(t *testing.T, result report.Report, module string
 	}
 }
 
+//nolint:paralleltest // owns the package-global mid-run edit hook and isolates TMPDIR.
 func TestReplacingAClosureRootAncestorDuringARunIsNeverPersisted(t *testing.T) {
 	isolateSymlinkTestTempDir(t)
-	for _, form := range []string{"plain", "relative", "absolute", "chained"} {
+	for _, form := range []string{plainCase, relativePathCase, absolutePathCase, chainedPathCase} {
 		t.Run(form, func(t *testing.T) {
 			repository := t.TempDir()
 			parent := filepath.Join(repository, "modules")
 			alternate := filepath.Join(repository, "alternate")
-			backup := filepath.Join(repository, "original")
 			module := filepath.Join(parent, "app")
 			copyFixtureInto(t, "suggest-basic", module)
 			copyFixtureInto(t, "suggest-basic", filepath.Join(alternate, "app"))
@@ -1563,46 +1580,14 @@ func TestReplacingAClosureRootAncestorDuringARunIsNeverPersisted(t *testing.T) {
   }
 }
 `)
-			if form != "plain" {
-				target := "modules"
-				if form == "absolute" {
-					target = parent
-				}
-				if form == "chained" {
-					if err := os.Symlink(target, filepath.Join(repository, "indirect")); err != nil {
-						t.Fatal(err)
-					}
-					target = "indirect"
-				}
-				alias := filepath.Join(repository, "alias")
-				if err := os.Symlink(target, alias); err != nil {
-					t.Fatal(err)
-				}
-				module = filepath.Join(alias, "app")
-			}
+			module = closureAncestorModule(t, parent, form)
 
-			stages := 0
-			engine.SetMidRunEditSeed(t, module, func() error {
-				stages++
-				switch stages {
-				case 1:
-					if err := os.Rename(parent, backup); err != nil {
-						return err
-					}
-					return os.Rename(alternate, parent)
-				case 2:
-					if err := os.Rename(parent, alternate); err != nil {
-						return err
-					}
-					return os.Rename(backup, parent)
-				}
-				return nil
-			})
+			stages := seedAncestorReplacement(t, module, parent, alternate)
 			config := baseConfig(t, module)
 			config.Jobs = 1
 			config.Env = append(config.Env, "TMPDIR="+config.WorkDir)
 			first := cachedRun(t, config)
-			if stages < 2 {
+			if stages() < 2 {
 				t.Fatal("the regression did not replace and restore the closure ancestor")
 			}
 			if !slices.ContainsFunc(first.Mutants, func(mutant report.Mutant) bool {
@@ -1624,4 +1609,53 @@ func TestReplacingAClosureRootAncestorDuringARunIsNeverPersisted(t *testing.T) {
 			assertVerdictInvariance(t, second, third)
 		})
 	}
+}
+
+func closureAncestorModule(t *testing.T, parent, form string) string {
+	t.Helper()
+
+	if form == plainCase {
+		return filepath.Join(parent, "app")
+	}
+	repository := filepath.Dir(parent)
+	target := "modules"
+	if form == absolutePathCase {
+		target = parent
+	}
+	if form == chainedPathCase {
+		if err := os.Symlink(target, filepath.Join(repository, "indirect")); err != nil {
+			t.Fatal(err)
+		}
+		target = "indirect"
+	}
+	alias := filepath.Join(repository, "alias")
+	if err := os.Symlink(target, alias); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(alias, "app")
+}
+
+func seedAncestorReplacement(t *testing.T, module, original, alternate string) func() int {
+	t.Helper()
+
+	backup := filepath.Join(filepath.Dir(alternate), "original")
+	stages := 0
+	engine.SetMidRunEditSeed(t, module, func() error {
+		stages++
+		switch stages {
+		case 1:
+			if err := os.Rename(original, backup); err != nil {
+				return err
+			}
+			return os.Rename(alternate, original)
+		case 2:
+			if err := os.Rename(original, alternate); err != nil {
+				return err
+			}
+			return os.Rename(backup, original)
+		default:
+			return nil
+		}
+	})
+	return func() int { return stages }
 }

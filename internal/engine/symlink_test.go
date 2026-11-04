@@ -115,9 +115,9 @@ func TestDefaultWorkspacePrecedesCacheCaptureForASymlinkedModule(t *testing.T) {
 	openStore := dependencies.NewVerdictStore
 	workspaceSeen := false
 	dependencies.NewVerdictStore = func(dir string) (engine.VerdictStore, error) {
-		entries, err := os.ReadDir(repository)
-		if err != nil {
-			return nil, err
+		entries, readErr := os.ReadDir(repository)
+		if readErr != nil {
+			return nil, readErr
 		}
 		workspaceSeen = len(entries) == len(before)+1
 		return openStore(dir)
@@ -159,17 +159,9 @@ func isolateSymlinkTestTempDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(artifacts, 0o750); err != nil {
-		t.Fatal(err)
+	if mkdirErr := os.MkdirAll(artifacts, 0o750); mkdirErr != nil {
+		t.Fatal(mkdirErr)
 	}
-	directory, err := os.MkdirTemp(artifacts, "symlink-test-tmp-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.RemoveAll(directory); err != nil {
-			t.Error(err)
-		}
-	})
-	t.Setenv("TMPDIR", directory)
+	t.Setenv("TMPDIR", artifacts)
+	t.Setenv("TMPDIR", t.TempDir())
 }

@@ -1168,7 +1168,7 @@ func TestCPUProfileRefusesModuleDestinations(t *testing.T) {
 	t.Parallel()
 
 	for _, kind := range []string{
-		"existing", "new", "module-directory", "relative", fileSymlinkKind,
+		"existing", "new", "module-directory", relativePathCase, fileSymlinkKind,
 		parentSymlinkExistingKind, parentSymlinkNewKind, moduleSymlinkKind, "missing-parent", "hardlink", "dangling-symlink",
 	} {
 		t.Run(kind, func(t *testing.T) {
@@ -1216,7 +1216,7 @@ func profileRefusalRequest(t *testing.T, module, kind string) (engine.Common, st
 		common.CPUProfile = filepath.Join(module, "tf-mut.pprof")
 	case "module-directory":
 		common.CPUProfile = module
-	case "relative":
+	case relativePathCase:
 		working, err := os.Getwd()
 		if err != nil {
 			t.Fatal(err)

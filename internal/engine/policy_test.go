@@ -407,7 +407,7 @@ func TestSARIFValidatesAgainstThePublishedSchema(t *testing.T) {
 	}
 
 	for name, document := range map[string]map[string]any{
-		"plain":   sarifDocument(t, result),
+		plainCase: sarifDocument(t, result),
 		"warning": sarifDocument(t, withWarnings),
 	} {
 		root, found := repositoryRoot(t)
