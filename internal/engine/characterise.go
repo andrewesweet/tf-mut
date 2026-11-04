@@ -40,6 +40,12 @@ type characteriseStage struct {
 	runner tfexec.Runner
 	// scaffold is the planned suite every staged round renders and grades.
 	scaffold characterise.SuitePlan
+	// baseline is where the verification legs record the input-closure digest
+	// their sandbox was built from, and what the commit measures the live tree
+	// against. It is a pointer because the stage travels by value: verification
+	// is a nested call, and the digest has to reach the commit that runs after
+	// it rather than a copy of a field nobody reads again.
+	baseline *closureBaseline
 	// answers are the caller's judgement-point answers in force.
 	answers map[string]string
 	// scaffolds is the gap-closing loop's record of the constructs it
@@ -122,7 +128,7 @@ func characteriseModule(
 	stage := characteriseStage{
 		configuration: configuration, settings: settings,
 		terraform: version, collector: collector, runner: runner,
-		answers: answers, scaffolds: newScaffoldSet(),
+		answers: answers, scaffolds: newScaffoldSet(), baseline: &closureBaseline{},
 	}
 
 	stage, result, err := prepareStage(ctx, stage, rung, warnings, hooks)
@@ -336,7 +342,8 @@ func commit(
 		return nil
 	}
 
-	err := commitScaffold(stage.configuration, stage.settings, stage.prepared, block, files)
+	err := commitScaffold(stage.configuration, stage.settings, stage.prepared,
+		stage.baseline, block, files)
 	if err == nil {
 		return nil
 	}
@@ -424,17 +431,22 @@ func closeTheGap(
 
 	// The final leg's evidence is not carried further: the judgement points
 	// and scaffolds were promoted on the legs above, and this leg re-proves
-	// the pin set the loop ended with.
+	// the pin set the loop ended with. The files are rendered before it runs,
+	// because the baseline the commit measures against is taken over exactly
+	// the target paths the commit is placing.
 	pins = stage.finalPins(updated)
 	block.Pins = projectPins(pins)
 
-	if _, err := verifyScaffold(ctx, stage, pins, "verify-final"); err != nil {
+	files := append(append(pinnedFiles(stage.scaffold, stage.scaffold.Scenarios, pins),
+		promoted...),
+		scaffoldArtefact(stage.scaffold, stage.scaffolds)...)
+
+	if _, err := verifyScaffold(ctx, stage, pins,
+		targetPaths(stage.configuration, files), "verify-final"); err != nil {
 		return nil, nil, err
 	}
 
-	return append(append(pinnedFiles(stage.scaffold, stage.scaffold.Scenarios, pins),
-		promoted...),
-		scaffoldArtefact(stage.scaffold, stage.scaffolds)...), refusals, nil
+	return files, refusals, nil
 }
 
 // scaffoldSuite harvests, pins and verifies the planned scaffold, filling the
@@ -477,7 +489,8 @@ func scaffoldSuite(
 
 	pins, files := stage.pinHarvest(block, harvest)
 
-	verification, err := verifyScaffold(ctx, stage, pins, "verify")
+	verification, err := verifyScaffold(ctx, stage, pins,
+		targetPaths(stage.configuration, files), "verify")
 	if err != nil {
 		return refusedScaffold(block, scaffold, err)
 	}
@@ -863,14 +876,21 @@ func stagedScaffold(
 
 // verifyScaffold proves the pinned suite passes before anything is written.
 // On success it returns the evidence that the verification passed, which is
-// what a promotion transition demands.
+// what a promotion transition demands, and records the input-closure digest
+// the sandbox was built from as the commit's baseline.
 func verifyScaffold(
 	ctx context.Context,
 	stage characteriseStage,
 	pins []characterise.Pin,
+	targets map[string]bool,
 	name string,
 ) (characterise.Verification, error) {
 	staged := stagedScaffold(stage.configuration, stage.scaffold, pins)
+
+	digest, err := verifiedClosureDigest(stage, targets)
+	if err != nil {
+		return characterise.Verification{}, err
+	}
 
 	result, err := stagedRun(ctx, stage, staged, name)
 	if err != nil {
@@ -893,7 +913,35 @@ func verifyScaffold(
 			fmt.Errorf("%w: the generated suite executed no run blocks", ErrScaffoldRed)
 	}
 
+	// The last verification to succeed is the one the commit is measured
+	// against: whatever earlier leg recorded, this sandbox is the one that read
+	// the bytes the commit is about to place.
+	if digest != "" {
+		stage.baseline.record(digest, targets)
+	}
+
 	return characterise.Verified(), nil
+}
+
+// verifiedClosureDigest is the baseline a commit measures the live tree
+// against, taken at the moment the verification sandbox is about to be built.
+//
+// Taking it here rather than at commit start is what makes it a description of
+// the bytes Terraform read: a digest read later folds whatever landed in
+// between into itself, and the commit then writes a suite for a module it was
+// never verified against. Taken before the sandbox is materialised rather than
+// after, so the fail-closed direction holds — a file added between the two
+// changes the live digest and is refused, rather than being hashed into a
+// baseline Terraform never read.
+//
+// A run that will not write takes none: a preview has no commit to measure
+// against, and must neither pay for a digest nor fail over one.
+func verifiedClosureDigest(stage characteriseStage, targets map[string]bool) (string, error) {
+	if !stage.settings.CharacteriseWrite {
+		return "", nil
+	}
+
+	return InputClosureDigest(stage.configuration, stage.settings, stage.prepared, targets)
 }
 
 // stagedRun executes the suite with the staged overlay in place: the generated

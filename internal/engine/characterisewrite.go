@@ -25,14 +25,73 @@ import (
 // provenance registry marks generated-and-unmodified. And each file carries
 // the digest of the input closure that made it green: sources, tests, JSON,
 // the lock, the automatically loaded variable files, the mock data, the
-// module inventory and the keyed environment. The commit step re-checks
-// that digest and the target's absence immediately before each rename, so a
-// closure that changed while the scaffold was being verified yields zero
-// writes rather than a file that was green for a module that no longer exists.
+// module inventory and the keyed environment. That digest is the one taken
+// when the verification sandbox was built, not one taken here, because a
+// digest taken at commit start describes whatever the tree holds now — and a
+// suite verified against the earlier closure would then be written and
+// recorded as green for a module it has never seen. The commit refuses at its
+// first step when the two differ, and re-checks the same baseline immediately
+// before each rename, so a closure that moved while the scaffold was being
+// verified yields zero writes rather than a file that was green for a module
+// that no longer exists.
+//
+// One window stays open, and it is the hardlink sandbox's rather than this
+// protocol's: the verification sandbox links its sources, so an edit made in
+// place during verification reaches it, and an edit undone before the commit
+// starts restores the live digest without restoring what Terraform read.
+// Closing it needs the sandbox to copy rather than link, or a change stamp on
+// the linked files.
 
 // RegistryName is the provenance registry's file name, written beside the
 // generated suite.
 const RegistryName = ".tf-mut-generated.json"
+
+// closureBaseline is what a commit measures the live tree against: the digest
+// of the input closure the verification sandbox was built from, taken over the
+// target paths that commit is going to place.
+//
+// The target set travels with the digest because it is part of what the digest
+// means. The targets are excluded so that a commit does not trip over the files
+// it has just written, and two digests are comparable only when they excluded
+// the same paths — which is why a commit placing a different file set than the
+// verification staged has no baseline and takes its own first read instead.
+//
+// A nil *closureBaseline is the stage that ran no verification leg: a scaffold
+// whose judgement points are all unresolved writes non-executable artefact
+// content, and nothing verified it.
+type closureBaseline struct {
+	digest  string
+	targets map[string]bool
+}
+
+// record keeps the digest of the closure the verification sandbox was built
+// from, and the target set it was taken over. The last verification before the
+// commit replaces any earlier leg's: that leg's sandbox is the one that read
+// the bytes the commit is about to place.
+func (b *closureBaseline) record(digest string, targets map[string]bool) {
+	if b == nil {
+		return
+	}
+
+	b.digest = digest
+	b.targets = targets
+}
+
+// carried returns the baseline when it was taken over exactly the target set
+// this commit is placing, and whether it is usable at all.
+func (b *closureBaseline) carried(targets map[string]bool) (string, bool) {
+	if b == nil || b.digest == "" || len(b.targets) != len(targets) {
+		return "", false
+	}
+
+	for path := range targets {
+		if !b.targets[path] {
+			return "", false
+		}
+	}
+
+	return b.digest, true
+}
 
 // RegistryStore is the provenance registry's persistence boundary. The
 // engine owns what is recorded — which files enter, under which digests —
@@ -86,6 +145,7 @@ var (
 func commitScaffold(
 	configuration discovery.Configuration,
 	settings settings, prepared warmWorkspace,
+	baseline *closureBaseline,
 	block *report.Characterisation,
 	files []writtenFile,
 ) error {
@@ -101,16 +161,20 @@ func commitScaffold(
 	// over the file it just placed would refuse every write after the first.
 	targets := targetPaths(configuration, files)
 
-	inputDigest, err := InputClosureDigest(configuration, settings, prepared, targets)
+	inputDigest, refusal, err := baselineFor(configuration, settings, prepared, baseline, targets)
 	if err != nil {
 		return err
 	}
 
 	record := &report.CharacteriseWrite{
 		Requested: true, InputDigest: inputDigest,
-		Written: []string{}, Refused: "", Partial: nil,
+		Written: []string{}, Refused: refusal, Partial: nil,
 	}
 	block.Write = record
+
+	if refusal != "" {
+		return fmt.Errorf("%w: %s", ErrWriteRefused, refusal)
+	}
 
 	existing := settings.registryLoad(configuration.ModuleDir)
 
@@ -340,6 +404,42 @@ func recheckWrite(
 	}
 
 	return nil
+}
+
+// baselineFor settles the digest the commit measures against, and refuses
+// when the tree is no longer the one the suite was verified against.
+//
+// With a baseline in hand the live digest is a *comparison*, and a difference
+// is the defect this protocol exists to refuse: the baseline describes the
+// bytes the verification sandbox was built from, so a live tree that differs
+// has changed since — and the generated content is green for the closure it
+// was verified over, not for this one. Without a baseline there is nothing to
+// compare, and the commit takes its own first read: that is the stage that ran
+// no verification leg at all, whose files are non-executable artefact content.
+func baselineFor(
+	configuration discovery.Configuration,
+	settings settings, prepared warmWorkspace,
+	baseline *closureBaseline,
+	targets map[string]bool,
+) (digest, refusal string, err error) {
+	verified, carried := baseline.carried(targets)
+
+	live, err := InputClosureDigest(configuration, settings, prepared, targets)
+	if err != nil {
+		return "", "", err
+	}
+
+	if !carried {
+		return live, "", nil
+	}
+
+	if live != verified {
+		return verified, fmt.Sprintf("the input closure changed after the generated suite "+
+			"was verified, so the generated content is green for a module that no "+
+			"longer exists (%s became %s)", verified, live), nil
+	}
+
+	return verified, "", nil
 }
 
 // stageClosureFile stages the race the commit step exists to close: a source
