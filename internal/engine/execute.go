@@ -310,7 +310,8 @@ func evaluate(
 // reproves: a regression test stages a closure edit between key time and
 // persist — the window the run-lifecycle defect lives in — by arming it for
 // one module. The engine calls it after each mutant's sandbox is
-// materialised and stages nothing itself; a staging hook stages at most once.
+// materialised and stages nothing itself. Later sandboxes can consume the
+// edited closure; a test can restore it through a subsequent hook call.
 //
 //nolint:gochecknoglobals // test seam, inert outside the suite.
 var seedMidRunEdit = func(discovery.Configuration) error { return nil }
@@ -353,9 +354,6 @@ func evaluateOne(
 
 	defer func() { _ = os.RemoveAll(built.Root) }()
 
-	// The run lifecycle's test seam fires here: the sandbox is built from
-	// the live closure root, so an edit staged now is an edit the sandboxes
-	// read while the run's key still describes the tree it was taken from.
 	if staging := stageMidRunEdit(plan, verdict); staging != nil {
 		return verdict, plan.classified[index].Outcome, staging
 	}

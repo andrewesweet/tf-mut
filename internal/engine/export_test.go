@@ -299,9 +299,7 @@ func SetCommitStartClosureChange(t *testing.T, moduleDir, path string) {
 	})
 }
 
-// SetMidRunEditSeed arms the run-lifecycle staging hook for one module: the
-// engine calls the edit after each mutant's sandbox is materialised, inside
-// the key-time-to-persist window, and the edit itself stages at most once.
+// SetMidRunEditSeed scopes seedMidRunEdit to one module and resets it at cleanup.
 // Its callers are sequential for the hook's complete lifetime.
 func SetMidRunEditSeed(t *testing.T, moduleDir string, edit func() error) {
 	t.Helper()
