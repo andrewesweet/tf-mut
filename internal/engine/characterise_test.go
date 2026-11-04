@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"io"
 	"maps"
 	"os"
 	"os/exec"
@@ -1523,12 +1524,6 @@ const (
 	// registryLockChildEnv marks the helper process that holds the registry
 	// lock while the test's own invocation tries to save one.
 	registryLockChildEnv = "TF_MUT_TEST_REGISTRY_LOCK_CHILD"
-	// registryLockHold is long enough that a write that did not wait for the
-	// lock cannot reach it: the same fixture's write completes in about 400ms.
-	registryLockHold = 2 * time.Second
-	// registryLockWaitFloor is the part of the hold a waiting write must
-	// spend, with the rest left as slack for scheduling.
-	registryLockWaitFloor = registryLockHold - 500*time.Millisecond
 	// registryLockTestDirectory is where the invocation under test writes its
 	// suite.
 	registryLockTestDirectory = "tests-locked"
@@ -1536,22 +1531,30 @@ const (
 	registryLockHeld = "locked\n"
 )
 
+type observedRegistryLock struct {
+	store.FileRegistry
+	attempted chan struct{}
+	acquired  chan struct{}
+}
+
+func (registry observedRegistryLock) Lock(path string) (func(), error) {
+	close(registry.attempted)
+
+	unlock, err := registry.FileRegistry.Lock(path)
+	if err == nil {
+		close(registry.acquired)
+	}
+
+	return unlock, err
+}
+
 // TestARegistryWriteWaitsForAnotherProcessesLock proves the exclusion the
 // forced interleaving inside one process cannot: that the load, the merge and
 // the save are one critical section held *across processes*, so no second
 // invocation can be reading or replacing the registry in the middle of it.
-//
-// The helper takes the registry's own lock and holds it while an ordinary
-// `characterise --write` runs. A write that did not wait would return in about
-// 400ms, well inside the hold; one that waited cannot finish before it ends.
-//
-// That the re-read sits *inside* the lock does not need a timing witness: with
-// the exclusion held, a save by another process can no longer land between a
-// caller's read and its write, which is the only way a read taken before the
-// lock could be stale.
-//
-//nolint:paralleltest // owns the module for the whole test and blocks on a lock for two seconds.
 func TestARegistryWriteWaitsForAnotherProcessesLock(t *testing.T) {
+	t.Parallel()
+
 	if os.Getenv(registryLockChildEnv) == "1" {
 		t.Skip("child process holds the lock instead")
 	}
@@ -1571,11 +1574,21 @@ func TestARegistryWriteWaitsForAnotherProcessesLock(t *testing.T) {
 		t.Fatalf("watching the helper's output: %v", err)
 	}
 
+	release, err := command.StdinPipe()
+	if err != nil {
+		t.Fatalf("controlling the helper's lock: %v", err)
+	}
+
 	if err := command.Start(); err != nil {
 		t.Fatalf("starting the helper: %v", err)
 	}
 
-	defer func() { _ = command.Wait() }()
+	defer func() {
+		_ = release.Close()
+		if err := command.Wait(); err != nil {
+			t.Errorf("waiting for the lock helper: %v", err)
+		}
+	}()
 
 	// The helper says `locked` only once it holds the registry lock.
 	if line, readErr := bufio.NewReader(output).ReadString('\n'); readErr != nil || line != registryLockHeld {
@@ -1586,15 +1599,55 @@ func TestARegistryWriteWaitsForAnotherProcessesLock(t *testing.T) {
 	config.Write = true
 	config.TestDirectory = registryLockTestDirectory
 
-	started := time.Now()
+	registry := observedRegistryLock{
+		FileRegistry: store.NewFileRegistry(),
+		attempted:    make(chan struct{}),
+		acquired:     make(chan struct{}),
+	}
+	runner := engine.New(engine.Dependencies{
+		NewRegistryStore: func() engine.RegistryStore { return registry },
+	})
+	done := make(chan struct{})
+	var writeErr error
 
-	if _, err := engine.Run(t.Context(), config); err != nil {
-		t.Fatalf("characterise --write alongside another process's lock: %v", err)
+	go func() {
+		defer close(done)
+		_, writeErr = runner.Run(t.Context(), config)
+	}()
+
+	defer func() {
+		_ = release.Close()
+		<-done
+	}()
+
+	select {
+	case <-registry.attempted:
+	case <-done:
+		t.Fatalf("the write returned without attempting the registry lock: %v", writeErr)
 	}
 
-	if waited := time.Since(started); waited < registryLockWaitFloor {
-		t.Fatalf("the write finished in %v while another process held the registry lock for %v: "+
-			"the load, merge and save are not one exclusive section", waited, registryLockHold)
+	select {
+	case <-registry.acquired:
+		t.Fatal("the write acquired the registry lock while another process held it")
+	case <-done:
+		t.Fatalf("the write returned while another process held the registry lock: %v", writeErr)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	if err := release.Close(); err != nil {
+		t.Fatalf("releasing the helper's lock: %v", err)
+	}
+
+	<-done
+
+	if writeErr != nil {
+		t.Fatalf("characterise --write alongside another process's lock: %v", writeErr)
+	}
+
+	select {
+	case <-registry.acquired:
+	default:
+		t.Fatal("the write finished without acquiring the registry lock")
 	}
 
 	// Waiting for the lock is not enough: the write has to have landed.
@@ -1636,5 +1689,7 @@ func TestHoldRegistryLockForAnotherProcess(t *testing.T) {
 		t.Fatalf("announcing the lock: %v", err)
 	}
 
-	time.Sleep(registryLockHold)
+	if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
+		t.Fatalf("waiting for the parent to release the lock: %v", err)
+	}
 }
