@@ -14,6 +14,9 @@ import (
 
 // ErrMalformedStream reports output the decoder could not read to the end.
 //
+// A stream that ends between messages ended; one that ends after a message's
+// opening token was read did not, and is reported here.
+//
 // It is never a verdict: a mutant whose stream was truncated has not been
 // evaluated, and reporting it as a survivor would invent a result.
 var ErrMalformedStream = errors.New("terraform output could not be decoded")
@@ -269,6 +272,9 @@ func decodeTestStreamStopping(reader io.Reader, shouldArm func(RunOutcome) bool,
 		priorPayloads := len(result.Payloads)
 
 		if err := decodeMessage(decoder, &result, clock); err != nil {
+			// Only an end of input before a message begins is the stream's
+			// own end; decodeMessage reports one inside a message as an
+			// unexpected EOF, which falls through to the malformed class.
 			if errors.Is(err, io.EOF) {
 				return result, nil
 			}
@@ -360,11 +366,25 @@ type message struct {
 	timing    *FileTiming
 }
 
+// decodeMessage reads one message. An end of input before its opening token is
+// the stream's own end and stays io.EOF; one that arrives after it means the
+// stream stopped partway through a message, and classifyInsideMessage marks it
+// as such.
 func decodeMessage(decoder *json.Decoder, result *TestResult, clock *streamClock) error {
 	if err := expectDelim(decoder, '{'); err != nil {
 		return err
 	}
 
+	if err := readMessageBody(decoder, result, clock); err != nil {
+		return classifyInsideMessage(err)
+	}
+
+	return nil
+}
+
+// readMessageBody reads the members of the object whose opening token the
+// caller has consumed, and attaches what they carried.
+func readMessageBody(decoder *json.Decoder, result *TestResult, clock *streamClock) error {
 	found := message{}
 
 	for decoder.More() {
@@ -385,6 +405,18 @@ func decodeMessage(decoder *json.Decoder, result *TestResult, clock *streamClock
 	attach(found, result)
 
 	return nil
+}
+
+// classifyInsideMessage reports an end of input met after a message's opening
+// token as io.ErrUnexpectedEOF: the stream stopped partway through a message
+// rather than between two, and the outer loop turns that into
+// ErrMalformedStream.
+func classifyInsideMessage(err error) error {
+	if errors.Is(err, io.EOF) {
+		return io.ErrUnexpectedEOF
+	}
+
+	return err
 }
 
 func decodeMember(decoder *json.Decoder, key string, found *message, clock *streamClock) error {
