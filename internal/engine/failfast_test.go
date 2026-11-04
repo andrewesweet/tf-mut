@@ -12,6 +12,7 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/store"
 	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
@@ -313,6 +314,79 @@ func TestCompleteFailFastRecordsStayCompleteThroughTheCache(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPreFileBoundaryFailFastObservationsAreNotReplayed(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		fixture     string
+		runs        int
+		diagnostics int
+		truncated   bool
+	}{
+		{"failfast", 3, 3, false},
+		{"failfast-parallel", failfastParallelRuns, failfastParallelRuns * failfastParallelAssertions, true},
+	} {
+		t.Run(test.fixture, func(t *testing.T) {
+			t.Parallel()
+
+			request := baseConfig(t, copyFixture(t, test.fixture))
+			request.IncludeOperators = []string{string(mutation.StrCase)}
+			first := cachedRun(t, request)
+			killed := mutantAt(t, first, string(mutation.StrCase), failfastWatchedSite)
+			rewindFailFastObservation(t, request.ModuleDir, killed)
+
+			for _, execution := range []string{report.ExecutionFresh, report.ExecutionCached} {
+				result := cachedRun(t, request)
+				mutant := mutantAt(t, result, string(mutation.StrCase), failfastWatchedSite)
+				if mutant.Provenance == nil || mutant.Provenance.Execution != execution {
+					t.Fatalf("provenance = %+v, want %s", mutant.Provenance, execution)
+				}
+				if mutant.State != report.Killed || mutant.ExecutedRuns != test.runs || len(mutant.Runs) != test.runs ||
+					len(mutant.Diagnostics) != test.diagnostics || mutant.RunsTruncated != test.truncated {
+					t.Fatalf("lost current fail-fast evidence after upgrade: %+v", mutant)
+				}
+			}
+		})
+	}
+}
+
+func rewindFailFastObservation(t *testing.T, module string, mutant report.Mutant) {
+	t.Helper()
+
+	if mutant.State != report.Killed || len(mutant.Runs) == 0 || len(mutant.Diagnostics) == 0 {
+		t.Fatalf("no failing observation to rewind: %+v", mutant)
+	}
+	paths, err := filepath.Glob(filepath.Join(cacheDir(module), "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		var entry store.CacheEntry
+		if err := json.Unmarshal([]byte(readFile(t, path)), &entry); err != nil {
+			t.Fatal(err)
+		}
+		if entry.MutantID != mutant.ID {
+			continue
+		}
+
+		entry.FormatVersion = "tf-mut-cache-15"
+		entry.Observed, err = json.Marshal(map[string]any{
+			"runs": mutant.Runs[:1], "executed_runs": 1, "runs_truncated": true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		testsupport.WriteFile(t, path, string(encoded))
+
+		return
+	}
+	t.Fatal("no cached kill to rewind")
 }
 
 func mixedStatusFailFastRequest(t *testing.T, filtered, truncated bool) engine.RunRequest {
