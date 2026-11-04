@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"syscall"
 
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 )
@@ -73,6 +75,10 @@ func (FileRegistry) Load(path string) Registry {
 // other file in the target set: recheck runs immediately before the rename,
 // so a registry created inside the window by a concurrent invocation — or by
 // a user — is never overwritten with no shape check at all.
+//
+// Save is the write half of a read-modify-write, so a caller that merged into
+// a registry it read earlier must hold Lock across both halves: the recheck
+// proves the file is still a registry, not that it is still the one it read.
 func (FileRegistry) Save(path string, registry Registry, recheck func() error) error {
 	content, err := json.MarshalIndent(registry, "", "  ")
 	if err != nil {
@@ -81,4 +87,34 @@ func (FileRegistry) Save(path string, registry Registry, recheck func() error) e
 
 	return sandbox.WriteFreshChecked(path, "",
 		append(content, '\n'), recheck)
+}
+
+// Lock takes the provenance registry's exclusive advisory lock, serialising the
+// read-modify-write two invocations committing into one module each perform.
+// Callers hold it across the load, the merge and the save; the store's own
+// methods take no lock.
+//
+// The lock is the module directory's, not the registry file's. The registry is
+// installed by rename, so lockers that opened the same path moments apart can
+// hold locks on two different inodes and run their critical sections at once;
+// a directory inode is never replaced, and it adds no file to a module's tree,
+// which this tool writes to only through its recorded exceptions.
+func (FileRegistry) Lock(path string) (func(), error) {
+	directory := filepath.Dir(path)
+
+	file, err := os.Open(directory) //nolint:gosec // a module directory handed to this store.
+	if err != nil {
+		return nil, fmt.Errorf("opening %s to lock the provenance registry: %w", directory, err)
+	}
+
+	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX); err != nil {
+		_ = file.Close()
+
+		return nil, fmt.Errorf("locking %s: %w", directory, err)
+	}
+
+	return func() {
+		_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)
+		_ = file.Close()
+	}, nil
 }

@@ -47,6 +47,10 @@ type RegistryStore interface {
 	// rename-window protocol as the generated files, running recheck
 	// immediately before the rename.
 	Save(path string, registry store.Registry, recheck func() error) error
+	// Lock takes the registry's exclusive advisory lock, which the caller
+	// holds across a load, a merge and a save so two invocations committing
+	// into one module cannot each merge over a copy the other replaced.
+	Lock(path string) (func(), error)
 }
 
 // insideTheWindow is the commit callback's second invocation: the one
@@ -133,7 +137,7 @@ func commitScaffold(
 		// top of a failed commit changes nothing about the first failure, so
 		// its error is deliberately not allowed to displace it.
 		if len(written) > 0 {
-			_ = storeRegistry(settings, configuration.ModuleDir, block, files, inputDigest, existing)
+			_ = storeRegistry(settings, configuration.ModuleDir, block, files, inputDigest)
 		}
 
 		return err
@@ -141,7 +145,7 @@ func commitScaffold(
 
 	block.Staged = false
 
-	if err := storeRegistry(settings, configuration.ModuleDir, block, files, inputDigest, existing); err != nil {
+	if err := storeRegistry(settings, configuration.ModuleDir, block, files, inputDigest); err != nil {
 		// Every generated file has already been renamed by this point, so a
 		// registry that will not store is a partial state and not a refusal:
 		// the caller's tree has changed and the record of what changed it has
@@ -379,7 +383,6 @@ func storeRegistry(
 	block *report.Characterisation,
 	files []writtenFile,
 	inputDigest string,
-	existing store.Registry,
 ) error {
 	if err := seedRegistryFailure(moduleDir); err != nil {
 		return err
@@ -392,6 +395,24 @@ func storeRegistry(
 	for _, file := range files {
 		written[file.entry.Path] = file.digest
 	}
+
+	// The commit loaded the registry at its start — that is the copy the
+	// collision checks judged — and saves after every generated file has been
+	// renamed, long after. A second invocation committing into the same module
+	// inside that window saves the copy it loaded before this invocation's
+	// entries existed, and this invocation's entries are lost while its files
+	// stay on disk, so `--force` then treats the tool's own output as a user's.
+	// The merge therefore happens under an exclusive lock and over a registry
+	// re-read *inside* it: re-reading without the lock is not enough, because
+	// another save can still land between the read and the rename.
+	unlock, err := settings.registryLock(moduleDir)
+	if err != nil {
+		return err
+	}
+
+	defer unlock()
+
+	existing := settings.registryLoad(moduleDir)
 
 	for _, file := range block.Files {
 		if !file.Written {
