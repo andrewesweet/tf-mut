@@ -441,8 +441,7 @@ func closeTheGap(
 		promoted...),
 		scaffoldArtefact(stage.scaffold, stage.scaffolds)...)
 
-	if _, err := verifyScaffold(ctx, stage, pins,
-		targetPaths(stage.configuration, files), "verify-final"); err != nil {
+	if _, err := verifyScaffold(ctx, stage, files, "verify-final"); err != nil {
 		return nil, nil, err
 	}
 
@@ -489,8 +488,7 @@ func scaffoldSuite(
 
 	pins, files := stage.pinHarvest(block, harvest)
 
-	verification, err := verifyScaffold(ctx, stage, pins,
-		targetPaths(stage.configuration, files), "verify")
+	verification, err := verifyScaffold(ctx, stage, files, "verify")
 	if err != nil {
 		return refusedScaffold(block, scaffold, err)
 	}
@@ -799,7 +797,7 @@ func harvestScaffold(
 	ctx context.Context,
 	stage characteriseStage,
 ) (characterise.Harvest, error) {
-	staged := stagedScaffold(stage.configuration, stage.scaffold, nil)
+	staged := stagedScaffold(stage.configuration, stage.scaffold)
 
 	first, err := stagedRun(ctx, stage, staged, "harvest-1")
 	if err != nil {
@@ -845,7 +843,6 @@ var seedSharedFileOrder = func(discovery.Configuration) string { return "" }
 func stagedScaffold(
 	configuration discovery.Configuration,
 	scaffold characterise.SuitePlan,
-	pins []characterise.Pin,
 ) map[string][]byte {
 	staged := map[string][]byte{}
 	sharedFileOrder := seedSharedFileOrder(configuration)
@@ -853,7 +850,7 @@ func stagedScaffold(
 	if sharedFileOrder == "" {
 		for _, scenario := range scaffold.Scenarios {
 			staged[stagedPath(configuration, scenario.File())] = characterise.Render(
-				scaffold, []characterise.Scenario{scenario}, pins, characterise.Executable,
+				scaffold, []characterise.Scenario{scenario}, nil, characterise.Executable,
 			)
 		}
 
@@ -869,7 +866,7 @@ func stagedScaffold(
 
 	staged[stagedPath(configuration, characterise.ScenarioFile(
 		configuration.TestDirRelative(), "shared",
-	))] = characterise.Render(scaffold, ordered, pins, characterise.Executable)
+	))] = characterise.Render(scaffold, ordered, nil, characterise.Executable)
 
 	return staged
 }
@@ -881,11 +878,15 @@ func stagedScaffold(
 func verifyScaffold(
 	ctx context.Context,
 	stage characteriseStage,
-	pins []characterise.Pin,
-	targets map[string]bool,
+	files []writtenFile,
 	name string,
 ) (characterise.Verification, error) {
-	staged := stagedScaffold(stage.configuration, stage.scaffold, pins)
+	staged := make(map[string][]byte, len(files))
+	for _, file := range files {
+		staged[stagedPath(stage.configuration, file.entry.Path)] = file.bytes
+	}
+
+	targets := targetPaths(stage.configuration, files)
 
 	digest, err := verifiedClosureDigest(stage, targets)
 	if err != nil {

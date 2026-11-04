@@ -329,6 +329,14 @@ func WithSeededFinalPinDefect(request CharacteriseRequest) CharacteriseRequest {
 	return request
 }
 
+func WithFinalVerificationHook(request CharacteriseRequest, before func()) CharacteriseRequest {
+	request.pinDefectHooks.final = func(pins []characterise.Pin) []characterise.Pin {
+		before()
+		return pins
+	}
+	return request
+}
+
 // seedOneFalsePin is the defect both proofs seed: one pin nothing could have
 // harvested, appended to the set the verifier is about to judge.
 func seedOneFalsePin(marker string) func([]characterise.Pin) []characterise.Pin {
