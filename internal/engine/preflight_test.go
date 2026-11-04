@@ -315,7 +315,7 @@ func TestAScaffoldAnswerVerificationDeadlineFailsBeforeWriting(t *testing.T) {
 		t.Fatalf("opening scaffolds: %v", err)
 	}
 
-	identifier := scaffoldFor(t, opened.Characterisation, "var.size.validation")
+	identifier := scaffoldFor(t, opened.Characterisation)
 	request.Answers = []string{identifier + "={ size = 0 }"}
 	request.Write = true
 	request.PreflightTimeout = 2 * time.Second

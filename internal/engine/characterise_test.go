@@ -934,6 +934,138 @@ func TestNoTerraformRunPrecedesAStagedGateRefusal(t *testing.T) {
 	}
 }
 
+// TestAClosureChangeBeforeCommitStartYieldsZeroWrites is the same race one
+// window earlier, and the one a baseline taken at commit start cannot see: the
+// closure moves after the verification sandbox has been built and before the
+// commit reads anything. A commit that takes its digest here folds the change
+// into the baseline, writes a suite that was green for a module nobody has any
+// more, and records it as green for the current one.
+//
+// The staged change is a comment, which is deliberate: the protocol cannot
+// distinguish a comment from a value, and the file it appends to is the whole
+// of what the digest covers.
+//
+//nolint:paralleltest // owns package-global characterisation hooks for its lifetime.
+func TestAClosureChangeBeforeCommitStartYieldsZeroWrites(t *testing.T) {
+	module := copyFixture(t, untestedBranchesFixture)
+
+	config := characteriseRequest(t, module)
+	config.Write = true
+	engine.SetCommitStartClosureChange(t, module, mainFile)
+
+	_, err := engine.Run(t.Context(), config)
+	if !errors.Is(err, engine.ErrWriteRefused) {
+		t.Fatalf("error = %v, want a refusal of the closure that moved after verification", err)
+	}
+
+	if !strings.Contains(err.Error(), "changed after the generated suite was verified") {
+		t.Fatalf("the refusal does not say the baseline is the verified closure: %v", err)
+	}
+
+	entries, readErr := os.ReadDir(filepath.Join(module, "tests"))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatalf("reading the test directory: %v", readErr)
+	}
+
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tftest.hcl") {
+			t.Fatalf("the aborted commit wrote %s", entry.Name())
+		}
+	}
+}
+
+func TestPromotedScaffoldsAreVerifiedWithTheFinalSuite(t *testing.T) {
+	t.Parallel()
+
+	for _, changed := range []bool{false, true} {
+		name := "unchanged closure"
+		if changed {
+			name = "changed closure"
+		}
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			assertPromotedScaffoldFinalVerification(t, changed)
+		})
+	}
+}
+
+func assertPromotedScaffoldFinalVerification(t *testing.T, changed bool) {
+	t.Helper()
+
+	module := copyFixture(t, contractFixture)
+	removeTests(t, module)
+
+	request := characteriseRequest(t, module)
+	request.UntilDry = true
+	opened, err := engine.Run(t.Context(), request)
+	if err != nil {
+		t.Fatalf("opening scaffolds: %v", err)
+	}
+
+	identifier := scaffoldFor(t, opened.Characterisation)
+	request.Answers = []string{identifier + "={ size = 0 }"}
+	request.Write = true
+
+	if changed {
+		request = engine.WithFinalVerificationHook(request, func() {
+			allowZeroValidationSize(t, module)
+		})
+	}
+
+	result, err := engine.Run(t.Context(), request)
+	if !changed {
+		if err != nil {
+			t.Fatalf("writing promoted scaffold: %v", err)
+		}
+
+		assertScaffoldPromotion(t, result, identifier, true)
+		if _, runErr := engine.Run(t.Context(), baseConfig(t, module)); runErr != nil {
+			t.Fatalf("running the written suite: %v", runErr)
+		}
+
+		return
+	}
+
+	if !errors.Is(err, engine.ErrScaffoldRed) {
+		t.Fatalf("error = %v, want final verification to reject the obsolete expected failure", err)
+	}
+
+	assertUnverifiedSuiteNotWritten(t, module)
+}
+
+func allowZeroValidationSize(t *testing.T, module string) {
+	t.Helper()
+
+	source, readErr := os.ReadFile(filepath.Join(module, mainFile)) // #nosec G304 -- fixture-path exception: test tree.
+	if readErr != nil {
+		t.Fatalf("reading validation source: %v", readErr)
+	}
+
+	updated := strings.ReplaceAll(string(source), "var.size > 0", "var.size >= 0")
+	testsupport.WriteFile(t, filepath.Join(module, mainFile), updated)
+}
+
+func assertUnverifiedSuiteNotWritten(t *testing.T, module string) {
+	t.Helper()
+
+	if _, statErr := os.Stat(filepath.Join(module, engine.RegistryName)); !os.IsNotExist(statErr) {
+		t.Fatalf("an unverified suite created a provenance registry: %v", statErr)
+	}
+
+	entries, readErr := os.ReadDir(filepath.Join(module, "tests"))
+	if readErr != nil && !os.IsNotExist(readErr) {
+		t.Fatalf("reading the test directory: %v", readErr)
+	}
+
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tftest.hcl") {
+			t.Fatalf("an unverified suite was written: %s", entry.Name())
+		}
+	}
+}
+
 // TestANewClosureFileAtTheProbeYieldsZeroWrites is the other half of the same
 // race, and the half a digest fed from a captured path list cannot see: the
 // closure gained a file rather than changing one. Membership has to be
