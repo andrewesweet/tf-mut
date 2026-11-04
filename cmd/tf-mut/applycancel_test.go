@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andrewesweet/tf-mut/internal/config"
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
@@ -131,7 +132,7 @@ func TestACancelledInvocationStillPublishesTheWritesItCommitted(t *testing.T) {
 	receiptPath := filepath.Join(t.TempDir(), "receipt.json")
 
 	parsed, err := parse(suggestCommand, "dev", []string{
-		"--all-verified", "--no-cache", "--" + jobsFlag, "1",
+		"--" + allVerifiedFlag, noCacheFlag, "--" + jobsFlag, "1",
 		reporterFlag, reporterJSON,
 		"--" + outputFlagName, reporterJSON + "=" + receiptPath,
 		staged.module,
@@ -172,6 +173,71 @@ func TestACancelledInvocationStillPublishesTheWritesItCommitted(t *testing.T) {
 
 	if code := receipt.ExitCode(parsed.gate); code != report.ExitOperational {
 		t.Fatalf("the interrupted receipt's gate exit is %d, want %d", code, report.ExitOperational)
+	}
+}
+
+func TestInterruptedWritesSuppressFormatsWithoutReceipts(t *testing.T) {
+	t.Parallel()
+
+	staged := applyCancelStage(t)
+	parsed, parseErr := parse(suggestCommand, "dev", []string{
+		"--" + allVerifiedFlag, noCacheFlag, "--" + jobsFlag, "1", staged.module,
+	}, io.Discard)
+	if parseErr != nil {
+		t.Fatalf("parsing the command line: %v", parseErr)
+	}
+	result, runErr := engine.Run(t.Context(), parsed.config)
+	if runErr != nil {
+		t.Fatalf("running the invocation: %v", runErr)
+	}
+	if result.Apply == nil || !slices.Equal(result.Apply.Written, []string{applyCancelTarget}) {
+		t.Fatalf("the invocation did not commit the expected write: %+v", result.Apply)
+	}
+
+	for _, reporter := range []string{reporterSARIF, reporterMTE, reporterJUnit} {
+		t.Run(reporter, func(t *testing.T) {
+			t.Parallel()
+
+			interrupted := parsed
+			interrupted.reporter = reporter
+			scratch := t.TempDir()
+			interrupted.sarifPath = filepath.Join(scratch, "separate.sarif")
+			interrupted.reporters = []config.Reporter{
+				{Name: reporterSARIF, Path: filepath.Join(scratch, reporterSARIF)},
+				{Name: reporterMTE, Path: filepath.Join(scratch, reporterMTE)},
+				{Name: reporterJUnit, Path: filepath.Join(scratch, reporterJUnit)},
+			}
+			preserved := interrupted.reporters[0].Path
+			if writeErr := os.WriteFile(preserved, []byte("prior report"), 0o600); writeErr != nil {
+				t.Fatalf("staging the previous report: %v", writeErr)
+			}
+			stdout, stderr := bytes.Buffer{}, bytes.Buffer{}
+			code := publish(&stdout, &stderr, interrupted, result, context.Canceled)
+			if code != report.ExitOperational || stdout.Len() != 0 {
+				t.Fatalf("interrupted %s produced an analysis document: exit %d, stdout %s", reporter, code, &stdout)
+			}
+			assertTextInterruptionReceipt(t, stderr.String())
+			if got := readIfPresent(t, preserved); got != "prior report" {
+				t.Fatalf("interrupted publication replaced an existing report: %q", got)
+			}
+			for _, path := range []string{
+				interrupted.reporters[1].Path, interrupted.reporters[2].Path, interrupted.sarifPath,
+			} {
+				if _, statErr := os.Stat(path); !errors.Is(statErr, os.ErrNotExist) {
+					t.Fatalf("interrupted publication created %s: %v", path, statErr)
+				}
+			}
+		})
+	}
+}
+
+func assertTextInterruptionReceipt(t *testing.T, receipt string) {
+	t.Helper()
+
+	for _, text := range []string{"interrupted", "context canceled", applyCancelTarget, "not a score"} {
+		if !strings.Contains(receipt, text) {
+			t.Fatalf("stderr receipt lacks %q: %s", text, receipt)
+		}
 	}
 }
 
@@ -395,7 +461,7 @@ func TestRunTheCommandLineForAnInterruptedApplyHelper(t *testing.T) {
 	// No t.Parallel, no t.Context: the signal handler inside execute must be
 	// the thing that ends this run, exactly as it ends the process main runs.
 	code := execute(suggestCommand, "dev", []string{
-		"--all-verified", "--no-cache", "--" + jobsFlag, "1",
+		"--" + allVerifiedFlag, noCacheFlag, "--" + jobsFlag, "1",
 		reporterFlag, reporterJSON,
 		"--" + outputFlagName, reporterJSON + "=" + os.Getenv(applyCancelReceiptEnv),
 		"--" + cpuProfileFlag, os.Getenv(applyCancelProfileEnv),

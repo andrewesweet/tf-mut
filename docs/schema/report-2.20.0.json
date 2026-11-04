@@ -676,7 +676,7 @@
         },
         "runs_truncated": {
           "type": "boolean",
-          "description": "True exactly when this mutant's per-run records are a prefix of the suite rather than all of it: the invocation stopped at its first failing run, so the run blocks after that failure were never observed. The failing run's own assertion diagnostics are always present. Verdicts are unchanged — a failing run decides killed on its own — and the flag is false on every mutant whose records cover every selected run block, including a sole or final failing run. Fail-fast is disabled for curate, which requires every failed assertion, and whenever --allow-real-infrastructure is set, so Terraform can finish resource cleanup (2.19.0)."
+          "description": "True exactly when fail-fast leaves this mutant's per-run records covering fewer than all selected run blocks. The failing run's own assertion diagnostics are always present, and all terminal run records in its test file are retained, whether its runs execute sequentially or in parallel. Verdicts are unchanged — a failing run decides killed on its own — and the flag is false on every mutant whose records cover every selected run block, including a sole or final failing file. The fail-fast execution boundary and exemptions are defined in docs/design/product-design.md#execute (2.19.0)."
         }
       },
       "allOf": [
@@ -1202,7 +1202,7 @@
     },
     "interrupted": {
       "type": "object",
-      "description": "The receipt of an incomplete invocation (2.20.0). Present when the invocation failed or was cancelled after it had already committed effects on disk, which today means an interrupted --apply. Its presence means the analysis around it is not a score: the command exits operationally, and a consumer must not read metrics, gates or mutant states as the result of a completed run.",
+      "description": "The receipt of an incomplete invocation (2.20.0). Present when the invocation failed or was cancelled after it had already committed effects on disk, including suggest --apply, characterise --write and run --write-baseline. Its presence means the analysis around it is not a score: the command exits operationally, and a consumer must not read metrics, gates or mutant states as the result of a completed run.",
       "required": [
         "reason"
       ],

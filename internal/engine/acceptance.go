@@ -108,7 +108,10 @@ func applyBaselineGate(
 	full := shell.Population.Omitted == 0 && shell.Sampling == nil &&
 		shell.Population.Cached == 0 && authErr == nil
 	gate, labels := judgeFindings(accepted, executed, population, full)
-	gate.Path = filepath.Base(path)
+	gate.Path, err = filepath.Rel(moduleDir, path)
+	if err != nil {
+		return nil, err
+	}
 
 	if settings.WriteBaseline {
 		// The writer is reachable only through the freshness proof, and the

@@ -1,9 +1,6 @@
 package report
 
-import (
-	"slices"
-	"strings"
-)
+import "strings"
 
 // Interrupted records that a report was published for the effects an incomplete
 // invocation had already committed (2.20.0).
@@ -56,11 +53,18 @@ func (r Report) Interrupt(cause error) (Report, bool) {
 // gains a write receipt names it here, so this rule covers every command that
 // can leave effects behind rather than only the one it was written for.
 func (r Report) committedWrites() []string {
+	var committed []string
+	if r.Gates != nil && r.Gates.Baseline != nil && r.Gates.Baseline.Write == BaselineWritten {
+		committed = append(committed, r.Gates.Baseline.Path)
+	}
 	if r.Apply != nil {
-		return slices.Clone(r.Apply.Written)
+		committed = append(committed, r.Apply.Written...)
+	}
+	if r.Characterisation != nil && r.Characterisation.Write != nil {
+		committed = append(committed, r.Characterisation.Write.Written...)
 	}
 
-	return nil
+	return committed
 }
 
 // interruptionNotice words the interruption for the reporters that render a

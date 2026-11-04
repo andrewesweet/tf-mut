@@ -3,11 +3,13 @@ package engine_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -120,40 +122,71 @@ func TestCancellationDuringTraceFlushFailsReadOnlyCommands(t *testing.T) {
 func TestCancellationDuringTraceFlushPreservesBaselineReport(t *testing.T) {
 	t.Parallel()
 
-	ctx, endpoint := cancelDuringTraceFlush(t)
-	request := baseConfig(t, copyFixture(t, "skeleton"))
-	request.NoCache = true
-	request.WriteBaseline = true
-	request.OTLPEndpoint = endpoint
+	for _, location := range []string{"implicit-baseline", "nested-baseline", "absolute-baseline"} {
+		t.Run(location, func(t *testing.T) {
+			t.Parallel()
 
-	result, err := engine.Run(ctx, request)
-	assertTraceCancellationPreservesResult(ctx, t, err)
-	if result.Gates == nil || result.Gates.Baseline == nil ||
-		result.Gates.Baseline.Write != report.BaselineWritten {
-		t.Fatalf("the report lost the completed baseline write: %+v", result.Gates)
-	}
-	if _, statErr := os.Stat(filepath.Join(request.ModuleDir, engine.DefaultBaselineName)); statErr != nil {
-		t.Fatalf("the reported baseline was not written: %v", statErr)
+			ctx, endpoint := cancelDuringTraceFlush(t)
+			request := baseConfig(t, copyFixture(t, "skeleton"))
+			request.NoCache = true
+			request.WriteBaseline = true
+			request.OTLPEndpoint = endpoint
+			writtenPath := engine.DefaultBaselineName
+			if location != "implicit-baseline" {
+				writtenPath = filepath.Join("tests", "accepted.json")
+				request.BaselinePath = writtenPath
+				if location == "absolute-baseline" {
+					request.BaselinePath = filepath.Join(request.ModuleDir, writtenPath)
+				}
+			}
+
+			result, err := engine.Run(ctx, request)
+			assertTraceCancellationPreservesResult(ctx, t, err)
+			if result.Gates == nil || result.Gates.Baseline == nil ||
+				result.Gates.Baseline.Write != report.BaselineWritten {
+				t.Fatalf("the report lost the completed baseline write: %+v", result.Gates)
+			}
+			if result.Interrupted == nil || !slices.Equal(result.Interrupted.CommittedWrites, []string{writtenPath}) {
+				t.Fatalf("the interruption lost the committed baseline path: %+v", result.Interrupted)
+			}
+			if _, statErr := os.Stat(filepath.Join(request.ModuleDir, writtenPath)); statErr != nil {
+				t.Fatalf("the reported baseline was not written: %v", statErr)
+			}
+		})
 	}
 }
 
 func TestCancellationDuringTraceFlushPreservesApplyReport(t *testing.T) {
 	t.Parallel()
 
-	ctx, endpoint := cancelDuringTraceFlush(t)
-	request := applyAllRequest(t, copyFixture(t, suggestBasicFixture))
-	request.NoCache = true
-	request.OTLPEndpoint = endpoint
+	for _, writeBaseline := range []bool{false, true} {
+		t.Run(fmt.Sprintf("baseline=%t", writeBaseline), func(t *testing.T) {
+			t.Parallel()
 
-	result, err := engine.Run(ctx, request)
-	assertTraceCancellationPreservesResult(ctx, t, err)
-	if result.Apply == nil || len(result.Apply.Written) == 0 || result.Apply.Aborted != "" {
-		t.Fatalf("the report lost the completed suggestion writes: %+v", result.Apply)
-	}
-	for _, path := range result.Apply.Written {
-		if _, statErr := os.Stat(filepath.Join(request.ModuleDir, path)); statErr != nil {
-			t.Fatalf("%s is reported written but is absent: %v", path, statErr)
-		}
+			ctx, endpoint := cancelDuringTraceFlush(t)
+			request := applyAllRequest(t, copyFixture(t, suggestBasicFixture))
+			request.NoCache = true
+			request.OTLPEndpoint = endpoint
+			request.WriteBaseline = writeBaseline
+
+			result, err := engine.Run(ctx, request)
+			assertTraceCancellationPreservesResult(ctx, t, err)
+			if result.Apply == nil || len(result.Apply.Written) == 0 || result.Apply.Aborted != "" {
+				t.Fatalf("the report lost the completed suggestion writes: %+v", result.Apply)
+			}
+			want := []string{unitTestFile}
+			if writeBaseline {
+				want = append([]string{engine.DefaultBaselineName}, want...)
+			}
+			if result.Interrupted == nil || !slices.Equal(result.Interrupted.CommittedWrites, want) {
+				t.Fatalf("the interruption lost the committed apply paths: %+v", result.Interrupted)
+			}
+			for _, path := range result.Apply.Written {
+				if _, statErr := os.Stat(filepath.Join(request.ModuleDir, path)); statErr != nil {
+					t.Fatalf("%s is reported written but is absent: %v", path, statErr)
+				}
+			}
+		})
 	}
 }
 
@@ -170,6 +203,20 @@ func TestCancellationDuringTraceFlushPreservesCharacterisationReport(t *testing.
 	if result.Characterisation == nil || result.Characterisation.Write == nil ||
 		len(result.Characterisation.Write.Written) == 0 || result.Characterisation.Write.Refused != "" {
 		t.Fatalf("the report lost the completed suite writes: %+v", result.Characterisation)
+	}
+	if result.Interrupted == nil {
+		t.Fatal("the committed characterisation has no interruption receipt")
+	}
+	want := []string{engine.RegistryName}
+	for _, file := range result.Characterisation.Files {
+		if file.Written {
+			want = append(want, file.Path)
+		}
+	}
+	slices.Sort(want)
+	got := slices.Sorted(slices.Values(result.Interrupted.CommittedWrites))
+	if !slices.Equal(got, want) {
+		t.Fatalf("interruption receipt = %v, want every committed suite file and registry: %v", got, want)
 	}
 	for _, path := range result.Characterisation.Write.Written {
 		if _, statErr := os.Stat(filepath.Join(request.ModuleDir, path)); statErr != nil {

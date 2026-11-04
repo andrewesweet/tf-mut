@@ -878,6 +878,12 @@ func publish(stdout, stderr io.Writer, parsed options, result report.Report, run
 			return fail(stderr, "tf-mut: "+renderError(runErr))
 		}
 
+		if _, err := fmt.Fprintf(stderr,
+			"tf-mut: interrupted: %s; written before the interruption: %s; this is not a score\n",
+			receipt.Interrupted.Reason, strings.Join(receipt.Interrupted.CommittedWrites, ", ")); err != nil {
+			return report.ExitOperational
+		}
+
 		if err := render(stdout, parsed, receipt); err != nil {
 			return fail(stderr, renderMessage(receipt, err))
 		}
@@ -934,6 +940,10 @@ func render(stdout io.Writer, parsed options, result report.Report) error {
 }
 
 func renderTo(writer io.Writer, reporter string, result report.Report) error {
+	if result.Interrupted != nil && !rendersInterruption(reporter) {
+		return nil
+	}
+
 	switch reporter {
 	case reporterJSON:
 		return report.WriteJSON(writer, result)
@@ -953,6 +963,10 @@ func renderTo(writer io.Writer, reporter string, result report.Report) error {
 }
 
 func renderFile(configured config.Reporter, result report.Report) error {
+	if result.Interrupted != nil && !rendersInterruption(configured.Name) {
+		return nil
+	}
+
 	file, err := os.Create(configured.Path)
 	if err != nil {
 		return fmt.Errorf("creating %s: %w", configured.Path, err)
@@ -961,6 +975,10 @@ func renderFile(configured config.Reporter, result report.Report) error {
 	defer func() { _ = file.Close() }()
 
 	return renderTo(file, configured.Name, result)
+}
+
+func rendersInterruption(reporter string) bool {
+	return reporter != reporterSARIF && reporter != reporterMTE && reporter != reporterJUnit
 }
 
 func fail(stderr io.Writer, message string) int {
