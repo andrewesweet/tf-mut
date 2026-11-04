@@ -233,11 +233,7 @@ func decodeTestStream(reader io.Reader) (TestResult, error) {
 // the failing-run arm — the decoder keeps reading: the arming run's assertion
 // diagnostics follow its completion message in the stream, and a stop that
 // dropped them would silence the very evidence the oracle judges. The burst
-// ends only at a boundary that belongs to the arming run's file, which
-// burstWatch decides: a message of another file proves nothing about this
-// burst, and a file whose run blocks execute in parallel interleaves their
-// events, so there another run's start, completion or payload can precede the
-// arming run's own diagnostics and only the file's completion ends the burst.
+// ends only at the arming run's file completion.
 // The decoder then records StoppedOnFail, calls onFire — the caller ends the
 // child there — and returns, so the record holds the runs before the stop and
 // the evidence of the run that decided it, and nothing the stopped invocation
@@ -261,20 +257,14 @@ func decodeTestStreamStopping(reader io.Reader, shouldArm func(RunOutcome) bool,
 	// neither outlives the stream.
 	clock := newStreamClock()
 
-	// burst decides when a run outcome shouldArm accepted has finished
-	// writing its assertion diagnostics. That burst belongs to the arming
-	// run's file: another file's message proves nothing about it, and a
-	// parallel file's interleaved events do not end it either.
-	burst := newBurstWatch()
+	armed := false
+	armedFile := ""
 
 	decoder := json.NewDecoder(newSchemaFilter(reader))
 	decoder.UseNumber()
 
 	for {
 		priorRuns := len(result.Runs)
-		priorDiagnostics := len(result.Diagnostics)
-		priorPayloads := len(result.Payloads)
-
 		found, err := decodeMessage(decoder, &result, clock)
 		if err != nil {
 			// Only an end of input before a message begins is the stream's
@@ -287,16 +277,14 @@ func decodeTestStreamStopping(reader io.Reader, shouldArm func(RunOutcome) bool,
 			return result, fmt.Errorf("%w: %w", ErrMalformedStream, err)
 		}
 
-		burst.observe(found)
-
-		if shouldArm != nil && !burst.armed && len(result.Runs) > priorRuns && shouldArm(result.Runs[len(result.Runs)-1]) {
-			burst.arm(result.Runs[len(result.Runs)-1])
+		if shouldArm != nil && !armed && len(result.Runs) > priorRuns && shouldArm(result.Runs[len(result.Runs)-1]) {
+			armed = true
+			armedFile = result.Runs[len(result.Runs)-1].File
 
 			continue
 		}
 
-		appended := len(result.Diagnostics) > priorDiagnostics || len(result.Payloads) > priorPayloads
-		if burst.over(found, appended) {
+		if armed && found.timing != nil && found.timing.File == armedFile {
 			result.StoppedOnFail = true
 
 			if onFire != nil {
@@ -306,94 +294,6 @@ func decodeTestStreamStopping(reader io.Reader, shouldArm func(RunOutcome) bool,
 			return result, nil
 		}
 	}
-}
-
-// burstWatch decides when the armed run's assertion burst is over.
-//
-// A failing run's assertion diagnostics follow its completion message, and a
-// stop taken before they arrive loses the evidence that explains the kill.
-// Which later message proves they have all arrived depends on how the run
-// block's file executed:
-//
-//   - A file whose run blocks never overlap executes them one at a time, and
-//     an ordered stream writes a run's diagnostics before its successor
-//     starts. The first later message of that file that carries neither a
-//     diagnostic nor a payload is then a boundary.
-//   - A file whose run blocks overlap executes them in parallel, and Terraform
-//     interleaves their events: another run's start, completion or payload can
-//     appear between the armed run's completion and its own diagnostics. Only
-//     that file's completion ends the burst then, because every run block the
-//     file owns completed — and flushed its diagnostics — before it.
-//
-// A message of another file proves nothing about the burst and is never a
-// boundary, and a message carrying a diagnostic or a payload is inside it.
-type burstWatch struct {
-	// armed is set once a run outcome the caller accepted began the burst, and
-	// file is that run block's file, the only file whose boundaries count.
-	armed bool
-	file  string
-	// inFlight counts the run blocks of each file that started and have not
-	// completed yet; parallel marks the files that have had two of their own
-	// run blocks in flight together.
-	inFlight map[string]int
-	parallel map[string]bool
-}
-
-func newBurstWatch() *burstWatch {
-	return &burstWatch{inFlight: map[string]int{}, parallel: map[string]bool{}}
-}
-
-// observe records what a message says about the run blocks currently
-// executing. A file is running its blocks in parallel when one of them starts
-// or completes while another of the same file is in flight: only concurrent
-// execution lets Terraform interleave their events, and only that interleaving
-// lets another run's message precede the armed run's own diagnostics.
-func (w *burstWatch) observe(found message) {
-	switch {
-	case found.runStarting:
-		if w.inFlight[found.file] > 0 {
-			w.parallel[found.file] = true
-		}
-
-		w.inFlight[found.file]++
-	case found.outcome != nil:
-		if w.inFlight[found.file] > 1 {
-			w.parallel[found.file] = true
-		}
-
-		// A run block skipped after an earlier error completes without ever
-		// starting, so a completion never decrements below zero.
-		if w.inFlight[found.file] > 0 {
-			w.inFlight[found.file]--
-		}
-	default:
-		// Every other message says nothing about what is executing.
-	}
-}
-
-// arm records the run block whose assertion diagnostics the stop waits for.
-func (w *burstWatch) arm(outcome RunOutcome) {
-	w.armed = true
-	w.file = outcome.File
-}
-
-// over reports whether the message ends the armed run's assertion burst.
-// appended says whether the message carried a diagnostic or a payload, which
-// is always inside the burst; found is the message itself.
-func (w *burstWatch) over(found message, appended bool) bool {
-	if !w.armed || appended {
-		return false
-	}
-
-	if found.timing != nil && found.timing.File == w.file {
-		return true
-	}
-
-	if found.file != w.file {
-		return false
-	}
-
-	return !w.parallel[w.file]
 }
 
 // streamClock remembers the start events a run block's or file's elapsed time
@@ -452,16 +352,13 @@ func elapsedBetween(start time.Time, completed *time.Time) *int64 {
 
 // message is the subset of one stream message the decoder retains.
 type message struct {
-	file string
-	run  string
-	// runStarting marks a run block's start event, which carries no outcome
-	// but tells the burst watch the run block is in flight.
-	runStarting bool
-	timestamp   *time.Time
-	outcome     *RunOutcome
-	payload     *RunPayload
-	problem     *Diagnostic
-	timing      *FileTiming
+	file      string
+	run       string
+	timestamp *time.Time
+	outcome   *RunOutcome
+	payload   *RunPayload
+	problem   *Diagnostic
+	timing    *FileTiming
 }
 
 // decodeMessage reads one message and attaches what it carried to result. An
@@ -601,10 +498,6 @@ func decodeRunOutcome(decoder *json.Decoder, found *message, clock *streamClock)
 
 	if run.Progress == progressStarting {
 		clock.rememberRun(run.Path, run.Run, found.timestamp)
-
-		// The event carries no outcome; the burst watch reads only that the
-		// run block is in flight now.
-		found.runStarting = true
 
 		return nil
 	}

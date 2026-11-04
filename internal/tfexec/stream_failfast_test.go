@@ -26,11 +26,6 @@ func failFastStream(tb testing.TB, firstStatus string) []byte {
 	return []byte(strings.Join(built, "\n"))
 }
 
-// failFastDiagStream appends two assertion diagnostics and then a teardown to
-// the arming run's completion, the order a failing apply run writes: the
-// diagnostics are the evidence the stop must not cut short, and the teardown
-// is the first message that proves them flushed. The diagnostic lines are
-// real output's own, captured from the killset fixture's failing run.
 func failFastDiagStream(tb testing.TB) []byte {
 	tb.Helper()
 
@@ -52,7 +47,12 @@ func failFastDiagStream(tb testing.TB) []byte {
 	teardown := strings.Replace(lines[4], `"progress":"`+progressDone+`"`, `"progress":"teardown"`, 1)
 	teardown = strings.Replace(teardown, `"status":"fail"`, ``, 1)
 
-	built := []string{lines[0], lines[1], lines[2], lines[3], completed, firstDiagnostic, secondDiagnostic, teardown, ""}
+	built := []string{
+		lines[0], lines[1], lines[2], lines[3], completed,
+		firstDiagnostic, secondDiagnostic, teardown,
+		strings.Replace(lines[8], `"status":"pass"`, `"status":"fail"`, 1),
+		lines[9], lines[10], lines[11], "",
+	}
 
 	return []byte(strings.Join(built, "\n"))
 }
@@ -239,6 +239,56 @@ func TestAParallelFilesInterleavedEventsDoNotEndTheArmingRunsBurst(t *testing.T)
 	// in the record: nothing the invocation would have run was cut short.
 	if len(result.Runs) != 2 || result.Runs[0].Status != StatusFail {
 		t.Fatalf("runs = %v, want the arming run and its sibling", result.Runs)
+	}
+}
+
+func TestADelayedSiblingStartDoesNotEndTheArmingRunsBurst(t *testing.T) {
+	t.Parallel()
+
+	for _, complete := range []bool{false, true} {
+		name := "without file completion"
+		if complete {
+			name = "with file completion"
+		}
+
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			lines := streamLines(t)
+			built := []string{
+				lines[2], lines[3],
+				strings.Replace(lines[4], `"status":"pass"`, `"status":"fail"`, 1),
+				renameRun(lines[3], "applied", "sibling"),
+				renameRun(lines[4], "applied", "sibling"),
+				renameRun(lines[5], "applied", "sibling"),
+				lines[9], lines[14],
+				failFastDiagnostic("first assertion"),
+				lines[6], lines[7],
+				failFastDiagnostic("second assertion"),
+			}
+			if complete {
+				built = append(built,
+					strings.Replace(lines[8], `"status":"pass"`, `"status":"fail"`, 1),
+					lines[10], lines[11],
+				)
+			}
+
+			result, fires := decodeArmingFail(t, []byte(strings.Join(built, "\n")))
+			wantFires := 0
+			if complete {
+				wantFires = 1
+			}
+			if result.StoppedOnFail != complete || fires != wantFires {
+				t.Fatalf("stopped = %t, fires = %d, want %t and %d", result.StoppedOnFail, fires, complete, wantFires)
+			}
+			if len(result.Diagnostics) != 2 ||
+				result.Diagnostics[0].Detail != "first assertion" || result.Diagnostics[1].Detail != "second assertion" {
+				t.Fatalf("diagnostics = %v, want both arming-run assertions", result.Diagnostics)
+			}
+			if len(result.Runs) != 2 || result.Runs[0].Status != StatusFail || result.Runs[1].Run != "sibling" {
+				t.Fatalf("runs = %v, want the arming run and delayed sibling", result.Runs)
+			}
+		})
 	}
 }
 
