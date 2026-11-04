@@ -49,48 +49,8 @@ const RegistryName = ".tf-mut-generated.json"
 // closureBaseline is what a commit measures the live tree against: the digest
 // of the input closure the verification sandbox was built from, taken over the
 // target paths that commit is going to place.
-//
-// The target set travels with the digest because it is part of what the digest
-// means. The targets are excluded so that a commit does not trip over the files
-// it has just written, and two digests are comparable only when they excluded
-// the same paths — which is why a commit placing a different file set than the
-// verification staged has no baseline and takes its own first read instead.
-//
-// A nil *closureBaseline is the stage that ran no verification leg: a scaffold
-// whose judgement points are all unresolved writes non-executable artefact
-// content, and nothing verified it.
 type closureBaseline struct {
-	digest  string
-	targets map[string]bool
-}
-
-// record keeps the digest of the closure the verification sandbox was built
-// from, and the target set it was taken over. The last verification before the
-// commit replaces any earlier leg's: that leg's sandbox is the one that read
-// the bytes the commit is about to place.
-func (b *closureBaseline) record(digest string, targets map[string]bool) {
-	if b == nil {
-		return
-	}
-
-	b.digest = digest
-	b.targets = targets
-}
-
-// carried returns the baseline when it was taken over exactly the target set
-// this commit is placing, and whether it is usable at all.
-func (b *closureBaseline) carried(targets map[string]bool) (string, bool) {
-	if b == nil || b.digest == "" || len(b.targets) != len(targets) {
-		return "", false
-	}
-
-	for path := range targets {
-		if !b.targets[path] {
-			return "", false
-		}
-	}
-
-	return b.digest, true
+	digest string
 }
 
 // RegistryStore is the provenance registry's persistence boundary. The
@@ -422,17 +382,16 @@ func baselineFor(
 	baseline *closureBaseline,
 	targets map[string]bool,
 ) (digest, refusal string, err error) {
-	verified, carried := baseline.carried(targets)
-
 	live, err := InputClosureDigest(configuration, settings, prepared, targets)
 	if err != nil {
 		return "", "", err
 	}
 
-	if !carried {
+	if baseline == nil || baseline.digest == "" {
 		return live, "", nil
 	}
 
+	verified := baseline.digest
 	if live != verified {
 		return verified, fmt.Sprintf("the input closure changed after the generated suite "+
 			"was verified, so the generated content is green for a module that no "+

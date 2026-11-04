@@ -918,7 +918,7 @@ func verifyScaffold(
 	// against: whatever earlier leg recorded, this sandbox is the one that read
 	// the bytes the commit is about to place.
 	if digest != "" {
-		stage.baseline.record(digest, targets)
+		stage.baseline.digest = digest
 	}
 
 	return characterise.Verified(), nil
