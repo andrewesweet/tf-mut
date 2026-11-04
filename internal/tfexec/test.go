@@ -65,13 +65,10 @@ type TestResult struct {
 	// completion order, and is empty when no file completed.
 	Files []FileTiming
 	// StoppedOnFail records the deliberate early stop a FailFast invocation
-	// took: the failing run that armed it ended the child, so Runs holds the
-	// prefix up to the stop and the evidence of the run that decided the
-	// verdict — its own assertion diagnostics included — while the run blocks
-	// the stopped invocation would have executed are simply never observed.
-	// The stop waits for the arming run's own file: a file whose run blocks
-	// execute in parallel completes before it, so those blocks are recorded
-	// too. It is false for every stream read to its end.
+	// took at the arming run's file completion. The result includes that file's
+	// terminal run records and assertion diagnostics; later files the stopped
+	// invocation would have executed are never observed. It is false for every
+	// stream read to its end.
 	StoppedOnFail bool
 	// Started remains true when execution began but output decoding failed.
 	// Setup or process-start failures leave it false.
@@ -130,15 +127,11 @@ type TestOptions struct {
 	Verbose bool
 	// Timeout bounds the invocation; zero means no bound.
 	Timeout time.Duration
-	// FailFast ends the child once the first run block to report fail has
-	// flushed its assertion diagnostics. A failing run decides the Killed
-	// verdict on its own, so the blocks after it cost time without changing
-	// the verdict; the runs they would have contributed to the record are
-	// simply never observed. The stop is taken on a boundary of the failing
-	// run's test file, and a file whose run blocks execute in parallel
-	// completes before that boundary, so its later blocks are observed and
-	// recorded. An error run ends nothing: the error precedence needs
-	// validate, and the runs an error skips are part of the evidence.
+	// FailFast ends the child at the first failing run's file completion;
+	// decodeTestStreamStopping owns the evidence-preserving boundary. A
+	// failing run decides the Killed verdict on its own. An error run ends
+	// nothing: the error precedence needs validate, and the runs an error
+	// skips are part of the evidence.
 	FailFast bool
 	// HoldAfterReap, when non-nil, runs once the child is reaped and before
 	// its outcome is classified. It is a timing seam and nothing else: a test

@@ -70,6 +70,8 @@ import (
 // reach the child, so they no longer enter the key. A stored verdict was
 // computed under the wider child environment, so it replays as a miss and
 // is re-executed, not trusted across the change.
+// The tf-mut-cache-16 bump rejects earlier fail-fast evidence that could
+// omit the arming run's assertion diagnostics when run events interleave.
 const cacheFormatVersion = "tf-mut-cache-16"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
