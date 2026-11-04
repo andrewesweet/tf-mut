@@ -114,6 +114,8 @@ func stampClosureTree(root string) (map[string]closureStamp, error) {
 }
 
 func stampDereference(root, path string, stamps map[string]closureStamp) error {
+	const maxSymlinkHops = 255
+
 	current := string(filepath.Separator)
 	pending := strings.Split(path, string(filepath.Separator))
 	links := 0
@@ -138,7 +140,7 @@ func stampDereference(root, path string, stamps map[string]closureStamp) error {
 
 		if info.Mode()&os.ModeSymlink != 0 {
 			links++
-			if links > 255 {
+			if links > maxSymlinkHops {
 				return syscall.ELOOP
 			}
 			target, err := os.Readlink(current)
@@ -186,7 +188,6 @@ func closureMoved(root string, stamps map[string]closureStamp) (string, bool) {
 		if !recorded || stamps[relative].differs(stamp) {
 			return relative, true
 		}
-
 	}
 
 	return "", false

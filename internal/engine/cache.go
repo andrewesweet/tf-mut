@@ -70,6 +70,9 @@ import (
 // reach the child, so they no longer enter the key. A stored verdict was
 // computed under the wider child environment, so it replays as a miss and
 // is re-executed, not trusted across the change.
+// The tf-mut-cache-17 bump invalidates entries predating the complete
+// closure-stamp guard: their keys need not describe the inputs their
+// sandboxes consumed, even when the current tree is stable.
 const cacheFormatVersion = "tf-mut-cache-17"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
@@ -117,9 +120,9 @@ type verdictCache struct {
 	manifest store.CacheManifest
 }
 
-// openCache computes the run key and opens the project-local cache. It
-// returns nil — no reads, no writes — under either unsafe opt-in, under
-// --no-cache, or where the cache location cannot be used safely.
+// openCache binds the run key and manifest to the cache begun before
+// rediscovery and warm-up consume the closure. A missing guard or an
+// uncomputable key disables both reads and writes.
 func openCache(
 	configuration discovery.Configuration,
 	settings settings, prepared warmWorkspace,
@@ -140,6 +143,9 @@ func openCache(
 	return cache
 }
 
+// beginCache opens the store before capturing stamps, so the cache
+// directory's creation cannot invalidate the closure root's stamp.
+// Unsafe opt-ins, --no-cache and an unstampable closure disable caching.
 func beginCache(configuration discovery.Configuration, settings settings) *verdictCache {
 	if settings.mode != gradeMode && settings.mode != suggestMode && settings.mode != curateMode {
 		return nil

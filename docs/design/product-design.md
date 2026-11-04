@@ -260,7 +260,8 @@ Per mutant, in parallel across up to `--jobs` workers (see [parallelism defaults
 1. Materialise a sandbox rooted at the **`..`-closure of local module sources** (the review's
    M6: a `source = "../shared"` — the standard monorepo layout — escapes a sandbox rooted at
    the module directory and fails with "Module not installed"; `fixture-c` only proved the
-   downward case). Unmutated regular Terraform input files are hardlinked when possible.
+   downward case). Unmutated regular Terraform input files are hardlinked when possible,
+   except when the [cache guard](#10-ci-integration) requires copies.
    Other unmutated files are copied. Symlinked source files are materialised from their
    target's contents under the link's own name. Reflinks and overlay mounts remain planned
    optimisations for large closures. The sandbox gets its **own `.terraform` directory**
@@ -862,6 +863,21 @@ fingerprint — any doubt is a miss, and cache reads and writes are disabled und
 `--allow-real-infrastructure` and `--allow-unsandboxed-effects`, whose external state cannot
 be keyed soundly. The [replay note](../research/25-child-environment-cache-key.md) publishes
 the method, inputs, per-transition results and limits behind the key.
+
+Before deriving the key, tf-mut records each closure entry's device, inode, size,
+modification time and change time (ctime). This includes directories, the closure root's
+ancestor resolution path, symlinks and their target resolution paths. The walk skips
+`.terraform`, `.git` and `.tf-mut-cache` entries inside the closure. Mutant sandboxes copy
+unmutated files while this guard is active, because creating or removing hardlinks changes
+the source inode's ctime. tf-mut creates the run workspace before recording the stamps.
+It rechecks every stamp before cache replay and immediately before persistence. If any
+stamp changes or becomes unreadable, the run stores no verdicts and adds a report warning
+naming the first changed path. A change detected before replay also disables cache reads.
+Changes to a recorded ancestor can trigger this refusal even when closure contents stay
+unchanged. The warning does not repair the in-flight report; rerun against a stable tree.
+The guard and its engine-seam regressions live in
+[`closurestamp.go`](../../internal/engine/closurestamp.go) and
+[`cache_test.go`](../../internal/engine/cache_test.go).
 
 Each entry stores the oracle's own record, including its full delta, alongside the run
 observations. Replay rebuilds the outcome through `oracle.ParseRecord` and uses the same
