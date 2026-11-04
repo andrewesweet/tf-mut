@@ -305,12 +305,14 @@ Per mutant, in parallel across up to `--jobs` workers (see [parallelism defaults
 4. **Phase one:** `terraform -chdir=<sandbox> test -json -verbose -filter=<selected files>` —
    the mutant's single invocation, verbose since 2.17.0. Killed mutants stop here (after lazy
    validation if they errored), and since the fail-fast stop a killed mutant's invocation ends
-   at its first failing run: a failing run decides `killed` on its own in the verdict
-   precedence, so the run blocks after it cost time without changing the verdict. The stop
-   fires only once the failing run's own assertion diagnostics are flushed — the evidence the
-   oracle judges is never cut short — and the mutant's record then covers a prefix of the
-   selected suite when later runs remain. The report schema linked in the
-   [README document map](../../README.md#documents) owns the `runs_truncated` contract;
+   once its first failing run's evidence is flushed: a failing run decides `killed` on its own
+   in the verdict precedence, so the run blocks after it cost time without changing the
+   verdict. The stop is taken only on a boundary of the failing run's own test file, so the
+   evidence the oracle judges is never cut short; a file whose run blocks execute in parallel
+   completes before that boundary, so its later blocks are recorded as well. The mutant's
+   record then covers a prefix of the selected suite when later runs remain. The report
+   schema linked in the [README document map](../../README.md#documents) owns the
+   `runs_truncated` contract;
    the [README](../../README.md#the-approach) explains the performance trade-off.
    Fail-fast is disabled whenever `--allow-real-infrastructure` is set, so Terraform can finish
    resource cleanup. `curate` also disables fail-fast: kill-set attribution needs every failed

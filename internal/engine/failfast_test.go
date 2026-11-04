@@ -36,6 +36,7 @@ const (
 	failfastParallelSite       = "terraform_data.watched.input"
 	failfastParallelRuns       = 12
 	failfastParallelAssertions = 16
+	failfastParallelLaterRun   = "after"
 	assertionFailureSummary    = "Test assertion failed"
 )
 
@@ -185,15 +186,21 @@ func TestParallelRunsKeepTheArmingRunsAssertionDiagnostics(t *testing.T) {
 			arming, retained, failfastParallelAssertions, len(killed.Diagnostics))
 	}
 
-	// The stop is taken at the armed file's completion, which every block of
-	// that file reaches before it: the record is whole, and the report must
-	// not claim a truncation it did not take.
-	if killed.RunsTruncated {
-		t.Fatal("a file that completed every block must not be reported as truncated")
+	// The stop is still taken: the file after the parallel one never runs,
+	// and the record names that truncation beside the verdict.
+	if !killed.RunsTruncated {
+		t.Fatal("the later file must not have run: the stop ended the invocation")
 	}
 
 	if killed.ExecutedRuns != failfastParallelRuns || len(killed.Runs) != failfastParallelRuns {
-		t.Fatalf("executed runs = %d of %d run records, want all %d", killed.ExecutedRuns, len(killed.Runs), failfastParallelRuns)
+		t.Fatalf("executed runs = %d of %d run records, want the parallel file's %d blocks alone",
+			killed.ExecutedRuns, len(killed.Runs), failfastParallelRuns)
+	}
+
+	for _, run := range killed.Runs {
+		if run.Run == failfastParallelLaterRun {
+			t.Fatalf("run %q from the later file was recorded, want the stop to have ended the invocation", run.Run)
+		}
 	}
 
 	if killed.DeadlineReached {

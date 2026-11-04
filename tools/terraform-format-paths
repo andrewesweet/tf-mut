@@ -55,6 +55,7 @@ internal/engine/testdata/failfast-error/main.tf
 internal/engine/testdata/failfast-error/tests/unit.tftest.hcl
 internal/engine/testdata/failfast-parallel/main.tf
 internal/engine/testdata/failfast-parallel/tests/parallel.tftest.hcl
+internal/engine/testdata/failfast-parallel/tests/z-after.tftest.hcl
 internal/engine/testdata/failfast/main.tf
 internal/engine/testdata/failfast/tests/unit.tftest.hcl
 internal/engine/testdata/families/main.tf

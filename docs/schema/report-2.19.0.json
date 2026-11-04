@@ -673,7 +673,7 @@
         },
         "runs_truncated": {
           "type": "boolean",
-          "description": "True exactly when this mutant's per-run records are a prefix of the suite rather than all of it: the invocation stopped at its first failing run, so the run blocks after that failure were never observed. The failing run's own assertion diagnostics are always present. Verdicts are unchanged — a failing run decides killed on its own — and the flag is false on every mutant whose records cover every selected run block, including a sole or final failing run. Fail-fast is disabled for curate, which requires every failed assertion, and whenever --allow-real-infrastructure is set, so Terraform can finish resource cleanup (2.19.0)."
+          "description": "True exactly when this mutant's per-run records are a prefix of the suite rather than all of it: the invocation stopped after its first failing run, so selected run blocks it had not reached were never observed; a test file whose run blocks execute in parallel completes before the stop, so its later blocks are recorded. The failing run's own assertion diagnostics are always present. Verdicts are unchanged — a failing run decides killed on its own — and the flag is false on every mutant whose records cover every selected run block, including a sole or final failing run. Fail-fast is disabled for curate, which requires every failed assertion, and whenever --allow-real-infrastructure is set, so Terraform can finish resource cleanup (2.19.0)."
         }
       },
       "allOf": [

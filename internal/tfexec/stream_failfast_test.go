@@ -131,3 +131,149 @@ func TestAFullStreamWithoutAStopDecodesEveryRun(t *testing.T) {
 		t.Fatalf("runs = %v, want both run blocks", result.Runs)
 	}
 }
+
+// streamLines splits the recorded stream into the message lines synthetic
+// sequences are built from. Every line stays real output's own; only names,
+// statuses and order are rewritten, so each message keeps the shape Terraform
+// actually wrote.
+func streamLines(tb testing.TB) []string {
+	tb.Helper()
+
+	return strings.Split(string(recorded(tb)), "\n")
+}
+
+// renameRun returns a recorded run-block event line naming another run block,
+// so a synthetic sequence can interleave several run blocks of one file.
+func renameRun(line, from, to string) string {
+	return strings.ReplaceAll(line, `"`+from+`"`, `"`+to+`"`)
+}
+
+// failFastDiagnostic is one recorded assertion diagnostic with its detail
+// replaced, so a synthetic burst's members are distinguishable.
+func failFastDiagnostic(detail string) string {
+	return `{"@level":"error","@message":"Error: Test assertion failed",` +
+		`"@module":"terraform.ui","@testfile":"tests/apply.tftest.hcl","@testrun":"applied",` +
+		`"@timestamp":"2026-10-24T16:54:05.070736+01:00","diagnostic":{"severity":"error",` +
+		`"summary":"Test assertion failed","detail":"` + detail + `",` +
+		`"range":{"filename":"tests/apply.tftest.hcl","start":{"line":5,"column":21,"byte":66},` +
+		`"end":{"line":5,"column":41,"byte":86}},"snippet":{"context":"run \"applied\"",` +
+		`"code":"    condition     = output.app == \"kept\"","start_line":5,` +
+		`"highlight_start_offset":20,"highlight_end_offset":40}},"type":"diagnostic"}`
+}
+
+// parallelBurstStream builds a stream in which a second run block of the
+// failing run's file is in flight when the arming run completes — the file is
+// running its blocks in parallel — the given interrupt messages follow, and the
+// arming run's two diagnostics arrive only afterwards, before the file's own
+// teardown and completion. That is the order Terraform writes for a parallel
+// file: the run's diagnostics trail every event the other blocks produce.
+func parallelBurstStream(tb testing.TB, interrupt ...string) []byte {
+	tb.Helper()
+
+	const armed = "applied"
+
+	lines := streamLines(tb)
+	completed := strings.Replace(lines[4], `"status":"pass"`, `"status":"fail"`, 1)
+
+	built := make([]string, 0, 5+len(interrupt)+5)
+	built = append(built,
+		lines[2],
+		renameRun(lines[3], armed, "sibling"),
+		lines[3],
+		completed,
+		renameRun(completed, armed, "sibling"),
+	)
+	built = append(built, interrupt...)
+	built = append(built,
+		failFastDiagnostic("first assertion"),
+		failFastDiagnostic("second assertion"),
+		lines[6],
+		strings.Replace(lines[8], `"status":"pass"`, `"status":"fail"`, 1),
+		"",
+	)
+
+	return []byte(strings.Join(built, "\n"))
+}
+
+// decodeArmingFail decodes a stream armed by its first failing run and reports
+// the decoded record and how often the stop fired.
+func decodeArmingFail(tb testing.TB, stream []byte) (TestResult, int) {
+	tb.Helper()
+
+	fires := 0
+
+	result, err := decodeTestStreamStopping(bytes.NewReader(stream), func(run RunOutcome) bool {
+		return run.Status == StatusFail
+	}, func() {
+		fires++
+	})
+	if err != nil {
+		tb.Fatalf("decoding the stream: %v", err)
+	}
+
+	return result, fires
+}
+
+func TestAParallelFilesInterleavedEventsDoNotEndTheArmingRunsBurst(t *testing.T) {
+	t.Parallel()
+
+	// Another block of the same file starts between the arming completion and
+	// the arming run's diagnostics: a start message proves nothing while the
+	// file is still running blocks.
+	lines := streamLines(t)
+	result, fires := decodeArmingFail(t, parallelBurstStream(t, renameRun(lines[3], "applied", "third")))
+
+	if !result.StoppedOnFail {
+		t.Fatal("a parallel file that completed must record the stop")
+	}
+
+	if fires != 1 {
+		t.Fatalf("the stop fired %d times, want once", fires)
+	}
+
+	if len(result.Diagnostics) != 2 {
+		t.Fatalf("diagnostics = %d decoded, want both of the arming run's", len(result.Diagnostics))
+	}
+
+	// The stop waits for the file's completion, so both completed blocks are
+	// in the record: nothing the invocation would have run was cut short.
+	if len(result.Runs) != 2 || result.Runs[0].Status != StatusFail {
+		t.Fatalf("runs = %v, want the arming run and its sibling", result.Runs)
+	}
+}
+
+func TestAnotherFilesEventsDoNotEndTheArmingRunsBurst(t *testing.T) {
+	t.Parallel()
+
+	lines := streamLines(t)
+
+	// A later file's events arrive before the arming file's own completion.
+	// They say nothing about the arming run's burst, so the stop stays queued
+	// until the file that owns it completes.
+	built := []string{
+		lines[2],
+		lines[3],
+		strings.Replace(lines[4], `"status":"pass"`, `"status":"fail"`, 1),
+		lines[9],
+		lines[10],
+		lines[11],
+		failFastDiagnostic("first assertion"),
+		failFastDiagnostic("second assertion"),
+		strings.Replace(lines[8], `"status":"pass"`, `"status":"fail"`, 1),
+		"",
+	}
+
+	result, fires := decodeArmingFail(t, []byte(strings.Join(built, "\n")))
+
+	if !result.StoppedOnFail {
+		t.Fatal("the armed file's completion must record the stop")
+	}
+
+	if fires != 1 {
+		t.Fatalf("the stop fired %d times, want once", fires)
+	}
+
+	if len(result.Diagnostics) != 2 {
+		t.Fatalf("diagnostics = %d decoded, want both of the arming run's", len(result.Diagnostics))
+	}
+}
