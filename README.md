@@ -226,13 +226,10 @@ cloud cost. Throughput depends dominantly on provider schema size — measured a
 `hashicorp/aws`, whose 14.5 MB schema is re-serialised into every verbose test message. The
 design's [execution schedule](docs/design/product-design.md#execute) and test selection target
 an interactive inner loop (`--since`, smoke tier) on real modules; full sweeps are scheduled
-work. A killed mutant's invocation additionally ends at its first failing run — a failing run
-decides the verdict on its own, so later run blocks cannot change it. This saves CPU and
-wall-clock time at the cost of incomplete per-run records when later runs remain; the report
-discloses that per mutant with `runs_truncated`, defined in the report schema linked in the
-[document map](#documents). Fail-fast is disabled for `curate`, which needs every failed
-assertion, and whenever `--allow-real-infrastructure` is set, so Terraform
-can finish resource cleanup. An independent adversarial review drove these corrections —
+work. The [fail-fast execution policy](docs/design/product-design.md#execute) saves CPU and
+wall-clock time by stopping killed mutants early while preserving their assertion diagnostics.
+The report discloses incomplete per-run records with `runs_truncated`, defined in the report
+schema linked in the [document map](#documents). An independent adversarial review drove these corrections —
 see [`docs/reviews/2026-08-15-adversarial-review.md`](docs/reviews/2026-08-15-adversarial-review.md).
 
 ## Documents

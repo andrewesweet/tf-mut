@@ -256,7 +256,7 @@ func TestACachedReplayIsByteIdenticalToTheFreshRun(t *testing.T) {
 
 // previousCacheFormatVersion is the format one step behind the one this build
 // writes: an entry carrying it is a miss, never a parse error.
-const previousCacheFormatVersion = "tf-mut-cache-5"
+const previousCacheFormatVersion = "tf-mut-cache-15"
 
 // TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError is the symmetric
 // half of the format boundary: the first run after an upgrade finds every

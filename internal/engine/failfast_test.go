@@ -12,22 +12,25 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/mutation"
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/store"
 	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
-
-// Fail-fast ends a mutant's terraform test child at its first failing run.
-// Killed is decided from failed runs before anything else in the oracle's
-// precedence, so the verdict cannot change; what changes is the published
-// record: a Killed mutant's runs stop at its first failure, and the report
-// names that truncation beside the verdict. These tests hold both halves —
-// the unchanged verdicts and the named truncation — through the engine seam,
-// against real Terraform.
 
 const (
 	// failfastWatchedSite is the mutated site the first run's assertion
 	// observes; failfastIgnoredSite is the one nothing observes.
 	failfastWatchedSite = "terraform_data.watched.input"
 	failfastIgnoredSite = "terraform_data.ignored.input"
+
+	// failfastParallelSite is the site the parallel fixture's assertions all
+	// observe, failfastParallelRuns the run blocks that execute it
+	// concurrently, and failfastParallelAssertions the assertions each block
+	// makes.
+	failfastParallelSite       = "terraform_data.watched.input"
+	failfastParallelRuns       = 12
+	failfastParallelAssertions = 16
+	failfastParallelLaterRun   = "after"
+	assertionFailureSummary    = "Test assertion failed"
 )
 
 // truncationDocument is the slice of the published JSON document the wire
@@ -67,7 +70,7 @@ func runFailFastFixture(t *testing.T, module string, operator mutation.Operator)
 	return result
 }
 
-func TestAFailFastKillEndsAtItsFirstFailAndKeepsItsVerdict(t *testing.T) {
+func TestAFailFastKillKeepsItsFilesRunsAndVerdict(t *testing.T) {
 	t.Parallel()
 
 	result := runFailFastFixture(t, copyFixture(t, "failfast"), mutation.StrCase)
@@ -77,19 +80,16 @@ func TestAFailFastKillEndsAtItsFirstFailAndKeepsItsVerdict(t *testing.T) {
 		t.Fatalf("watched mutant state = %s, want %s", killed.State, report.Killed)
 	}
 
-	// The invocation ended at the first failing run: one run block remains
-	// recorded, the failure itself, and the two the suite still ran before
-	// this change are gone from the record.
-	if !killed.RunsTruncated {
-		t.Fatal("a mutant stopped at its first fail must name its truncation")
+	if killed.RunsTruncated {
+		t.Fatal("a completed sole file must not name a truncation")
 	}
 
-	if killed.ExecutedRuns != 1 {
-		t.Fatalf("executed runs = %d, want the single failing run", killed.ExecutedRuns)
+	if killed.ExecutedRuns != 3 {
+		t.Fatalf("executed runs = %d, want all three runs in the failing file", killed.ExecutedRuns)
 	}
 
-	if len(killed.Runs) != 1 || killed.Runs[0].Status != runFail {
-		t.Fatalf("runs = %v, want the single failing run record", killed.Runs)
+	if len(killed.Runs) != 3 || killed.Runs[0].Status != runFail {
+		t.Fatalf("runs = %v, want all three failing-file records", killed.Runs)
 	}
 
 	if killed.DeadlineReached {
@@ -127,6 +127,74 @@ func TestAFailFastKillEndsAtItsFirstFailAndKeepsItsVerdict(t *testing.T) {
 		if mutant.RunsTruncated == nil {
 			t.Fatalf("mutant %s (state %s) carries no runs_truncated flag", mutant.ID, mutant.State)
 		}
+	}
+}
+
+// TestParallelRunsKeepTheArmingRunsAssertionDiagnostics holds the parallel-run
+// half of the fail-fast contract: the assertion diagnostics a stop must keep
+// belong to the arming run's file, so another run's start, completion or plan
+// event interleaved before them is not the boundary. The verdict was never in
+// doubt — the first failing run decides Killed — and this test holds the
+// evidence the stop promises to retain after such an interleaving. The fixture's
+// twelve blocks exceed the ten Terraform starts at once, so later start events
+// can land mid-stream as well.
+func TestParallelRunsKeepTheArmingRunsAssertionDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	result := runFailFastFixture(t, copyFixture(t, "failfast-parallel"), mutation.StrCase)
+
+	killed := mutantAt(t, result, string(mutation.StrCase), failfastParallelSite)
+	if killed.State != report.Killed {
+		t.Fatalf("parallel mutant state = %s, want %s", killed.State, report.Killed)
+	}
+
+	// The arming run is the first block the record completed fail: runs are
+	// recorded in completion order, and its completion is what armed the stop.
+	arming := ""
+	for _, run := range killed.Runs {
+		if run.Status == runFail {
+			arming = run.Run
+
+			break
+		}
+	}
+
+	if arming == "" {
+		t.Fatalf("runs = %v, want the failing completion that armed the stop", killed.Runs)
+	}
+
+	retained := 0
+	for _, diagnostic := range killed.Diagnostics {
+		if diagnostic.TestRun == arming && diagnostic.Summary == assertionFailureSummary {
+			retained++
+		}
+	}
+
+	if retained != failfastParallelAssertions {
+		t.Fatalf("arm %q kept %d of its %d assertion diagnostics (%d in the whole record), want all of them: "+
+			"the parallel interleaving discarded the evidence that explains the kill",
+			arming, retained, failfastParallelAssertions, len(killed.Diagnostics))
+	}
+
+	// The stop is still taken: the file after the parallel one never runs,
+	// and the record names that truncation beside the verdict.
+	if !killed.RunsTruncated {
+		t.Fatal("the later file must not have run: the stop ended the invocation")
+	}
+
+	if killed.ExecutedRuns != failfastParallelRuns || len(killed.Runs) != failfastParallelRuns {
+		t.Fatalf("executed runs = %d of %d run records, want the parallel file's %d blocks alone",
+			killed.ExecutedRuns, len(killed.Runs), failfastParallelRuns)
+	}
+
+	for _, run := range killed.Runs {
+		if run.Run == failfastParallelLaterRun {
+			t.Fatalf("run %q from the later file was recorded, want the stop to have ended the invocation", run.Run)
+		}
+	}
+
+	if killed.DeadlineReached {
+		t.Fatal("the stop must be the fail-fast decision, not the budget")
 	}
 }
 
@@ -220,6 +288,7 @@ func TestCompleteFailFastRecordsStayCompleteThroughTheCache(t *testing.T) {
 	}{
 		{"sole failure", 1, false, false},
 		{"final failure", 3, false, false},
+		{"early failure", 3, false, true},
 		{"filtered sole failure", 1, true, false},
 		{"filtered final failure", 3, true, false},
 		{"filtered early failure", 3, true, true},
@@ -229,18 +298,14 @@ func TestCompleteFailFastRecordsStayCompleteThroughTheCache(t *testing.T) {
 
 			request := completeFailFastRequest(t, test.runs, test.filtered, test.first)
 
-			wantRuns := test.runs
-			if test.first {
-				wantRuns = 1
-			}
 			for _, execution := range []string{report.ExecutionFresh, report.ExecutionCached} {
 				result, err := engine.Run(t.Context(), request)
 				if err != nil {
 					t.Fatalf("run: %v", err)
 				}
 				killed := mutantAt(t, result, string(mutation.StrCase), failfastWatchedSite)
-				if killed.State != report.Killed || killed.RunsTruncated != test.first ||
-					killed.ExecutedRuns != wantRuns || len(killed.Runs) != wantRuns {
+				if killed.State != report.Killed || killed.RunsTruncated ||
+					killed.ExecutedRuns != test.runs || len(killed.Runs) != test.runs {
 					t.Fatalf("complete failing record = %+v", killed)
 				}
 				if killed.Provenance == nil || killed.Provenance.Execution != execution {
@@ -249,6 +314,79 @@ func TestCompleteFailFastRecordsStayCompleteThroughTheCache(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPreFileBoundaryFailFastObservationsAreNotReplayed(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		fixture     string
+		runs        int
+		diagnostics int
+		truncated   bool
+	}{
+		{"failfast", 3, 3, false},
+		{"failfast-parallel", failfastParallelRuns, failfastParallelRuns * failfastParallelAssertions, true},
+	} {
+		t.Run(test.fixture, func(t *testing.T) {
+			t.Parallel()
+
+			request := baseConfig(t, copyFixture(t, test.fixture))
+			request.IncludeOperators = []string{string(mutation.StrCase)}
+			first := cachedRun(t, request)
+			killed := mutantAt(t, first, string(mutation.StrCase), failfastWatchedSite)
+			rewindFailFastObservation(t, request.ModuleDir, killed)
+
+			for _, execution := range []string{report.ExecutionFresh, report.ExecutionCached} {
+				result := cachedRun(t, request)
+				mutant := mutantAt(t, result, string(mutation.StrCase), failfastWatchedSite)
+				if mutant.Provenance == nil || mutant.Provenance.Execution != execution {
+					t.Fatalf("provenance = %+v, want %s", mutant.Provenance, execution)
+				}
+				if mutant.State != report.Killed || mutant.ExecutedRuns != test.runs || len(mutant.Runs) != test.runs ||
+					len(mutant.Diagnostics) != test.diagnostics || mutant.RunsTruncated != test.truncated {
+					t.Fatalf("lost current fail-fast evidence after upgrade: %+v", mutant)
+				}
+			}
+		})
+	}
+}
+
+func rewindFailFastObservation(t *testing.T, module string, mutant report.Mutant) {
+	t.Helper()
+
+	if mutant.State != report.Killed || len(mutant.Runs) == 0 || len(mutant.Diagnostics) == 0 {
+		t.Fatalf("no failing observation to rewind: %+v", mutant)
+	}
+	paths, err := filepath.Glob(filepath.Join(cacheDir(module), "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range paths {
+		var entry store.CacheEntry
+		if decodeErr := json.Unmarshal([]byte(readFile(t, path)), &entry); decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		if entry.MutantID != mutant.ID {
+			continue
+		}
+
+		entry.FormatVersion = "tf-mut-cache-15"
+		entry.Observed, err = json.Marshal(map[string]any{
+			"runs": mutant.Runs[:1], "executed_runs": 1, "runs_truncated": true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		testsupport.WriteFile(t, path, string(encoded))
+
+		return
+	}
+	t.Fatal("no cached kill to rewind")
 }
 
 func mixedStatusFailFastRequest(t *testing.T, filtered, truncated bool) engine.RunRequest {
@@ -347,6 +485,14 @@ func TestCurateKeepsLaterRunKillsAcrossVerdictCacheUse(t *testing.T) {
 	t.Parallel()
 
 	request := baseConfig(t, copyFixture(t, "failfast"))
+	testsupport.WriteFile(t, filepath.Join(request.ModuleDir, "tests/z-after.tftest.hcl"), `run "after" {
+  command = plan
+  assert {
+    condition     = output.watched == "kept"
+    error_message = "the later file must observe the value"
+  }
+}
+`)
 	result, err := engine.Run(t.Context(), request)
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -362,7 +508,7 @@ func TestCurateKeepsLaterRunKillsAcrossVerdictCacheUse(t *testing.T) {
 			t.Fatalf("curate: %v", curateErr)
 		}
 		killed := mutantAt(t, result, string(mutation.StrCase), failfastWatchedSite)
-		if killed.State != report.Killed || killed.RunsTruncated || killed.ExecutedRuns != 3 || len(killed.Diagnostics) != 3 {
+		if killed.State != report.Killed || killed.RunsTruncated || killed.ExecutedRuns != 4 || len(killed.Diagnostics) != 4 {
 			t.Fatalf("curation lost later assertion failures: %+v", killed)
 		}
 		if killed.Provenance == nil || killed.Provenance.Execution != execution {
@@ -383,7 +529,7 @@ func TestCurateKeepsLaterRunKillsAcrossVerdictCacheUse(t *testing.T) {
 		t.Fatalf("replay run: %v", err)
 	}
 	killed := mutantAt(t, replayed, string(mutation.StrCase), failfastWatchedSite)
-	if !killed.RunsTruncated || killed.ExecutedRuns != 1 || killed.Provenance.Execution != report.ExecutionCached {
+	if !killed.RunsTruncated || killed.ExecutedRuns != 3 || killed.Provenance.Execution != report.ExecutionCached {
 		t.Fatalf("verdict cache lost the original truncated record: %+v", killed)
 	}
 }

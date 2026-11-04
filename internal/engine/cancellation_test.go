@@ -71,6 +71,10 @@ func TestTheFailFastDecisionBeatsTheBudget(t *testing.T) {
 	t.Parallel()
 
 	request := baseConfig(t, copyFixture(t, "failfast"))
+	testsupport.WriteFile(t, filepath.Join(request.ModuleDir, "tests/z-after.tftest.hcl"), `run "after" {
+  command = plan
+}
+`)
 	request.IncludeOperators = []string{string(mutation.StrCase)}
 	request.TimeoutFactor = 0.0001
 	request.TimeoutFloor = 500 * time.Millisecond
@@ -80,8 +84,9 @@ func TestTheFailFastDecisionBeatsTheBudget(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 	mutant := mutantAt(t, result, string(mutation.StrCase), failfastWatchedSite)
-	if mutant.State != report.Killed || !mutant.RunsTruncated {
-		t.Fatalf("mutant state = %s, runs truncated = %t, want Killed at the stop", mutant.State, mutant.RunsTruncated)
+	if mutant.State != report.Killed || !mutant.RunsTruncated || mutant.DeadlineReached {
+		t.Fatalf("mutant state = %s, runs truncated = %t, deadline reached = %t, want Killed at the stop",
+			mutant.State, mutant.RunsTruncated, mutant.DeadlineReached)
 	}
 }
 
