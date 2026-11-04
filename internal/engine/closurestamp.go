@@ -62,6 +62,9 @@ var skippedClosureNames = map[string]bool{
 // renamed or removed without any recorded file's moving.
 func stampClosureTree(root string) (map[string]closureStamp, error) {
 	stamps := map[string]closureStamp{}
+	if err := stampDereference(root, root, stamps); err != nil {
+		return nil, fmt.Errorf("stamping the input closure: %w", err)
+	}
 
 	walk := func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {

@@ -257,7 +257,7 @@ func TestACachedReplayIsByteIdenticalToTheFreshRun(t *testing.T) {
 
 // previousCacheFormatVersion is the format one step behind the one this build
 // writes: an entry carrying it is a miss, never a parse error.
-const previousCacheFormatVersion = "tf-mut-cache-15"
+const previousCacheFormatVersion = "tf-mut-cache-16"
 
 // TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError is the symmetric
 // half of the format boundary: the first run after an upgrade finds every
@@ -1540,5 +1540,88 @@ func assertClosureCacheRefusal(t *testing.T, result report.Report, module string
 		if strings.HasSuffix(entry.Name(), ".json") {
 			t.Fatalf("the changed closure persisted %s", entry.Name())
 		}
+	}
+}
+
+func TestReplacingAClosureRootAncestorDuringARunIsNeverPersisted(t *testing.T) {
+	isolateSymlinkTestTempDir(t)
+	for _, form := range []string{"plain", "relative", "absolute", "chained"} {
+		t.Run(form, func(t *testing.T) {
+			repository := t.TempDir()
+			parent := filepath.Join(repository, "modules")
+			alternate := filepath.Join(repository, "alternate")
+			backup := filepath.Join(repository, "original")
+			module := filepath.Join(parent, "app")
+			copyFixtureInto(t, "suggest-basic", module)
+			copyFixtureInto(t, "suggest-basic", filepath.Join(alternate, "app"))
+			testsupport.WriteFile(t, filepath.Join(alternate, "app", "tests", "unit.tftest.hcl"), `run "ancestor_swap" {
+  command = apply
+
+  assert {
+    condition     = output.asserted == "asserted" && output.ignored == "nobody-checks-me"
+    error_message = "the replacement ancestor supplies a different suite"
+  }
+}
+`)
+			if form != "plain" {
+				target := "modules"
+				if form == "absolute" {
+					target = parent
+				}
+				if form == "chained" {
+					if err := os.Symlink(target, filepath.Join(repository, "indirect")); err != nil {
+						t.Fatal(err)
+					}
+					target = "indirect"
+				}
+				alias := filepath.Join(repository, "alias")
+				if err := os.Symlink(target, alias); err != nil {
+					t.Fatal(err)
+				}
+				module = filepath.Join(alias, "app")
+			}
+
+			stages := 0
+			engine.SetMidRunEditSeed(t, module, func() error {
+				stages++
+				switch stages {
+				case 1:
+					if err := os.Rename(parent, backup); err != nil {
+						return err
+					}
+					return os.Rename(alternate, parent)
+				case 2:
+					if err := os.Rename(parent, alternate); err != nil {
+						return err
+					}
+					return os.Rename(backup, parent)
+				}
+				return nil
+			})
+			config := baseConfig(t, module)
+			config.Jobs = 1
+			config.Env = append(config.Env, "TMPDIR="+config.WorkDir)
+			first := cachedRun(t, config)
+			if stages < 2 {
+				t.Fatal("the regression did not replace and restore the closure ancestor")
+			}
+			if !slices.ContainsFunc(first.Mutants, func(mutant report.Mutant) bool {
+				return slices.ContainsFunc(mutant.Runs, func(run report.RunOutcome) bool {
+					return run.Run == "ancestor_swap"
+				})
+			}) {
+				t.Fatal("no mutant consumed the replacement ancestor's suite")
+			}
+			assertClosureCacheRefusal(t, first, module)
+
+			second := cachedRun(t, config)
+			if second.Population.Cached != 0 {
+				t.Fatalf("the restored closure replayed %d verdicts from another tree", second.Population.Cached)
+			}
+			uncached := config
+			uncached.NoCache = true
+			third := cachedRun(t, uncached)
+			assertVerdictInvariance(t, second, third)
+		})
 	}
 }
