@@ -269,10 +269,10 @@ func timeoutBudget(settings settings, baseline time.Duration) time.Duration {
 }
 
 // sampleResolutionChain is the per-mutant half of the cache guard: an
-// ancestor swapped under the run changes the directory sitting at a chain
-// path, and the store is refused at persist even if a later stage restores
-// the original. A plain directory's identity is untouched by sibling churn
-// elsewhere, so unrelated activity in shared parents stays silent. It runs
+// ancestor swap observed at a chain path refuses the store at persist even
+// if a later stage restores the original. A swap fully restored between
+// samples can go undetected. A plain directory's identity is untouched by
+// sibling churn elsewhere, so unrelated activity in shared parents stays silent. It runs
 // before the sandbox is materialised — the earliest point this mutant could
 // observe the tree, and before any staged edit the run lifecycle applies.
 func sampleResolutionChain(plan executionPlan) {

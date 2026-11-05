@@ -5,13 +5,22 @@ package engine
 // is taken once, and the sandboxes read the live closure root afterwards, so
 // an edit landing between key time and persist files the changed tree's
 // verdicts under the unchanged tree's key — and a later run on the restored
-// tree replays them. Two witnesses close the hole. The persist stamps record
-// what the sandboxes take at key time and re-check immediately before
-// anything is stored. The resolution chain records only the device and inode
-// of every directory the root's path resolves through, sampled at each
-// mutant's evaluation: a wholesale swap of an ancestor — even one restored
-// before persist — puts another directory's identity at the same path, which
-// no amount of sibling churn in unrelated shared parents can imitate.
+// tree replays them. Two witnesses guard this window. The persist stamps
+// cover the closure root and everything below it except skippedClosureNames,
+// plus resolution-path components outside it only where they are symlinks or
+// the resolved target. They are re-checked before replay and immediately
+// before persist. The resolution chain records the device and inode of every
+// component the root's path and symlinked entries resolve through. Each
+// mutant's evaluation samples it before materialisation; persist re-checks it.
+// An ancestor swap detected by any sample refuses persistence even if the
+// original is restored before persist. Unrelated sibling churn in shared
+// parents does not change their identities.
+//
+// Two accepted residuals leave both witnesses clean: a same-inode edit and
+// restore preserving size and every recorded timestamp, including ctime; and
+// an ancestor swap staged and fully restored between consecutive per-mutant
+// samples without moving persist stamps. Either can persist verdicts under
+// the original key after a sandbox consumed different bytes.
 
 import (
 	"errors"
@@ -27,9 +36,9 @@ import (
 	"github.com/andrewesweet/tf-mut/internal/sandbox"
 )
 
-// closureStamp is one file's change stamp: the filesystem identity a write
-// cannot avoid moving. Size and mtime catch a content edit, inode and device
-// a replacement, and ctime — which moves on every write, including the undo
+// closureStamp is one entry's change stamp: metadata ordinary writes move.
+// Size and mtime catch a content edit, inode and device a replacement, and
+// ctime — which moves on ordinary writes, including the undo
 // that would restore identical bytes and defeat a content re-check — the
 // edit-and-restore the key-time-to-persist window is widest for.
 type closureStamp struct {
@@ -60,10 +69,10 @@ var skippedClosureNames = map[string]bool{
 	sandbox.CacheDirName: true,
 }
 
-// chainStamp is one resolution-path directory's identity: device and inode
+// chainStamp is one resolution-path component's identity: device and inode
 // alone. Content and times are the persist stamps' business; the chain
-// witness answers exactly one question — is the directory now at this path
-// the directory that was there at key time?
+// witness answers exactly one question — is the entry now at this path
+// the entry that was there at key time?
 type chainStamp struct {
 	device uint64
 	inode  uint64
@@ -72,13 +81,13 @@ type chainStamp struct {
 // stampClosureTree records a stamp for every entry of the closure root the
 // mutant sandboxes take: every non-directory entry the walk yields, and the
 // directories themselves, whose stamps move when a sibling is added,
-// renamed or removed without any recorded file's moving. Components above
-// the root are recorded only where the resolution runs through them — a
-// symlink, or the resolved target itself — so unrelated activity in shared
+// renamed or removed without any recorded file's moving. Components outside
+// the root carry persist stamps only if they are symlinks or the resolved
+// target itself, so unrelated activity in shared
 // parents cannot refuse a sound cache write. Alongside the stamps it
 // returns the resolution chain: device and inode for every component the
 // root's path resolves through, ancestors included, for the mid-run
-// sampling that catches a swap of any ancestor.
+// sampling that catches an ancestor swap when a sample observes it.
 func stampClosureTree(root string) (map[string]closureStamp, map[string]chainStamp, error) {
 	stamps := map[string]closureStamp{}
 	chain := map[string]chainStamp{}
@@ -137,7 +146,7 @@ func stampClosureTree(root string) (map[string]closureStamp, map[string]chainSta
 // recordChain notes one component's device and inode under its path
 // relative to the closure root. The first record wins: the resolution walk
 // revisits shared components across symlinks, and every visit stats the
-// same live directory.
+// same live component.
 func recordChain(chain map[string]chainStamp, root, path string, info os.FileInfo) {
 	relative, err := filepath.Rel(root, path)
 	if err != nil {
@@ -200,15 +209,15 @@ func stampDereference(root, path string, stamps map[string]closureStamp, chain m
 }
 
 // recordPersistStamp records one resolution component's change stamp where
-// the persist stamps cover it. A component above the closure root is
-// recorded only where the resolution runs through it: a symlink, whose
-// retargeting mid-run changes what the closure entries resolve to, or the
+// the persist stamps cover it. A component outside the closure root is
+// recorded only if it is a symlink, whose retargeting mid-run changes what
+// the closure entries resolve to, or the
 // resolved target itself, the content a mutant sandbox reads. Intermediate
 // plain ancestors are pass-through — shared temporary parents, the user's
 // home — and churn there from unrelated activity must not refuse a sound
-// cache write. A wholesale swap of a plain ancestor is still caught, by the
-// resolution chain's inode sampling and by the closure root's own stamp,
-// which the swapped-in tree cannot preserve.
+// cache write. The resolution chain catches a wholesale plain-ancestor swap
+// if a sample observes it. The closure root's stamp catches a replacement
+// still present at re-check; restoring the original root can leave it clean.
 func recordPersistStamp(
 	stamps map[string]closureStamp,
 	root, current string,
@@ -270,8 +279,9 @@ func closureMoved(root string, stamps map[string]closureStamp) (string, bool) {
 
 // chainMoved re-checks the resolution chain and reports the first component
 // whose device or inode no longer holds — the signature of a wholesale
-// swap: another directory now sits at the path the closure resolves
-// through, whether or not a later stage put the original back. Sorted order
+// swap: another entry now sits at the path the closure resolves through.
+// The caller retains a sampled change even if the original returns later;
+// this check alone cannot detect a swap already restored. Sorted order
 // makes the answer deterministic, and an unreadable path is a moved one:
 // any doubt is a miss. Times and sizes are deliberately not compared —
 // sibling churn in a shared parent moves a directory's metadata without

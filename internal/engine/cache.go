@@ -71,8 +71,8 @@ import (
 // reach the child, so they no longer enter the key. A stored verdict was
 // computed under the wider child environment, so it replays as a miss and
 // is re-executed, not trusted across the change.
-// The tf-mut-cache-18 bump invalidates entries predating the complete
-// closure-stamp guard: their keys need not describe the inputs their
+// The tf-mut-cache-18 bump invalidates entries predating the split-witness
+// closure guard: their keys need not describe the inputs their
 // sandboxes consumed, even when the current tree is stable. It also rejects
 // earlier fail-fast evidence that could omit the arming run's assertion
 // diagnostics when run events interleave.
@@ -118,9 +118,10 @@ type verdictCache struct {
 	stamps map[string]closureStamp
 	// chain is the resolution path's device-and-inode table: every
 	// component the closure root's path resolves through, sampled at each
-	// mutant's evaluation so a wholesale ancestor swap — even one restored
-	// before persist — refuses the store. sample carries the first move
-	// the sampling saw; mu guards it, since workers sample concurrently.
+	// mutant's evaluation. An ancestor swap observed by a sample refuses
+	// the store even if restored before persist; swaps fully restored
+	// between samples can leave both witnesses clean. sample carries the
+	// first move sampled; mu guards it, since workers sample concurrently.
 	chain  map[string]chainStamp
 	sample string
 	mu     sync.Mutex

@@ -277,7 +277,7 @@ func completeFailFastRequest(t *testing.T, runs int, filtered, first bool) engin
 	return request
 }
 
-//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
+//nolint:paralleltest // subtests share process-wide TMPDIR set with t.Setenv.
 func TestCompleteFailFastRecordsStayCompleteThroughTheCache(t *testing.T) {
 	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
@@ -443,7 +443,7 @@ func assertMixedRunStatuses(t *testing.T, runs []report.RunOutcome) {
 	}
 }
 
-//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
+//nolint:paralleltest // subtests share process-wide TMPDIR set with t.Setenv.
 func TestMixedStatusRecordsKeepTheirTruncationThroughTheCache(t *testing.T) {
 	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 

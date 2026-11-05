@@ -176,7 +176,7 @@ func TestCacheManifestStoresOnlyTheEnvironmentComponent(t *testing.T) {
 // diagnostics and the suppression being exactly what the deleted lifting
 // helpers used to rebuild from published DTOs.
 //
-//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
+//nolint:paralleltest // subtests share process-wide TMPDIR set with t.Setenv.
 func TestACachedReplayIsByteIdenticalToTheFreshRun(t *testing.T) {
 	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
@@ -451,7 +451,7 @@ func TestPreSandboxFixInvalidVerdictsAreNotReplayed(t *testing.T) {
 // mutation of an input must turn the whole population fresh — the coarse key
 // has no finer answer, and that is the point.
 //
-//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
+//nolint:paralleltest // subtests share process-wide TMPDIR set with t.Setenv.
 func TestCacheInvalidationPerKeyDimension(t *testing.T) {
 	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 

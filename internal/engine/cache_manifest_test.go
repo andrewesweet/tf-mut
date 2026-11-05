@@ -24,7 +24,7 @@ const (
 	invalidCacheDigest      = "not-a-digest"
 )
 
-//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
+//nolint:paralleltest // subtests share process-wide TMPDIR set with t.Setenv.
 func TestNonregularCacheManifestsAreNotRead(t *testing.T) {
 	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
@@ -163,7 +163,7 @@ func TestDisjointSamplesCarryNoCacheMissExplanation(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
+//nolint:paralleltest // subtests share process-wide TMPDIR set with t.Setenv.
 func TestCacheMissExplanationsRequireUsableVerdictEntries(t *testing.T) {
 	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
@@ -190,7 +190,7 @@ func TestCacheMissExplanationsRequireUsableVerdictEntries(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
+//nolint:paralleltest // subtests share process-wide TMPDIR set with t.Setenv.
 func TestTheNewestMatchingEnvironmentStopsCacheMissAttribution(t *testing.T) {
 	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
@@ -228,7 +228,7 @@ func TestTheNewestMatchingEnvironmentStopsCacheMissAttribution(t *testing.T) {
 	}
 }
 
-//nolint:paralleltest // subtests share the process TMPDIR; parallel fixture creation moves stamped ancestors.
+//nolint:paralleltest // subtests share process-wide TMPDIR set with t.Setenv.
 func TestMalformedCacheManifestsCarryNoExplanation(t *testing.T) {
 	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 

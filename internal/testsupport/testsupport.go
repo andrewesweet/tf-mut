@@ -44,10 +44,9 @@ func WriteExecutable(tb testing.TB, path, content string) {
 	}
 }
 
-// CacheTempDir places cache fixtures beneath stable ancestors. Callers
-// set TMPDIR with t.Setenv, which also keeps these tests serial: concurrent
-// fixture creation and Terraform's ambient temporary files would otherwise
-// move shared ancestor stamps and correctly disable the cache under test.
+// CacheTempDir isolates cache fixtures and ambient temporary files under
+// .artifacts. Callers set TMPDIR with t.Setenv, which keeps these tests serial
+// because TMPDIR is process-wide.
 func CacheTempDir(t *testing.T) string {
 	t.Helper()
 
@@ -56,8 +55,7 @@ func CacheTempDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	artifacts := filepath.Join(directory, "..", "..", ".artifacts", "cache-tests")
-	// Both suites can run in separate processes at once. Create both roots
-	// before either captures stamps, so neither mutates the other's ancestors.
+	// Both suites can run in separate processes at once, with separate roots.
 	for _, suite := range []string{"engine", "tf-mut"} {
 		if err := os.MkdirAll(filepath.Join(artifacts, suite), fixtureDirectoryMode); err != nil {
 			t.Fatal(err)
