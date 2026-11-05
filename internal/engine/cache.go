@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/oracle"
@@ -70,10 +71,12 @@ import (
 // reach the child, so they no longer enter the key. A stored verdict was
 // computed under the wider child environment, so it replays as a miss and
 // is re-executed, not trusted across the change.
-// The tf-mut-cache-17 bump invalidates entries predating the complete
+// The tf-mut-cache-18 bump invalidates entries predating the complete
 // closure-stamp guard: their keys need not describe the inputs their
-// sandboxes consumed, even when the current tree is stable.
-const cacheFormatVersion = "tf-mut-cache-17"
+// sandboxes consumed, even when the current tree is stable. It also rejects
+// earlier fail-fast evidence that could omit the arming run's assertion
+// diagnostics when run events interleave.
+const cacheFormatVersion = "tf-mut-cache-18"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
@@ -113,11 +116,53 @@ type verdictCache struct {
 	store  VerdictStore
 	key    string
 	stamps map[string]closureStamp
+	// chain is the resolution path's device-and-inode table: every
+	// component the closure root's path resolves through, sampled at each
+	// mutant's evaluation so a wholesale ancestor swap — even one restored
+	// before persist — refuses the store. sample carries the first move
+	// the sampling saw; mu guards it, since workers sample concurrently.
+	chain  map[string]chainStamp
+	sample string
+	mu     sync.Mutex
 	// manifest is this run's key beside its environment digest and
 	// per-variable environment map. The store writes it next to
 	// the entries; a later run whose key misses diffs it to explain an
 	// environment change behind a miss.
 	manifest store.CacheManifest
+}
+
+// sampleChain re-checks the resolution chain once per mutant evaluation.
+// The first move wins and is kept: a swap caught mid-flight refuses the
+// store even when a later stage restores the original directory, which the
+// persist-time re-check alone cannot see.
+func (c *verdictCache) sampleChain(root string) {
+	if c == nil {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.sample != "" {
+		return
+	}
+
+	if at, moved := chainMoved(root, c.chain); moved {
+		c.sample = at
+	}
+}
+
+// sampledChange reports the first resolution-chain move the run sampled,
+// or the empty string when every sample held.
+func (c *verdictCache) sampledChange() string {
+	if c == nil {
+		return ""
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.sample
 }
 
 // openCache binds the run key and manifest to the cache begun before
@@ -165,12 +210,12 @@ func beginCache(configuration discovery.Configuration, settings settings) *verdi
 		return nil
 	}
 
-	stamps, err := stampClosureTree(configuration.ClosureRoot)
+	stamps, chain, err := stampClosureTree(configuration.ClosureRoot)
 	if err != nil {
 		return nil
 	}
 
-	return &verdictCache{store: verdicts, stamps: stamps}
+	return &verdictCache{store: verdicts, stamps: stamps, chain: chain}
 }
 
 // envComponent is the key-component kind the keyed environment

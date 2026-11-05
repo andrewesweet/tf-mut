@@ -5,9 +5,13 @@ package engine
 // is taken once, and the sandboxes read the live closure root afterwards, so
 // an edit landing between key time and persist files the changed tree's
 // verdicts under the unchanged tree's key — and a later run on the restored
-// tree replays them. These stamps close the hole at the persist end: what
-// the sandboxes take is recorded at key time and re-checked immediately
-// before anything is stored.
+// tree replays them. Two witnesses close the hole. The persist stamps record
+// what the sandboxes take at key time and re-check immediately before
+// anything is stored. The resolution chain records only the device and inode
+// of every directory the root's path resolves through, sampled at each
+// mutant's evaluation: a wholesale swap of an ancestor — even one restored
+// before persist — puts another directory's identity at the same path, which
+// no amount of sibling churn in unrelated shared parents can imitate.
 
 import (
 	"errors"
@@ -56,14 +60,30 @@ var skippedClosureNames = map[string]bool{
 	sandbox.CacheDirName: true,
 }
 
+// chainStamp is one resolution-path directory's identity: device and inode
+// alone. Content and times are the persist stamps' business; the chain
+// witness answers exactly one question — is the directory now at this path
+// the directory that was there at key time?
+type chainStamp struct {
+	device uint64
+	inode  uint64
+}
+
 // stampClosureTree records a stamp for every entry of the closure root the
 // mutant sandboxes take: every non-directory entry the walk yields, and the
 // directories themselves, whose stamps move when a sibling is added,
-// renamed or removed without any recorded file's moving.
-func stampClosureTree(root string) (map[string]closureStamp, error) {
+// renamed or removed without any recorded file's moving. Components above
+// the root are recorded only where the resolution runs through them — a
+// symlink, or the resolved target itself — so unrelated activity in shared
+// parents cannot refuse a sound cache write. Alongside the stamps it
+// returns the resolution chain: device and inode for every component the
+// root's path resolves through, ancestors included, for the mid-run
+// sampling that catches a swap of any ancestor.
+func stampClosureTree(root string) (map[string]closureStamp, map[string]chainStamp, error) {
 	stamps := map[string]closureStamp{}
-	if err := stampDereference(root, root, stamps); err != nil {
-		return nil, fmt.Errorf("stamping the input closure: %w", err)
+	chain := map[string]chainStamp{}
+	if err := stampDereference(root, root, stamps, chain); err != nil {
+		return nil, nil, fmt.Errorf("stamping the input closure: %w", err)
 	}
 
 	walk := func(path string, entry fs.DirEntry, walkErr error) error {
@@ -98,22 +118,46 @@ func stampClosureTree(root string) (map[string]closureStamp, error) {
 		if _, recorded := stamps[key]; !recorded {
 			stamps[key] = stamp
 		}
+		recordChain(chain, root, path, info)
 
 		if info.Mode()&os.ModeSymlink != 0 {
-			return stampDereference(root, path, stamps)
+			return stampDereference(root, path, stamps, chain)
 		}
 
 		return nil
 	}
 
 	if err := filepath.WalkDir(root, walk); err != nil {
-		return nil, fmt.Errorf("stamping the input closure: %w", err)
+		return nil, nil, fmt.Errorf("stamping the input closure: %w", err)
 	}
 
-	return stamps, nil
+	return stamps, chain, nil
 }
 
-func stampDereference(root, path string, stamps map[string]closureStamp) error {
+// recordChain notes one component's device and inode under its path
+// relative to the closure root. The first record wins: the resolution walk
+// revisits shared components across symlinks, and every visit stats the
+// same live directory.
+func recordChain(chain map[string]chainStamp, root, path string, info os.FileInfo) {
+	relative, err := filepath.Rel(root, path)
+	if err != nil {
+		return
+	}
+
+	key := filepath.ToSlash(relative)
+	if _, recorded := chain[key]; recorded {
+		return
+	}
+
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return
+	}
+
+	chain[key] = chainStamp{device: stat.Dev, inode: stat.Ino}
+}
+
+func stampDereference(root, path string, stamps map[string]closureStamp, chain map[string]chainStamp) error {
 	const maxSymlinkHops = 255
 
 	current := string(filepath.Separator)
@@ -125,17 +169,9 @@ func stampDereference(root, path string, stamps map[string]closureStamp) error {
 		if err != nil {
 			return err
 		}
-		stamp, recorded := stampOf(info)
-		if !recorded {
-			return fmt.Errorf("%w: %s", errUnstampableEntry, current)
-		}
-		relative, err := filepath.Rel(root, current)
-		if err != nil {
+		recordChain(chain, root, current, info)
+		if err := recordPersistStamp(stamps, root, current, info, len(pending) == 0); err != nil {
 			return err
-		}
-		key := filepath.ToSlash(relative)
-		if _, recorded := stamps[key]; !recorded {
-			stamps[key] = stamp
 		}
 
 		if info.Mode()&os.ModeSymlink != 0 {
@@ -163,6 +199,45 @@ func stampDereference(root, path string, stamps map[string]closureStamp) error {
 	}
 }
 
+// recordPersistStamp records one resolution component's change stamp where
+// the persist stamps cover it. A component above the closure root is
+// recorded only where the resolution runs through it: a symlink, whose
+// retargeting mid-run changes what the closure entries resolve to, or the
+// resolved target itself, the content a mutant sandbox reads. Intermediate
+// plain ancestors are pass-through — shared temporary parents, the user's
+// home — and churn there from unrelated activity must not refuse a sound
+// cache write. A wholesale swap of a plain ancestor is still caught, by the
+// resolution chain's inode sampling and by the closure root's own stamp,
+// which the swapped-in tree cannot preserve.
+func recordPersistStamp(
+	stamps map[string]closureStamp,
+	root, current string,
+	info os.FileInfo,
+	last bool,
+) error {
+	relative, err := filepath.Rel(root, current)
+	if err != nil {
+		return err
+	}
+
+	key := filepath.ToSlash(relative)
+	above := strings.HasPrefix(key, "..")
+	if above && info.Mode()&os.ModeSymlink == 0 && !last {
+		return nil
+	}
+
+	stamp, recorded := stampOf(info)
+	if !recorded {
+		return fmt.Errorf("%w: %s", errUnstampableEntry, current)
+	}
+
+	if _, already := stamps[key]; !already {
+		stamps[key] = stamp
+	}
+
+	return nil
+}
+
 // closureMoved re-checks every recorded stamp and reports the first relative
 // path whose stamp no longer holds — an edited file, a replaced one, a
 // vanished one, or a directory whose entry set changed. Sorted order makes
@@ -186,6 +261,39 @@ func closureMoved(root string, stamps map[string]closureStamp) (string, bool) {
 
 		stamp, recorded := stampOf(info)
 		if !recorded || stamps[relative].differs(stamp) {
+			return relative, true
+		}
+	}
+
+	return "", false
+}
+
+// chainMoved re-checks the resolution chain and reports the first component
+// whose device or inode no longer holds — the signature of a wholesale
+// swap: another directory now sits at the path the closure resolves
+// through, whether or not a later stage put the original back. Sorted order
+// makes the answer deterministic, and an unreadable path is a moved one:
+// any doubt is a miss. Times and sizes are deliberately not compared —
+// sibling churn in a shared parent moves a directory's metadata without
+// moving its identity, and that churn is not the tree's.
+func chainMoved(root string, chain map[string]chainStamp) (string, bool) {
+	paths := make([]string, 0, len(chain))
+	for path := range chain {
+		paths = append(paths, path)
+	}
+
+	slices.Sort(paths)
+
+	for _, relative := range paths {
+		path := filepath.Join(root, filepath.FromSlash(relative))
+
+		info, err := os.Lstat(path)
+		if err != nil {
+			return relative, true
+		}
+
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || chain[relative].device != stat.Dev || chain[relative].inode != stat.Ino {
 			return relative, true
 		}
 	}

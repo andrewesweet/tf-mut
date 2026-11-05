@@ -914,8 +914,15 @@ func executeWithCache(
 		// the window they guard is the one the write happens in. A run whose
 		// tree moved after key time stores nothing: its key describes the
 		// key-time tree, and these verdicts were earned by another. The
-		// in-flight report itself is not repaired; the notice marks it.
-		if at, moved := closureMoved(plan.configuration.ClosureRoot, cache.stamps); moved {
+		// in-flight report itself is not repaired; the notice marks it. The
+		// mid-run samples speak first: they are the earliest witness, and a
+		// swap they caught may since have been restored, leaving both
+		// re-checks clean while the verdicts remain another tree's.
+		if at := cache.sampledChange(); at != "" {
+			result.Warnings = append(result.Warnings, closureChangedWarning(at))
+		} else if at, moved := closureMoved(plan.configuration.ClosureRoot, cache.stamps); moved {
+			result.Warnings = append(result.Warnings, closureChangedWarning(at))
+		} else if at, moved := chainMoved(plan.configuration.ClosureRoot, cache.chain); moved {
 			result.Warnings = append(result.Warnings, closureChangedWarning(at))
 		} else {
 			cache.persist(evaluated.rows, evaluated.classified)

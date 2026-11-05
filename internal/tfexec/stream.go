@@ -14,6 +14,9 @@ import (
 
 // ErrMalformedStream reports output the decoder could not read to the end.
 //
+// A stream that ends between messages ended; one that ends after a message's
+// opening token was read did not, and is reported here.
+//
 // It is never a verdict: a mutant whose stream was truncated has not been
 // evaluated, and reporting it as a survivor would invent a result.
 var ErrMalformedStream = errors.New("terraform output could not be decoded")
@@ -229,14 +232,13 @@ func decodeTestStream(reader io.Reader) (TestResult, error) {
 // shouldArm. When shouldArm first accepts a run — the caller's own decision,
 // the failing-run arm — the decoder keeps reading: the arming run's assertion
 // diagnostics follow its completion message in the stream, and a stop that
-// dropped them would silence the very evidence the oracle judges. The first
-// later message that carries neither a run outcome, nor a diagnostic, nor a
-// payload proves that burst is over (a completed apply run's teardown, a plan
-// run's successor's start); the decoder records StoppedOnFail, calls onFire —
-// the caller ends the child there — and returns, so the record holds the
-// runs before the stop and the evidence of the run that decided it, and
-// nothing the stopped invocation would have added. A stop is deliberate,
-// never a truncation error: no error is reported for the unread tail.
+// dropped them would silence the very evidence the oracle judges. The burst
+// ends only at the arming run's file completion.
+// The decoder then records StoppedOnFail, calls onFire — the caller ends the
+// child there — and returns, so the record holds the runs before the stop and
+// the evidence of the run that decided it, and nothing the stopped invocation
+// would have added. A stop is deliberate, never a truncation error: no error
+// is reported for the unread tail.
 func decodeTestStreamStopping(reader io.Reader, shouldArm func(RunOutcome) bool, onFire func()) (TestResult, error) {
 	result := TestResult{
 		Runs:          []RunOutcome{},
@@ -255,20 +257,19 @@ func decodeTestStreamStopping(reader io.Reader, shouldArm func(RunOutcome) bool,
 	// neither outlives the stream.
 	clock := newStreamClock()
 
-	// armed marks a run outcome shouldArm accepted whose assertion
-	// diagnostics the stream may still owe. Their burst ends at the first
-	// later message that appended neither a diagnostic nor a payload.
 	armed := false
+	armedFile := ""
 
 	decoder := json.NewDecoder(newSchemaFilter(reader))
 	decoder.UseNumber()
 
 	for {
 		priorRuns := len(result.Runs)
-		priorDiagnostics := len(result.Diagnostics)
-		priorPayloads := len(result.Payloads)
-
-		if err := decodeMessage(decoder, &result, clock); err != nil {
+		found, err := decodeMessage(decoder, &result, clock)
+		if err != nil {
+			// Only an end of input before a message begins is the stream's
+			// own end; decodeMessage reports one inside a message as an
+			// unexpected EOF, which falls through to the malformed class.
 			if errors.Is(err, io.EOF) {
 				return result, nil
 			}
@@ -278,12 +279,12 @@ func decodeTestStreamStopping(reader io.Reader, shouldArm func(RunOutcome) bool,
 
 		if shouldArm != nil && !armed && len(result.Runs) > priorRuns && shouldArm(result.Runs[len(result.Runs)-1]) {
 			armed = true
+			armedFile = result.Runs[len(result.Runs)-1].File
 
 			continue
 		}
 
-		if armed && !result.StoppedOnFail &&
-			len(result.Diagnostics) == priorDiagnostics && len(result.Payloads) == priorPayloads {
+		if armed && found.timing != nil && found.timing.File == armedFile {
 			result.StoppedOnFail = true
 
 			if onFire != nil {
@@ -360,31 +361,59 @@ type message struct {
 	timing    *FileTiming
 }
 
-func decodeMessage(decoder *json.Decoder, result *TestResult, clock *streamClock) error {
+// decodeMessage reads one message and attaches what it carried to result. An
+// end of input before its opening token is the stream's own end and stays
+// io.EOF; one that arrives after it means the stream stopped partway through a
+// message, and classifyInsideMessage marks it as such. The decoded message is
+// returned so the caller can judge the burst boundary from the event itself.
+func decodeMessage(decoder *json.Decoder, result *TestResult, clock *streamClock) (message, error) {
 	if err := expectDelim(decoder, '{'); err != nil {
-		return err
+		return message{}, err
 	}
 
+	found, err := readMessageBody(decoder, clock)
+	if err != nil {
+		return message{}, classifyInsideMessage(err)
+	}
+
+	attach(found, result)
+
+	return found, nil
+}
+
+// readMessageBody reads the members of the object whose opening token the
+// caller has consumed, and returns what they carried.
+func readMessageBody(decoder *json.Decoder, clock *streamClock) (message, error) {
 	found := message{}
 
 	for decoder.More() {
 		key, err := readKey(decoder)
 		if err != nil {
-			return err
+			return message{}, err
 		}
 
 		if err := decodeMember(decoder, key, &found, clock); err != nil {
-			return err
+			return message{}, err
 		}
 	}
 
 	if err := expectDelim(decoder, '}'); err != nil {
-		return err
+		return message{}, err
 	}
 
-	attach(found, result)
+	return found, nil
+}
 
-	return nil
+// classifyInsideMessage reports an end of input met after a message's opening
+// token as io.ErrUnexpectedEOF: the stream stopped partway through a message
+// rather than between two, and the outer loop turns that into
+// ErrMalformedStream.
+func classifyInsideMessage(err error) error {
+	if errors.Is(err, io.EOF) {
+		return io.ErrUnexpectedEOF
+	}
+
+	return err
 }
 
 func decodeMember(decoder *json.Decoder, key string, found *message, clock *streamClock) error {

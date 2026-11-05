@@ -268,6 +268,17 @@ func timeoutBudget(settings settings, baseline time.Duration) time.Duration {
 	return scaled
 }
 
+// sampleResolutionChain is the per-mutant half of the cache guard: an
+// ancestor swapped under the run changes the directory sitting at a chain
+// path, and the store is refused at persist even if a later stage restores
+// the original. A plain directory's identity is untouched by sibling churn
+// elsewhere, so unrelated activity in shared parents stays silent. It runs
+// before the sandbox is materialised — the earliest point this mutant could
+// observe the tree, and before any staged edit the run lifecycle applies.
+func sampleResolutionChain(plan executionPlan) {
+	plan.prepared.cache.sampleChain(plan.configuration.ClosureRoot)
+}
+
 // evaluate performs one mutant's evaluation. The mutant's telemetry is
 // always recorded, and the report's execution errors are events on the
 // mutant's span — registered after the finish bracket, so they run first,
@@ -281,6 +292,8 @@ func evaluate(
 	index int,
 	budget time.Duration,
 ) (verdict report.Mutant, outcome oracle.Outcome, failure *report.ExecutionError) {
+	sampleResolutionChain(plan)
+
 	verdict = plan.described[index]
 
 	// The mutant's own record: always on, published beside the numbers, and

@@ -20,6 +20,15 @@ import (
 // decodeTestStream, kept so that the production decoder can be compared
 // against the behaviour it replaced on arbitrary input — recorded streams,
 // synthetic edge cases, every truncation of both, and fuzzed bytes.
+//
+// One rule is not frozen: the stream framing that decides whether an end of
+// input finished the stream. That rule was wrong in the copy as well — it
+// accepted an end of input inside an unfinished message as completion — and it
+// is the production decoder's contract tests (`stream_test.go`), not this
+// oracle, that pin what it should be. The copy carries the corrected rule so
+// that both sides of every comparison frame the stream alike, leaving the
+// filter's own effect — the events decoded and the positions it skips at — as
+// the only thing this oracle measures.
 
 func refDecodeTestStream(reader io.Reader) (TestResult, error) {
 	result := TestResult{
@@ -105,6 +114,14 @@ func refDecodeMessage(decoder *json.Decoder, result *TestResult, clock *refStrea
 		return err
 	}
 
+	if err := refReadMessageBody(decoder, result, clock); err != nil {
+		return refClassifyInsideMessage(err)
+	}
+
+	return nil
+}
+
+func refReadMessageBody(decoder *json.Decoder, result *TestResult, clock *refStreamClock) error {
 	found := refMessage{}
 
 	for decoder.More() {
@@ -125,6 +142,16 @@ func refDecodeMessage(decoder *json.Decoder, result *TestResult, clock *refStrea
 	refAttach(found, result)
 
 	return nil
+}
+
+// refClassifyInsideMessage is the framing rule the production decoder applies:
+// an end of input after a message's opening token is truncation.
+func refClassifyInsideMessage(err error) error {
+	if errors.Is(err, io.EOF) {
+		return io.ErrUnexpectedEOF
+	}
+
+	return err
 }
 
 func refDecodeMember(decoder *json.Decoder, key string, found *refMessage, clock *refStreamClock) error {
