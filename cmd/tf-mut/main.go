@@ -875,19 +875,21 @@ func publish(stdout, stderr io.Writer, parsed options, result report.Report, run
 	if runErr != nil {
 		receipt, committed := result.Interrupt(runErr)
 		if !committed {
-			return fail(stderr, "tf-mut: "+renderError(runErr))
+			return fail(stderr, renderMessage(result, renderError(runErr)))
 		}
 
-		_, stderrErr := fmt.Fprintf(stderr,
-			"tf-mut: interrupted: %s; written before the interruption: %s; this is not a score\n",
-			receipt.Interrupted.Reason, strings.Join(receipt.Interrupted.CommittedWrites, ", "))
+		message := fmt.Sprintf(
+			"interrupted: %s; written before the interruption: %s; this is not a score",
+			receipt.Interrupted.Reason, strings.Join(receipt.Interrupted.CommittedWrites, ", "),
+		)
+		_, stderrErr := fmt.Fprintln(stderr, renderMessage(receipt, message))
 		renderErr := render(stdout, parsed, receipt)
 
-		return fail(stderr, renderMessage(receipt, errors.Join(runErr, stderrErr, renderErr)))
+		return fail(stderr, renderMessage(receipt, errors.Join(runErr, stderrErr, renderErr).Error()))
 	}
 
 	if err := render(stdout, parsed, result); err != nil {
-		return fail(stderr, renderMessage(result, err))
+		return fail(stderr, renderMessage(result, err.Error()))
 	}
 
 	return result.ExitCode(parsed.gate)
@@ -896,8 +898,8 @@ func publish(stdout, stderr io.Writer, parsed options, result report.Report, run
 // renderMessage prefixes a rendering failure with the run identifier, so a line
 // the reporter could not write is attributable to the run that tried to write
 // it.
-func renderMessage(result report.Report, err error) string {
-	message := "tf-mut: " + strings.TrimRight(err.Error(), "\n")
+func renderMessage(result report.Report, message string) string {
+	message = "tf-mut: " + strings.TrimRight(message, "\n")
 	if result.Telemetry != nil {
 		prefix := "[" + result.Telemetry.RunID + "] "
 		message = prefix + strings.ReplaceAll(message, "\n", "\n"+prefix)

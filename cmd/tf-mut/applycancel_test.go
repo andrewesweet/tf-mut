@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -227,6 +228,31 @@ func (applyCancelFailWriter) Write([]byte) (int, error) {
 	return 0, io.ErrClosedPipe
 }
 
+func TestCancellationWithoutWritesKeepsTheRunIdentifier(t *testing.T) {
+	t.Parallel()
+
+	staged := applyCancelStage(t)
+	parsed, parseErr := parse(suggestCommand, "dev", []string{
+		dryRunFlag, noCacheFlag, "--" + jobsFlag, "1", staged.module,
+	}, io.Discard)
+	if parseErr != nil {
+		t.Fatalf("parsing dry-run suggestion: %v", parseErr)
+	}
+	result, runErr := engine.Run(t.Context(), parsed.config)
+	if runErr != nil {
+		t.Fatalf("running dry-run suggestion: %v", runErr)
+	}
+	var stdout, stderr bytes.Buffer
+	code := publish(&stdout, &stderr, parsed, result, context.Canceled)
+	if code != report.ExitOperational || stdout.Len() != 0 {
+		t.Fatalf("cancellation without writes published a report: exit %d, stdout %s", code, &stdout)
+	}
+	if got := readIfPresent(t, staged.target); got != staged.original {
+		t.Fatal("dry-run suggestion changed its source test file")
+	}
+	assertPublicationRunID(t, result, stderr.String())
+}
+
 func assertIndependentReceiptOutputs(t *testing.T, parsed options, result report.Report, failure string) {
 	t.Helper()
 
@@ -248,7 +274,8 @@ func assertIndependentReceiptOutputs(t *testing.T, parsed options, result report
 	if failure == applyCancelStderrFailure {
 		stderrWriter = applyCancelFailWriter{}
 	}
-	if code := publish(stdoutWriter, stderrWriter, parsed, result, context.Canceled); code != report.ExitOperational {
+	runErr := fmt.Errorf("%w\npublication stopped", context.Canceled)
+	if code := publish(stdoutWriter, stderrWriter, parsed, result, runErr); code != report.ExitOperational {
 		t.Fatalf("interrupted invocation exits %d, want %d", code, report.ExitOperational)
 	}
 	if failure != applyCancelStdoutFailure {
@@ -256,6 +283,7 @@ func assertIndependentReceiptOutputs(t *testing.T, parsed options, result report
 	}
 	if failure != applyCancelStderrFailure {
 		assertTextInterruptionReceipt(t, stderr.String())
+		assertPublicationRunID(t, result, stderr.String())
 	}
 	if failure == applyCancelStdoutFailure && !strings.Contains(stderr.String(), io.ErrClosedPipe.Error()) {
 		t.Fatalf("stdout failure was not reported: %s", &stderr)
@@ -267,6 +295,20 @@ func assertIndependentReceiptOutputs(t *testing.T, parsed options, result report
 		assertInterruptedReceipt(t, "the first artefact", readIfPresent(t, firstPath))
 	}
 	assertInterruptedReceipt(t, "the last artefact", readIfPresent(t, receiptPath))
+}
+
+func assertPublicationRunID(t *testing.T, result report.Report, output string) {
+	t.Helper()
+
+	if result.Telemetry == nil || result.Telemetry.RunID == "" {
+		t.Fatal("the invocation has no telemetry identifier")
+	}
+	prefix := "[" + result.Telemetry.RunID + "] "
+	for line := range strings.SplitSeq(strings.TrimSuffix(output, "\n"), "\n") {
+		if !strings.HasPrefix(line, prefix) {
+			t.Fatalf("publication line lacks the report's prefix %q: %q", prefix, line)
+		}
+	}
 }
 
 func TestInterruptedWritesSuppressFormatsWithoutReceipts(t *testing.T) {
