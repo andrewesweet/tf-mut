@@ -911,9 +911,9 @@ func executeWithCache(
 	storePhase := plan.collector.phase(phaseCacheStore)
 	if cache != nil {
 		// The stamps are re-checked here — immediately before persist — so
-		// the window they guard is the one the write happens in. A run whose
-		// tree moved after key time stores nothing: its key describes the
-		// key-time tree, and these verdicts were earned by another. The
+		// the window they guard is the one the write happens in. A detected
+		// tree change after stamp capture refuses persistence: the key may
+		// no longer describe the tree these verdicts were earned on. The
 		// in-flight report itself is not repaired; the notice marks it. The
 		// mid-run samples speak first: they are the earliest witness, and a
 		// swap they caught may since have been restored, leaving both

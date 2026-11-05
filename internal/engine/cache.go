@@ -117,10 +117,10 @@ type verdictCache struct {
 	key    string
 	stamps map[string]closureStamp
 	// chain is the resolution path's device-and-inode table: every
-	// component the closure root's path resolves through, sampled at each
-	// mutant's evaluation. An ancestor swap observed by a sample refuses
-	// the store even if restored before persist; swaps fully restored
-	// between samples can leave both witnesses clean. sample carries the
+	// component the closure root's path and symlinked entries resolve
+	// through, sampled at each mutant's evaluation. An observed ancestor
+	// swap refuses the store even if restored before persist; swaps fully
+	// restored between samples can leave both witnesses clean. sample carries the
 	// first move sampled; mu guards it, since workers sample concurrently.
 	chain  map[string]chainStamp
 	sample string

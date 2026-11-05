@@ -159,8 +159,6 @@ func terraformEnv(t *testing.T) []string {
 		// Terraform's plugin cache is not safe for concurrent writers, and
 		// these tests run in parallel; each gets its own.
 		"TF_PLUGIN_CACHE_DIR=" + t.TempDir(),
-		// Keep Terraform's temporary-file churn away from the stamped
-		// ancestors of the input module.
 		"TMPDIR=" + t.TempDir(),
 	}
 
