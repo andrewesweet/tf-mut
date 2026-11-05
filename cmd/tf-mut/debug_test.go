@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/report"
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
 )
 
 const (
@@ -20,13 +21,12 @@ const (
 )
 
 func TestCacheDebugLogsAreReachableThroughTheCLI(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	for _, command := range []string{runCommand, suggestCommand} {
 		t.Run(command, func(t *testing.T) {
-			t.Parallel()
-
 			module := fixture(t)
+			t.Setenv("TMPDIR", t.TempDir())
 			for invocation, enabled := range []bool{false, true, true} {
 				decoded, logs := runCacheDebugCLI(t, command, module, enabled)
 				if len(decoded.Mutants) == 0 {

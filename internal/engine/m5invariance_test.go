@@ -443,6 +443,7 @@ func workingTreeIsClean(t *testing.T, root string) bool {
 func archiveCommit(t *testing.T, root, commit, target string) {
 	t.Helper()
 
+	root = strings.TrimSpace(gitStdout(t, root, "rev-parse", "--show-toplevel"))
 	archive := filepath.Join(t.TempDir(), "base.tar")
 	gitStdout(t, root, "archive", "--format=tar", "-o", archive, commit)
 

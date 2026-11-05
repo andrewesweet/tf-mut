@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/andrewesweet/tf-mut/internal/discovery"
 	"github.com/andrewesweet/tf-mut/internal/oracle"
@@ -70,9 +71,12 @@ import (
 // reach the child, so they no longer enter the key. A stored verdict was
 // computed under the wider child environment, so it replays as a miss and
 // is re-executed, not trusted across the change.
-// The tf-mut-cache-16 bump rejects earlier fail-fast evidence that could
-// omit the arming run's assertion diagnostics when run events interleave.
-const cacheFormatVersion = "tf-mut-cache-16"
+// The tf-mut-cache-18 bump invalidates entries predating the split-witness
+// closure guard: their keys need not describe the inputs their
+// sandboxes consumed, even when the current tree is stable. It also rejects
+// earlier fail-fast evidence that could omit the arming run's assertion
+// diagnostics when run events interleave.
+const cacheFormatVersion = "tf-mut-cache-18"
 
 const cacheManifestFormatVersion = cacheFormatVersion + "-env-2"
 
@@ -109,8 +113,18 @@ type VerdictStore interface {
 // wiring selected. Everything here judges stored entries; everything on
 // disk happens behind the store.
 type verdictCache struct {
-	store VerdictStore
-	key   string
+	store  VerdictStore
+	key    string
+	stamps map[string]closureStamp
+	// chain is the resolution path's device-and-inode table: every
+	// component the closure root's path and symlinked entries resolve
+	// through, sampled at each mutant's evaluation. An observed ancestor
+	// swap refuses the store even if restored before persist; swaps fully
+	// restored between samples can leave both witnesses clean. sample carries the
+	// first move sampled; mu guards it, since workers sample concurrently.
+	chain  map[string]chainStamp
+	sample string
+	mu     sync.Mutex
 	// manifest is this run's key beside its environment digest and
 	// per-variable environment map. The store writes it next to
 	// the entries; a later run whose key misses diffs it to explain an
@@ -118,20 +132,71 @@ type verdictCache struct {
 	manifest store.CacheManifest
 }
 
-// openCache computes the run key and opens the project-local cache. It
-// returns nil — no reads, no writes — under either unsafe opt-in, under
-// --no-cache, or where the cache location cannot be used safely.
+// sampleChain re-checks the resolution chain once per mutant evaluation.
+// The first move wins and is kept: a swap caught mid-flight refuses the
+// store even when a later stage restores the original directory, which the
+// persist-time re-check alone cannot see.
+func (c *verdictCache) sampleChain(root string) {
+	if c == nil {
+		return
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.sample != "" {
+		return
+	}
+
+	if at, moved := chainMoved(root, c.chain); moved {
+		c.sample = at
+	}
+}
+
+// sampledChange reports the first resolution-chain move the run sampled,
+// or the empty string when every sample held.
+func (c *verdictCache) sampledChange() string {
+	if c == nil {
+		return ""
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.sample
+}
+
+// openCache binds the run key and manifest to the cache begun before
+// rediscovery and warm-up consume the closure. A missing guard or an
+// uncomputable key disables both reads and writes.
 func openCache(
 	configuration discovery.Configuration,
 	settings settings, prepared warmWorkspace,
 	terraform tfexec.Version,
 ) *verdictCache {
-	if settings.NoCache || settings.AllowRealInfrastructure || settings.AllowUnsandboxedEffects {
+	cache := prepared.cache
+	if cache == nil {
 		return nil
 	}
 
 	key, manifest, err := cacheKey(configuration, settings, prepared, terraform)
 	if err != nil {
+		return nil
+	}
+
+	cache.key, cache.manifest = key, manifest
+
+	return cache
+}
+
+// beginCache opens the store before capturing stamps, so the cache
+// directory's creation cannot invalidate the closure root's stamp.
+// Unsafe opt-ins, --no-cache and an unstampable closure disable caching.
+func beginCache(configuration discovery.Configuration, settings settings) *verdictCache {
+	if settings.mode != gradeMode && settings.mode != suggestMode && settings.mode != curateMode {
+		return nil
+	}
+	if settings.NoCache || settings.AllowRealInfrastructure || settings.AllowUnsandboxedEffects {
 		return nil
 	}
 
@@ -146,7 +211,12 @@ func openCache(
 		return nil
 	}
 
-	return &verdictCache{store: verdicts, key: key, manifest: manifest}
+	stamps, chain, err := stampClosureTree(configuration.ClosureRoot)
+	if err != nil {
+		return nil
+	}
+
+	return &verdictCache{store: verdicts, stamps: stamps, chain: chain}
 }
 
 // envComponent is the key-component kind the keyed environment

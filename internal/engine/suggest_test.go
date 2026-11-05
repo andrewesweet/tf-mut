@@ -607,7 +607,7 @@ func assertNoMaskControlByte(t *testing.T, result report.Report) {
 }
 
 func TestVolatileEvidenceIsSafeAcrossReportsAndCacheReplay(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, suggestBasicFixture)
 	const source = `resource "terraform_data" "app" {
@@ -685,8 +685,9 @@ output "asserted" {
 	assertPinnedOutputAssertions(t, pinned.Characterisation.Pins, map[string]string{"output.ignored": want})
 }
 
+//nolint:paralleltest // subtests share process-wide TMPDIR set with t.Setenv.
 func TestOutputValueSelectionUsesCompleteDelta(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	for _, test := range []struct {
 		fixture  string
@@ -697,8 +698,6 @@ func TestOutputValueSelectionUsesCompleteDelta(t *testing.T) {
 		{fixture: suggestOutputLaterRunFixture, operator: "COND-TRUE", run: "second"},
 	} {
 		t.Run(test.fixture, func(t *testing.T) {
-			t.Parallel()
-
 			request := dryRunRequest(t, copyFixture(t, test.fixture))
 			request.Tier = standardTier
 			request.IncludeOperators = []string{test.operator}

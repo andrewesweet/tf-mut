@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
+
 	"github.com/andrewesweet/tf-mut/internal/engine"
 )
 
@@ -32,9 +34,8 @@ const secondTerraformArchiveSHA256 = "73bbb8f5188ad75d4fb853fd100ae4d7e146ef7af7
 
 // It downloads a release archive; nothing else should share the network
 // budget.
-//
-//nolint:paralleltest // downloads and caches a release archive serially.
 func TestTerraformIdentityIsAKeyDimension(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	requireRealInfrastructureOptIn(t)
 
 	module := copyFixture(t, "all-killed")

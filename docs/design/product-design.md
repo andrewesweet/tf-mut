@@ -260,7 +260,8 @@ Per mutant, in parallel across up to `--jobs` workers (see [parallelism defaults
 1. Materialise a sandbox rooted at the **`..`-closure of local module sources** (the review's
    M6: a `source = "../shared"` — the standard monorepo layout — escapes a sandbox rooted at
    the module directory and fails with "Module not installed"; `fixture-c` only proved the
-   downward case). Unmutated regular Terraform input files are hardlinked when possible.
+   downward case). Unmutated regular Terraform input files are hardlinked when possible,
+   except when the [cache guard](#10-ci-integration) requires copies.
    Other unmutated files are copied. Symlinked source files are materialised from their
    target's contents under the link's own name. Reflinks and overlay mounts remain planned
    optimisations for large closures. The sandbox gets its **own `.terraform` directory**
@@ -864,6 +865,34 @@ fingerprint — any doubt is a miss, and cache reads and writes are disabled und
 `--allow-real-infrastructure` and `--allow-unsandboxed-effects`, whose external state cannot
 be keyed soundly. The [replay note](../research/25-child-environment-cache-key.md) publishes
 the method, inputs, per-transition results and limits behind the key.
+
+Before deriving the key, tf-mut records each closure entry's device, inode, size,
+modification time and change time (ctime). These persist stamps cover the closure root and
+everything below it, except `.terraform`, `.git` and `.tf-mut-cache` entries. They also cover
+resolution-path components outside the closure where those components are symlinks or the
+resolved target, including paths reached through symlinked closure entries. Plain intermediate
+ancestors carry no persist stamp, so unrelated activity in shared parents does not refuse a
+cache write. Mutant sandboxes copy unmutated files while this guard is active, because
+creating or removing hardlinks changes the source inode's ctime. tf-mut creates the run
+workspace before recording the stamps. It rechecks every persist stamp before cache replay
+and immediately before persistence. A separate resolution chain records the device and inode
+of every component the closure root's path resolves through, plus the resolution paths of
+symlinked closure entries. tf-mut samples this chain at each mutant's evaluation, before
+materialising its sandbox, and rechecks it before persistence. If any sample detects a
+wholesale ancestor swap, the run refuses persistence even if the original ancestor is
+restored before persistence.
+
+If either witness detects a change or an unreadable path, the run stores no verdicts and
+adds a report warning naming the first detected changed path. A persist-stamp change detected
+before replay also disables cache reads. The warning does not repair the in-flight report;
+rerun against a stable tree. Two accepted residuals remain: a same-inode edit-and-restore that
+preserves size and every recorded timestamp, including ctime, and an ancestor swap staged
+and fully restored between two consecutive per-mutant samples that leaves the persist stamps
+unchanged. In both cases, both witnesses remain clean and the run can persist verdicts under
+the original key despite a sandbox having consumed different bytes.
+The guard and its engine-seam regressions live in
+[`closurestamp.go`](../../internal/engine/closurestamp.go) and
+[`cache_test.go`](../../internal/engine/cache_test.go).
 
 Each entry stores the oracle's own record, including its full delta, alongside the run
 observations. Replay rebuilds the outcome through `oracle.ParseRecord` and uses the same

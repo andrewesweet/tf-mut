@@ -24,6 +24,7 @@ import (
 // source tree is never written to: the warm workspace absorbs those writes, and
 // its provider tree and module payloads are then shared read-only.
 type warmWorkspace struct {
+	cache            *verdictCache
 	moduleDir        string
 	dataDir          string
 	lockFile         string

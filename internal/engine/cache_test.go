@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
@@ -37,6 +38,9 @@ func cachedRun(t *testing.T, config engine.RunRequest) report.Report {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
+	if len(result.Warnings) > 0 {
+		t.Logf("run warnings: %v", result.Warnings)
+	}
 
 	return result
 }
@@ -48,11 +52,19 @@ func cacheDir(module string) string {
 // discriminateFixture is the two-module fixture the dimension cases share.
 const discriminateFixture = "discriminate"
 
+const (
+	plainCase          = "plain"
+	relativePathCase   = "relative"
+	absolutePathCase   = "absolute"
+	chainedPathCase    = "chained"
+	nestedAdditionCase = "nested-addition"
+)
+
 // TestASecondUnchangedRunIsAllCacheHits is the demo case, and pins the
 // determinism criterion: unchanged inputs, identical population, every
 // executed verdict replayed and marked, and verdict invariance holds.
 func TestASecondUnchangedRunIsAllCacheHits(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -66,7 +78,8 @@ func TestASecondUnchangedRunIsAllCacheHits(t *testing.T) {
 	second := cachedRun(t, config)
 
 	if second.Population.Cached == 0 || second.Population.Fresh != 0 {
-		t.Fatalf("the second unchanged run was not all cache hits: %+v", second.Population)
+		t.Fatalf("the second unchanged run was not all cache hits: %+v; warnings %v; previous warnings %v",
+			second.Population, second.Warnings, first.Warnings)
 	}
 
 	for _, mutant := range second.Mutants {
@@ -91,7 +104,7 @@ func TestASecondUnchangedRunIsAllCacheHits(t *testing.T) {
 // the run handed Terraform — additions included, non-forwarded variables
 // stripped — and nothing else, with values as digests only.
 func TestCacheManifestStoresOnlyTheEnvironmentComponent(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -162,8 +175,10 @@ func TestCacheManifestStoresOnlyTheEnvironmentComponent(t *testing.T) {
 // stored claim's evidence, and the suppressed rows a policy removes — the
 // diagnostics and the suppression being exactly what the deleted lifting
 // helpers used to rebuild from published DTOs.
+//
+//nolint:paralleltest // subtests share process-wide TMPDIR set with t.Setenv.
 func TestACachedReplayIsByteIdenticalToTheFreshRun(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	matrix := []struct {
 		name    string
@@ -232,8 +247,6 @@ func TestACachedReplayIsByteIdenticalToTheFreshRun(t *testing.T) {
 
 	for _, entry := range matrix {
 		t.Run(entry.name, func(t *testing.T) {
-			t.Parallel()
-
 			module := copyFixture(t, entry.fixture)
 			config := entry.request(t, module)
 
@@ -256,14 +269,14 @@ func TestACachedReplayIsByteIdenticalToTheFreshRun(t *testing.T) {
 
 // previousCacheFormatVersion is the format one step behind the one this build
 // writes: an entry carrying it is a miss, never a parse error.
-const previousCacheFormatVersion = "tf-mut-cache-15"
+const previousCacheFormatVersion = "tf-mut-cache-17"
 
 // TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError is the symmetric
 // half of the format boundary: the first run after an upgrade finds every
 // entry one format behind, recomputes each verdict once, and the run still
 // publishes a well-formed report.
 func TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "skeleton")
 	config := baseConfig(t, module)
@@ -326,7 +339,7 @@ func TestAnEntryUnderThePreviousFormatVersionIsAMissNotAnError(t *testing.T) {
 }
 
 func TestPreDeadlineSurvivorVerdictsAreNotReplayed(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "skeleton")
 	request := baseConfig(t, module)
@@ -371,7 +384,7 @@ func TestPreDeadlineSurvivorVerdictsAreNotReplayed(t *testing.T) {
 }
 
 func TestPreSandboxFixInvalidVerdictsAreNotReplayed(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -437,8 +450,10 @@ func TestPreSandboxFixInvalidVerdictsAreNotReplayed(t *testing.T) {
 // TestCacheInvalidationPerKeyDimension: one fixture per key dimension. Each
 // mutation of an input must turn the whole population fresh — the coarse key
 // has no finer answer, and that is the point.
+//
+//nolint:paralleltest // subtests share process-wide TMPDIR set with t.Setenv.
 func TestCacheInvalidationPerKeyDimension(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	dimensions := map[string]func(t *testing.T, module string, config *engine.RunRequest){
 		"source-closure": func(t *testing.T, module string, _ *engine.RunRequest) {
@@ -467,8 +482,6 @@ func TestCacheInvalidationPerKeyDimension(t *testing.T) {
 
 	for name, mutate := range dimensions {
 		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-
 			fixture := discriminateFixture
 			if name == "test-files" {
 				// discriminate's test file is named differently; use a fixture
@@ -512,7 +525,7 @@ func TestCacheInvalidationPerKeyDimension(t *testing.T) {
 // the key through the masked baseline fingerprint even when no source file
 // changes — the dimension the C4 review named explicitly.
 func TestMaskedBaselineFingerprintIsAKeyDimension(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	// The volatile fixture's baseline fingerprint embeds the mask derived
 	// from two baseline runs; the fixture is deterministic in its stable
@@ -536,7 +549,7 @@ func TestMaskedBaselineFingerprintIsAKeyDimension(t *testing.T) {
 // TestCacheIsRefusedUnderTheUnsafeOptIns: external state cannot be keyed
 // soundly, so both opt-ins disable reads and writes.
 func TestCacheIsRefusedUnderTheUnsafeOptIns(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 
@@ -567,7 +580,7 @@ func TestCacheIsRefusedUnderTheUnsafeOptIns(t *testing.T) {
 // TestNoCacheDisablesReadsAndWrites is the documented mitigation for the
 // plan-values-on-disk risk.
 func TestNoCacheDisablesReadsAndWrites(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 
@@ -586,7 +599,7 @@ func TestNoCacheDisablesReadsAndWrites(t *testing.T) {
 // TestCorruptionIsAMiss: a truncated or unreadable entry never reaches a
 // verdict; the mutant simply executes again.
 func TestCorruptionIsAMiss(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -626,7 +639,7 @@ func TestCorruptionIsAMiss(t *testing.T) {
 // TestCacheEntriesAreOwnerOnly pins the 0700/0600 contract: evidence may
 // embed plan values and source text, so nothing here is group-readable.
 func TestCacheEntriesAreOwnerOnly(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	cachedRun(t, baseConfig(t, module))
@@ -665,7 +678,7 @@ func TestCacheEntriesAreOwnerOnly(t *testing.T) {
 // TestASymlinkedCacheDirectoryIsRefused: no symlink traversal — the cache
 // neither reads through nor writes through a symlinked location.
 func TestASymlinkedCacheDirectoryIsRefused(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	elsewhere := t.TempDir()
@@ -688,7 +701,7 @@ func TestASymlinkedCacheDirectoryIsRefused(t *testing.T) {
 // TestEvictionIsDeterministicAndSizeCapped: over-cap entries are removed in a
 // deterministic order, stale keys first.
 func TestEvictionIsDeterministicAndSizeCapped(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -732,7 +745,7 @@ func paddedIndex(index int) string {
 // two engines writing the same cache; both complete, the store stays
 // readable, and a third run replays it.
 func TestConcurrentInvocationsShareTheCacheSafely(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -766,7 +779,7 @@ func TestConcurrentInvocationsShareTheCacheSafely(t *testing.T) {
 // TestTheLockFileIsAKeyDimension: a lock content change invalidates the whole
 // population, even when no source file moved.
 func TestTheLockFileIsAKeyDimension(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 
@@ -791,9 +804,8 @@ func TestTheLockFileIsAKeyDimension(t *testing.T) {
 //
 // It does not run in parallel: the fixture drives git the way the remote
 // tests do, serially.
-//
-//nolint:paralleltest // shares the git fixture pattern with remote_test.go.
 func TestRemoteModulePayloadsAreAKeyDimension(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is required to build the remote-module fixture")
 	}
@@ -832,7 +844,7 @@ func TestRemoteModulePayloadsAreAKeyDimension(t *testing.T) {
 // verdicts without appearing in the source closure, so the key must hash
 // them (review of #48).
 func TestAutoVarFilesAreAKeyDimension(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -849,7 +861,7 @@ func TestAutoVarFilesAreAKeyDimension(t *testing.T) {
 // TestProviderEnvironmentIsAKeyDimension: AWS_-shaped configuration can reach
 // a verdict, so it is keyed alongside the TF_ surface.
 func TestProviderEnvironmentIsAKeyDimension(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -868,7 +880,7 @@ func TestProviderEnvironmentIsAKeyDimension(t *testing.T) {
 // directory's whole life, not only its creation — evidence may embed plan
 // values and source text.
 func TestAnExistingLooseCacheDirectoryIsCorrected(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 
@@ -899,7 +911,7 @@ func TestAnExistingLooseCacheDirectoryIsCorrected(t *testing.T) {
 // mocked run sees, and nothing else hashes them — they are in no inventory
 // and no test-file list.
 func TestMockDataFilesAreAKeyDimension(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -920,7 +932,7 @@ func TestMockDataFilesAreAKeyDimension(t *testing.T) {
 // only by the environment names the variable that differed — never its
 // value.
 func TestACacheMissCausedOnlyByTheEnvironmentNamesTheVariable(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -952,7 +964,7 @@ func TestACacheMissCausedOnlyByTheEnvironmentNamesTheVariable(t *testing.T) {
 // adding nothing, only the value differs — the miss still names the variable
 // and still withholds both values.
 func TestAChangedEnvironmentVariableIsReportedAsChanged(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -989,7 +1001,7 @@ func TestAChangedEnvironmentVariableIsReportedAsChanged(t *testing.T) {
 }
 
 func TestAnEnvironmentChangeThatChangesTheBaselineNamesTheVariable(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "operators")
 	config := baseConfig(t, module)
@@ -1032,7 +1044,7 @@ func TestAnEnvironmentChangeThatChangesTheBaselineNamesTheVariable(t *testing.T)
 // TestARemovedEnvironmentVariableIsReportedAsRemoved: the variable the first
 // run saw is gone from the second — the miss names it without its value.
 func TestARemovedEnvironmentVariableIsReportedAsRemoved(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -1071,7 +1083,7 @@ func TestARemovedEnvironmentVariableIsReportedAsRemoved(t *testing.T) {
 // TestACacheHitCarriesNoMissExplanation: the explanation is present exactly
 // when the run missed and the environment changed — a hit carries none.
 func TestACacheHitCarriesNoMissExplanation(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -1095,7 +1107,7 @@ func TestACacheHitCarriesNoMissExplanation(t *testing.T) {
 // entries but no per-generation digests — misses without an explanation
 // rather than guessing one.
 func TestAMissWithNoStoredGenerationCarriesNoExplanation(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -1140,7 +1152,7 @@ func TestAMissWithNoStoredGenerationCarriesNoExplanation(t *testing.T) {
 // replacement still yields a bounded, sorted explanation — never the
 // environment listing the field exists to avoid — with truncation flagged.
 func TestAMissExplanationIsBoundedAndSorted(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, "all-killed")
 	config := baseConfig(t, module)
@@ -1193,4 +1205,459 @@ func assertReportCarriesNoValue(t *testing.T, value report.Report, secret string
 	if strings.Contains(string(encoded), secret) {
 		t.Fatal("an environment value reaches the report bytes")
 	}
+}
+
+// TestAnEditLandingMidRunIsNeverPersisted reproduces the run lifecycle's
+// window: the key is taken before the population executes, and the sandboxes
+// read the live closure root, so an edit landing between key time and persist
+// is filed under the key-time key. A later run on the restored tree — the
+// same bytes, the same key — would then replay verdicts the restored tree
+// never earned. The stamps recorded at key time refuse that persist, and the
+// run that saw the edit says so in its warnings.
+func TestAnEditLandingMidRunIsNeverPersisted(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
+	module := copyFixture(t, "suggest-basic")
+	testFile := filepath.Join(module, "tests", "unit.tftest.hcl")
+	original, err := os.ReadFile(testFile) //nolint:gosec // test-owned path.
+	if err != nil {
+		t.Fatalf("reading the fixture's test file: %v", err)
+	}
+
+	// The staged edit is the reproduction's run block: an assertion over the
+	// output no selected run asserts, so a mutant of the corresponding source
+	// dies under the edited suite and survives under the original one.
+	addition := []byte(`
+run "added_mid_run" {
+  command = apply
+
+  assert {
+    condition     = output.ignored == "nobody-checks-me"
+    error_message = "added while the run was in flight"
+  }
+}
+`)
+
+	armed := true
+	engine.SetMidRunEditSeed(t, module, func() error {
+		if !armed {
+			return nil
+		}
+
+		armed = false
+
+		// A plain in-place write, the reproduction's own shape: same path,
+		// same inode, different bytes. That is the whole point.
+		return os.WriteFile(testFile, append(slices.Clone(original), addition...), 0o600) //nolint:gosec // test-owned path.
+	})
+
+	config := baseConfig(t, module)
+	config.Jobs = 1
+	first := cachedRun(t, config)
+
+	if first.Population.Cached != 0 {
+		t.Fatalf("the first run reported %d cached verdicts from an empty cache",
+			first.Population.Cached)
+	}
+
+	if !slices.ContainsFunc(first.Warnings, func(warning string) bool {
+		return strings.Contains(warning, "the input closure changed while the run was in flight")
+	}) {
+		t.Fatalf("the run that saw a mid-flight closure edit carried no uncached-verdicts warning: %v",
+			first.Warnings)
+	}
+
+	if err := os.WriteFile(testFile, original, 0o600); err != nil { //nolint:gosec // test-owned path.
+		t.Fatalf("restoring the test file: %v", err)
+	}
+
+	// Nothing was persisted under the key-time key, so the restored tree —
+	// whose bytes hash to exactly that key — finds nothing to replay.
+	second := cachedRun(t, config)
+
+	if second.Population.Cached != 0 {
+		t.Fatalf("the run on the restored tree replayed %d verdicts an edited tree earned",
+			second.Population.Cached)
+	}
+
+	// And the verdict it reports is the honest one: a cache-off run over the
+	// same restored tree agrees, mutant for mutant.
+	uncached := config
+	uncached.NoCache = true
+	third := cachedRun(t, uncached)
+
+	assertVerdictInvariance(t, third, second)
+}
+
+//nolint:paralleltest // owns the package-global mid-run edit hook and isolates TMPDIR.
+func TestClosureEntryChangesDuringARunAreNeverPersisted(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
+	for _, change := range []string{"root-addition", nestedAdditionCase, "symlink-target", "restored-timestamps"} {
+		t.Run(change, func(t *testing.T) {
+			module, edit, restore := closureEntryChange(t, change)
+
+			assertClosureEditBlocksCaching(t, module, edit, restore)
+		})
+	}
+}
+
+func closureEntryChange(t *testing.T, change string) (module string, edit, restore func() error) {
+	t.Helper()
+
+	module = copyFixture(t, "suggest-basic")
+
+	switch change {
+	case "root-addition", nestedAdditionCase:
+		directory := module
+		if change == nestedAdditionCase {
+			directory = filepath.Join(module, "tests")
+		}
+		path := filepath.Join(directory, "extra.auto.tfvars")
+		edit = func() error { return os.WriteFile(path, nil, 0o600) }
+		restore = func() error { return os.Remove(path) }
+	case "symlink-target":
+		module = symlinkedModule(t)
+		path := filepath.Join(filepath.Dir(module), "shared", "versions.tf")
+		original, err := os.ReadFile(path) //nolint:gosec // test-owned fixture path.
+		if err != nil {
+			t.Fatal(err)
+		}
+		edit = func() error {
+			return os.WriteFile(path, append(slices.Clone(original), '\n'), 0o600) //nolint:gosec // test-owned fixture path.
+		}
+		restore = func() error { return os.WriteFile(path, original, 0o600) } //nolint:gosec // test-owned fixture path.
+	case "restored-timestamps":
+		path := filepath.Join(module, "tests", "unit.tftest.hcl")
+		original, err := os.ReadFile(path) //nolint:gosec // test-owned fixture path.
+		if err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		edit = func() error {
+			//nolint:gosec // test-owned fixture path.
+			if err := os.WriteFile(path, append(slices.Clone(original), '\n'), 0o600); err != nil {
+				return err
+			}
+			if err := os.WriteFile(path, original, 0o600); err != nil { //nolint:gosec // test-owned fixture path.
+				return err
+			}
+			return os.Chtimes(path, info.ModTime(), info.ModTime())
+		}
+		restore = func() error { return nil }
+	default:
+		t.Fatalf("unknown closure edit %q", change)
+	}
+	return module, edit, restore
+}
+
+func assertClosureEditBlocksCaching(t *testing.T, module string, edit, restore func() error) {
+	t.Helper()
+
+	engine.SetMidRunEditSeed(t, module, sync.OnceValue(edit))
+	config := baseConfig(t, module)
+	config.Jobs = 1
+	config.Env = append(config.Env, "TMPDIR="+config.WorkDir)
+	first := cachedRun(t, config)
+
+	assertClosureCacheRefusal(t, first, module)
+	if err := restore(); err != nil {
+		t.Fatal(err)
+	}
+
+	second := cachedRun(t, config)
+	if second.Population.Cached != 0 {
+		t.Fatalf("restored tree replayed %d verdicts", second.Population.Cached)
+	}
+	uncached := config
+	uncached.NoCache = true
+	third := cachedRun(t, uncached)
+	assertVerdictInvariance(t, second, third)
+}
+
+type cacheKeyEditWriter func() error
+
+func (edit cacheKeyEditWriter) Write(content []byte) (int, error) {
+	if strings.Contains(string(content), "tf-mut: cache key component") {
+		if err := edit(); err != nil {
+			return 0, err
+		}
+	}
+	return len(content), nil
+}
+
+func TestAnEditDuringCacheKeyCreationIsNeverPersisted(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
+
+	module := copyFixture(t, "suggest-basic")
+	path := filepath.Join(module, "tests", "unit.tftest.hcl")
+	original, err := os.ReadFile(path) //nolint:gosec // test-owned fixture path.
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit := sync.OnceValue(func() error {
+		return os.WriteFile(path, append(slices.Clone(original), '\n'), 0o600) //nolint:gosec // test-owned fixture path.
+	})
+	config := baseConfig(t, module)
+	config.Debug = true
+	config.Progress = cacheKeyEditWriter(edit)
+	first := cachedRun(t, config)
+	if err := edit(); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(first.Warnings, func(warning string) bool {
+		return strings.Contains(warning, "the input closure changed while the run was in flight")
+	}) {
+		t.Fatalf("key-time edit produced no cache refusal: %v", first.Warnings)
+	}
+	if err := os.WriteFile(path, original, 0o600); err != nil { //nolint:gosec // test-owned fixture path.
+		t.Fatal(err)
+	}
+	config.Debug = false
+	config.Progress = nil
+	second := cachedRun(t, config)
+	if second.Population.Cached != 0 {
+		t.Fatalf("restored tree replayed %d verdicts", second.Population.Cached)
+	}
+}
+
+func TestAnEditAtCacheOpeningCannotReuseAnEarlierKey(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
+
+	module := copyFixture(t, "suggest-basic")
+	path := filepath.Join(module, "extra_override.tf")
+	dependencies := engine.DefaultDependencies()
+	openStore := dependencies.NewVerdictStore
+	edit := sync.OnceValue(func() error {
+		return os.WriteFile(path, []byte(`output "ignored" {
+  value = "nobody-checks-me"
+}
+`), 0o600)
+	})
+	dependencies.NewVerdictStore = func(dir string) (engine.VerdictStore, error) {
+		verdicts, err := openStore(dir)
+		if err != nil {
+			return nil, err
+		}
+		if err := edit(); err != nil {
+			return nil, err
+		}
+		return verdicts, nil
+	}
+	config := baseConfig(t, module)
+	if _, err := engine.New(dependencies).Run(t.Context(), config); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	second := cachedRun(t, config)
+	if second.Population.Cached != 0 {
+		t.Fatalf("restored tree replayed %d verdicts", second.Population.Cached)
+	}
+}
+
+//nolint:paralleltest // owns the package-global mid-run edit hook and isolates TMPDIR.
+func TestReplacingASymlinkAncestorDuringARunIsNeverPersisted(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
+	for _, form := range []string{
+		relativePathCase, absolutePathCase, chainedPathCase, "directory-link", "parent-traversal",
+	} {
+		t.Run(form, func(t *testing.T) {
+			module := symlinkedModule(t)
+			repository := filepath.Dir(module)
+			shared := filepath.Join(repository, "shared")
+			setAncestorSymlinkForm(t, module, form)
+
+			alternate := filepath.Join(repository, "alternate")
+			if err := os.Mkdir(alternate, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			testsupport.WriteFile(t, filepath.Join(alternate, "versions.tf"), `variable "shared_tag" {
+  type    = string
+  default = "shared-v2"
+}
+`)
+			stages := seedAncestorReplacement(t, module, shared, alternate)
+			config := baseConfig(t, module)
+			config.Jobs = 1
+			config.Env = append(config.Env, "TMPDIR="+config.WorkDir)
+			first := cachedRun(t, config)
+			if stages() < 2 {
+				t.Fatal("the regression did not execute both directory replacements")
+			}
+			assertClosureCacheRefusal(t, first, module)
+			second := cachedRun(t, config)
+			if second.Population.Cached != 0 {
+				t.Fatalf("restored tree replayed %d verdicts", second.Population.Cached)
+			}
+			uncached := config
+			uncached.NoCache = true
+			third := cachedRun(t, uncached)
+			assertVerdictInvariance(t, second, third)
+		})
+	}
+}
+
+func setAncestorSymlinkForm(t *testing.T, module, form string) {
+	t.Helper()
+
+	repository := filepath.Dir(module)
+	shared := filepath.Join(repository, "shared")
+	target := "../shared/versions.tf"
+	switch form {
+	case relativePathCase:
+	case absolutePathCase:
+		target = filepath.Join(shared, "versions.tf")
+	case chainedPathCase:
+		link := filepath.Join(repository, "intermediate.tf")
+		if err := os.Symlink("shared/versions.tf", link); err != nil {
+			t.Fatal(err)
+		}
+		target = "../intermediate.tf"
+	case "directory-link":
+		if err := os.Symlink("shared", filepath.Join(repository, "alias")); err != nil {
+			t.Fatal(err)
+		}
+		target = "../alias/versions.tf"
+	case "parent-traversal":
+		if err := os.Mkdir(filepath.Join(module, "child"), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("mod/child", filepath.Join(repository, "alias")); err != nil {
+			t.Fatal(err)
+		}
+		target = "../alias/../../shared/versions.tf"
+	default:
+		t.Fatalf("unknown symlink form %q", form)
+	}
+	link := filepath.Join(module, "versions.tf")
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertClosureCacheRefusal(t *testing.T, result report.Report, module string) {
+	t.Helper()
+	if result.Population.Fresh == 0 {
+		t.Fatal("the edit regression executed no mutants")
+	}
+	if !slices.ContainsFunc(result.Warnings, func(warning string) bool {
+		return strings.Contains(warning, "the input closure changed while the run was in flight")
+	}) {
+		t.Fatalf("closure edit produced no cache refusal: %v", result.Warnings)
+	}
+	entries, err := os.ReadDir(cacheDir(module))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".json") {
+			t.Fatalf("the changed closure persisted %s", entry.Name())
+		}
+	}
+}
+
+//nolint:paralleltest // owns the package-global mid-run edit hook and isolates TMPDIR.
+func TestReplacingAClosureRootAncestorDuringARunIsNeverPersisted(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
+	for _, form := range []string{plainCase, relativePathCase, absolutePathCase, chainedPathCase} {
+		t.Run(form, func(t *testing.T) {
+			repository := t.TempDir()
+			parent := filepath.Join(repository, "modules")
+			alternate := filepath.Join(repository, "alternate")
+			module := filepath.Join(parent, "app")
+			copyFixtureInto(t, "suggest-basic", module)
+			copyFixtureInto(t, "suggest-basic", filepath.Join(alternate, "app"))
+			testsupport.WriteFile(t, filepath.Join(alternate, "app", "tests", "unit.tftest.hcl"), `run "ancestor_swap" {
+  command = apply
+
+  assert {
+    condition     = output.asserted == "asserted" && output.ignored == "nobody-checks-me"
+    error_message = "the replacement ancestor supplies a different suite"
+  }
+}
+`)
+			module = closureAncestorModule(t, parent, form)
+
+			stages := seedAncestorReplacement(t, module, parent, alternate)
+			config := baseConfig(t, module)
+			config.Jobs = 1
+			config.Env = append(config.Env, "TMPDIR="+config.WorkDir)
+			first := cachedRun(t, config)
+			if stages() < 2 {
+				t.Fatal("the regression did not replace and restore the closure ancestor")
+			}
+			if !slices.ContainsFunc(first.Mutants, func(mutant report.Mutant) bool {
+				return slices.ContainsFunc(mutant.Runs, func(run report.RunOutcome) bool {
+					return run.Run == "ancestor_swap"
+				})
+			}) {
+				t.Fatal("no mutant consumed the replacement ancestor's suite")
+			}
+			assertClosureCacheRefusal(t, first, module)
+
+			second := cachedRun(t, config)
+			if second.Population.Cached != 0 {
+				t.Fatalf("the restored closure replayed %d verdicts from another tree", second.Population.Cached)
+			}
+			uncached := config
+			uncached.NoCache = true
+			third := cachedRun(t, uncached)
+			assertVerdictInvariance(t, second, third)
+		})
+	}
+}
+
+func closureAncestorModule(t *testing.T, parent, form string) string {
+	t.Helper()
+
+	if form == plainCase {
+		return filepath.Join(parent, "app")
+	}
+	repository := filepath.Dir(parent)
+	target := "modules"
+	if form == absolutePathCase {
+		target = parent
+	}
+	if form == chainedPathCase {
+		if err := os.Symlink(target, filepath.Join(repository, "indirect")); err != nil {
+			t.Fatal(err)
+		}
+		target = "indirect"
+	}
+	alias := filepath.Join(repository, "alias")
+	if err := os.Symlink(target, alias); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(alias, "app")
+}
+
+func seedAncestorReplacement(t *testing.T, module, original, alternate string) func() int {
+	t.Helper()
+
+	backup := filepath.Join(filepath.Dir(alternate), "original")
+	stages := 0
+	engine.SetMidRunEditSeed(t, module, func() error {
+		stages++
+		switch stages {
+		case 1:
+			if err := os.Rename(original, backup); err != nil {
+				return err
+			}
+			return os.Rename(alternate, original)
+		case 2:
+			if err := os.Rename(original, alternate); err != nil {
+				return err
+			}
+			return os.Rename(backup, original)
+		default:
+			return nil
+		}
+	})
+	return func() int { return stages }
 }

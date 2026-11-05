@@ -279,7 +279,7 @@ func TestPreviewCarriesRunTelemetryWithoutMutantTelemetry(t *testing.T) {
 // verdict cache was not executed by this run, so it must not present this
 // run's telemetry — and the run-level block still records what this run did.
 func TestCachedVerdictsCarryNoMutantTelemetry(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	module := copyFixture(t, discriminateFixture)
 	// One configuration for both runs: the cache key includes the environment,
@@ -1168,7 +1168,7 @@ func TestCPUProfileRefusesModuleDestinations(t *testing.T) {
 	t.Parallel()
 
 	for _, kind := range []string{
-		"existing", "new", "module-directory", "relative", fileSymlinkKind,
+		"existing", "new", "module-directory", relativePathCase, fileSymlinkKind,
 		parentSymlinkExistingKind, parentSymlinkNewKind, moduleSymlinkKind, "missing-parent", "hardlink", "dangling-symlink",
 	} {
 		t.Run(kind, func(t *testing.T) {
@@ -1216,7 +1216,7 @@ func profileRefusalRequest(t *testing.T, module, kind string) (engine.Common, st
 		common.CPUProfile = filepath.Join(module, "tf-mut.pprof")
 	case "module-directory":
 		common.CPUProfile = module
-	case "relative":
+	case relativePathCase:
 		working, err := os.Getwd()
 		if err != nil {
 			t.Fatal(err)

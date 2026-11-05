@@ -174,7 +174,7 @@ func TestATripPreservesSelectionAndExecutionProvenance(t *testing.T) {
 }
 
 func TestATripKeepsCachedVerdictsDistinctFromUnexecutedMutants(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	config := baseConfig(t, tripModule(t, 10))
 	config.Jobs = 1

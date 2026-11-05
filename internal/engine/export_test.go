@@ -299,6 +299,22 @@ func SetCommitStartClosureChange(t *testing.T, moduleDir, path string) {
 	})
 }
 
+// SetMidRunEditSeed scopes seedMidRunEdit to one module and resets it at cleanup.
+// Its callers are sequential for the hook's complete lifetime.
+func SetMidRunEditSeed(t *testing.T, moduleDir string, edit func() error) {
+	t.Helper()
+	seedMidRunEdit = func(configuration discovery.Configuration) error {
+		if configuration.ModuleDir != moduleDir {
+			return nil
+		}
+
+		return edit()
+	}
+	t.Cleanup(func() {
+		seedMidRunEdit = func(discovery.Configuration) error { return nil }
+	})
+}
+
 // SetGitTimeout shortens the fixed cap on git invocations for one test: the
 // deadline test drives a sleeping git through the real seam, and no caller
 // parameter changes the cap. Its callers are sequential for the hook's

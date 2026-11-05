@@ -3,6 +3,7 @@ package engine_test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -94,5 +95,59 @@ func TestASymlinkedSourceResolvesInTheSandbox(t *testing.T) {
 	if got := stateOf(t, result, "output.tag"); got != report.Killed {
 		t.Fatalf("output.tag = %s, want %s; the symlinked variable must be scored",
 			got, report.Killed)
+	}
+}
+
+func TestDefaultWorkspacePrecedesCacheCaptureForASymlinkedModule(t *testing.T) {
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
+	module := symlinkedModule(t)
+	repository := filepath.Dir(module)
+	t.Setenv("TMPDIR", repository)
+	config := baseConfig(t, module)
+	config.WorkDir = ""
+	config.Env = append(config.Env, "TMPDIR="+t.TempDir())
+
+	before, err := os.ReadDir(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependencies := engine.DefaultDependencies()
+	openStore := dependencies.NewVerdictStore
+	workspaceSeen := false
+	dependencies.NewVerdictStore = func(dir string) (engine.VerdictStore, error) {
+		entries, readErr := os.ReadDir(repository)
+		if readErr != nil {
+			return nil, readErr
+		}
+		workspaceSeen = len(entries) == len(before)+1
+		return openStore(dir)
+	}
+	first, err := engine.New(dependencies).Run(t.Context(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !workspaceSeen {
+		t.Fatal("the default workspace did not exist before cache capture")
+	}
+	if first.Population.Fresh == 0 || first.Population.Cached != 0 {
+		t.Fatalf("the empty cache did not execute the population: %+v", first.Population)
+	}
+	second := cachedRun(t, config)
+	closureChanged := func(warning string) bool {
+		return strings.Contains(warning, "the input closure changed while the run was in flight")
+	}
+	if slices.ContainsFunc(first.Warnings, closureChanged) || slices.ContainsFunc(second.Warnings, closureChanged) ||
+		(second.Population.Cached == 0 || second.Population.Fresh != 0) {
+		t.Fatalf("the unchanged temporary module did not replay its cache: %+v; warnings %v; previous warnings %v",
+			second.Population, second.Warnings, first.Warnings)
+	}
+	assertVerdictInvariance(t, first, second)
+
+	after, err := os.ReadDir(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("the runs left temporary workspace entries: before %v, after %v", before, after)
 	}
 }

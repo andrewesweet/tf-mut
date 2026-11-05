@@ -775,7 +775,7 @@ func TestAConfiguredPackSelectionIsRefusedOnCurateAndUntilDry(t *testing.T) {
 // TestAnEditedUserPackIsACacheMiss: the selected pack names and a user
 // pack's bytes are in the cache key, so a pack edit replays nothing.
 func TestAnEditedUserPackIsACacheMiss(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 	if testing.Short() {
 		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")
 	}

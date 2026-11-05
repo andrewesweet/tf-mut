@@ -359,6 +359,15 @@ func (e Engine) dispatch(
 		return report.Report{}, err
 	}
 
+	if s.mode == gradeMode || s.mode == suggestMode || s.mode == curateMode || s.mode == previewMode {
+		workRoot, err := prepareWorkRoot(s)
+		if err != nil {
+			return report.Report{}, err
+		}
+		defer func() { _ = os.RemoveAll(workRoot) }()
+		s.WorkDir = workRoot
+	}
+
 	switch typed := request.(type) {
 	case TodosRequest, *TodosRequest:
 		return e.answerTodos(ctx, s, moduleDir)
@@ -424,7 +433,7 @@ func (e Engine) curate(
 		return report.Report{}, err
 	}
 
-	return curateSuite(ctx, found.runner, found.configuration, s, found.version, moduleDir, collector)
+	return curateSuite(ctx, found.runner, found.configuration, s, found.version, moduleDir, collector, found.cache)
 }
 
 // characteriseFirstSuite scaffolds, harvests and pins a first suite, through
@@ -459,7 +468,7 @@ func (e Engine) grade(
 		return report.Report{}, err
 	}
 
-	result, _, err := mutate(ctx, found.runner, found.configuration, s, found.version, moduleDir, collector)
+	result, _, err := mutate(ctx, found.runner, found.configuration, s, found.version, moduleDir, collector, found.cache)
 
 	return result, err
 }
@@ -468,6 +477,7 @@ func (e Engine) grade(
 // Terraform-driving command: the runner the pipeline executes through, the
 // gate's version, and the discovered configuration.
 type probed struct {
+	cache         *verdictCache
 	runner        tfexec.Runner
 	version       tfexec.Version
 	configuration discovery.Configuration
@@ -491,12 +501,21 @@ func (e Engine) probe(
 
 	discoveryPhase := collector.phase(phaseDiscovery)
 	configuration, err := e.discoverConfiguration(ctx, moduleDir, s)
+	if err != nil {
+		discoveryPhase()
+		return probed{}, err
+	}
+
+	cache := beginCache(configuration, s)
+	if cache != nil {
+		configuration, err = e.discoverConfiguration(ctx, moduleDir, s)
+	}
 	discoveryPhase()
 	if err != nil {
 		return probed{}, err
 	}
 
-	return probed{runner: runner, version: version, configuration: configuration}, nil
+	return probed{runner: runner, version: version, configuration: configuration, cache: cache}, nil
 }
 
 func (e Engine) discoverConfiguration(
@@ -617,23 +636,24 @@ func mutate(
 	settings settings, version tfexec.Version,
 	moduleDir string,
 	collector *runCollector,
+	cache *verdictCache,
 ) (report.Report, oracle.Population, error) {
 	settings, warnings, err := applyGates(configuration, settings, collector)
 	if err != nil {
 		return report.Report{}, oracle.Population{}, err
 	}
 
-	workRoot, err := prepareWorkRoot(configuration, settings)
+	if len(configuration.Tests.Runs) == 0 {
+		return report.Report{}, oracle.Population{}, fmt.Errorf("%w: %s declares no run blocks",
+			ErrBaselineNoRuns, configuration.Tests.Dir)
+	}
+
+	prepared, generated, err := build(ctx, runner, configuration, settings, settings.WorkDir, collector)
 	if err != nil {
 		return report.Report{}, oracle.Population{}, err
 	}
 
-	defer func() { _ = os.RemoveAll(workRoot) }()
-
-	prepared, generated, err := build(ctx, runner, configuration, settings, workRoot, collector)
-	if err != nil {
-		return report.Report{}, oracle.Population{}, err
-	}
+	prepared.cache = cache
 
 	found, err := describeSelection(ctx, configuration, settings, version.Terraform,
 		collector, prepared, generated, warnings)
@@ -658,7 +678,7 @@ func mutate(
 		described:           found.selected.mutants,
 		populationDescribed: found.described,
 		classified:          found.selected.classified,
-		workRoot:            workRoot,
+		workRoot:            settings.WorkDir,
 		closure:             configuration.BuildClosure(),
 		graph:               found.graph,
 		collector:           collector,
@@ -752,14 +772,7 @@ func executePopulation(
 	return finishReport(ctx, plan, moduleDir, result, evaluated)
 }
 
-// prepareWorkRoot refuses a suite with no run blocks and creates the run's
-// temporary directory.
-func prepareWorkRoot(configuration discovery.Configuration, settings settings) (string, error) {
-	if len(configuration.Tests.Runs) == 0 {
-		return "", fmt.Errorf("%w: %s declares no run blocks",
-			ErrBaselineNoRuns, configuration.Tests.Dir)
-	}
-
+func prepareWorkRoot(settings settings) (string, error) {
 	workRoot, err := os.MkdirTemp(settings.WorkDir, "tf-mut-")
 	if err != nil {
 		return "", fmt.Errorf("creating work directory: %w", err)
@@ -861,6 +874,13 @@ func executeWithCache(
 ) (evaluatedPopulation, error) {
 	loadPhase := plan.collector.phase(phaseCacheLoad)
 	cache := openCache(plan.configuration, plan.settings, plan.prepared, terraform)
+	if plan.prepared.cache != nil {
+		if at, moved := closureMoved(plan.configuration.ClosureRoot, plan.prepared.cache.stamps); moved {
+			result.Warnings = append(result.Warnings, closureChangedWarning(at))
+			cache = nil
+		}
+	}
+
 	if cache != nil {
 		result.Population.Cached = cache.load(plan.described, plan.classified)
 		result.Population.Fresh = result.Population.Selected - result.Population.Cached
@@ -890,7 +910,23 @@ func executeWithCache(
 
 	storePhase := plan.collector.phase(phaseCacheStore)
 	if cache != nil {
-		cache.persist(evaluated.rows, evaluated.classified)
+		// The stamps are re-checked here — immediately before persist — so
+		// the window they guard is the one the write happens in. A detected
+		// tree change after stamp capture refuses persistence: the key may
+		// no longer describe the tree these verdicts were earned on. The
+		// in-flight report itself is not repaired; the notice marks it. The
+		// mid-run samples speak first: they are the earliest witness, and a
+		// swap they caught may since have been restored, leaving both
+		// re-checks clean while the verdicts remain another tree's.
+		if at := cache.sampledChange(); at != "" {
+			result.Warnings = append(result.Warnings, closureChangedWarning(at))
+		} else if at, moved := closureMoved(plan.configuration.ClosureRoot, cache.stamps); moved {
+			result.Warnings = append(result.Warnings, closureChangedWarning(at))
+		} else if at, moved := chainMoved(plan.configuration.ClosureRoot, cache.chain); moved {
+			result.Warnings = append(result.Warnings, closureChangedWarning(at))
+		} else {
+			cache.persist(evaluated.rows, evaluated.classified)
+		}
 	}
 
 	storePhase()

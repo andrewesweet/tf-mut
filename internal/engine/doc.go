@@ -104,7 +104,8 @@
 // hashes, which verdicts and findings are admitted, which files the
 // registry records — and declares the ports next to those policies:
 // cache.go the VerdictStore, acceptance.go the BaselineStore,
-// characterisewrite.go the RegistryStore. The on-disk formats live in
+// characterisewrite.go the RegistryStore. closurestamp.go guards cache
+// replay and persistence against closure changes. The on-disk formats live in
 // internal/store: the verdict cache under cacheFormatVersion, the
 // acceptance list under store.BaselineFormatVersion, the generated-suite
 // registry under store.RegistryFormatVersion. Dependencies selects the
@@ -132,6 +133,7 @@
 // applyCommitProbe in apply.go; seedMissingMock, seedNoEscalation and
 // seedSharedFileOrder in characterise.go; seedClosureChange,
 // seedClosureFile, seedClosureAfter, seedRenameWindowChange and
-// seedRegistryFailure in characterisewrite.go; seedUntilDryRounds in
-// untildry.go; pinDefectHooks rides the CharacteriseRequest in request.go.
+// seedRegistryFailure in characterisewrite.go; seedMidRunEdit in execute.go;
+// seedUntilDryRounds in untildry.go; pinDefectHooks rides the
+// CharacteriseRequest in request.go.
 package engine

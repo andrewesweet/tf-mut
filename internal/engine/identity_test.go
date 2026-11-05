@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andrewesweet/tf-mut/internal/testsupport"
+
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
@@ -93,7 +95,7 @@ func TestIdenticalRewritesInOneAttributeGetDistinctIDs(t *testing.T) {
 // the warm run must not serve one twin's verdict to the other: every warm
 // verdict equals the fresh verdict at the same position.
 func TestACachedReplayAgreesWithAFreshRunOnIdenticalRewrites(t *testing.T) {
-	t.Parallel()
+	t.Setenv("TMPDIR", testsupport.CacheTempDir(t))
 
 	if testing.Short() {
 		t.Skip("the real-Terraform run takes over nine seconds; -short defers it to `just test`")

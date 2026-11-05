@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -132,8 +133,15 @@ func oneRound(
 		return pins, 0, err
 	}
 
+	workRoot, err := prepareWorkRoot(graded)
+	if err != nil {
+		return pins, 0, err
+	}
+	defer func() { _ = os.RemoveAll(workRoot) }()
+	graded.WorkDir = workRoot
+
 	result, population, err := mutate(ctx, stage.runner, stagedConfiguration, graded,
-		stage.terraform, staged.ModuleDir, stage.collector)
+		stage.terraform, staged.ModuleDir, stage.collector, nil)
 	if err != nil {
 		return pins, 0, err
 	}

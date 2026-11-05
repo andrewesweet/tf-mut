@@ -268,6 +268,17 @@ func timeoutBudget(settings settings, baseline time.Duration) time.Duration {
 	return scaled
 }
 
+// sampleResolutionChain is the per-mutant half of the cache guard: an
+// ancestor swap observed at a chain path refuses the store at persist even
+// if a later stage restores the original. A swap fully restored between
+// samples can go undetected. A plain directory's identity is untouched by
+// sibling churn elsewhere, so unrelated activity in shared parents stays silent. It runs
+// before the sandbox is materialised — the earliest point this mutant could
+// observe the tree, and before any staged edit the run lifecycle applies.
+func sampleResolutionChain(plan executionPlan) {
+	plan.prepared.cache.sampleChain(plan.configuration.ClosureRoot)
+}
+
 // evaluate performs one mutant's evaluation. The mutant's telemetry is
 // always recorded, and the report's execution errors are events on the
 // mutant's span — registered after the finish bracket, so they run first,
@@ -281,6 +292,8 @@ func evaluate(
 	index int,
 	budget time.Duration,
 ) (verdict report.Mutant, outcome oracle.Outcome, failure *report.ExecutionError) {
+	sampleResolutionChain(plan)
+
 	verdict = plan.described[index]
 
 	// The mutant's own record: always on, published beside the numbers, and
@@ -306,6 +319,32 @@ func evaluate(
 	return evaluateOne(ctx, plan, index, budget, verdict, telemetry)
 }
 
+// seedMidRunEdit is the inert test hook beside the run lifecycle it
+// reproves: a regression test stages a closure edit between key time and
+// persist — the window the run-lifecycle defect lives in — by arming it for
+// one module. The engine calls it after each mutant's sandbox is
+// materialised and stages nothing itself. Later sandboxes can consume the
+// edited closure; a test can restore it through a subsequent hook call.
+//
+//nolint:gochecknoglobals // test seam, inert outside the suite.
+var seedMidRunEdit = func(discovery.Configuration) error { return nil }
+
+// stageMidRunEdit is the run lifecycle's test seam: a regression test arms
+// it for one module, and production stages nothing. A staging failure is an
+// execution error — the mutant proved nothing, so no verdict is claimed for
+// it.
+func stageMidRunEdit(plan executionPlan, verdict report.Mutant) *report.ExecutionError {
+	if err := seedMidRunEdit(plan.configuration); err != nil {
+		return &report.ExecutionError{
+			MutantID: verdict.ID,
+			Site:     verdict.Site,
+			Message:  "the mid-run closure edit could not be staged: " + err.Error(),
+		}
+	}
+
+	return nil
+}
+
 // evaluateOne runs the mutant's evaluation itself: stage, mutate, execute,
 // judge. The single invocation runs verbose, so a survivor's fingerprint
 // comparison reads the stream it produced.
@@ -327,6 +366,10 @@ func evaluateOne(
 	}
 
 	defer func() { _ = os.RemoveAll(built.Root) }()
+
+	if staging := stageMidRunEdit(plan, verdict); staging != nil {
+		return verdict, plan.classified[index].Outcome, staging
+	}
 
 	testPhase := telemetry.phase(phaseTest)
 	// FailFast is limited to verdict-only population execution. Curation needs
@@ -448,7 +491,7 @@ func materialiseMutant(plan executionPlan, index int, telemetry *mutantCollector
 			HashFreeLock: true,
 			Guard:        plan.prepared.providerGuard,
 		},
-		Hardlink: true,
+		Hardlink: plan.prepared.cache == nil,
 	})
 	sandboxPhase()
 

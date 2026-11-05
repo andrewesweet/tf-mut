@@ -3,7 +3,8 @@ set -euo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)
 git_dir=$(git rev-parse --absolute-git-dir)
-stage=$(mktemp -d "${TMPDIR:-/tmp}/tf-mut-gremlins.XXXXXX")
+mkdir -p "$repo_root/.artifacts"
+stage=$(mktemp -d "$repo_root/.artifacts/tf-mut-gremlins.XXXXXX")
 trap 'rm -rf "$stage"' EXIT
 
 cd "$repo_root"
