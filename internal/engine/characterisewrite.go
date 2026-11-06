@@ -169,7 +169,9 @@ func commitScaffold(
 		// top of a failed commit changes nothing about the first failure, so
 		// its error is deliberately not allowed to displace it.
 		if len(written) > 0 {
-			_ = storeRegistry(settings, configuration.ModuleDir, block, files, inputDigest)
+			if registryErr := storeRegistry(settings, configuration.ModuleDir, block, files, inputDigest); registryErr == nil {
+				record.Written = append(record.Written, RegistryName)
+			}
 		}
 
 		return err
@@ -188,6 +190,8 @@ func commitScaffold(
 
 		return err
 	}
+
+	record.Written = append(record.Written, RegistryName)
 
 	return nil
 }

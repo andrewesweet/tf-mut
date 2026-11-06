@@ -149,6 +149,11 @@ isolated overrun records that member's execution failure. Other members still ru
 completed kill can verify the suggestion. It does not change the mutant verdict or score.
 
 An evaluation interrupted with Ctrl-C or SIGTERM returns an operational failure (exit code `2`).
+When tf-mut observes cancellation or another run error after committing files, stderr names
+the committed paths. The terminal and JSON reporters also publish a receipt. Other reporter
+formats are suppressed without overwriting their configured output files. The receipt is not
+a completed analysis or a valid score; JSON consumers must check the `interrupted` block
+before using analysis fields. See the [report schema](#documents) for the consumer contract.
 
 Preview records safety-gate advisories and refusals in the report's warnings while still
 listing the mutant population. It executes no test run blocks. For local module sources in
@@ -245,7 +250,7 @@ contexts and glossary, start with [`CONTEXT.md`](CONTEXT.md).
 | [`docs/reference/`](docs/reference/) | Generated command-line reference — [`cli.md`](docs/reference/cli.md) renders the same help table as `tf-mut --help` |
 | [`docs/research/`](docs/research/) | Numbered research notes, measurements, and milestone exit gates |
 | [`docs/reviews/`](docs/reviews/) | Adversarial and implementation reviews with their dispositions, which outrank design prose on conflict |
-| [`docs/schema/`](docs/schema/) | Versioned report schemas and the vendored external schemas that outputs are validated against — the `json` reporter emits [`report-2.19.0.json`](docs/schema/report-2.19.0.json) |
+| [`docs/schema/`](docs/schema/) | Versioned report schemas and the vendored external schemas that outputs are validated against — the `json` reporter emits [`report-2.20.0.json`](docs/schema/report-2.20.0.json) |
 
 ## Findings that shaped the design
 

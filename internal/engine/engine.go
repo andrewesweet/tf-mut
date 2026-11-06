@@ -264,7 +264,8 @@ func Run(ctx context.Context, request Request) (report.Report, error) {
 }
 
 // Run executes the requested command on the wired engine and returns its
-// report.
+// report. An error can accompany an interrupted receipt of committed writes;
+// callers must preserve that receipt even though the invocation failed.
 func (e Engine) Run(ctx context.Context, request Request) (result report.Report, err error) {
 	started := time.Now()
 	var collector *runCollector
@@ -272,6 +273,13 @@ func (e Engine) Run(ctx context.Context, request Request) (result report.Report,
 		result, err = finishRunReport(collector, started, result, err)
 		if err == nil {
 			err = ctx.Err()
+		}
+
+		// A cancellation observed after the run's last decision — during
+		// teardown — still cannot undo a committed write, so the receipt is
+		// published with the failure rather than dropped for it.
+		if err != nil {
+			result, _ = result.Interrupt(err)
 		}
 	}()
 
@@ -859,7 +867,21 @@ func finishReport(
 		})
 	}
 
-	return result, population, ctx.Err()
+	if cancelErr := ctx.Err(); cancelErr != nil {
+		// Cancellation after the apply commit does not undo the writes. The
+		// receipt is a fact about the filesystem, so it is published with the
+		// cancellation instead of being discarded with the analysis — marked
+		// interrupted, so it can never be read as a score. A cancellation that
+		// committed nothing leaves no receipt to publish, and an unmarked
+		// partial report must not escape behind a failure.
+		if receipt, committed := result.Interrupt(cancelErr); committed {
+			return receipt, oracle.Population{}, cancelErr
+		}
+
+		return report.Report{}, oracle.Population{}, cancelErr
+	}
+
+	return result, population, nil
 }
 
 // executeWithCache replays cached verdicts under the coarse correct key

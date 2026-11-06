@@ -54,6 +54,13 @@ func (r Report) characterisationExit() int {
 // ExitCode applies the gate to the report. Requested gates compose: where
 // both --min-score and --fail-on-new are given, both must pass.
 func (r Report) ExitCode(gate Gate) int {
+	// An interrupted report is a receipt of committed effects and never a
+	// score: whatever the population and the gates say, the invocation did not
+	// complete, so nothing here can be a pass.
+	if r.Interrupted != nil {
+		return ExitOperational
+	}
+
 	if r.Command == CommandPreview {
 		return ExitClean
 	}
@@ -154,6 +161,10 @@ func WriteJSON(writer io.Writer, value Report) error {
 func WriteTerminal(writer io.Writer, value Report) error {
 	builder := strings.Builder{}
 
+	// The receipt of committed effects leads: everything after it is the
+	// analysis the interruption cut short.
+	writeInterrupted(&builder, value)
+
 	switch {
 	case value.Command == CommandPreview:
 		writePreview(&builder, value)
@@ -171,6 +182,26 @@ func WriteTerminal(writer io.Writer, value Report) error {
 	}
 
 	return nil
+}
+
+// writeInterrupted leads the terminal rendering of a report published for an
+// incomplete invocation: the receipt of what landed comes before the analysis
+// the interruption cut short, so nobody reads the numbers below as a score.
+func writeInterrupted(builder *strings.Builder, value Report) {
+	interrupted := value.Interrupted
+	if interrupted == nil {
+		return
+	}
+
+	fmt.Fprintf(builder, "INTERRUPTED: %s\n", interrupted.Reason)
+	builder.WriteString("  The invocation did not complete, so this is not a score.\n")
+
+	if len(interrupted.CommittedWrites) > 0 {
+		fmt.Fprintf(builder, "  Written before the interruption: %s\n",
+			strings.Join(interrupted.CommittedWrites, ", "))
+	}
+
+	builder.WriteString("\n")
 }
 
 func writePreview(builder *strings.Builder, value Report) {

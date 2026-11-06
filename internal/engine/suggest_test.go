@@ -1,6 +1,7 @@
 package engine_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -936,6 +937,40 @@ func TestARealSuggestReportValidatesAgainstThePublishedSchema(t *testing.T) {
 	}
 }
 
+// TestAnInterruptedReceiptValidatesAgainstThePublishedSchema holds the document
+// a cancelled apply publishes: a report of the version it claims, carrying the
+// interruption and the files it committed. A consumer that validates the receipt
+// must not be reading a shape the schema never promised.
+func TestAnInterruptedReceiptValidatesAgainstThePublishedSchema(t *testing.T) {
+	t.Parallel()
+
+	schema := loadPublishedSchema(t)
+
+	result := runSuggest(t, applyAllRequest(t, copyFixture(t, suggestBasicFixture)))
+	if result.Apply == nil || len(result.Apply.Written) == 0 {
+		t.Fatalf("the fixture committed nothing to report: %+v", result.Apply)
+	}
+
+	receipt, committed := result.Interrupt(context.Canceled)
+	if !committed {
+		t.Fatal("the applied report published no receipt to validate")
+	}
+
+	builder := strings.Builder{}
+	if err := report.WriteJSON(&builder, receipt); err != nil {
+		t.Fatalf("rendering: %v", err)
+	}
+
+	document := any(nil)
+	if err := json.Unmarshal([]byte(builder.String()), &document); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+
+	if problems := validateAgainst(schema, schema, document, "$"); len(problems) > 0 {
+		t.Fatalf("the interrupted receipt does not validate:\n  %s", strings.Join(problems, "\n  "))
+	}
+}
+
 // TestACollapsedCarrierAcrossAbsenceAndValueMutantsVerifies is the D13/D14
 // reproduction: the utl-regions `locals.tf:12` shape — one assertion folds an
 // absence-operator carrier and value-change members, and the carrier deletes
@@ -1202,7 +1237,7 @@ func TestTheSameShapeUnderApplyIsStillSuggestedAndVerifies(t *testing.T) {
 func loadPublishedSchema(t *testing.T) map[string]any {
 	t.Helper()
 
-	content, err := os.ReadFile("../../docs/schema/report-2.19.0.json")
+	content, err := os.ReadFile("../../docs/schema/report-2.20.0.json")
 	if err != nil {
 		t.Fatalf("reading the published schema: %v", err)
 	}
