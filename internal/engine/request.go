@@ -43,6 +43,17 @@ const (
 	curateMode
 )
 
+// RunIdentifierSink is the optional interface of a caller-supplied
+// Common.Progress writer. The run calls SetRunIdentifier once, from its own
+// goroutine, the moment it mints the run's one identifier, so the caller can
+// attribute the lines it writes itself after Run returns: the receipt of the
+// files the invocation committed, a cancellation that ended it. The report is
+// not the carrier: it publishes the identifier only in its telemetry block,
+// which a characterisation never has and a failed run never reaches.
+type RunIdentifierSink interface {
+	SetRunIdentifier(identifier string)
+}
+
 // Common carries the options shared by every engine command.
 type Common struct {
 	ModuleDir     string
@@ -78,6 +89,9 @@ type Common struct {
 	// Nil — the default — discards this output. Run serializes
 	// writes within one invocation and stops writing before it returns.
 	// The CLI passes its stderr writer; callers must keep report output separate.
+	// A writer that implements RunIdentifierSink is also handed the run's
+	// identifier as it is minted, which is why the CLI passes one: the lines it
+	// writes itself after the run belong to the same run.
 	Progress io.Writer
 	// Debug enables verdict-cache key and component digest logs on Progress.
 	// False — the default — disables these logs. Input values are never logged.

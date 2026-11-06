@@ -46,6 +46,9 @@ const (
 	applyCancelProfileEnv  = "TF_MUT_APPLY_CANCEL_PROFILE"
 	applyCancelCodeEnv     = "TF_MUT_APPLY_CANCEL_CODE"
 	applyCancelReporterEnv = "TF_MUT_APPLY_CANCEL_REPORTER"
+	// applyCancelBrokenEnv names the stream the parent wired to a pipe whose
+	// reader is already closed, so the helper's write to it fails.
+	applyCancelBrokenEnv = "TF_MUT_APPLY_CANCEL_BROKEN"
 
 	// applyCancelFixture is the offline module whose unasserted resource yields
 	// one verifiable suggestion, and applyCancelTarget is the file it lands in.
@@ -242,7 +245,11 @@ func TestCancellationWithoutWritesKeepsTheRunIdentifier(t *testing.T) {
 		t.Fatalf("running dry-run suggestion: %v", runErr)
 	}
 	var stdout, stderr bytes.Buffer
-	code := publish(&stdout, &stderr, parsed, result, context.Canceled)
+	code := publish(publication{
+		ctx: t.Context(), stdout: &stdout, stderr: &stderr,
+		parsed: parsed, result: result, runErr: context.Canceled,
+		runID: result.Telemetry.RunID,
+	})
 	if code != report.ExitOperational || stdout.Len() != 0 {
 		t.Fatalf("cancellation without writes published a report: exit %d, stdout %s", code, &stdout)
 	}
@@ -279,7 +286,11 @@ func assertIndependentReceiptOutputs(t *testing.T, parsed options, result report
 		stderrWriter = applyCancelFailWriter{}
 	}
 	runErr := fmt.Errorf("%w\npublication stopped", context.Canceled)
-	if code := publish(stdoutWriter, stderrWriter, parsed, result, runErr); code != report.ExitOperational {
+	code := publish(publication{
+		ctx: t.Context(), stdout: stdoutWriter, stderr: stderrWriter,
+		parsed: parsed, result: result, runErr: runErr, runID: result.Telemetry.RunID,
+	})
+	if code != report.ExitOperational {
 		t.Fatalf("interrupted invocation exits %d, want %d", code, report.ExitOperational)
 	}
 	if failure != applyCancelStdoutFailure {
@@ -357,7 +368,11 @@ func TestInterruptedWritesSuppressFormatsWithoutReceipts(t *testing.T) {
 				t.Fatalf("staging the previous report: %v", writeErr)
 			}
 			stdout, stderr := bytes.Buffer{}, bytes.Buffer{}
-			code := publish(&stdout, &stderr, interrupted, result, context.Canceled)
+			code := publish(publication{
+				ctx: t.Context(), stdout: &stdout, stderr: &stderr,
+				parsed: interrupted, result: result, runErr: context.Canceled,
+				runID: result.Telemetry.RunID,
+			})
 			if code != report.ExitOperational || stdout.Len() != 0 {
 				t.Fatalf("interrupted %s produced an analysis document: exit %d, stdout %s", reporter, code, &stdout)
 			}
@@ -413,6 +428,18 @@ func applyCancelStage(t *testing.T) applyCancelStaging {
 func interruptAfterTheCommit(t *testing.T, staged applyCancelStaging, reporter string) applyCancelOutcome {
 	t.Helper()
 
+	return runInterruptedHelper(t, staged, reporter, "")
+}
+
+// runInterruptedHelper is the same reproduction with one of the command line's
+// streams — "stdout", "stderr", both, or neither, which is the plain case —
+// wired to a pipe whose reader is already closed, the way a pipeline whose
+// consumer has exited hands the process a dead descriptor.
+func runInterruptedHelper(
+	t *testing.T, staged applyCancelStaging, reporter, broken string,
+) applyCancelOutcome {
+	t.Helper()
+
 	scratch := t.TempDir()
 	receiptPath := filepath.Join(scratch, "receipt.json")
 	stdoutPath := filepath.Join(scratch, "stdout.json")
@@ -430,6 +457,7 @@ func interruptAfterTheCommit(t *testing.T, staged applyCancelStaging, reporter s
 		applyCancelStderrEnv+"="+stderrPath,
 		applyCancelCodeEnv+"="+codePath,
 		applyCancelReporterEnv+"="+reporter,
+		applyCancelBrokenEnv+"="+broken,
 		// The run's own CPU profile teardown is the window the interruption has
 		// to land in: it is the cost between the commit and the report, and it
 		// is a teardown the user can ask for, not a product hook.
@@ -439,9 +467,19 @@ func interruptAfterTheCommit(t *testing.T, staged applyCancelStaging, reporter s
 	command.Stderr = io.Discard
 	command.WaitDelay = time.Second
 
+	writer := wireBrokenStream(t, command, broken)
+
 	done := make(chan error, 1)
 	if err := command.Start(); err != nil {
 		t.Fatalf("starting helper: %v", err)
+	}
+
+	// The child owns the only copy of the write end now: the parent's copy
+	// closes so the descriptor really has no user.
+	if writer != nil {
+		if err := writer.Close(); err != nil {
+			t.Fatalf("closing the parent's pipe end: %v", err)
+		}
 	}
 
 	registerSigintHelperCleanup(t, command, done)
@@ -587,8 +625,9 @@ func TestRunTheCommandLineForAnInterruptedApplyHelper(t *testing.T) {
 		t.Skip("helper process only")
 	}
 
-	stdout := mustCreate(t, os.Getenv(applyCancelStdoutEnv))
-	stderr := mustCreate(t, os.Getenv(applyCancelStderrEnv))
+	broken := os.Getenv(applyCancelBrokenEnv)
+	stdout := helperStream(t, os.Stdout, applyCancelStdoutEnv, broken, publicationStdoutStream)
+	stderr := helperStream(t, os.Stderr, applyCancelStderrEnv, broken, publicationStderrStream)
 
 	// No t.Parallel, no t.Context: the signal handler inside execute must be
 	// the thing that ends this run, exactly as it ends the process main runs.
@@ -601,6 +640,10 @@ func TestRunTheCommandLineForAnInterruptedApplyHelper(t *testing.T) {
 	}, stdout, stderr)
 
 	for _, file := range []*os.File{stdout, stderr} {
+		if file == os.Stdout || file == os.Stderr {
+			continue
+		}
+
 		if err := file.Close(); err != nil {
 			t.Fatalf("closing the helper's capture file: %v", err)
 		}
@@ -620,8 +663,55 @@ func TestRunTheCommandLineForAnInterruptedApplyHelper(t *testing.T) {
 	}
 }
 
+// helperStream is one of the command line's streams inside the helper: the
+// process's own descriptor when the parent wired it to a pipe nobody reads,
+// and a capture file the parent reads otherwise.
+func helperStream(
+	t *testing.T, descriptor *os.File, pathEnv, broken, stream string,
+) *os.File {
+	t.Helper()
+
+	if broken == stream || broken == publicationBothStreams {
+		return descriptor
+	}
+
+	return mustCreate(t, os.Getenv(pathEnv))
+}
+
 // mustCreate opens the helper's capture file, which the parent reads either
 // way: an empty file is the absence of a receipt, not a reason to panic.
+// wireBrokenStream gives the helper a pipe nobody reads on each stream named
+// by broken, and returns the parent's end of it to close once the helper holds
+// its own. The read end is closed before the helper starts: with no reader in
+// existence, the helper's first write is certain to fail rather than race the
+// pipe buffer.
+func wireBrokenStream(t *testing.T, command *exec.Cmd, broken string) *os.File {
+	t.Helper()
+
+	if broken == "" {
+		return nil
+	}
+
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("creating the helper's pipe: %v", err)
+	}
+
+	if err := reader.Close(); err != nil {
+		t.Fatalf("closing the pipe's read end: %v", err)
+	}
+
+	if broken == publicationStdoutStream || broken == publicationBothStreams {
+		command.Stdout = writer
+	}
+
+	if broken == publicationStderrStream || broken == publicationBothStreams {
+		command.Stderr = writer
+	}
+
+	return writer
+}
+
 func mustCreate(t *testing.T, path string) *os.File {
 	t.Helper()
 

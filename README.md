@@ -154,6 +154,10 @@ the committed paths. The terminal and JSON reporters also publish a receipt. Oth
 formats are suppressed without overwriting their configured output files. The receipt is not
 a completed analysis or a valid score; JSON consumers must check the `interrupted` block
 before using analysis fields. See the [report schema](#documents) for the consumer contract.
+If cancellation arrives during publication, tf-mut marks the report interrupted before
+attempting the remaining outputs. An output already started keeps the report it received.
+A broken stdout or stderr pipe fails its write instead of terminating tf-mut; remaining
+outputs are still attempted. Cancellation or an output failure produces exit code `2`.
 
 Preview records safety-gate advisories and refusals in the report's warnings while still
 listing the mutant population. It executes no test run blocks. For local module sources in
@@ -173,6 +177,9 @@ identifier — the run span's trace ID when tracing is enabled, a random identif
 32-hex-character shape otherwise — published as the report telemetry's `run_id` and prefixed
 onto every stderr line the run writes (`[run_id] …`), so stderr, report and trace tie
 together; each mutant's execution error is also recorded as an event on that mutant's span.
+The prefix does not depend on the telemetry block: a command that publishes none —
+`characterise`, `todos` — still prefixes its stderr, including the receipt of committed writes
+and any cancellation the command line reports after the run.
 Mutants evaluated in this invocation carry phase timings and child-process CPU and peak memory
 measurements. Cached, static and unexecuted verdicts carry no per-mutant telemetry. These
 measurements do not affect verdicts, scores or gates.
