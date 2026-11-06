@@ -17,7 +17,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andrewesweet/tf-mut/internal/config"
 	"github.com/andrewesweet/tf-mut/internal/engine"
 	"github.com/andrewesweet/tf-mut/internal/report"
 )
@@ -262,10 +261,15 @@ func assertIndependentReceiptOutputs(t *testing.T, parsed options, result report
 		firstPath = filepath.Join(scratch, "absent", "first.json")
 	}
 	receiptPath := filepath.Join(scratch, "receipt.json")
-	parsed.reporters = []config.Reporter{
-		{Name: reporterJSON, Path: firstPath},
-		{Name: reporterJSON, Path: receiptPath},
+	outputs, parseErr := parse(suggestCommand, "dev", []string{
+		"--" + outputFlagName, reporterJSON + "=" + firstPath,
+		"--" + outputFlagName, reporterJSON + "=" + receiptPath,
+		scratch,
+	}, io.Discard)
+	if parseErr != nil {
+		t.Fatalf("parsing receipt outputs: %v", parseErr)
 	}
+	parsed.reporters = outputs.reporters
 	var stdout, stderr bytes.Buffer
 	stdoutWriter, stderrWriter := io.Writer(&stdout), io.Writer(&stderr)
 	if failure == applyCancelStdoutFailure {
@@ -330,20 +334,24 @@ func TestInterruptedWritesSuppressFormatsWithoutReceipts(t *testing.T) {
 	}
 
 	for _, reporter := range []string{reporterSARIF, reporterMTE, reporterJUnit, reporterHTML, reporterMarkdown} {
+		scratch := t.TempDir()
+		interrupted, parseErr := parse(suggestCommand, "dev", []string{
+			reporterFlag, reporter,
+			"--" + sarifPathFlag, filepath.Join(scratch, "separate.sarif"),
+			"--" + outputFlagName, reporterSARIF + "=" + filepath.Join(scratch, reporterSARIF),
+			"--" + outputFlagName, reporterMTE + "=" + filepath.Join(scratch, reporterMTE),
+			"--" + outputFlagName, reporterJUnit + "=" + filepath.Join(scratch, reporterJUnit),
+			"--" + outputFlagName, reporterHTML + "=" + filepath.Join(scratch, reporterHTML),
+			"--" + outputFlagName, reporterMarkdown + "=" + filepath.Join(scratch, reporterMarkdown),
+			scratch,
+		}, io.Discard)
+		if parseErr != nil {
+			t.Fatalf("parsing suppressed outputs: %v", parseErr)
+		}
+
 		t.Run(reporter, func(t *testing.T) {
 			t.Parallel()
 
-			interrupted := parsed
-			interrupted.reporter = reporter
-			scratch := t.TempDir()
-			interrupted.sarifPath = filepath.Join(scratch, "separate.sarif")
-			interrupted.reporters = []config.Reporter{
-				{Name: reporterSARIF, Path: filepath.Join(scratch, reporterSARIF)},
-				{Name: reporterMTE, Path: filepath.Join(scratch, reporterMTE)},
-				{Name: reporterJUnit, Path: filepath.Join(scratch, reporterJUnit)},
-				{Name: reporterHTML, Path: filepath.Join(scratch, reporterHTML)},
-				{Name: reporterMarkdown, Path: filepath.Join(scratch, reporterMarkdown)},
-			}
 			preserved := interrupted.reporters[0].Path
 			if writeErr := os.WriteFile(preserved, []byte("prior report"), 0o600); writeErr != nil {
 				t.Fatalf("staging the previous report: %v", writeErr)
