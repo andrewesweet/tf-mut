@@ -154,10 +154,10 @@ the committed paths. The terminal and JSON reporters also publish a receipt. Oth
 formats are suppressed without overwriting their configured output files. The receipt is not
 a completed analysis or a valid score; JSON consumers must check the `interrupted` block
 before using analysis fields. See the [report schema](#documents) for the consumer contract.
-The receipt survives publication: a cancellation that arrives while the report is being
-written is observed before the outputs that remain, a stdout or stderr pipe whose reader has
-gone fails its write instead of ending the process, and either way the remaining outputs are
-still attempted and the exit stays operational.
+If cancellation arrives during publication, tf-mut marks the report interrupted before
+attempting the remaining outputs. An output already started keeps the report it received.
+A broken stdout or stderr pipe fails its write instead of terminating tf-mut; remaining
+outputs are still attempted. Cancellation or an output failure produces exit code `2`.
 
 Preview records safety-gate advisories and refusals in the report's warnings while still
 listing the mutant population. It executes no test run blocks. For local module sources in
