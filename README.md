@@ -149,6 +149,11 @@ isolated overrun records that member's execution failure. Other members still ru
 completed kill can verify the suggestion. It does not change the mutant verdict or score.
 
 An evaluation interrupted with Ctrl-C or SIGTERM returns an operational failure (exit code `2`).
+When tf-mut observes cancellation or another run error after committing files, stderr names
+the committed paths. The terminal and JSON reporters also publish a receipt. Other reporter
+formats are suppressed without overwriting their configured output files. The receipt is not
+a completed analysis or a valid score; JSON consumers must check the `interrupted` block
+before using analysis fields. See the [report schema](#documents) for the consumer contract.
 
 Preview records safety-gate advisories and refusals in the report's warnings while still
 listing the mutant population. It executes no test run blocks. For local module sources in

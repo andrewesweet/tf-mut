@@ -264,7 +264,8 @@ func Run(ctx context.Context, request Request) (report.Report, error) {
 }
 
 // Run executes the requested command on the wired engine and returns its
-// report.
+// report. An error can accompany an interrupted receipt of committed writes;
+// callers must preserve that receipt even though the invocation failed.
 func (e Engine) Run(ctx context.Context, request Request) (result report.Report, err error) {
 	started := time.Now()
 	var collector *runCollector

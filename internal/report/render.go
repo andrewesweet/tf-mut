@@ -184,7 +184,7 @@ func WriteTerminal(writer io.Writer, value Report) error {
 	return nil
 }
 
-// writeInterrupted leads every text rendering of a report published for an
+// writeInterrupted leads the terminal rendering of a report published for an
 // incomplete invocation: the receipt of what landed comes before the analysis
 // the interruption cut short, so nobody reads the numbers below as a score.
 func writeInterrupted(builder *strings.Builder, value Report) {
