@@ -245,7 +245,11 @@ func TestCancellationWithoutWritesKeepsTheRunIdentifier(t *testing.T) {
 		t.Fatalf("running dry-run suggestion: %v", runErr)
 	}
 	var stdout, stderr bytes.Buffer
-	code := publish(&stdout, &stderr, parsed, result, context.Canceled)
+	code := publish(publication{
+		ctx: t.Context(), stdout: &stdout, stderr: &stderr,
+		parsed: parsed, result: result, runErr: context.Canceled,
+		runID: result.Telemetry.RunID,
+	})
 	if code != report.ExitOperational || stdout.Len() != 0 {
 		t.Fatalf("cancellation without writes published a report: exit %d, stdout %s", code, &stdout)
 	}
@@ -282,7 +286,11 @@ func assertIndependentReceiptOutputs(t *testing.T, parsed options, result report
 		stderrWriter = applyCancelFailWriter{}
 	}
 	runErr := fmt.Errorf("%w\npublication stopped", context.Canceled)
-	if code := publish(stdoutWriter, stderrWriter, parsed, result, runErr); code != report.ExitOperational {
+	code := publish(publication{
+		ctx: t.Context(), stdout: stdoutWriter, stderr: stderrWriter,
+		parsed: parsed, result: result, runErr: runErr, runID: result.Telemetry.RunID,
+	})
+	if code != report.ExitOperational {
 		t.Fatalf("interrupted invocation exits %d, want %d", code, report.ExitOperational)
 	}
 	if failure != applyCancelStdoutFailure {
@@ -360,7 +368,11 @@ func TestInterruptedWritesSuppressFormatsWithoutReceipts(t *testing.T) {
 				t.Fatalf("staging the previous report: %v", writeErr)
 			}
 			stdout, stderr := bytes.Buffer{}, bytes.Buffer{}
-			code := publish(&stdout, &stderr, interrupted, result, context.Canceled)
+			code := publish(publication{
+				ctx: t.Context(), stdout: &stdout, stderr: &stderr,
+				parsed: interrupted, result: result, runErr: context.Canceled,
+				runID: result.Telemetry.RunID,
+			})
 			if code != report.ExitOperational || stdout.Len() != 0 {
 				t.Fatalf("interrupted %s produced an analysis document: exit %d, stdout %s", reporter, code, &stdout)
 			}

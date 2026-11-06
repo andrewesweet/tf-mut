@@ -544,14 +544,22 @@ type runOutput struct {
 	// prefix is the run-identifier writer, nil when the run has no writer at
 	// all and stays silent.
 	prefix *runPrefixWriter
+	// channel is the caller's own writer, the one the run's wrappers point at;
+	// nil when the caller asked for no output.
+	channel io.Writer
 	// stopProfile ends the CPU profile, or does nothing without one.
 	stopProfile func()
 }
 
 // startIdentifier puts the run identifier on every stderr line from here on,
-// releasing whatever was written before it existed.
+// releasing whatever was written before it existed, and hands the identifier to
+// the caller's own channel when that channel asked for it.
 func (o runOutput) startIdentifier(identifier string) {
 	o.prefix.start(identifier)
+
+	if sink, ok := o.channel.(RunIdentifierSink); ok {
+		sink.SetRunIdentifier(identifier)
+	}
 }
 
 // prepareRunOutput points the run's stderr channel (Common.Progress) through
@@ -562,6 +570,7 @@ func prepareRunOutput(s *settings) (runOutput, error) {
 	output := runOutput{stopProfile: func() {}}
 
 	if s.Progress != nil {
+		output.channel = s.Progress
 		output.prefix = newRunPrefixWriter(s.Progress)
 		s.Progress = &synchronizedWriter{writer: output.prefix}
 	}

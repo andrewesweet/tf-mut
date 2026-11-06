@@ -833,7 +833,19 @@ func skillInstall(args []string, buildVersion string, stdout, stderr io.Writer) 
 }
 
 func execute(command, buildVersion string, args []string, stdout, stderr io.Writer) int {
-	parsed, err := parse(command, buildVersion, args, stderr)
+	// A descriptor nobody reads must not end the process. Go's default action
+	// for a broken-pipe write to standard output or standard error is to raise
+	// SIGPIPE and die, which destroys the receipt of the files this invocation
+	// has already committed before the outputs that still work could carry it.
+	// Ignoring the signal turns such a write into EPIPE, which publication
+	// reports like any other failed output.
+	signal.Ignore(syscall.SIGPIPE)
+
+	// The run's identifier rides on the channel it writes its own lines through:
+	// the report carries it only when the command publishes a telemetry block.
+	identifiers := &runIdentifierWriter{writer: stderr}
+
+	parsed, err := parse(command, buildVersion, args, identifiers)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return printHelp(stdout, commandHelp(command))
@@ -849,17 +861,67 @@ func execute(command, buildVersion string, args []string, stdout, stderr io.Writ
 		stop()
 	}()
 
-	result, err := engine.New(engine.DefaultDependencies()).Run(ctx, parsed.config)
-	if err == nil {
-		err = ctx.Err()
-	}
+	result, runErr := engine.New(engine.DefaultDependencies()).Run(ctx, parsed.config)
 
 	// The handler outlives the run by exactly one step: a signal that arrives
 	// while the report is being published must not kill the process holding the
 	// receipt of writes it already committed. A first signal still cancels the
 	// context, and the goroutine above re-arms the default handler as soon as it
 	// does, so a second signal still ends a rendering that will not finish.
-	return publish(stdout, stderr, parsed, result, err)
+	return publish(publication{
+		ctx:    ctx,
+		stdout: stdout,
+		stderr: stderr,
+		parsed: parsed,
+		result: result,
+		runErr: runErr,
+		runID:  identifiers.Identifier(),
+	})
+}
+
+// runIdentifierWriter is the channel the command line hands the engine as the
+// run's progress writer. It passes every write through untouched and records the
+// identifier the engine mints on it, because the identifier is not the report's
+// to carry: a characterisation publishes no telemetry block, and a failed run
+// never reaches its own.
+type runIdentifierWriter struct {
+	writer     io.Writer
+	identifier string
+}
+
+func (w *runIdentifierWriter) Write(p []byte) (int, error) {
+	return w.writer.Write(p)
+}
+
+// SetRunIdentifier implements engine.RunIdentifierSink: the run mints one
+// identifier and hands this channel the value, so the lines written here after
+// the run can be prefixed with it.
+func (w *runIdentifierWriter) SetRunIdentifier(identifier string) {
+	w.identifier = identifier
+}
+
+// Identifier is the run's one identifier, or "" when no run minted one.
+func (w *runIdentifierWriter) Identifier() string {
+	return w.identifier
+}
+
+// publication is one invocation's report on its way to the caller's outputs:
+// the channels it renders through, the outputs the caller asked for, the report
+// itself, the failure that ended the run — if one did — and the identifier every
+// line it writes carries.
+type publication struct {
+	// ctx is one publication's own lifetime, carried by value; nothing stores
+	// it. A cancellation observed on it at any point is this invocation's.
+	ctx    context.Context //nolint:containedctx // see above: carried, never stored.
+	stdout io.Writer
+	stderr io.Writer
+	parsed options
+	result report.Report
+	// runErr is the failure the run ended with, or nil for a completed run.
+	runErr error
+	// runID is the run's identifier as the engine minted it; empty when no run
+	// minted one, and then no line is attributed.
+	runID string
 }
 
 // publish renders the run to every requested output and turns it into the
@@ -871,66 +933,162 @@ func execute(command, buildVersion string, args []string, stdout, stderr io.Writ
 // interrupted first, so a receipt of committed writes is never read as a score
 // — the command still exits operationally. A run that committed nothing renders
 // nothing, because its error is the whole explanation.
-func publish(stdout, stderr io.Writer, parsed options, result report.Report, runErr error) int {
-	if runErr != nil {
-		receipt, committed := result.Interrupt(runErr)
+//
+// Publication observes cancellation across itself, not only once before it
+// starts: a cancellation that arrives while an output is blocked is still this
+// invocation's failure, so the receipt of what landed reaches the outputs that
+// remain and the exit is operational. Every write is attempted independently of
+// every other one, whether it is stderr, standard output or a configured file.
+func publish(p publication) int {
+	if runErr := p.interruption(); runErr != nil {
+		receipt, committed := p.result.Interrupt(runErr)
 		if !committed {
-			return fail(stderr, renderMessage(result, renderError(runErr)))
+			return fail(p.stderr, p.renderMessage(renderError(runErr)))
 		}
 
-		message := fmt.Sprintf(
-			"interrupted: %s; written before the interruption: %s; this is not a score",
-			receipt.Interrupted.Reason, strings.Join(receipt.Interrupted.CommittedWrites, ", "),
-		)
-		_, stderrErr := fmt.Fprintln(stderr, renderMessage(receipt, message))
-		renderErr := render(stdout, parsed, receipt)
+		stderrErr := p.announce(receipt)
+		_, renderErr := p.render(receipt)
 
-		return fail(stderr, renderMessage(receipt, errors.Join(runErr, stderrErr, renderErr).Error()))
+		return fail(p.stderr, p.renderMessage(errors.Join(runErr, stderrErr, renderErr).Error()))
 	}
 
-	if err := render(stdout, parsed, result); err != nil {
-		return fail(stderr, renderMessage(result, err.Error()))
-	}
+	value, renderErr := p.render(p.result)
 
-	return result.ExitCode(parsed.gate)
+	switch canceled := p.ctx.Err(); {
+	case canceled != nil:
+		return fail(p.stderr, p.renderMessage(errors.Join(canceled, renderErr).Error()))
+	case renderErr != nil:
+		return fail(p.stderr, p.renderMessage(renderErr.Error()))
+	default:
+		return value.ExitCode(p.parsed.gate)
+	}
 }
 
-// renderMessage prefixes a rendering failure with the run identifier, so a line
-// the reporter could not write is attributable to the run that tried to write
-// it.
-func renderMessage(result report.Report, message string) string {
-	message = "tf-mut: " + strings.TrimRight(message, "\n")
-	if result.Telemetry != nil {
-		prefix := "[" + result.Telemetry.RunID + "] "
-		message = prefix + strings.ReplaceAll(message, "\n", "\n"+prefix)
+// interruption is the failure this publication reports: the one the run ended
+// with, or a cancellation that arrived after the engine returned and before the
+// first output was written.
+func (p publication) interruption() error {
+	if p.runErr != nil {
+		return p.runErr
 	}
 
-	return message
+	return p.ctx.Err()
 }
 
-// render writes every requested output.
+// announce writes the receipt of committed writes to the command line's own
+// channel, and returns what that write cost: a receipt one channel cannot take
+// is still a receipt every remaining output carries.
+func (p publication) announce(value report.Report) error {
+	if value.Interrupted == nil {
+		return nil
+	}
+
+	_, err := fmt.Fprintln(p.stderr, p.renderMessage(fmt.Sprintf(
+		"interrupted: %s; written before the interruption: %s; this is not a score",
+		value.Interrupted.Reason, strings.Join(value.Interrupted.CommittedWrites, ", "),
+	)))
+
+	return err
+}
+
+// render writes the report to every requested output, in order, and observes
+// cancellation across the whole boundary. A cancellation that arrives while an
+// output blocks marks the report interrupted before the outputs that remain, so
+// none of them publishes an analysis the invocation never reached, and the
+// receipt of whatever it did commit reaches them. The already-written output
+// keeps what it was given: a write that completed cannot be recalled.
+//
+// It returns the report as last published and what rendering cost; the
+// cancellation it observed is the caller's to read from the context it passed.
+func (p publication) render(value report.Report) (report.Report, error) {
+	var renderErr error
+
+	// observe answers whether an output may still be written. A cancellation
+	// that committed nothing ends publication: the failure is the whole
+	// explanation, exactly as it is for a run the engine saw fail.
+	observe := func() bool {
+		observed := p.ctx.Err()
+		if observed == nil {
+			return true
+		}
+
+		if value.Interrupted != nil {
+			return true
+		}
+
+		marked, committed := value.Interrupt(observed)
+		if !committed {
+			return false
+		}
+
+		value = marked
+		renderErr = errors.Join(renderErr, p.announce(value))
+
+		return true
+	}
+
+	for _, destination := range p.outputs() {
+		if !observe() {
+			break
+		}
+
+		renderErr = errors.Join(renderErr, destination.write(value))
+	}
+
+	// A cancellation that lands during the last write is still a cancellation.
+	observe()
+
+	return value, renderErr
+}
+
+// output is one destination the report is written to: standard output, or one
+// of the files the caller configured.
+type output struct {
+	write func(report.Report) error
+}
+
+// outputs lists every destination in the order they are written.
 //
 // Reporters merge additively: the flag chooses what goes to standard output,
 // and every `reporter` block in `.tf-mut.hcl` writes its own file as well. A
 // repository that has asked for a SARIF artefact on every run should not lose
 // it because someone passed `--reporter json` once.
-func render(stdout io.Writer, parsed options, result report.Report) error {
-	renderErr := renderTo(stdout, parsed.reporter, result)
+func (p publication) outputs() []output {
+	outputs := []output{{write: func(value report.Report) error {
+		return renderTo(p.stdout, p.parsed.reporter, value)
+	}}}
 
-	for _, configured := range parsed.reporters {
+	for _, configured := range p.parsed.reporters {
 		if configured.Path == "" {
 			continue
 		}
 
-		renderErr = errors.Join(renderErr, renderFile(configured, result))
+		outputs = append(outputs, output{write: func(value report.Report) error {
+			return renderFile(configured, value)
+		}})
 	}
 
-	if parsed.reporter == reporterSARIF && parsed.sarifPath != "" {
-		renderErr = errors.Join(renderErr,
-			renderFile(config.Reporter{Name: reporterSARIF, Path: parsed.sarifPath}, result))
+	if p.parsed.reporter == reporterSARIF && p.parsed.sarifPath != "" {
+		outputs = append(outputs, output{write: func(value report.Report) error {
+			return renderFile(config.Reporter{Name: reporterSARIF, Path: p.parsed.sarifPath}, value)
+		}})
 	}
 
-	return renderErr
+	return outputs
+}
+
+// renderMessage prefixes a line the command line writes with the run identifier,
+// so a receipt, a cancellation or a rendering failure is attributable to the run
+// that produced it. A line without an identifier is one no run produced.
+func (p publication) renderMessage(text string) string {
+	text = "tf-mut: " + strings.TrimRight(text, "\n")
+	if p.runID == "" {
+		return text
+	}
+
+	prefix := "[" + p.runID + "] "
+
+	return prefix + strings.ReplaceAll(text, "\n", "\n"+prefix)
 }
 
 func renderTo(writer io.Writer, reporter string, result report.Report) error {

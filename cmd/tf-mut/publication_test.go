@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/andrewesweet/tf-mut/internal/engine"
@@ -62,67 +63,71 @@ func TestABrokenPipeStillCarriesTheReceiptToTheRemainingOutputs(t *testing.T) {
 				t.Fatal("the apply never renamed the test file; the pipe broke before the commit")
 			}
 
-			assertTheArtefactReceivedTheReceipt(t, published)
-			assertTheWorkingChannelsCarriedTheReceipt(t, broken, published)
+			// A descriptor nobody reads must not end the process: whatever the
+			// invocation concluded, the exit is its own verdict, not a signal
+			// death — the pre-fix failure exits as -1 with no receipt anywhere.
+			switch published.code {
+			case report.ExitClean, report.ExitOperational:
+			default:
+				t.Fatalf("the invocation died on the descriptor nobody reads: exit %d\nstderr: %s",
+					published.code, published.stderr)
+			}
+
+			stdoutBroken := broken == publicationStdoutStream || broken == publicationBothStreams
+			stderrBroken := broken == publicationStderrStream || broken == publicationBothStreams
+
+			// The file the caller asked for still records the write. Whether it is
+			// marked interrupted depends only on whether the interruption was
+			// observed before that file was written, which is the reported
+			// interleaving's business, not the broken descriptor's.
+			assertTheChannelNamesTheCommittedWrite(t, "the requested artefact", published.artefact)
+
+			if !stdoutBroken {
+				assertTheChannelNamesTheCommittedWrite(t, "standard output", published.stdout)
+			}
+
+			if stderrBroken {
+				return
+			}
+
+			// An operational exit always has something to say about why, and every
+			// line it says names the run.
+			if published.code != report.ExitClean {
+				assertEveryLineCarriesTheRunIdentifier(t, published.stderr)
+			}
 		})
 	}
 }
 
-// assertTheArtefactReceivedTheReceipt holds the claim a broken descriptor must
-// not break: the file the caller asked for records the write, marked
-// interrupted when the invocation was interrupted.
-func assertTheArtefactReceivedTheReceipt(t *testing.T, published applyCancelOutcome) {
+// assertTheChannelNamesTheCommittedWrite holds the claim a broken descriptor
+// must not break: the output records the file the invocation committed, either
+// as the receipt of an interruption or — when that output was written before the
+// interruption was observed — as the applied write it was published with.
+func assertTheChannelNamesTheCommittedWrite(t *testing.T, name, content string) {
 	t.Helper()
 
-	switch published.code {
-	case report.ExitOperational:
-		assertInterruptedReceipt(t, "the requested artefact", published.artefact)
-	case report.ExitClean:
-		// The signal arrived after the report was published: the write is
-		// reported as an ordinary applied suggestion, which is what a
-		// completed invocation promises.
-		assertAppliedWrite(t, "the requested artefact", published.artefact)
-	default:
-		t.Fatalf("exit code = %d, want %d (interrupted) or %d (published)\nstderr: %s",
-			published.code, report.ExitOperational, report.ExitClean, published.stderr)
-	}
-}
-
-// assertTheWorkingChannelsCarriedTheReceipt holds the same claim for the
-// channels the broken descriptor did not touch: they still carry the receipt,
-// and every line on stderr names the run.
-func assertTheWorkingChannelsCarriedTheReceipt(
-	t *testing.T, broken string, published applyCancelOutcome,
-) {
-	t.Helper()
-
-	stdoutBroken := broken == publicationStdoutStream || broken == publicationBothStreams
-	stderrBroken := broken == publicationStderrStream || broken == publicationBothStreams
-
-	if !stdoutBroken {
-		if published.code == report.ExitOperational {
-			assertInterruptedReceipt(t, "standard output", published.stdout)
-		} else {
-			assertAppliedWrite(t, "standard output", published.stdout)
+	receipt := decodeApplyCancelReceipt(t, name, content)
+	if receipt.Interrupted != nil {
+		if !slices.Equal(receipt.Interrupted.CommittedWrites, []string{applyCancelTarget}) {
+			t.Fatalf("%s names %v as written, want exactly %s:\n%s",
+				name, receipt.Interrupted.CommittedWrites, applyCancelTarget, content)
 		}
-	}
 
-	if stderrBroken {
 		return
 	}
 
-	if published.code == report.ExitOperational {
-		assertTextInterruptionReceipt(t, published.stderr)
+	if !slices.Equal(receipt.ApplyWritten(), []string{applyCancelTarget}) {
+		t.Fatalf("%s names %v as written, want exactly %s:\n%s",
+			name, receipt.ApplyWritten(), applyCancelTarget, content)
 	}
-
-	assertEveryLineCarriesTheRunIdentifier(t, published.stderr)
 }
 
 // TestAReceiptLineCarriesTheRunIdentifierWithoutTelemetry holds the attribution
 // defect on the path where telemetry cannot help: a characterisation publishes
 // no telemetry block at all, so an identifier read from the report is empty and
 // every receipt line the command line wrote about committed files went
-// unattributed.
+// unattributed. The identifier has to arrive over the channel the command line
+// handed the engine.
 func TestAReceiptLineCarriesTheRunIdentifierWithoutTelemetry(t *testing.T) {
 	t.Parallel()
 
@@ -131,9 +136,10 @@ func TestAReceiptLineCarriesTheRunIdentifierWithoutTelemetry(t *testing.T) {
 		"resource \"terraform_data\" \"app\" {\n  input = \"kept\"\n}\n\n"+
 			"output \"app\" {\n  value = terraform_data.app.output\n}\n")
 
+	identifiers := &runIdentifierWriter{writer: io.Discard}
 	parsed, parseErr := parse(characteriseCommand, "dev", []string{
 		"--" + writeFlagName, "--" + jobsFlag, "1", reporterFlag, reporterJSON, module,
-	}, io.Discard)
+	}, identifiers)
 	if parseErr != nil {
 		t.Fatalf("parsing the command line: %v", parseErr)
 	}
@@ -153,13 +159,22 @@ func TestAReceiptLineCarriesTheRunIdentifierWithoutTelemetry(t *testing.T) {
 			result.Characterisation)
 	}
 
+	if identifiers.Identifier() == "" {
+		t.Fatal("the run minted no identifier on the channel the command line supplied")
+	}
+
 	stdout, stderr := bytes.Buffer{}, bytes.Buffer{}
-	if code := publish(&stdout, &stderr, parsed, result, context.Canceled); code != report.ExitOperational {
+	code := publish(publication{
+		ctx: t.Context(), stdout: &stdout, stderr: &stderr,
+		parsed: parsed, result: result, runErr: context.Canceled,
+		runID: identifiers.Identifier(),
+	})
+	if code != report.ExitOperational {
 		t.Fatalf("an interrupted characterisation exits %d, want %d", code, report.ExitOperational)
 	}
 
-	// The receipt still reaches the output the caller asked for; what it lacks
-	// is the run it belongs to.
+	// The receipt still reaches the output the caller asked for; what the
+	// report cannot say here is which run it belongs to.
 	assertInterruptedCharacterisationReceipt(t, "standard output", stdout.String(), written)
 	assertCharacterisationInterruptionReceipt(t, stderr.String(), written)
 	assertEveryLineCarriesTheRunIdentifier(t, stderr.String())
@@ -199,6 +214,87 @@ func assertInterruptedCharacterisationReceipt(
 		t.Fatalf("%s names %v as written, want exactly %v:\n%s",
 			name, receipt.Interrupted.CommittedWrites, written, content)
 	}
+}
+
+// TestACancellationDuringPublicationMarksTheReceiptInTheRemainingOutputs holds
+// the late-cancellation defect: after the engine returns successfully from a
+// committed apply, a cancellation that arrives while one output is blocked used
+// to be swallowed. Publication rendered an unmarked report and exited clean, so
+// the caller read a completed score for an invocation that never completed.
+func TestACancellationDuringPublicationMarksTheReceiptInTheRemainingOutputs(t *testing.T) {
+	t.Parallel()
+
+	staged := applyCancelStage(t)
+	scratch := t.TempDir()
+	receiptPath := filepath.Join(scratch, "receipt.json")
+
+	identifiers := &runIdentifierWriter{writer: io.Discard}
+	parsed, parseErr := parse(suggestCommand, "dev", []string{
+		"--" + allVerifiedFlag, noCacheFlag, "--" + jobsFlag, "1",
+		reporterFlag, reporterJSON,
+		"--" + outputFlagName, reporterJSON + "=" + receiptPath,
+		staged.module,
+	}, identifiers)
+	if parseErr != nil {
+		t.Fatalf("parsing the command line: %v", parseErr)
+	}
+
+	result, runErr := engine.Run(t.Context(), parsed.config)
+	if runErr != nil {
+		t.Fatalf("running the invocation: %v", runErr)
+	}
+
+	if result.Apply == nil || len(result.Apply.Written) == 0 {
+		t.Fatalf("the invocation committed nothing, so there is no receipt to hold: %+v", result.Apply)
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	stdout := newBlockedWriter()
+	stderr := bytes.Buffer{}
+	codes := make(chan int, 1)
+
+	go func() {
+		codes <- publish(publication{
+			ctx: ctx, stdout: stdout, stderr: &stderr,
+			parsed: parsed, result: result, runID: identifiers.Identifier(),
+		})
+	}()
+
+	// The cancellation lands while standard output is blocked on its consumer,
+	// which is the window no gate or exit code inside the report reaches.
+	<-stdout.blocked
+	cancel()
+	close(stdout.released)
+
+	if code := <-codes; code != report.ExitOperational {
+		t.Fatalf("a cancelled publication exits %d, want %d\n%s", code, report.ExitOperational, &stderr)
+	}
+
+	assertInterruptedReceipt(t, "the output that remained", readIfPresent(t, receiptPath))
+	assertTextInterruptionReceipt(t, stderr.String())
+	assertEveryLineCarriesTheRunIdentifier(t, stderr.String())
+}
+
+// blockedWriter blocks on its first write until the test releases it, so a
+// cancellation can be landed while publication is mid-output.
+type blockedWriter struct {
+	blocked  chan struct{}
+	released chan struct{}
+	advanced sync.Once
+	written  bytes.Buffer
+}
+
+func newBlockedWriter() *blockedWriter {
+	return &blockedWriter{blocked: make(chan struct{}), released: make(chan struct{})}
+}
+
+func (w *blockedWriter) Write(p []byte) (int, error) {
+	w.advanced.Do(func() { close(w.blocked) })
+	<-w.released
+
+	return w.written.Write(p)
 }
 
 // assertEveryLineCarriesTheRunIdentifier holds the stderr attribution contract:
