@@ -30,6 +30,8 @@ jobs:
           version: 2026.10.7
           install: true
           cache: true
+          # mise-v1 caches predate the checksums mise-action 5.2.4+ stores in the cache.
+          cache_key_prefix: mise-v2
       - name: Package the checkout as release assets
         run: just package-test-release "$TEST_VERSION" "$PWD/release"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

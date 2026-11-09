@@ -40,6 +40,8 @@ jobs:
           version: 2026.10.7
           install: false
           cache: true
+          # mise-v1 caches predate the checksums mise-action 5.2.4+ stores in the cache.
+          cache_key_prefix: mise-v2
       - name: Install exact locked tools
         run: |
           mise install --yes
@@ -67,6 +69,8 @@ jobs:
           version: 2026.10.7
           install: false
           cache: true
+          # mise-v1 caches predate the checksums mise-action 5.2.4+ stores in the cache.
+          cache_key_prefix: mise-v2
       - name: Install exact locked tools
         run: |
           mise install --yes
@@ -91,6 +95,8 @@ jobs:
           version: 2026.10.7
           install: false
           cache: true
+          # mise-v1 caches predate the checksums mise-action 5.2.4+ stores in the cache.
+          cache_key_prefix: mise-v2
       - name: Install exact locked tools
         run: |
           mise install --yes
@@ -116,6 +122,8 @@ jobs:
           version: 2026.10.7
           install: false
           cache: true
+          # mise-v1 caches predate the checksums mise-action 5.2.4+ stores in the cache.
+          cache_key_prefix: mise-v2
       - name: Install exact locked tools
         run: |
           mise install --yes
@@ -153,6 +161,8 @@ jobs:
           version: 2026.10.7
           install: false
           cache: true
+          # mise-v1 caches predate the checksums mise-action 5.2.4+ stores in the cache.
+          cache_key_prefix: mise-v2
       - name: Install exact locked tools
         run: |
           mise install --yes
@@ -180,6 +190,8 @@ jobs:
           version: 2026.10.7
           install: false
           cache: true
+          # mise-v1 caches predate the checksums mise-action 5.2.4+ stores in the cache.
+          cache_key_prefix: mise-v2
       - name: Install exact locked tools
         run: |
           mise install --yes
