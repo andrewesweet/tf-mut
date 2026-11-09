@@ -7,3 +7,9 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
+    groups:
+      # init and analyze must move together: a workflow whose halves differ is
+      # rejected at run time by the codeql-action version check.
+      codeql-action:
+        patterns:
+          - "github/codeql-action/*"
