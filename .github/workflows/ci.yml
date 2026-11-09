@@ -35,11 +35,13 @@ jobs:
         with:
           fetch-depth: 2
           persist-credentials: false
-      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
           version: 2026.10.7
           install: false
           cache: true
+          # mise-v1 caches predate the checksums mise-action 5.2.4+ stores in the cache.
+          cache_key_prefix: mise-v2
       - name: Install exact locked tools
         run: |
           mise install --yes
@@ -62,11 +64,13 @@ jobs:
         with:
           fetch-depth: 2
           persist-credentials: false
-      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
           version: 2026.10.7
           install: false
           cache: true
+          # mise-v1 caches predate the checksums mise-action 5.2.4+ stores in the cache.
+          cache_key_prefix: mise-v2
       - name: Install exact locked tools
         run: |
           mise install --yes
@@ -86,11 +90,13 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
           version: 2026.10.7
           install: false
           cache: true
+          # mise-v1 caches predate the checksums mise-action 5.2.4+ stores in the cache.
+          cache_key_prefix: mise-v2
       - name: Install exact locked tools
         run: |
           mise install --yes
@@ -111,11 +117,13 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
           version: 2026.10.7
           install: false
           cache: true
+          # mise-v1 caches predate the checksums mise-action 5.2.4+ stores in the cache.
+          cache_key_prefix: mise-v2
       - name: Install exact locked tools
         run: |
           mise install --yes
@@ -148,11 +156,13 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
           version: 2026.10.7
           install: false
           cache: true
+          # mise-v1 caches predate the checksums mise-action 5.2.4+ stores in the cache.
+          cache_key_prefix: mise-v2
       - name: Install exact locked tools
         run: |
           mise install --yes
@@ -175,11 +185,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
+      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
           version: 2026.10.7
           install: false
           cache: true
+          # mise-v1 caches predate the checksums mise-action 5.2.4+ stores in the cache.
+          cache_key_prefix: mise-v2
       - name: Install exact locked tools
         run: |
           mise install --yes

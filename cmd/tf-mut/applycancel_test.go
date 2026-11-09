@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -133,13 +134,34 @@ func assertApplyCancelPublication(t *testing.T, reporter string, published apply
 			t.Fatalf("a completed SARIF invocation published no document: %+v", published)
 		}
 	case report.ExitOperational:
-		if reporter == reporterJSON {
-			assertInterruptedReceipt(t, "standard output", published.stdout)
-			assertInterruptedReceipt(t, "the requested artefact", published.artefact)
-		} else {
-			if published.stdout != "" || published.artefact != "" {
-				t.Fatalf("an interrupted SARIF invocation published an analysis document: %+v", published)
+		// Outputs are written in order and a completed write cannot be recalled,
+		// so the signal may land after some or all of them: each output is either
+		// the completed document or the receipt, and none follows the receipt.
+		interrupted := false
+		for _, output := range []struct{ name, content string }{
+			{"standard output", published.stdout}, {"the requested artefact", published.artefact},
+		} {
+			var receipt bool
+			if reporter == reporterJSON {
+				receipt = decodeApplyCancelReceipt(t, output.name, output.content).Interrupted != nil
+				assertTheChannelNamesTheCommittedWrite(t, output.name, output.content)
+			} else {
+				// An interrupted SARIF invocation publishes no analysis document.
+				receipt = output.content == ""
+				if !receipt && !json.Valid([]byte(output.content)) {
+					t.Fatalf("%s is not the SARIF document it was asked for: %s", output.name, output.content)
+				}
 			}
+
+			if interrupted && !receipt {
+				t.Fatalf("%s published a completed document after an earlier output carried the interruption: %+v",
+					output.name, published)
+			}
+
+			interrupted = interrupted || receipt
+		}
+
+		if reporter == reporterSARIF && interrupted {
 			assertTextInterruptionReceipt(t, published.stderr)
 		}
 	default:
@@ -628,6 +650,11 @@ func TestRunTheCommandLineForAnInterruptedApplyHelper(t *testing.T) {
 	broken := os.Getenv(applyCancelBrokenEnv)
 	stdout := helperStream(t, os.Stdout, applyCancelStdoutEnv, broken, publicationStdoutStream)
 	stderr := helperStream(t, os.Stderr, applyCancelStderrEnv, broken, publicationStderrStream)
+
+	// A signal that lands after execute has released its handler, when every
+	// output is already published, must not kill the helper before it records
+	// the exit code. Execute's own handler still sees the signal while it runs.
+	signal.Notify(make(chan os.Signal, 1), os.Interrupt)
 
 	// No t.Parallel, no t.Context: the signal handler inside execute must be
 	// the thing that ends this run, exactly as it ends the process main runs.
